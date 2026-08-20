@@ -93,6 +93,9 @@ public static class GameCommandTypes
     public const string RunControlledTickExperiment = "run-controlled-tick-experiment";
     public const string ArmOwnedMutationMode = "arm-owned-mutation-mode";
     public const string MaterializeOwnedSurfaceUnit = "materialize-owned-surface-unit";
+    public const string CaptureOwnedSurfaceCheckpoint = "capture-owned-surface-checkpoint";
+    public const string UpdateOwnedSurfaceUnit = "update-owned-surface-unit";
+    public const string SetOwnedSurfaceSuspension = "set-owned-surface-suspension";
 
     public static readonly string[] ReadOnlyCommands =
     {
@@ -133,6 +136,9 @@ public static class GameCommandTypes
     public static readonly string[] MutationCommands =
     {
         MaterializeOwnedSurfaceUnit,
+        CaptureOwnedSurfaceCheckpoint,
+        UpdateOwnedSurfaceUnit,
+        SetOwnedSurfaceSuspension,
     };
 
     public static readonly string[] AllCommands =
@@ -158,5 +164,8 @@ public static class GameCommandTypes
         RunControlledTickExperiment,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
+        CaptureOwnedSurfaceCheckpoint,
+        UpdateOwnedSurfaceUnit,
+        SetOwnedSurfaceSuspension,
     };
 }

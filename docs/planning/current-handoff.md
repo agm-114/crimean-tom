@@ -6,8 +6,9 @@ This handoff records the state at the end of the 20 August 2026 implementation
 session. Phases 0 and 1 are complete and Phase 2 is active. No authoritative
 campaign commit or campaign simulation is enabled. The first allow-listed
 tactical mutation family now materializes one Crimean-Tom-owned Knox surface
-unit after explicit, session-scoped arming; it still cannot receive campaign
-authority.
+unit after explicit, session-scoped arming. That owned unit can now be
+checkpointed, revision-fenced, updated, suspended outside the active world, and
+re-enabled with stable identity; it still cannot receive campaign authority.
 
 Use `git log` for the current revision. Work is committed after each validated
 slice; preserve unrelated user changes if the worktree is not clean.
@@ -173,11 +174,19 @@ container is preferable once the required native UI context is understood.
 
 ## Next implementation slice
 
-Extend the owned Knox vertical slice through checkpoint, fenced update,
-suspension, enable, owned cleanup/removal, and rematerialization. Preserve the
-session/assignment/epoch/revision/idempotency contract, measure synchronous
-stall and suspension resource behavior, and inject failures without ever
-touching scenario/user objects. Keep unsupported state explicit.
+Portable checkpoint capture, fenced update, duplicate-update replay, stale
+revision/epoch rejection, and native suspension/enable have live evidence in
+`docs/evidence/phase-2-live-evidence-2026-08-20.md`. Suspension removed the
+owned Knox from the active world and enable restored the same game unique ID,
+state, and canonical world hash exactly once.
+
+Next, determine whether the retained native suspension is sufficient or a
+separate memory-releasing quiet-removal path can satisfy the safety gate. Then
+rematerialize from the portable checkpoint, preserving the
+session/assignment/epoch/revision/idempotency contract. Measure resource relief
+and synchronous cost, publish per-field tolerances, and inject failures without
+ever touching scenario/user objects. Keep unsupported state explicit and cover
+scene reload and companion reconnect before claiming P2 complete.
 
 ## Deferred hardening
 

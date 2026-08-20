@@ -117,6 +117,12 @@ internal static class GameCommandDispatcher
                         executionThreadGuardSelfTest),
                     GameCommandTypes.MaterializeOwnedSurfaceUnit =>
                         MaterializeOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.CaptureOwnedSurfaceCheckpoint =>
+                        CaptureOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.UpdateOwnedSurfaceUnit =>
+                        UpdateOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.SetOwnedSurfaceSuspension =>
+                        SetOwnedSurfaceSuspension(command.PayloadJson, command.SessionId),
                     _ => Failure(
                         ProtocolErrorCodes.UnsupportedCommand,
                         $"Command '{command.MessageType}' is not supported."),
@@ -1330,6 +1336,45 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new MaterializeOwnedSurfaceUnitRequestPayload();
         var result = RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
+    }
+
+    private static CommandResponsePayload CaptureOwnedSurfaceCheckpoint(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.CaptureCheckpoint(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
+    }
+
+    private static CommandResponsePayload UpdateOwnedSurfaceUnit(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new UpdateOwnedSurfaceUnitRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.Update(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
+    }
+
+    private static CommandResponsePayload SetOwnedSurfaceSuspension(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new SetOwnedSurfaceSuspensionRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.SetSuspension(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage);

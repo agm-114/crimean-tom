@@ -361,6 +361,49 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("stableUnitId")
                     .GetString());
 
+            using var checkpoint = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/checkpoint",
+                CreateOwnedEntityRequestJson(sessionId, 1, "integration-checkpoint-1"),
+                testTimeout.Token);
+            Assert.Equal(64, checkpoint.RootElement.GetProperty("checkpointSha256").GetString()!.Length);
+
+            using var updatedSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/update",
+                JsonSerializer.Serialize(new UpdateOwnedSurfaceUnitRequestPayload
+                {
+                    Context = CreateOwnedContext(sessionId, 1, "integration-update-1"),
+                    EntityId = "unit:crimean-tom:integration-knox-1",
+                    Latitude = 12.26,
+                    Longitude = 44.51,
+                    HeadingDegrees = 100,
+                    Telegraph = 1,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(2, updatedSurface.RootElement.GetProperty("revision").GetInt64());
+
+            using var suspendedSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 2, "integration-suspend-1", true),
+                testTimeout.Token);
+            Assert.True(
+                suspendedSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
+
+            using var enabledSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 3, "integration-enable-1", false),
+                testTimeout.Token);
+            Assert.False(
+                enabledSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
+            Assert.Equal(4, enabledSurface.RootElement.GetProperty("revision").GetInt64());
+
             using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -583,7 +626,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 1; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 2; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
@@ -783,6 +826,23 @@ public sealed class CompanionControlIntegrationTests
                         },
                     },
                     JsonOptions),
+                GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
+                    new OwnedSurfaceCheckpointPayload
+                    {
+                        CheckpointId = "checkpoint:integration:1",
+                        CheckpointSha256 = new string('c', 64),
+                        AssignmentId = "assignment:integration-surface",
+                        AuthorityEpoch = 7,
+                        Revision = 1,
+                        Unit = CreateOwnedSurfaceState(disabled: false),
+                    },
+                    JsonOptions),
+                GameCommandTypes.UpdateOwnedSurfaceUnit => JsonSerializer.Serialize(
+                    CreateLifecycleResult(command.PayloadJson, "updated", 2, disabled: false),
+                    JsonOptions),
+                GameCommandTypes.SetOwnedSurfaceSuspension => JsonSerializer.Serialize(
+                    CreateSuspensionLifecycleResult(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(
                     new ExperimentalWeaponLaunchResultPayload
                     {
@@ -841,6 +901,99 @@ public sealed class CompanionControlIntegrationTests
                 Priority = command.Priority,
             }, cancellationToken);
         }
+    }
+
+    private static OwnedMutationContextPayload CreateOwnedContext(
+        string sessionId,
+        long revision,
+        string idempotencyKey) => new()
+    {
+        SessionId = sessionId,
+        AssignmentId = "assignment:integration-surface",
+        AuthorityEpoch = 7,
+        ExpectedRevision = revision,
+        IdempotencyKey = idempotencyKey,
+    };
+
+    private static string CreateOwnedEntityRequestJson(
+        string sessionId,
+        long revision,
+        string idempotencyKey) => JsonSerializer.Serialize(
+            new OwnedSurfaceEntityRequestPayload
+            {
+                Context = CreateOwnedContext(sessionId, revision, idempotencyKey),
+                EntityId = "unit:crimean-tom:integration-knox-1",
+            },
+            JsonOptions);
+
+    private static string CreateSuspensionRequestJson(
+        string sessionId,
+        long revision,
+        string idempotencyKey,
+        bool isSuspended) => JsonSerializer.Serialize(
+            new SetOwnedSurfaceSuspensionRequestPayload
+            {
+                Context = CreateOwnedContext(sessionId, revision, idempotencyKey),
+                EntityId = "unit:crimean-tom:integration-knox-1",
+                IsSuspended = isSuspended,
+            },
+            JsonOptions);
+
+    private static OwnedSurfaceUnitStatePayload CreateOwnedSurfaceState(bool disabled) => new()
+    {
+        StableUnitId = "campaign-unit:unit:crimean-tom:integration-knox-1",
+        GameUniqueId = 44,
+        EntityId = "unit:crimean-tom:integration-knox-1",
+        UnitTypeId = "usn_ff_knox_84",
+        VariantId = "Variant13",
+        LoadoutId = "Default",
+        TaskforceId = "taskforce:Blue",
+        Latitude = 12.26,
+        Longitude = 44.51,
+        HeadingDegrees = 100,
+        Telegraph = 1,
+        IsDisabled = disabled,
+    };
+
+    private static OwnedSurfaceLifecycleResultPayload CreateLifecycleResult(
+        string payloadJson,
+        string outcome,
+        long revision,
+        bool disabled)
+    {
+        var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new OwnedSurfaceLifecycleResultPayload
+        {
+            Outcome = outcome,
+            Postcondition = "owned-surface-unit-updated-and-read-back",
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = revision,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            Unit = CreateOwnedSurfaceState(disabled),
+        };
+    }
+
+    private static OwnedSurfaceLifecycleResultPayload CreateSuspensionLifecycleResult(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new OwnedSurfaceLifecycleResultPayload
+        {
+            Outcome = request.IsSuspended ? "suspended" : "enabled",
+            Postcondition = request.IsSuspended
+                ? "owned-surface-unit-suspended-outside-active-world"
+                : "owned-surface-unit-enabled-and-read-back",
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision + 1,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            Unit = CreateOwnedSurfaceState(request.IsSuspended),
+        };
     }
 
     private static WorldSnapshotPayload CreateWorldSnapshot()

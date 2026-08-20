@@ -26,6 +26,8 @@ internal static class RuntimeOwnedMutationAdapter
         new(StringComparer.Ordinal);
     private static readonly Dictionary<string, IdempotencyRecord> IdempotencyRecords =
         new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, LifecycleIdempotencyRecord>
+        LifecycleIdempotencyRecords = new(StringComparer.Ordinal);
 
     private static string _armedSessionId = string.Empty;
     private static long _expiresAtUnixMilliseconds;
@@ -93,6 +95,7 @@ internal static class RuntimeOwnedMutationAdapter
             _armedSessionId = string.Empty;
             _expiresAtUnixMilliseconds = 0;
             IdempotencyRecords.Clear();
+            LifecycleIdempotencyRecords.Clear();
         }
     }
 
@@ -226,6 +229,7 @@ internal static class RuntimeOwnedMutationAdapter
                 request.Context.AssignmentId,
                 request.Context.AuthorityEpoch,
                 revision,
+                request.TaskforceId,
                 created));
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
@@ -243,6 +247,7 @@ internal static class RuntimeOwnedMutationAdapter
                     request.Context.AssignmentId,
                     request.Context.AuthorityEpoch,
                     request.Context.ExpectedRevision,
+                    request.TaskforceId,
                     created);
             }
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
@@ -255,6 +260,301 @@ internal static class RuntimeOwnedMutationAdapter
             stopwatch.Stop();
         }
     }
+
+    public static MutationAdapterResult<OwnedSurfaceCheckpointPayload> CaptureCheckpoint(
+        OwnedSurfaceEntityRequestPayload request,
+        string commandSessionId)
+    {
+        var resolved = ResolveOwned<OwnedSurfaceCheckpointPayload>(
+            request.Context,
+            request.EntityId,
+            commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved.Error!;
+        }
+
+        var record = resolved.Record!;
+        var unit = Capture(record.Vessel, record.TaskforceId);
+        var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var hash = CapabilityFingerprint.ComputeSha256(new[]
+        {
+            Field("schema-version", 1),
+            Field("assignment-id", record.AssignmentId),
+            Field("authority-epoch", record.AuthorityEpoch),
+            Field("revision", record.Revision),
+            Field("entity-id", unit.EntityId),
+            Field("unit-type", unit.UnitTypeId),
+            Field("variant", unit.VariantId),
+            Field("loadout", unit.LoadoutId),
+            Field("taskforce", unit.TaskforceId),
+            Field("latitude", unit.Latitude),
+            Field("longitude", unit.Longitude),
+            Field("heading", unit.HeadingDegrees),
+            Field("speed", unit.SpeedKnots),
+            Field("telegraph", unit.Telegraph),
+            Field("disabled", unit.IsDisabled),
+            Field("destroyed", unit.IsDestroyed),
+        });
+        var checkpoint = new OwnedSurfaceCheckpointPayload
+        {
+            CheckpointId = $"checkpoint:{request.EntityId}:{record.Revision}:{hash[..12]}",
+            CheckpointSha256 = hash,
+            AssignmentId = record.AssignmentId,
+            AuthorityEpoch = record.AuthorityEpoch,
+            Revision = record.Revision,
+            CapturedAtUnixMilliseconds = capturedAt,
+            Unit = unit,
+            UnsupportedFields = UnsupportedFields(),
+        };
+        record.Checkpoint = checkpoint;
+        return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Success(checkpoint);
+    }
+
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> Update(
+        UpdateOwnedSurfaceUnitRequestPayload request,
+        string commandSessionId)
+    {
+        if (!ValidPosition(request.Latitude, request.Longitude, request.HeadingDegrees)
+            || request.Telegraph is < -1 or > 5)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The surface update position, heading, or telegraph is invalid.");
+        }
+        var replay = TryLifecycleReplay(
+            GameCommandTypes.UpdateOwnedSurfaceUnit,
+            request.Context,
+            request,
+            commandSessionId);
+        if (replay is not null)
+        {
+            return replay;
+        }
+        var resolved = ResolveOwned<OwnedSurfaceLifecycleResultPayload>(
+            request.Context,
+            request.EntityId,
+            commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved.Error!;
+        }
+
+        var record = resolved.Record!;
+        if (record.Vessel.Disabled)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "A suspended surface unit must be enabled before applying an update.");
+        }
+        var timer = Stopwatch.StartNew();
+        var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
+        record.Vessel.transform.position = Utils.longLatToLocalV3(
+            position,
+            Globals._currentCenterTile);
+        record.Vessel.transform.eulerAngles = new Vector3(
+            0f,
+            (float)NormalizeHeading(request.HeadingDegrees),
+            0f);
+        record.Vessel._geoPosition = position;
+        record.Vessel.setTelegraph(request.Telegraph);
+        record.Vessel._velocityInKnots = record.Vessel.getSpeedForTelegraph(request.Telegraph);
+        record.Vessel._velocityInUnity = record.Vessel._velocityInKnots * 0.0076554087f;
+        Physics.SyncTransforms();
+        record.Revision++;
+        record.Checkpoint = null;
+        timer.Stop();
+        var result = LifecycleResult(
+            "updated",
+            "owned-surface-unit-updated-and-read-back",
+            request.Context,
+            record,
+            timer);
+        StoreLifecycleReplay(GameCommandTypes.UpdateOwnedSurfaceUnit, request.Context, request, result);
+        return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+    }
+
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> SetSuspension(
+        SetOwnedSurfaceSuspensionRequestPayload request,
+        string commandSessionId)
+    {
+        var replay = TryLifecycleReplay(
+            GameCommandTypes.SetOwnedSurfaceSuspension,
+            request.Context,
+            request,
+            commandSessionId);
+        if (replay is not null)
+        {
+            return replay;
+        }
+        var resolved = ResolveOwned<OwnedSurfaceLifecycleResultPayload>(
+            request.Context,
+            request.EntityId,
+            commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved.Error!;
+        }
+
+        var record = resolved.Record!;
+        if (record.Vessel.Disabled == request.IsSuspended)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                request.IsSuspended
+                    ? "The owned surface unit is already suspended."
+                    : "The owned surface unit is already enabled.");
+        }
+        var timer = Stopwatch.StartNew();
+        if (request.IsSuspended)
+        {
+            record.Vessel.Disable();
+        }
+        else
+        {
+            record.Vessel.Enable();
+        }
+        record.Revision++;
+        timer.Stop();
+        var result = LifecycleResult(
+            request.IsSuspended ? "suspended" : "enabled",
+            request.IsSuspended
+                ? "owned-surface-unit-suspended-outside-active-world"
+                : "owned-surface-unit-enabled-and-read-back",
+            request.Context,
+            record,
+            timer);
+        StoreLifecycleReplay(
+            GameCommandTypes.SetOwnedSurfaceSuspension,
+            request.Context,
+            request,
+            result);
+        return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+    }
+
+    private static OwnedResolution<T> ResolveOwned<T>(
+        OwnedMutationContextPayload? context,
+        string entityId,
+        string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId))
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        if (context is null
+            || !string.Equals(context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.InvalidSession,
+                "The mutation context session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(entityId, "unit:crimean-tom:")
+            || !ValidScopedId(context.AssignmentId, "assignment:")
+            || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+            || context.IdempotencyKey.Length > 128)
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Owned entity, assignment, and idempotency identifiers are required.");
+        }
+        if (!OwnedEntities.TryGetValue(entityId, out var record)
+            || record.Vessel == null
+            || !string.Equals(record.Vessel._campaignTag, entityId, StringComparison.Ordinal))
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "No recoverable bridge-owned surface unit matches the requested entity.");
+        }
+        if (!string.Equals(record.AssignmentId, context.AssignmentId, StringComparison.Ordinal))
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The mutation assignment does not own this surface unit.");
+        }
+        if (context.AuthorityEpoch != record.AuthorityEpoch)
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.StaleAuthorityEpoch,
+                $"Expected authority epoch {record.AuthorityEpoch}, received {context.AuthorityEpoch}.");
+        }
+        if (context.ExpectedRevision != record.Revision)
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.StaleRevision,
+                $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
+        }
+        if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<ObjectsManager>.InstanceExists()
+            || !GameTime.IsPaused())
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "A loaded, paused tactical mission is required for owned lifecycle operations.");
+        }
+        return OwnedResolution<T>.Success(record);
+    }
+
+    private static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>? TryLifecycleReplay<T>(
+        string command,
+        OwnedMutationContextPayload context,
+        T request,
+        string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId)
+            || context is null
+            || !string.Equals(context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        var key = LifecycleKey(command, context);
+        if (!LifecycleIdempotencyRecords.TryGetValue(key, out var prior))
+        {
+            return null;
+        }
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.IdempotencyConflict,
+                "The idempotency key was already used with a different lifecycle payload.");
+        }
+        var replay = CloneLifecycle(prior.Result);
+        replay.IdempotentReplay = true;
+        return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(replay);
+    }
+
+    private static void StoreLifecycleReplay<T>(
+        string command,
+        OwnedMutationContextPayload context,
+        T request,
+        OwnedSurfaceLifecycleResultPayload result) =>
+        LifecycleIdempotencyRecords.Add(
+            LifecycleKey(command, context),
+            new(
+                JsonSerializer.Serialize(request, JsonOptions),
+                CloneLifecycle(result)));
+
+    private static string LifecycleKey(string command, OwnedMutationContextPayload context) =>
+        string.Join("|", command, context.AssignmentId, context.IdempotencyKey);
+
+    private static OwnedSurfaceLifecycleResultPayload LifecycleResult(
+        string outcome,
+        string postcondition,
+        OwnedMutationContextPayload context,
+        OwnedEntityRecord record,
+        Stopwatch timer) => new()
+    {
+        Outcome = outcome,
+        Postcondition = postcondition,
+        AssignmentId = record.AssignmentId,
+        AuthorityEpoch = record.AuthorityEpoch,
+        Revision = record.Revision,
+        IdempotencyKey = context.IdempotencyKey,
+        SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
+        Unit = Capture(record.Vessel, record.TaskforceId),
+    };
 
     private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>? Validate(
         MaterializeOwnedSurfaceUnitRequestPayload request,
@@ -407,6 +707,12 @@ internal static class RuntimeOwnedMutationAdapter
             JsonSerializer.Serialize(value, JsonOptions),
             JsonOptions) ?? throw new InvalidOperationException("Could not clone mutation result.");
 
+    private static OwnedSurfaceLifecycleResultPayload CloneLifecycle(
+        OwnedSurfaceLifecycleResultPayload value) =>
+        JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException("Could not clone lifecycle result.");
+
     private static string[] UnsupportedFields() =>
     [
         "damage-state-application",
@@ -426,18 +732,67 @@ internal static class RuntimeOwnedMutationAdapter
     private static double? Finite(double value) =>
         double.IsFinite(value) ? value : null;
 
+    private static bool ValidPosition(double latitude, double longitude, double heading) =>
+        double.IsFinite(latitude)
+        && double.IsFinite(longitude)
+        && double.IsFinite(heading)
+        && latitude is >= -90d and <= 90d
+        && longitude is >= -180d and <= 180d;
+
+    private static KeyValuePair<string, string?> Field(string name, object? value) =>
+        new(name, value switch
+        {
+            null => null,
+            bool boolean => boolean ? "true" : "false",
+            IFormattable formattable => formattable.ToString(
+                null,
+                System.Globalization.CultureInfo.InvariantCulture),
+            _ => value.ToString(),
+        });
+
     private static long ElapsedMicroseconds(Stopwatch stopwatch) =>
         stopwatch.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
 
-    private sealed record OwnedEntityRecord(
-        string AssignmentId,
-        long AuthorityEpoch,
-        long Revision,
-        Vessel Vessel);
+    private sealed class OwnedEntityRecord(
+        string assignmentId,
+        long authorityEpoch,
+        long revision,
+        string taskforceId,
+        Vessel vessel)
+    {
+        public string AssignmentId { get; } = assignmentId;
+        public long AuthorityEpoch { get; } = authorityEpoch;
+        public long Revision { get; set; } = revision;
+        public string TaskforceId { get; } = taskforceId;
+        public Vessel Vessel { get; } = vessel;
+        public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
+    }
 
     private sealed record IdempotencyRecord(
         string RequestJson,
         MaterializeOwnedSurfaceUnitResultPayload Result);
+
+    private sealed record LifecycleIdempotencyRecord(
+        string RequestJson,
+        OwnedSurfaceLifecycleResultPayload Result);
+
+    private sealed class OwnedResolution<T>
+    {
+        public bool Succeeded { get; private init; }
+        public OwnedEntityRecord? Record { get; private init; }
+        public MutationAdapterResult<T>? Error { get; private init; }
+
+        public static OwnedResolution<T> Success(OwnedEntityRecord record) => new()
+        {
+            Succeeded = true,
+            Record = record,
+        };
+
+        public static OwnedResolution<T> Fail(string code, string message) => new()
+        {
+            Error = MutationAdapterResult<T>.Failure(code, message),
+        };
+    }
 }
 
 internal sealed class MutationAdapterResult<T>

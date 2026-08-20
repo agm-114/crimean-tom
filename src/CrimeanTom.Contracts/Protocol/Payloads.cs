@@ -177,6 +177,56 @@ public sealed class MaterializeOwnedSurfaceUnitResultPayload
     public string[] UnsupportedFields { get; set; } = Array.Empty<string>();
 }
 
+public sealed class OwnedSurfaceEntityRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+}
+
+public sealed class UpdateOwnedSurfaceUnitRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double HeadingDegrees { get; set; }
+    public int Telegraph { get; set; }
+}
+
+public sealed class SetOwnedSurfaceSuspensionRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public bool IsSuspended { get; set; }
+}
+
+public sealed class OwnedSurfaceCheckpointPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string CheckpointId { get; set; } = string.Empty;
+    public string CheckpointSha256 { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public long CapturedAtUnixMilliseconds { get; set; }
+    public OwnedSurfaceUnitStatePayload Unit { get; set; } = new();
+    public string[] UnsupportedFields { get; set; } = Array.Empty<string>();
+}
+
+public sealed class OwnedSurfaceLifecycleResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool IdempotentReplay { get; set; }
+    public long SynchronousDurationMicroseconds { get; set; }
+    public OwnedSurfaceUnitStatePayload Unit { get; set; } = new();
+}
+
 public sealed class RuntimeCapabilityFingerprintPayload
 {
     public int SchemaVersion { get; set; }

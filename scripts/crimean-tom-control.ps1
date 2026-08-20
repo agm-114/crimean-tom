@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -660,6 +660,62 @@ switch ($Action) {
                 longitude = $Longitude
                 headingDegrees = $HeadingDegrees
                 telegraph = $Telegraph
+            }))
+    }
+    'checkpoint-owned-surface' {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/surface/checkpoint' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
+            }))
+    }
+    'update-owned-surface' {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/surface/update' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
+                latitude = $Latitude
+                longitude = $Longitude
+                headingDegrees = $HeadingDegrees
+                telegraph = $Telegraph
+            }))
+    }
+    { $_ -cin @('suspend-owned-surface', 'enable-owned-surface') } {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/surface/suspension' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
+                isSuspended = ($Action -ceq 'suspend-owned-surface')
             }))
     }
     'port-projection' {

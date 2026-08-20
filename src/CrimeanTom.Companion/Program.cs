@@ -299,6 +299,45 @@ app.MapPost("/game/mutations/surface/materialize", (
             cancellationToken);
 });
 
+app.MapPost("/game/mutations/surface/checkpoint", (
+    OwnedSurfaceEntityRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    ForwardOwnedSurfaceCommand(
+        request,
+        request.Context,
+        request.EntityId,
+        GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
+        broker,
+        wireJsonOptions,
+        cancellationToken));
+
+app.MapPost("/game/mutations/surface/update", (
+    UpdateOwnedSurfaceUnitRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    ForwardOwnedSurfaceCommand(
+        request,
+        request.Context,
+        request.EntityId,
+        GameCommandTypes.UpdateOwnedSurfaceUnit,
+        broker,
+        wireJsonOptions,
+        cancellationToken));
+
+app.MapPost("/game/mutations/surface/suspension", (
+    SetOwnedSurfaceSuspensionRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    ForwardOwnedSurfaceCommand(
+        request,
+        request.Context,
+        request.EntityId,
+        GameCommandTypes.SetOwnedSurfaceSuspension,
+        broker,
+        wireJsonOptions,
+        cancellationToken));
+
 app.MapGet("/port-operations/projection", (PortOperationsProjectionStore store) =>
     Results.Ok(store.Load()));
 
@@ -478,6 +517,64 @@ static IResult? ValidateSurfaceMutationRequest(
         {
             error = ProtocolErrorCodes.InvalidMessage,
             message = "The owned surface mutation payload is incomplete or invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
+
+static Task<IResult> ForwardOwnedSurfaceCommand<T>(
+    T request,
+    OwnedMutationContextPayload? context,
+    string entityId,
+    string command,
+    GamePipeBroker broker,
+    JsonSerializerOptions jsonOptions,
+    CancellationToken cancellationToken)
+{
+    var validationError = ValidateOwnedLifecycleRequest(context, entityId, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            command,
+            JsonSerializer.Serialize(request, jsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+}
+
+static IResult? ValidateOwnedLifecycleRequest(
+    OwnedMutationContextPayload? context,
+    string entityId,
+    GamePipeBroker broker)
+{
+    if (context is null)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned lifecycle mutation context is required.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    var sessionError = ValidateMutationSession(context.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    if (string.IsNullOrWhiteSpace(context.AssignmentId)
+        || !context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+        || context.AssignmentId.Length > 128
+        || context.AuthorityEpoch < 1
+        || context.ExpectedRevision < 1
+        || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+        || context.IdempotencyKey.Length > 128
+        || string.IsNullOrWhiteSpace(entityId)
+        || !entityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || entityId.Length > 128)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned lifecycle mutation identity or fence is invalid.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     return null;
