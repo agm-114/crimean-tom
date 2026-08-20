@@ -357,6 +357,11 @@ public static class CampaignKernel
         CampaignInvariants.RequireId(command.CommandId);
         CampaignInvariants.RequireId(command.PlayerId);
         CampaignInvariants.RequireId(command.Scope.CoalitionId);
+        CampaignInvariants.RequireText(command.IdempotencyKey.Value, nameof(command.IdempotencyKey));
+        if (command.IdempotencyKey.Value.Length > 128)
+        {
+            throw Violation("idempotency-key-too-long", "Idempotency keys are limited to 128 characters.");
+        }
         if (command.CampaignId != state.Metadata.CampaignId)
         {
             throw Violation("wrong-campaign", "The command targets another campaign.");

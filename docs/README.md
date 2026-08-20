@@ -71,6 +71,9 @@ The folders separate evidence from design commitments:
 21. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
     records the game-independent deterministic domain, contract, canonical hash,
     and information-filtering slice.
+22. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
+    records the in-progress WAL journal, writer-epoch, transactional append,
+    idempotency, and durable replay slice.
 
 ## Evidence labels
 

@@ -73,6 +73,17 @@ public readonly record struct EventId(Guid Value) : ICampaignId, IComparable<Eve
     public override string ToString() => Value.ToString("N", CultureInfo.InvariantCulture);
 }
 
+public readonly record struct CoordinatorId(Guid Value) : ICampaignId, IComparable<CoordinatorId>
+{
+    public int CompareTo(CoordinatorId other) => Value.CompareTo(other.Value);
+    public override string ToString() => Value.ToString("N", CultureInfo.InvariantCulture);
+}
+
+public readonly record struct IdempotencyKey(string Value)
+{
+    public override string ToString() => Value;
+}
+
 public readonly record struct WriterEpoch(long Value)
 {
     public static readonly WriterEpoch None = new(0);

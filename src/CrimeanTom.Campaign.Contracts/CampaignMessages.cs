@@ -170,6 +170,7 @@ public sealed record AdvanceClockCommand(CampaignTime NewTime) : CampaignCommand
 
 public sealed record CampaignCommand(
     CommandId CommandId,
+    IdempotencyKey IdempotencyKey,
     CampaignId CampaignId,
     PlayerId PlayerId,
     CampaignSubject Subject,

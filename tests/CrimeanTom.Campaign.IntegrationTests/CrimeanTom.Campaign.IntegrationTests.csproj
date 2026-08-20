@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Contracts\CrimeanTom.Campaign.Contracts.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Domain\CrimeanTom.Campaign.Domain.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Engine\CrimeanTom.Campaign.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Service\CrimeanTom.Campaign.Service.csproj" />
   </ItemGroup>
 
 </Project>
