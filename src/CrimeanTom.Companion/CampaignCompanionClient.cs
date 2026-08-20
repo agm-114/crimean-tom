@@ -101,7 +101,12 @@ public sealed class CampaignCompanionClient(
                     break;
                 case ServiceFrame.PayloadOneofCase.Assignment:
                     {
-                        var preparation = await PrepareAssignmentAsync(frame.Assignment, capabilities, token, cancellationToken);
+                        var currentCapabilities = await ReadCapabilitiesAsync(cancellationToken);
+                        var preparation = await PrepareAssignmentAsync(
+                            frame.Assignment,
+                            currentCapabilities,
+                            token,
+                            cancellationToken);
                         if (preparation.Checkpoint is { } checkpoint)
                         {
                             await SendAsync(

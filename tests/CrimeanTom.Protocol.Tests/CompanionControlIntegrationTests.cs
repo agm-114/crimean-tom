@@ -69,6 +69,25 @@ public sealed class CompanionControlIntegrationTests
                 campaignHttpUrl,
                 testTimeout.Token);
             using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
+            using var durabilityPolicyResponse = await campaignClient.GetAsync(
+                "/durability-policy",
+                testTimeout.Token);
+            durabilityPolicyResponse.EnsureSuccessStatusCode();
+            using var durabilityPolicy = JsonDocument.Parse(
+                await durabilityPolicyResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "display-first-provisional",
+                durabilityPolicy.RootElement.GetProperty("displayPolicy").GetString());
+            Assert.Equal(
+                "campaign-journal-commit",
+                durabilityPolicy.RootElement.GetProperty("canonicalDurabilityBoundary").GetString());
+            Assert.Equal(120, durabilityPolicy.RootElement.GetProperty("maximumRollbackQuanta").GetInt64());
+            Assert.Contains(
+                durabilityPolicy.RootElement.GetProperty("provisionalEffectFamilies").EnumerateArray(),
+                item => item.GetString() == "audio");
+            Assert.Contains(
+                durabilityPolicy.RootElement.GetProperty("checkpointCommittedEffectFamilies").EnumerateArray(),
+                item => item.GetString() == "destruction");
             using var createdCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
                 new
@@ -1231,7 +1250,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 22; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 26; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);

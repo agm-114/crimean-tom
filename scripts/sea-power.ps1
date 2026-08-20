@@ -13,7 +13,19 @@ param(
     ),
 
     [ValidateRange(5, 600)]
-    [int]$TimeoutSeconds = 90
+    [int]$TimeoutSeconds = 90,
+
+    [string]$CompanionRunDirectory,
+
+    [string]$ControlUrl,
+
+    [string]$CampaignGrpcUrl,
+
+    [string]$CampaignHttpUrl,
+
+    [string]$CampaignId,
+
+    [string]$CampaignRunDirectory
 )
 
 Set-StrictMode -Version Latest
@@ -236,7 +248,23 @@ function Start-SeaPowerAndVerify {
     Assert-DeployedDllMatchesBuild
     Stop-SeaPower
 
-    & $companionControlScript start -Configuration $Configuration -SkipBuild
+    $companionParameters = @{
+        Configuration = $Configuration
+        SkipBuild = $true
+    }
+    foreach ($setting in @{
+        RunDirectory = $CompanionRunDirectory
+        ControlUrl = $ControlUrl
+        CampaignGrpcUrl = $CampaignGrpcUrl
+        CampaignHttpUrl = $CampaignHttpUrl
+        CampaignId = $CampaignId
+        CampaignRunDirectory = $CampaignRunDirectory
+    }.GetEnumerator()) {
+        if (-not [string]::IsNullOrWhiteSpace($setting.Value)) {
+            $companionParameters[$setting.Key] = $setting.Value
+        }
+    }
+    & $companionControlScript start @companionParameters
 
     $startedAtUtc = [DateTime]::UtcNow
     $processWaitSeconds = [Math]::Max(30, [Math]::Min(60, $TimeoutSeconds))

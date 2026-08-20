@@ -474,16 +474,13 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         var lifecycle = proposal.Destroyed || proposal.Kind == TacticalEventKind.Destroyed
             ? EntityLifecycle.Destroyed
             : damage >= 800_000 ? EntityLifecycle.Disabled : current.Lifecycle;
-        if (current.Coordinate == coordinate
-            && current.Heading.Value == heading
-            && current.Telegraph == telegraph
-            && current.Resources.SequenceEqual(resources)
-            && current.DamageMilliUnits == damage
-            && current.Lifecycle == lifecycle)
-        {
-            return;
-        }
-        else
+        var stateChanged = current.Coordinate != coordinate
+            || current.Heading.Value != heading
+            || current.Telegraph != telegraph
+            || !current.Resources.SequenceEqual(resources)
+            || current.DamageMilliUnits != damage
+            || current.Lifecycle != lifecycle;
+        if (stateChanged)
         {
             state = await CommitAsync(state, Command(
                 state,
@@ -605,7 +602,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         {
             return current;
         }
-        var lease = current is not null
+        var lease = current is not null && current.ExpiresAt > now
             ? await journal.RenewWriterAsync(current, now, TimeSpan.FromMinutes(5), cancellationToken)
             : await journal.AcquireWriterAsync(campaignId, ServiceCoordinator, now, TimeSpan.FromMinutes(5), cancellationToken);
         _leases[campaignId] = lease;

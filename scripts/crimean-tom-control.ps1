@@ -16,6 +16,18 @@ param(
 
     [string]$GamePipeName,
 
+    [string]$CampaignGrpcUrl,
+
+    [string]$CampaignHttpUrl,
+
+    [string]$CampaignId,
+
+    [string]$CampaignTokenFile,
+
+    [string]$CampaignStateDirectory,
+
+    [string]$CampaignRunDirectory,
+
     [string]$ScenarioId,
 
     [string]$ProjectionId = 'port-projection:sevastopol:blue-fleet:1042',
@@ -212,6 +224,34 @@ function Start-Companion {
     }
 
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($CampaignRunDirectory)) {
+        $resolvedCampaignRunDirectory = [System.IO.Path]::GetFullPath($CampaignRunDirectory)
+        if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
+            $CampaignTokenFile = Join-Path $resolvedCampaignRunDirectory 'service.token'
+        }
+        if ([string]::IsNullOrWhiteSpace($CampaignStateDirectory)) {
+            $CampaignStateDirectory = Join-Path $resolvedCampaignRunDirectory 'companion-state'
+        }
+    }
+    $campaignSettings = @{
+        CRIMEAN_TOM_CAMPAIGN_GRPC_URL = $CampaignGrpcUrl
+        CRIMEAN_TOM_CAMPAIGN_HTTP_URL = $CampaignHttpUrl
+        CRIMEAN_TOM_CAMPAIGN_ID = $CampaignId
+        CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE = $CampaignTokenFile
+        CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY = $CampaignStateDirectory
+    }
+    $providedCampaignSettings = @($campaignSettings.Values | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_)
+    })
+    if ($providedCampaignSettings.Count -ne 0 -and
+        $providedCampaignSettings.Count -ne $campaignSettings.Count) {
+        throw 'Campaign companion configuration must provide all transport URLs, campaign ID, token file, and state directory.'
+    }
+    if ($providedCampaignSettings.Count -eq $campaignSettings.Count) {
+        foreach ($setting in $campaignSettings.GetEnumerator()) {
+            [Environment]::SetEnvironmentVariable($setting.Key, $setting.Value, 'Process')
+        }
+    }
     $process = $null
     try {
         $companionArguments = @(

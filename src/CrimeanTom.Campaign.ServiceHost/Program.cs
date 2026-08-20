@@ -71,6 +71,7 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     grpcUrl = grpcUri.ToString(),
     session = sessions.Snapshot(),
 }));
+app.MapGet("/durability-policy", () => Results.Ok(CampaignDurabilityPolicy.Current));
 app.MapPost("/control/campaigns", async (
     CampaignCreateRequest request,
     SqliteCampaignJournal store,
