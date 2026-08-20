@@ -25,15 +25,19 @@ $gameExe = Join-Path $SeaPowerDir 'Sea Power.exe'
 $steamAppId = 1286220
 $steamLaunchUri = "steam://rungameid/$steamAppId"
 $streamingAssets = Join-Path $SeaPowerDir 'Sea Power_Data\StreamingAssets'
-$deployDir = Join-Path $streamingAssets 'CrimeanTom'
-$deployedDll = Join-Path $deployDir 'CrimeanTom.dll'
-$builtDir = Join-Path $repoRoot "src\CrimeanTom\bin\$Configuration"
-$builtDll = Join-Path $builtDir 'CrimeanTom.dll'
+$deployDir = Join-Path $streamingAssets 'SeaPowerRuntimeBridge'
+$legacyDeployDir = Join-Path $streamingAssets 'CrimeanTom'
+$deployedDll = Join-Path $deployDir 'SeaPower.RuntimeBridge.dll'
+$portOperationsSourceDir = Join-Path $repoRoot 'content\campaigns\crimean-tom-port-operations'
+$portOperationsDeployDir = Join-Path $streamingAssets 'user\campaigns\crimean-tom-port-operations'
+$builtDir = Join-Path $repoRoot "src\SeaPower.RuntimeBridge\bin\$Configuration"
+$builtDll = Join-Path $builtDir 'SeaPower.RuntimeBridge.dll'
 $playerLog = Join-Path $env:USERPROFILE 'AppData\LocalLow\Triassic Games\Sea Power\Player.log'
 $bepInExLog = Join-Path $SeaPowerDir 'BepInEx\LogOutput.log'
 $anchorPreloader = Join-Path $SeaPowerDir 'BepInEx\plugins\AnchorChainPreloader\AnchorChain.Preloader.dll'
 $doorstopProxy = Join-Path $SeaPowerDir 'winhttp.dll'
-$healthMarker = '[Crimean Tom] loaded via AnchorChain'
+$healthMarker = '[Sea Power Runtime Bridge] loaded via AnchorChain'
+$companionControlScript = Join-Path $PSScriptRoot 'crimean-tom-control.ps1'
 
 function Assert-RuntimeInstalled {
     $requiredPaths = @($gameExe, $streamingAssets, $anchorPreloader, $doorstopProxy)
@@ -70,7 +74,36 @@ function Stop-SeaPower {
 
 function Get-HashValue([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '')
+        }
+        finally {
+            $sha256.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Remove-LegacyPluginDeployment {
+    if (-not (Test-Path -LiteralPath $legacyDeployDir)) { return }
+
+    $resolvedStreamingAssets = [System.IO.Path]::GetFullPath($streamingAssets).TrimEnd('\')
+    $resolvedLegacyDeployDir = [System.IO.Path]::GetFullPath($legacyDeployDir).TrimEnd('\')
+    $resolvedLegacyParent = [System.IO.Path]::GetDirectoryName($resolvedLegacyDeployDir).TrimEnd('\')
+    if (-not $resolvedLegacyParent.Equals(
+        $resolvedStreamingAssets,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove legacy plugin directory outside StreamingAssets: $resolvedLegacyDeployDir"
+    }
+
+    Write-Host "Removing legacy in-game plugin directory $resolvedLegacyDeployDir..."
+    Remove-Item -LiteralPath $resolvedLegacyDeployDir -Recurse -Force
 }
 
 function Assert-DeployedDllMatchesBuild {
@@ -84,24 +117,53 @@ function Assert-DeployedDllMatchesBuild {
     $builtHash = Get-HashValue $builtDll
     $deployedHash = Get-HashValue $deployedDll
     if ($builtHash -ne $deployedHash) {
-        throw "The deployed CrimeanTom.dll does not match the $Configuration build. Run pnpm build again."
+        throw "The deployed SeaPower.RuntimeBridge.dll does not match the $Configuration build. Run pnpm build again."
     }
+}
+
+function Deploy-PortOperationsContent {
+    if (-not (Test-Path -LiteralPath $portOperationsSourceDir -PathType Container)) {
+        throw "Crimean Tom port-operations campaign source not found at $portOperationsSourceDir."
+    }
+
+    New-Item -ItemType Directory -Path $portOperationsDeployDir -Force | Out-Null
+    $sourceFiles = @(Get-ChildItem -LiteralPath $portOperationsSourceDir -File)
+    if ($sourceFiles.Count -eq 0) {
+        throw "Crimean Tom port-operations campaign source is empty at $portOperationsSourceDir."
+    }
+
+    foreach ($sourceFile in $sourceFiles) {
+        $deployedFile = Join-Path $portOperationsDeployDir $sourceFile.Name
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $deployedFile -Force
+
+        $sourceHash = Get-HashValue $sourceFile.FullName
+        $deployedHash = Get-HashValue $deployedFile
+        if ($sourceHash -ne $deployedHash) {
+            throw "The deployed port-operations asset $($sourceFile.Name) does not match its repository source."
+        }
+    }
+
+    Write-Host "Deployed Crimean Tom port-operations campaign to $portOperationsDeployDir"
 }
 
 function Invoke-Build {
     Assert-RuntimeInstalled
+    & $companionControlScript stop
     Stop-SeaPower
-    Write-Host "Building and deploying Crimean Tom ($Configuration)..."
+    Remove-LegacyPluginDeployment
+    Write-Host "Building and deploying Sea Power Runtime Bridge ($Configuration)..."
     & dotnet build $solutionPath --configuration $Configuration "-p:SeaPowerDir=$SeaPowerDir" '-p:CopyPluginToGame=true'
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet build failed with exit code $LASTEXITCODE."
     }
+    Deploy-PortOperationsContent
     Assert-DeployedDllMatchesBuild
     Write-Host "Deployed DLL matches the build: $deployedDll"
 }
 
 function Invoke-Deploy {
     Assert-RuntimeInstalled
+    Remove-LegacyPluginDeployment
     if (-not (Test-Path -LiteralPath $builtDll)) {
         throw "Built DLL not found at $builtDll. Run pnpm build first."
     }
@@ -109,10 +171,12 @@ function Invoke-Deploy {
     New-Item -ItemType Directory -Path $deployDir -Force | Out-Null
     Copy-Item -LiteralPath $builtDll -Destination $deployedDll -Force
 
-    $builtPdb = Join-Path $builtDir 'CrimeanTom.pdb'
+    $builtPdb = Join-Path $builtDir 'SeaPower.RuntimeBridge.pdb'
     if (Test-Path -LiteralPath $builtPdb) {
-        Copy-Item -LiteralPath $builtPdb -Destination (Join-Path $deployDir 'CrimeanTom.pdb') -Force
+        Copy-Item -LiteralPath $builtPdb -Destination (Join-Path $deployDir 'SeaPower.RuntimeBridge.pdb') -Force
     }
+
+    Deploy-PortOperationsContent
 
     Assert-DeployedDllMatchesBuild
     Write-Host "Deployed $builtDll to $deployDir"
@@ -129,7 +193,7 @@ function Get-DiagnosticLines {
     foreach ($path in @($playerLog, $bepInExLog)) {
         if (Test-Path -LiteralPath $path) {
             $lines += Get-Content -LiteralPath $path -Tail 300 -ErrorAction SilentlyContinue |
-                Where-Object { $_ -match 'Crimean Tom|CrimeanTom|AnchorChain|Exception|\[Error' }
+                Where-Object { $_ -match 'Sea Power Runtime Bridge|SeaPower\.RuntimeBridge|Crimean Tom|CrimeanTom|AnchorChain|Exception|\[Error' }
         }
     }
     @($lines | Select-Object -Last 40)
@@ -164,7 +228,7 @@ function Wait-ForPlugin([datetime]$NotBeforeUtc) {
         Write-Host 'Recent runtime diagnostics:'
         $diagnostics | ForEach-Object { Write-Host "  $_" }
     }
-    throw "Sea Power did not write the Crimean Tom health marker within $TimeoutSeconds seconds. See $playerLog and $bepInExLog."
+    throw "Sea Power did not write the Sea Power Runtime Bridge health marker within $TimeoutSeconds seconds. See $playerLog and $bepInExLog."
 }
 
 function Start-SeaPowerAndVerify {
@@ -172,17 +236,27 @@ function Start-SeaPowerAndVerify {
     Assert-DeployedDllMatchesBuild
     Stop-SeaPower
 
-    $startedAtUtc = [DateTime]::UtcNow
-    Start-Process $steamLaunchUri
+    & $companionControlScript start -Configuration $Configuration -SkipBuild
 
-    $processDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    $startedAtUtc = [DateTime]::UtcNow
+    $processWaitSeconds = [Math]::Max(30, [Math]::Min(60, $TimeoutSeconds))
+    $processDeadline = [DateTime]::UtcNow.AddSeconds($processWaitSeconds)
+    $nextLaunchAttemptUtc = [DateTime]::MinValue
+    $launchAttempts = 0
     $processes = @()
     while ($processes.Count -eq 0 -and [DateTime]::UtcNow -lt $processDeadline) {
+        if ([DateTime]::UtcNow -ge $nextLaunchAttemptUtc) {
+            $launchAttempts++
+            Write-Host "Requesting Sea Power launch through Steam (attempt $launchAttempts)..."
+            Start-Process $steamLaunchUri
+            $nextLaunchAttemptUtc = [DateTime]::UtcNow.AddSeconds(10)
+        }
+
         Start-Sleep -Milliseconds 500
         $processes = @(Get-SeaPowerProcess)
     }
     if ($processes.Count -eq 0) {
-        throw "Steam did not start Sea Power within 30 seconds. Launch URI: $steamLaunchUri"
+        throw "Steam did not start Sea Power after $launchAttempts attempts within $processWaitSeconds seconds. Launch URI: $steamLaunchUri"
     }
 
     Write-Host "Launched Sea Power through Steam (PID $($processes.Id -join ', ')); waiting for the plugin health marker..."
@@ -205,7 +279,7 @@ function Test-CurrentPluginState {
 function Show-Logs {
     $lines = @(Get-DiagnosticLines)
     if ($lines.Count -eq 0) {
-        Write-Host "No Crimean Tom, AnchorChain, or error lines found in $playerLog or $bepInExLog."
+        Write-Host "No Sea Power Runtime Bridge, Crimean Tom, AnchorChain, or error lines found in $playerLog or $bepInExLog."
         return
     }
     $lines | ForEach-Object { Write-Host $_ }

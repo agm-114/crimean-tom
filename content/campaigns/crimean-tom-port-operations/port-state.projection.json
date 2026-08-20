@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "projectionId": "port-projection:sevastopol:blue-fleet:1042",
+  "campaignRevision": 1042,
+  "portId": "port:sevastopol",
+  "forceId": "force:blue-fleet",
+  "pointBudget": 500,
+  "portCapacity": 16,
+  "authority": "external-campaign-service",
+  "eligibleUnits": [
+    {
+      "externalUnitId": "unit:blue:knox-1",
+      "unitFolder": "vessels",
+      "unitType": "usn_ff_knox_84",
+      "rosterSection": "AllowedVessels",
+      "nation": "us",
+      "variants": ["Variant13", "Variant16", "Variant20", "Variant22", "Variant36"],
+      "maximumQuantity": 1,
+      "pointCost": 120,
+      "repairState": "light-damage-repairable",
+      "rearmState": "rearm-authorized"
+    },
+    {
+      "externalUnitId": "unit:blue:sturgeon-1",
+      "unitFolder": "vessels",
+      "unitType": "usn_ssn_sturgeon",
+      "rosterSection": "AllowedSubmarines",
+      "nation": "us",
+      "variants": ["Variant23", "Variant28", "Variant35"],
+      "maximumQuantity": 1,
+      "pointCost": 140,
+      "repairState": "serviceable",
+      "rearmState": "rearm-authorized"
+    }
+  ],
+  "reinforcements": [
+    {
+      "externalUnitId": "reinforcement:blue:perry-1",
+      "unitFolder": "vessels",
+      "unitType": "usn_ffg_oliver_hazard_perry",
+      "rosterSection": "AllowedVessels",
+      "nation": "us",
+      "variants": ["Variant17", "Variant19"],
+      "maximumQuantity": 1,
+      "pointCost": 135,
+      "repairState": "serviceable",
+      "rearmState": "rearm-authorized"
+    },
+    {
+      "externalUnitId": "reinforcement:blue:sh-2f-1",
+      "unitFolder": "aircraft",
+      "unitType": "usn_sh-2f",
+      "rosterSection": "AllowedHelicopters",
+      "nation": "us",
+      "variants": ["Squadron4", "Squadron6", "Squadron8"],
+      "maximumQuantity": 2,
+      "pointCost": 35,
+      "repairState": "serviceable",
+      "rearmState": "rearm-authorized"
+    },
+    {
+      "externalUnitId": "reinforcement:blue:f-14a-1",
+      "unitFolder": "aircraft",
+      "unitType": "usn_f-14a",
+      "rosterSection": "AllowedAircraft",
+      "nation": "us",
+      "variants": ["Squadron9"],
+      "maximumQuantity": 2,
+      "pointCost": 45,
+      "repairState": "serviceable",
+      "rearmState": "rearm-authorized"
+    }
+  ]
+}

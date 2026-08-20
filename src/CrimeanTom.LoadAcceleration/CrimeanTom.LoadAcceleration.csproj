@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CrimeanTom.LoadAcceleration</RootNamespace>
+    <AssemblyName>CrimeanTom.LoadAcceleration</AssemblyName>
+    <Description>Fail-open, versioned caches and timing primitives for faster Crimean Tom iteration.</Description>
+  </PropertyGroup>
+
+</Project>

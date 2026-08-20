@@ -1,0 +1,265 @@
+# Dynamic campaign architecture
+
+## Goal
+
+Run one continuously advancing theater without requiring one Sea Power process
+to own the entire battle. The external campaign service is the durable source
+of truth. Connected Sea Power clients are elastic high-fidelity workers and
+live player views: the service streams the entities each client needs, receives
+orders and tactical events, and can move simulation responsibility between
+clients without ending the campaign.
+
+This supersedes the earlier design in which the campaign generated an isolated
+mission for every important engagement. Importing or generating a conventional
+scenario remains useful as a compatibility and recovery path, not the normal
+runtime boundary.
+
+## System boundary
+
+```text
+                         durable event log + snapshots
+                                      |
+                                      v
+                         campaign coordinator/service
+                        /             |              \
+              assignments       strategic sim       catalog
+                     /                |                 \
+                    v                 v                  v
+             local companion <---- remote protocol ---- workers
+                    |
+              local named pipe
+                    |
+                    v
+       thin Sea Power plugin -> Unity main-thread adapter -> tactical world
+```
+
+The standalone .NET service owns campaign time, persistence, strategic rules,
+assignment leases, authority epochs, and committed events. It can run abstract
+entities much faster and more cheaply than Unity. The in-game DLL should contain
+only protocol handling, stable-ID mapping, state extraction, and carefully
+bounded Unity commands. Networking, persistence, scheduling, reconciliation,
+and most validation belong in the companion or service.
+
+The local named pipe is a trust and threading boundary. Pipe I/O happens away
+from Unity; every game read or mutation is marshalled onto Unity's main thread.
+The companion exposes a versioned local API today and can later connect to the
+remote campaign transport.
+
+## Native maintenance UI as a projection
+
+Crimean Tom may reuse Sea Power's Task Force Mode screens for bounded port
+administration: fleet composition, refit/loadout choices, repairs, rearming,
+and reinforcements. This is a projection and draft editor over external campaign
+state, not a campaign authority or tactical resolver.
+
+The service snapshots a durable campaign revision and materializes only the
+eligible docked force, local pools, budgets, and policy into a disposable
+repository-owned campaign shell. Because Sea Power loads authored campaign and
+roster data at campaign startup, changing that projection may require a
+controlled game restart. The restart is an adapter lifecycle operation; it does
+not restart theater time, entity identity, or the external campaign journal.
+
+The bridge reads the player's proposed maintenance draft through typed,
+version-pinned view-model seams. The companion converts it to portable commands,
+and the service validates costs, capacity, location, availability, expected
+revision, and idempotency before committing one transaction. Rejection leaves
+the authoritative state unchanged and causes the projection to be refreshed.
+Native saves may support the UI session, but they are never the durable source
+of truth.
+
+Any authored mission attached to this shell is UI context only. Its Play,
+completion, objective, and after-action paths are outside the authority boundary
+and cannot produce campaign outcomes. The rest of the theater continues at
+Strategic or Operational fidelity while a player edits this administrative
+draft; only that player's conflicting maintenance transaction is fenced.
+
+## One world, several fidelity levels
+
+Fidelity is selected per entity or interaction island and may change while the
+campaign continues:
+
+1. **Strategic** — the service advances routes, logistics, readiness, broad
+   detection, weather, and scheduled operations without a game client.
+2. **Operational** — a deterministic resolver advances unattended combat at a
+   richer level but still without Unity.
+3. **Tactical** — one or more Sea Power clients simulate the same unit or
+   tightly interacting group at full Sea Power fidelity.
+
+A **Render proxy** is a replica role, not a fourth canonical fidelity level. It
+materializes only authorized presentation state and cannot adjudicate outcomes
+or take authority.
+
+The service can pipe a strategic entity into a client when a player approaches,
+observes it, controls it, or when an interaction requires better adjudication.
+It can dematerialize the entity after producing a committed checkpoint and
+return it to a cheaper fidelity level. The theater clock and identity never
+restart during that transition.
+
+Dense interactions should be assigned as an **interaction island**—usually a
+task force, aircraft package, missile engagement, or sensor/weapon bubble.
+Partitioning ships that exchange tightly coupled sensor and weapon state across
+different authorities would create more synchronization cost than it saves.
+
+## Multiple replicas of the same unit
+
+A unit may deliberately exist in several clients. Each replica has an explicit
+role:
+
+| Role | Simulates | May publish authoritative events? | Promotion eligible? |
+| --- | --- | --- | --- |
+| Primary | Full assigned state | Yes, for its current authority epoch | Already authoritative |
+| Shadow | Full state under the validated deterministic runtime adapter | No; publishes hashes and health | Yes, after adapter validation |
+| Observer | High fidelity needed by a nearby player | No by default | Only if it holds all required hidden state |
+| Render proxy | Presentation state only | No | No |
+
+There is exactly one primary event publisher for an entity or interaction
+island in an authority epoch. Redundant simulation improves accuracy and
+availability, but does not allow two clients to commit competing damage,
+detection, or movement results.
+
+An observer can run the same unit at higher local accuracy so its player sees
+smooth, timely behavior. Its results are advisory until it is promoted or the
+primary explicitly accepts a typed proposal. Fog-of-war data must be filtered
+before reaching an observer; replication is not permission to disclose hidden
+enemy state.
+
+See [Federated simulation protocol](federated-simulation.md) for leases,
+health checks, promotion, reconciliation, and failure behavior.
+
+## Strategic domain
+
+The pure campaign core owns:
+
+- campaign clock and deterministic event queue;
+- theater regions, routes, terrain, and movement constraints;
+- nations, coalitions, relations, and rules of engagement;
+- bases, ports, airfields, facilities, ownership, capacity, and damage;
+- stable unit-instance IDs, task forces, squadrons, and detachments;
+- readiness, repair, fuel, ammunition, spares, logistics, and replacements;
+- orders, patrols, escorts, convoys, objectives, and AI intent;
+- intelligence estimates with uncertainty and last-seen provenance;
+- weather and sea state at the resolution required by each worker;
+- replica assignments, leases, epochs, checkpoints, health, and event cursors;
+- the committed command/event history and campaign outcome.
+
+Unity-only transforms, colliders, animation state, transient view models, and
+live guidance objects do not belong in the durable campaign schema. A tactical
+checkpoint maps those details to a versioned portable state when possible.
+
+## Determinism and persistence
+
+Use deterministic time units, stable same-tick ordering, and keyed seeded RNG.
+Random values should derive from stable keys such as campaign seed, tick,
+entity, subsystem, and event ID. A global sequential RNG makes unrelated work
+or a different shard schedule change later results.
+
+A run is reproducible from:
+
+- protocol, schema, simulation, and game/catalog versions;
+- campaign seed and initial snapshot;
+- ordered player/AI command log;
+- committed nondeterministic tactical events;
+- authority-epoch and assignment history.
+
+Persist periodic snapshots plus an append-only event journal. Checkpoints make
+loading and worker promotion fast; the journal enables replay, audit, migration,
+and desync diagnosis. Every command and event has a stable ID and revision so
+reducers can be idempotent.
+
+Sea Power is nondeterministic by default: its timing, frame/update schedule,
+several RNG sources, and spawn-dependent iteration can differ between clients.
+Hot replicas therefore require the
+[Deterministic tactical runtime adapter](deterministic-runtime-adapter.md), which
+uses coordinator-issued ticks, fixed scheduling, ordered inputs, controlled RNG,
+and stable materialization order. Physics may still diverge across hardware, so
+replicas also exchange canonical hashes and restore/correct from checkpoints.
+If the adapter cannot meet its acceptance gate, the design falls back to one
+tactical primary plus operational or cold-checkpoint recovery.
+
+## Stress and global tempo
+
+Fixing the logical step means a slow game must never compensate by enlarging the
+timestep. The coordinator first removes optional presentation/replica work,
+stops assigning new islands to a pressured client, moves whole interaction
+islands to healthy clients with reserve, or demotes suitable work to Operational
+fidelity. A player can remain connected for commands and a filtered view even
+when their game is disabled as a simulation source.
+
+If placement and fidelity changes cannot preserve required tactical work, the
+coordinator reduces one global `TargetTicksPerWallSecond` through an ordered
+event. Every client continues using the same `FixedStepDuration`; the campaign
+simply advances more slowly relative to wall time. See
+[Load management and simulation-source control](load-management.md).
+
+## Catalog adapter
+
+The external simulation needs a normalized catalog of game IDs, variants,
+loadouts, capabilities, service dates, speeds, broad sensor/weapon roles, and
+conversion rules. Generate it locally from the installed game data through a
+version-specific adapter and fingerprint it.
+
+The pure core must not reference `ObjectBase` or proprietary game assemblies.
+The plugin maps catalog and stable campaign IDs to the installed version's
+runtime types. A game or mod update invalidates the catalog fingerprint and
+blocks incompatible authority assignment until migrated or rebuilt.
+
+## Target projects
+
+```text
+src/
+  SeaPower.RuntimeBridge/       # generic thin AnchorChain/Unity adapter
+  CrimeanTom.Contracts/          # dependency-free local wire contracts
+  CrimeanTom.Companion/          # local pipe broker and control/remote client
+  CrimeanTom.Campaign.Domain/    # pure durable state and rules
+  CrimeanTom.Campaign.Engine/    # clock, events, systems, reconciliation
+  CrimeanTom.Campaign.Contracts/ # network/save DTOs and schema versions
+  CrimeanTom.Campaign.Catalog/   # installed-data normalization
+  CrimeanTom.Campaign.Service/   # coordinator, persistence, assignments
+  CrimeanTom.Campaign.Worker/    # optional headless strategic/operational worker
+  CrimeanTom.Campaign.Tests/     # replay, determinism, property, failover tests
+```
+
+The first three projects now exist. Sea Power Runtime Bridge deliberately has no
+campaign product name; Crimean Tom owns the contracts, companion, campaign, and
+networking layers. Together they establish the local control boundary
+before game mutations or remote multiplayer are enabled.
+
+## Delivery plan
+
+The authoritative phase definitions, dependencies, mandatory scenarios, exit
+gates, deferred-decision deadlines, and adversarial review questions are in
+[Implementation plan](../planning/implementation-plan.md). Its critical path is:
+
+1. harden the current read-only control baseline;
+2. prove catalog identity and canonical extraction;
+3. prove bounded, reversible materialization for one entity family;
+4. build the deterministic journaled campaign kernel;
+5. complete a continuous single-client campaign-to-tactical round trip;
+6. add operational simulation and dynamic fidelity;
+7. add redundant replicas, divergence handling, and fenced failover;
+8. add realtime multiplayer and information-filtered projections;
+9. add durable scale/service availability;
+10. complete security, compatibility, soak, and release qualification.
+
+No phase proceeds merely because its code compiles. Each has a measured exit
+gate. Unknown timing, checkpoint, scale, and fidelity constants have explicit
+evidence requirements and decision deadlines rather than placeholder defaults.
+
+See [System architecture](system-architecture.md) for the normative ownership,
+time, protocol, persistence, security, and failure contracts.
+
+## Principal risks
+
+- Sea Power updates change internal types, data, or lifecycle behavior.
+- Unity simulations diverge despite seeded RNG.
+- Stable IDs or hidden state are lost across materialization.
+- A stale primary publishes after a replacement takes authority.
+- Cross-island weapons and sensors create hidden coupling.
+- Replication leaks information a player should not know.
+- A crash occurs after tactical change but before event commitment.
+- A malicious or modified client submits plausible but false outcomes.
+
+Versioned contracts, fenced epochs, keyed RNG, canonical checkpoints, typed
+idempotent events, narrow mutation surfaces, and replayable logs address the
+engineering risks. Competitive trust requires additional validation; redundant
+clients alone do not create consensus or prevent cheating.

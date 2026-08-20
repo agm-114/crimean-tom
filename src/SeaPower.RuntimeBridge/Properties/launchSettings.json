@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Sea Power": {
+    "Sea Power Runtime Bridge": {
       "commandName": "Executable",
       "executablePath": "C:\\Program Files (x86)\\Steam\\steam.exe",
       "commandLineArgs": "-applaunch 1286220",

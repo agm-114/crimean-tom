@@ -480,3 +480,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local ILSpy output
+decompiled/
+
+# Local companion process state and logs
+.run/

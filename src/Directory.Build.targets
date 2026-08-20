@@ -1,17 +1,20 @@
 <Project>
   <Target Name="EnsureGameReferences"
-          BeforeTargets="ResolveAssemblyReferences">
+          BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(IsSeaPowerPlugin)' == 'true'">
     <Error Condition="'$(SeaPowerDir)' == '' or !Exists('$(GameManaged)\UnityEngine.CoreModule.dll')"
            Text="Sea Power Managed assemblies were not found. Set SeaPowerDir to your game folder (the directory that contains Sea Power.exe)." />
     <Error Condition="'$(AnchorChainDll)' == '' or !Exists('$(AnchorChainDll)')"
            Text="AnchorChain.dll was not found. Subscribe to AnchorChain on the Steam Workshop, or set AnchorChainDll to the full path of AnchorChain.dll." />
+    <Error Condition="'$(PluginDeployFolder)' == ''"
+           Text="PluginDeployFolder must be set for Sea Power plugin projects." />
   </Target>
 
   <Target Name="CopyPluginToStreamingAssets"
           AfterTargets="Build"
-          Condition="'$(CopyPluginToGame)' == 'true' and '$(StreamingAssets)' != ''">
+          Condition="'$(IsSeaPowerPlugin)' == 'true' and '$(CopyPluginToGame)' == 'true' and '$(StreamingAssets)' != ''">
     <PropertyGroup>
-      <_PluginDeployDir>$(StreamingAssets)\CrimeanTom</_PluginDeployDir>
+      <_PluginDeployDir>$(StreamingAssets)\$(PluginDeployFolder)</_PluginDeployDir>
     </PropertyGroup>
     <ItemGroup>
       <_PluginDeployFile Include="$(TargetPath)" />

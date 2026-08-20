@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CrimeanTom.Companion</AssemblyName>
+    <RootNamespace>CrimeanTom.Companion</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

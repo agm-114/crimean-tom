@@ -3,12 +3,27 @@
   "private": true,
   "packageManager": "pnpm@10.9.0",
   "scripts": {
+    "test": "dotnet test CrimeanTom.sln --configuration Debug",
     "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 build",
     "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 deploy",
     "launch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 launch",
     "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 verify",
     "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 dev",
     "logs": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 logs",
-    "status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 status"
+    "status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 status",
+    "companion:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 start",
+    "companion:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 stop",
+    "companion:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 status",
+    "companion:health": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 health",
+    "game:ping": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 ping",
+    "game:capabilities": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 capabilities",
+    "game:scene": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 scene",
+    "game:world": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 world",
+    "game:campaign": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 campaign",
+    "game:open-task-force-builder": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 open-task-force-builder",
+    "game:control-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 test",
+    "decompile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 game",
+    "decompile:anchorchain": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 anchorchain",
+    "decompile:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 all-managed"
   }
 }

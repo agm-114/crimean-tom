@@ -8,14 +8,12 @@
    `LogOutput.log`.
 3. Compare the first failing layer below before changing code.
 
-| Evidence | Interpretation | Next check |
-| --- | --- | --- |
-| No BepInEx lines | Doorstop/BepInEx did not start | Confirm `winhttp.dll`, `doorstop_config.ini`, and BepInEx are installed |
-| `Could not find AnchorChain chainloader` | The preloader ran but could not locate Workshop AnchorChain | Confirm the Sea Power Workshop item is installed and visible to the game |
-| AnchorChain loads, no Crimean Tom line | The plugin was not discovered or rejected | Confirm deploy path, hashes, and nearby AnchorChain exceptions |
-| Crimean Tom health marker appears | The exact deployed assembly reached `TriggerEntryPoint` | Investigate feature-specific code after the entry point |
-| Hash mismatch | The game folder contains a stale build | Stop the game and run `pnpm build` |
-| `RestartAppIfNecessary returned true` | Sea Power was started outside Steam | Use `pnpm launch`; do not start the EXE directly |
+| Evidence | Meaning and action |
+| --- | --- |
+| No BepInEx lines | Read [BepInEx startup debugging](bepinex-debugging.md). |
+| `Could not find AnchorChain chainloader` | Read [AnchorChain startup debugging](anchorchain-debugging.md). |
+| AnchorChain loads, but Sea Power Runtime Bridge does not | Run `pnpm status`; rebuild on a hash mismatch, otherwise inspect nearby AnchorChain exceptions. |
+| Sea Power Runtime Bridge health marker appears | The deployed assembly reached `TriggerEntryPoint`; continue with feature-specific debugging. |
 
 ## Logs
 
@@ -25,7 +23,7 @@
 Search by plugin name and GUID as well as generic exceptions:
 
 ```powershell
-rg -n "Crimean Tom|CrimeanTom|crimean\.tom|AnchorChain|Exception|\[Error" `
+rg -n "Sea Power Runtime Bridge|SeaPower\.RuntimeBridge|seapower\.runtime-bridge|Crimean Tom|AnchorChain|Exception|\[Error" `
   "$env:USERPROFILE\AppData\LocalLow\Triassic Games\Sea Power\Player.log" `
   "$env:SEA_POWER_DIR\BepInEx\LogOutput.log"
 ```

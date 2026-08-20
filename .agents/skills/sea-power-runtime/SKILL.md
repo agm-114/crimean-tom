@@ -1,6 +1,6 @@
 ---
 name: sea-power-runtime
-description: Build, deploy, launch, verify, and diagnose the Crimean Tom AnchorChain plugin in an installed Sea Power game. Use for runtime mod checks, Player.log or BepInEx failures, stale deployed DLLs, and confirming that a new plugin build actually loaded. Do not use for ordinary compile-only C# work that needs no game interaction.
+description: Build, deploy, launch, verify, and diagnose the Sea Power Runtime Bridge AnchorChain plugin used by Crimean Tom. Use for runtime mod checks, Player.log or BepInEx failures, stale deployed DLLs, and confirming that a new plugin build actually loaded. Do not use for ordinary compile-only C# work that needs no game interaction.
 ---
 
 # Sea Power Runtime
@@ -37,3 +37,6 @@ launch without that marker as a failure.
 Read [references/runtime-debugging.md](references/runtime-debugging.md) when a
 launch check fails, the health marker is missing, or runtime behavior needs
 diagnosis beyond the standard loop.
+
+Read [references/ui-testing.md](references/ui-testing.md) only when the task
+requires player-visible menu, mission, campaign, or editor verification.

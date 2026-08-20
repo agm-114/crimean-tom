@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CrimeanTom.Protocol</RootNamespace>
+    <AssemblyName>CrimeanTom.Contracts</AssemblyName>
+  </PropertyGroup>
+
+</Project>
