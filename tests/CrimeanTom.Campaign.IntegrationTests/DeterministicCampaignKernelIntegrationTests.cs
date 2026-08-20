@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Engine;
@@ -100,7 +101,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("214b50d37e85e413d2fa665a71bb0bb2e56537e9732e1d8d03a3593e947bb395", longHorizon.Hash);
+        Assert.Equal("bafa04793761b86b23aee4817bcabfba11ae21262bb4fdea3aa34724d9d4d036", longHorizon.Hash);
         await ProveDurableJournalAsync(longHorizon);
         await ProvePersistenceBoundariesAsync(longHorizon);
         await ProveProcessCrashRecoveryAsync(longHorizon);

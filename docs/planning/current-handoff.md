@@ -3,8 +3,9 @@
 ## Repository state
 
 This handoff records the state through 21 August 2026. Phases 0, 1, 2, 3A, and
-3B, 3C, and 3D are complete and Phase 4 is active. No durable
-campaign service authority or unattended campaign simulation is enabled. The
+3B, 3C, and 3D are complete and Phase 4 is active. Durable campaign authority,
+unattended simulation, and the first canonical tactical handoff loop now run
+outside Unity. The
 game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
 requires a live compare-and-swap writer epoch, commits command/event/revision/head
@@ -233,19 +234,22 @@ The Phase 3 gate is closed by the one broad theater story. Through campaign time
 600, one-worker and eight-worker decisions remain byte-identical; resource,
 lifecycle, ownership, reachability, schedule, revision, and fog invariants pass;
 snapshot-plus-journal and restored replay both reach the pinned golden hash
-`214b50d37e85e413d2fa665a71bb0bb2e56537e9732e1d8d03a3593e947bb395`.
+`bafa04793761b86b23aee4817bcabfba11ae21262bb4fdea3aa34724d9d4d036`.
 
-The first Phase 4 transport slice is now implemented. Generated Protobuf types
+The Phase 4 transport and canonical handoff slice is now implemented. Generated Protobuf types
 cross authenticated bidirectional gRPC between a new campaign-service host and
 the companion. Both sides durably spool authority-affecting frames before
 acknowledgement; committed catch-up advances an atomic reconnect cursor; and
 checkpoint bytes use a separate authenticated content-addressed HTTP endpoint.
-The broad protocol story materializes/checkpoints a Knox, applies an ordered
-movement, returns a typed tactical event, and reconnects after service restart.
+The broad protocol story bootstraps a canonical theater, materializes and
+checkpoints a Knox, activates its primary authority lease, advances unrelated
+strategic simulation while freezing that entity, commits ordered movement, hard
+restarts the service, idempotently replays unacknowledged frames, captures a
+final checkpoint, and returns the entity to Operational fidelity.
 
-Next, bind prepared assignments, checkpoints, and tactical proposals to the
-authoritative SQLite command/event timeline, then implement the quiesce/fence/
-dematerialize path and live-game P4 scenarios.
+Next, implement bounded suspended fallback, resource/damage/destruction capture,
+catalog-mismatch and crash-boundary stories, then run the live-game P4 scenarios
+and measure the player-visible durability timeline.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.

@@ -18,12 +18,14 @@ event bytes and canonical state bytes match at every interval.
 The final version-2 canonical golden hash is:
 
 ```text
-214b50d37e85e413d2fa665a71bb0bb2e56537e9732e1d8d03a3593e947bb395
+bafa04793761b86b23aee4817bcabfba11ae21262bb4fdea3aa34724d9d4d036
 ```
 
 That complete command/event history is appended through the fenced SQLite
 journal. Recovery starts at snapshot commit 10, verifies and applies the journal
-tail, and produces the pinned final hash. The same final hash is verified after
+tail, and produces the pinned final hash. The fixture includes Phase 4's
+canonical heading, telegraph, and preparing-assignment lifecycle fields. The
+same final hash is verified after
 atomic database-plus-blob backup and restore.
 
 ## Invariant coverage in the broad story
@@ -53,7 +55,7 @@ transitions rather than merely checking an idle clock.
 | Exit condition | Evidence |
 | --- | --- |
 | Multi-region theater advances without Sea Power | The external kernel advances two groups across the Odessa–Black Sea–Bosporus graph through time 600 with Sea Power stopped. |
-| Snapshot plus journal replay has identical hash | Snapshot 10 plus the complete journal tail recovers the pinned `214b50…bb395` hash before and after backup/restore. |
+| Snapshot plus journal replay has identical hash | Snapshot 10 plus the complete journal tail recovers the pinned `bafa04…4d036` hash before and after backup/restore. |
 | Kill at every persistence boundary | Fourteen fresh child writers are hard-killed across append, snapshot, blob, backup publication, and lost-ack boundaries; recovery selects one head and retries have exactly-once effects. |
 | Two coordinators cannot both write | An independent lease-holder process excludes the test coordinator; after death/expiry a higher epoch fences the stale handle. |
 | Scheduling-independent result | One-worker and eight-worker event/state bytes match at every long-horizon advance. |

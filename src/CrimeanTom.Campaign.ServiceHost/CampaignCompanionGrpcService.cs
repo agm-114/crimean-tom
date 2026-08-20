@@ -1,8 +1,11 @@
 using System.Security.Cryptography;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Service;
 using CrimeanTom.Campaign.Transport.V1;
+
 using Google.Protobuf;
+
 using Grpc.Core;
 
 namespace CrimeanTom.Campaign.ServiceHost;
@@ -11,6 +14,7 @@ public sealed class CampaignCompanionGrpcService(
     CampaignServiceToken token,
     CampaignSessionRegistry sessions,
     CampaignInboundSpool inboundSpool,
+    CampaignCoordinator coordinator,
     SqliteCampaignJournal journal,
     ILogger<CampaignCompanionGrpcService> logger)
     : CampaignCompanionTransport.CampaignCompanionTransportBase
@@ -68,7 +72,7 @@ public sealed class CampaignCompanionGrpcService(
                 campaignId,
                 new CommitPosition(hello.ReconnectCommitPosition),
                 context.CancellationToken);
-            foreach (var campaignEvent in events)
+            foreach (var campaignEvent in events.Where(item => item.CommitPosition.Value <= currentHead.Value))
             {
                 var json = CampaignContractJson.Serialize(campaignEvent);
                 await responseStream.WriteAsync(new ServiceFrame
@@ -87,6 +91,7 @@ public sealed class CampaignCompanionGrpcService(
             var incoming = ReadIncomingAsync(requestStream, session, context.CancellationToken);
             await foreach (var frame in session.Outgoing.ReadAllAsync(context.CancellationToken))
             {
+                frame.Sequence = session.NextSequence();
                 await responseStream.WriteAsync(frame);
             }
             await incoming;
@@ -124,6 +129,7 @@ public sealed class CampaignCompanionGrpcService(
                 if (frame.PayloadCase != CompanionFrame.PayloadOneofCase.Heartbeat)
                 {
                     await inboundSpool.AcceptAsync(session, frame, cancellationToken);
+                    await coordinator.ProcessCompanionFrameAsync(session.Hello, frame, cancellationToken);
                 }
                 session.Observe(frame);
                 if (!session.TryQueue(new ServiceFrame

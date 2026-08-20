@@ -1,9 +1,11 @@
 using System.Net;
+
+using CrimeanTom.Campaign.Contracts;
+using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Service;
 using CrimeanTom.Campaign.ServiceHost;
 using CrimeanTom.Campaign.Transport.V1;
-using CrimeanTom.Campaign.Contracts;
-using CrimeanTom.Campaign.Domain;
+
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +42,7 @@ builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton<CampaignSessionRegistry>();
 builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory, "inbound-spool")));
+builder.Services.AddSingleton<CampaignCoordinator>();
 var app = builder.Build();
 
 app.Use(async (context, next) =>
@@ -85,6 +88,51 @@ app.MapPost("/control/campaigns", async (
         CampaignSchema.Version,
         CampaignSchema.AlgorithmVersion), cancellationToken);
     return Results.Created($"/campaigns/{request.CampaignId}", new { request.CampaignId });
+});
+app.MapPost("/control/campaigns/{campaignId}/bootstrap", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.BootstrapAsync(new CampaignId(parsed), cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapGet("/campaigns/{campaignId}", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.ViewAsync(new CampaignId(parsed), cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/handoffs", async (
+    CampaignHandoffRequest request,
+    CampaignCoordinator coordinator,
+    CampaignSessionRegistry sessions,
+    CancellationToken cancellationToken) =>
+{
+    var assignment = await coordinator.PrepareHandoffAsync(request, cancellationToken);
+    return sessions.TryQueue(new ServiceFrame { Assignment = assignment })
+        ? Results.Accepted(value: assignment)
+        : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
+});
+app.MapPost("/control/campaigns/{campaignId}/advance/{target:long}", async (
+    string campaignId,
+    long target,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.AdvanceAsync(
+            new CampaignId(parsed), new CampaignTime(target), cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/quiesce", async (
+    CampaignQuiesceRequest request,
+    CampaignCoordinator coordinator,
+    CampaignSessionRegistry sessions,
+    CancellationToken cancellationToken) =>
+{
+    var fence = await coordinator.BeginQuiesceAsync(request, cancellationToken);
+    return sessions.TryQueue(new ServiceFrame { Fence = fence })
+        ? Results.Accepted(value: fence)
+        : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
 app.MapGet("/content/{sha256}", async (
     string sha256,

@@ -56,6 +56,14 @@ public enum AssignmentRole
     RenderProxy,
 }
 
+public enum AssignmentLifecycle
+{
+    Preparing,
+    Active,
+    Quiescing,
+    Released,
+}
+
 public enum IntelligenceConfidence
 {
     Unknown,
@@ -114,6 +122,8 @@ public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, 
 [JsonDerivedType(typeof(SetWeatherCommand), "set-weather/v1")]
 [JsonDerivedType(typeof(AdvanceClockCommand), "advance-clock/v1")]
 [JsonDerivedType(typeof(SimulateCampaignCommand), "simulate-campaign/v1")]
+[JsonDerivedType(typeof(SetAssignmentLifecycleCommand), "set-assignment-lifecycle/v1")]
+[JsonDerivedType(typeof(ApplyTacticalStateCommand), "apply-tactical-state/v1")]
 public abstract record CampaignCommandData;
 
 public sealed record RegisterRegionCommand(RegionId RegionId, string Name, IReadOnlyList<RegionId> Neighbors)
@@ -185,6 +195,25 @@ public sealed record AdvanceClockCommand(CampaignTime NewTime) : CampaignCommand
 
 public sealed record SimulateCampaignCommand(CampaignTime NewTime) : CampaignCommandData;
 
+public sealed record SetAssignmentLifecycleCommand(
+    AssignmentId AssignmentId,
+    AuthorityEpoch AuthorityEpoch,
+    AssignmentLifecycle Lifecycle,
+    CampaignTime EffectiveAt)
+    : CampaignCommandData;
+
+public sealed record ApplyTacticalStateCommand(
+    AssignmentId AssignmentId,
+    AuthorityEpoch AuthorityEpoch,
+    EntityId EntityId,
+    GeoCoordinate Coordinate,
+    int HeadingMilliDegrees,
+    int Telegraph,
+    IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
+    int DamageMilliUnits,
+    EntityLifecycle Lifecycle)
+    : CampaignCommandData;
+
 public sealed record CampaignCommand(
     CommandId CommandId,
     IdempotencyKey IdempotencyKey,
@@ -210,6 +239,8 @@ public sealed record CampaignCommand(
 [JsonDerivedType(typeof(WeatherSetEvent), "weather-set/v1")]
 [JsonDerivedType(typeof(ClockAdvancedEvent), "clock-advanced/v1")]
 [JsonDerivedType(typeof(CampaignSimulatedEvent), "campaign-simulated/v1")]
+[JsonDerivedType(typeof(AssignmentLifecycleChangedEvent), "assignment-lifecycle-changed/v1")]
+[JsonDerivedType(typeof(TacticalStateAppliedEvent), "tactical-state-applied/v1")]
 public abstract record CampaignEventData;
 
 public sealed record RegionRegisteredEvent(RegisterRegionCommand Region) : CampaignEventData;
@@ -275,6 +306,10 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedIntelligenceUpdate> Intelligence,
     IReadOnlyList<ScheduledCampaignActivity> PendingActivities)
     : CampaignEventData;
+
+public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;
+
+public sealed record TacticalStateAppliedEvent(ApplyTacticalStateCommand State) : CampaignEventData;
 
 public sealed record CommittedCampaignEvent(
     EventId EventId,

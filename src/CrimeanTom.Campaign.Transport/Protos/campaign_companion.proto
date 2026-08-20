@@ -105,6 +105,7 @@ message TacticalAssignment {
   int32 heading_millidegrees = 20;
   int32 telegraph = 21;
   bool globally_paused = 22;
+  string canonical_entity_id = 23;
 }
 
 message AssignmentPrepared {
@@ -158,6 +159,7 @@ message TacticalEventProposal {
   int64 damage_milliunits = 14;
   bool destroyed = 15;
   string checkpoint_sha256 = 16;
+  int32 telegraph = 17;
 }
 
 message CheckpointPublished {

@@ -524,9 +524,10 @@ sentinel exclusion. See the
 
 **Status: in progress.** Phase 3 provides the authoritative journaled theater;
 generated authenticated duplex gRPC, durable reconnect/spooling, separate
-content-addressed checkpoint HTTP, assignment materialization, ordered movement,
-and service-restart reconnect now work in the broad integration story. Canonical
-tactical commit and the live round trip remain. See the
+content-addressed checkpoint HTTP, canonical assignment ownership, frozen
+tactical authority, ordered movement commit, checkpointed quiesce/release, and
+service-restart replay now work in the broad integration story. Failure-policy,
+resource/combat capture, and the live round trip remain. See the
 [Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
 
 ### Objective

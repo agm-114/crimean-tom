@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Engine;
+
 using Microsoft.Data.Sqlite;
 
 namespace CrimeanTom.Campaign.Service;
@@ -447,6 +449,7 @@ public sealed class SqliteCampaignJournal
             inserted = await insertReference.ExecuteNonQueryAsync(cancellationToken) == 1;
         }
 
+        var referencedPosition = commitPosition;
         if (!inserted)
         {
             await using var existing = connection.CreateCommand();
@@ -460,17 +463,17 @@ public sealed class SqliteCampaignJournal
             existing.Parameters.AddWithValue("$logical_id", logicalId);
             await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken)
-                || reader.GetInt64(0) != commitPosition.Value
                 || reader.GetString(1) != blob.Sha256)
             {
-                throw Conflict("blob-reference-conflict", "The logical blob identity already references different content or time.");
+                throw Conflict("blob-reference-conflict", "The logical blob identity already references different content.");
             }
+            referencedPosition = new CommitPosition(reader.GetInt64(0));
         }
 
         _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterReferenceInsert);
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement);
-        return new CampaignBlobReference(lease.CampaignId, purpose, logicalId, commitPosition,
+        return new CampaignBlobReference(lease.CampaignId, purpose, logicalId, referencedPosition,
             blob.Sha256, blob.Length, Duplicate: !inserted);
     }
 

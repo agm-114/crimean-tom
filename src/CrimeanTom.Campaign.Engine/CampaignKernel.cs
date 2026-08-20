@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 
@@ -40,6 +41,8 @@ public static class CampaignKernel
             SetWeatherCommand value => DecideWeather(state, command, value),
             AdvanceClockCommand value => DecideClock(state, command, value),
             SimulateCampaignCommand value => DecideSimulation(state, command, value, workerCount),
+            SetAssignmentLifecycleCommand value => DecideAssignmentLifecycle(state, command, value),
+            ApplyTacticalStateCommand value => DecideTacticalState(state, command, value),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
         };
 
@@ -86,6 +89,8 @@ public static class CampaignKernel
             WeatherSetEvent value => ApplyWeather(state, campaignEvent, value),
             ClockAdvancedEvent value => state with { Time = value.Clock.NewTime },
             CampaignSimulatedEvent value => ApplySimulation(state, value),
+            AssignmentLifecycleChangedEvent value => ApplyAssignmentLifecycle(state, campaignEvent, value),
+            TacticalStateAppliedEvent value => ApplyTacticalState(state, campaignEvent, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
         };
 
@@ -225,7 +230,9 @@ public static class CampaignKernel
         }
 
         if (value.Role == AssignmentRole.Primary
-            && state.Assignments.Values.Any(item => item.EntityId == value.EntityId && item.Role == AssignmentRole.Primary))
+            && state.Assignments.Values.Any(item => item.EntityId == value.EntityId
+                && item.Role == AssignmentRole.Primary
+                && item.Lifecycle != AssignmentLifecycle.Released))
         {
             throw Violation("primary-already-assigned", "An entity can have only one canonical primary assignment.");
         }
@@ -306,6 +313,75 @@ public static class CampaignKernel
             state.CampaignRevision.Next());
     }
 
+    private static Decision DecideAssignmentLifecycle(
+        CampaignState state,
+        CampaignCommand command,
+        SetAssignmentLifecycleCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Assignment(value.AssignmentId));
+        if (!state.Assignments.TryGetValue(value.AssignmentId, out var assignment))
+        {
+            throw Violation("assignment-missing", "The tactical assignment does not exist.");
+        }
+        RequireRevision(command, assignment.Revision);
+        if (assignment.AuthorityEpoch != value.AuthorityEpoch || value.EffectiveAt != command.EffectiveAt)
+        {
+            throw Violation("assignment-fenced", "The assignment epoch or effective time is stale.");
+        }
+        var validTransition = (assignment.Lifecycle, value.Lifecycle) switch
+        {
+            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active) => true,
+            (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
+            (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
+            _ => false,
+        };
+        if (!validTransition)
+        {
+            throw Violation("assignment-transition", "The assignment lifecycle transition is invalid.");
+        }
+        return Decision.Create(
+            command.Subject,
+            new AssignmentLifecycleChangedEvent(value),
+            assignment.Revision.Next(),
+            value.AssignmentId,
+            value.AuthorityEpoch);
+    }
+
+    private static Decision DecideTacticalState(
+        CampaignState state,
+        CampaignCommand command,
+        ApplyTacticalStateCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Entity(value.EntityId));
+        var entity = RequireEntity(state, value.EntityId);
+        RequireRevision(command, entity.Revision);
+        var assignment = state.Assignments.TryGetValue(value.AssignmentId, out var found)
+            ? found
+            : throw Violation("assignment-missing", "The tactical assignment does not exist.");
+        if (assignment.EntityId != value.EntityId
+            || assignment.AuthorityEpoch != value.AuthorityEpoch
+            || assignment.Lifecycle is not (AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing)
+            || entity.Fidelity != FidelityState.Tactical)
+        {
+            throw Violation("tactical-authority-fenced", "The tactical state does not have current active authority.");
+        }
+        ValidateCoordinate(value.Coordinate);
+        ValidateResources(value.Resources);
+        _ = HeadingMilliDegrees.FromMilliDegrees(value.HeadingMilliDegrees);
+        if (value.Telegraph is < -1 or > 5
+            || value.DamageMilliUnits is < 0 or > 1_000_000
+            || !Enum.IsDefined(value.Lifecycle))
+        {
+            throw Violation("invalid-tactical-state", "Tactical heading, telegraph, damage, or lifecycle is invalid.");
+        }
+        return Decision.Create(
+            command.Subject,
+            new TacticalStateAppliedEvent(value),
+            entity.Revision.Next(),
+            value.AssignmentId,
+            value.AuthorityEpoch);
+    }
+
     private static CampaignState ApplyRegion(CampaignState state, CommittedCampaignEvent item, RegionRegisteredEvent value)
     {
         var region = value.Region;
@@ -330,6 +406,7 @@ public static class CampaignKernel
         var data = value.Entity;
         var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CoalitionId, data.RegionId,
             data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.Resources.ToImmutableSortedDictionary(),
+            HeadingMilliDegrees.FromMilliDegrees(0), Telegraph: 0,
             ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag, item.NewSubjectRevision);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
@@ -361,8 +438,42 @@ public static class CampaignKernel
     {
         var data = value.Assignment;
         var entry = new AssignmentState(data.AssignmentId, data.EntityId, data.Role, data.AuthorityEpoch,
-            data.EffectiveAt, item.NewSubjectRevision);
+            data.EffectiveAt, AssignmentLifecycle.Preparing, item.NewSubjectRevision);
         return state with { Assignments = state.Assignments.Add(entry.AssignmentId, entry) };
+    }
+
+    private static CampaignState ApplyAssignmentLifecycle(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        AssignmentLifecycleChangedEvent value)
+    {
+        var assignment = state.Assignments[value.Change.AssignmentId] with
+        {
+            Lifecycle = value.Change.Lifecycle,
+            EffectiveAt = value.Change.EffectiveAt,
+            Revision = item.NewSubjectRevision,
+        };
+        return state with { Assignments = state.Assignments.SetItem(assignment.AssignmentId, assignment) };
+    }
+
+    private static CampaignState ApplyTacticalState(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        TacticalStateAppliedEvent value)
+    {
+        var data = value.State;
+        var entity = state.Entities[data.EntityId] with
+        {
+            Coordinate = data.Coordinate,
+            Heading = HeadingMilliDegrees.FromMilliDegrees(data.HeadingMilliDegrees),
+            Telegraph = data.Telegraph,
+            Resources = data.Resources.ToImmutableSortedDictionary(),
+            DamageMilliUnits = data.DamageMilliUnits,
+            ReadinessMilliUnits = Math.Clamp(1_000 - data.DamageMilliUnits / 1_000, 0, 1_000),
+            Lifecycle = data.Lifecycle,
+            Revision = item.NewSubjectRevision,
+        };
+        return state with { Entities = state.Entities.SetItem(entity.EntityId, entity) };
     }
 
     private static CampaignState ApplyIntelligence(CampaignState state, CommittedCampaignEvent item, IntelligenceReportedEvent value)

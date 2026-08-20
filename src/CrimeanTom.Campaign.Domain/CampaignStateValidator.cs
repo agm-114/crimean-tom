@@ -52,7 +52,10 @@ public static class CampaignStateValidator
             CampaignInvariants.RequireText(entity.ClassifiedTruthTag, nameof(entity.ClassifiedTruthTag));
             ValidateCoordinate(entity.Coordinate);
             ValidateResources(entity.Resources);
-            if (entity.ReadinessMilliUnits is < 0 or > 1_000 || entity.DamageMilliUnits is < 0 or > 1_000_000)
+            _ = HeadingMilliDegrees.FromMilliDegrees(entity.Heading.Value);
+            if (entity.Telegraph is < -1 or > 5
+                || entity.ReadinessMilliUnits is < 0 or > 1_000
+                || entity.DamageMilliUnits is < 0 or > 1_000_000)
             {
                 throw Invalid("entity-condition", "Entity readiness or damage is outside its canonical range.");
             }
@@ -133,11 +136,14 @@ public static class CampaignStateValidator
         {
             if (key != assignment.AssignmentId || assignment.Revision.Value <= 0
                 || assignment.AuthorityEpoch.Value <= 0 || assignment.EffectiveAt.Quanta < 0
-                || !state.Entities.ContainsKey(assignment.EntityId) || !Enum.IsDefined(assignment.Role))
+                || !state.Entities.ContainsKey(assignment.EntityId) || !Enum.IsDefined(assignment.Role)
+                || !Enum.IsDefined(assignment.Lifecycle))
             {
                 throw Invalid("assignment", "An assignment identity, relationship, role, time, epoch, or revision is invalid.");
             }
-            if (assignment.Role == AssignmentRole.Primary && !primaryEntities.Add(assignment.EntityId))
+            if (assignment.Role == AssignmentRole.Primary
+                && assignment.Lifecycle != AssignmentLifecycle.Released
+                && !primaryEntities.Add(assignment.EntityId))
             {
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
             }

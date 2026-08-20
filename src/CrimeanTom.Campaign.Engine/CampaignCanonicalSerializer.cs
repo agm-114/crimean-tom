@@ -1,6 +1,7 @@
-using System.Security.Cryptography;
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text.Json;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 
@@ -57,7 +58,8 @@ public static class CampaignCanonicalSerializer
                 new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
                 item.HomeBaseId is null ? null : ParseId(item.HomeBaseId, value => new BaseId(value)),
                 ParseEnum<EntityLifecycle>(item.Lifecycle), ParseEnum<FidelityState>(item.Fidelity),
-                ReadResources(item.Resources), item.ReadinessMilliUnits, item.DamageMilliUnits,
+                ReadResources(item.Resources), HeadingMilliDegrees.FromMilliDegrees(item.HeadingMilliDegrees), item.Telegraph,
+                item.ReadinessMilliUnits, item.DamageMilliUnits,
                 item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.EntityId, item => item),
             Groups = document.Groups.Select(item => new GroupState(
@@ -92,7 +94,8 @@ public static class CampaignCanonicalSerializer
             Assignments = document.Assignments.Select(item => new AssignmentState(
                 ParseId(item.Id, value => new AssignmentId(value)), ParseId(item.EntityId, value => new EntityId(value)),
                 ParseEnum<AssignmentRole>(item.Role), new AuthorityEpoch(item.AuthorityEpoch),
-                new CampaignTime(item.EffectiveAt), new EntityRevision(item.Revision)))
+                new CampaignTime(item.EffectiveAt), ParseEnum<AssignmentLifecycle>(item.Lifecycle),
+                new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
             ScheduledActivities = document.ScheduledActivities.Select(item => new ScheduledActivityState(
                 ParseId(item.Id, value => new ScheduledActivityId(value)),
@@ -191,6 +194,8 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("fidelity", (int)item.Fidelity);
             WriteResources(writer, item.Resources);
+            writer.WriteNumber("headingMilliDegrees", item.Heading.Value);
+            writer.WriteNumber("telegraph", item.Telegraph);
             writer.WriteNumber("readinessMilliUnits", item.ReadinessMilliUnits);
             writer.WriteNumber("damageMilliUnits", item.DamageMilliUnits);
             writer.WriteString("classifiedTruthTag", item.ClassifiedTruthTag);
@@ -308,6 +313,7 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("role", (int)item.Role);
             writer.WriteNumber("authorityEpoch", item.AuthorityEpoch.Value);
             writer.WriteNumber("effectiveAt", item.EffectiveAt.Quanta);
+            writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -445,6 +451,8 @@ public static class CampaignCanonicalSerializer
         public required int Lifecycle { get; init; }
         public required int Fidelity { get; init; }
         public required ResourceDocument[] Resources { get; init; }
+        public required int HeadingMilliDegrees { get; init; }
+        public required int Telegraph { get; init; }
         public required int ReadinessMilliUnits { get; init; }
         public required int DamageMilliUnits { get; init; }
         public required string ClassifiedTruthTag { get; init; }
@@ -502,6 +510,7 @@ public static class CampaignCanonicalSerializer
         public required int Role { get; init; }
         public required long AuthorityEpoch { get; init; }
         public required long EffectiveAt { get; init; }
+        public required int Lifecycle { get; init; }
         public required long Revision { get; init; }
     }
 

@@ -5,10 +5,11 @@ Date: 21 August 2026
 ## Current disposition
 
 Phase 4 is in progress. The service/companion transport, durable spools,
-authenticated checkpoint transfer, assignment preparation, ordered movement,
-and service-restart reconnect are working. Canonical tactical-event commit,
-dematerialization/fallback, live Sea Power scenarios, and the final P4 gate are
-not yet complete.
+authenticated checkpoint transfer, canonical assignment lifecycle, ordered
+movement commit, service-restart reconnect, and checkpointed quiesce/release
+are working. Live Sea Power scenarios, bounded suspended fallback, resource and
+combat event capture, outcome-timeline policy, and the final P4 gate are not yet
+complete.
 
 ## Generated transport contract
 
@@ -76,7 +77,26 @@ typed game commands to:
 
 An ordered service movement command crosses gRPC, companion, named pipe, and
 the game peer, then returns as a deterministic-ID typed tactical event. Authority
-fences map to owned-object suspension using the same epoch/revision controls.
+fences first capture and upload a final checkpoint, then map to owned-object
+suspension using the same epoch/revision controls.
+
+## Canonical authority lifecycle
+
+The campaign coordinator journals `Preparing`, `Active`, `Quiescing`, and
+`Released` assignment transitions under an authority epoch. A preparing entity
+remains operational until the companion publishes a checkpoint and readiness;
+an active or quiescing primary is frozen in strategic simulation while all
+unrelated entities continue. Fenced tactical state carries stable identity,
+revision, position, heading, telegraph, resources, damage, and lifecycle into
+canonical state. Quiesce captures one last content-addressed checkpoint,
+suspends the game object, releases the assignment, and restores Operational
+fidelity.
+
+Reconnect replay is idempotent. Stream sequence numbers are assigned only by
+the single response writer, historical catch-up is bounded to the head captured
+at connection, and later live commits remain queued behind it. Replayed
+prepared/checkpoint/movement frames cannot repeat canonical effects. Logical
+checkpoint retries retain their originally fenced commit position.
 
 ## Broad integration evidence
 
@@ -85,13 +105,18 @@ service process in addition to the real companion and mock game peer. It:
 
 - creates and bearer-authenticates a schema/algorithm-pinned campaign;
 - negotiates an authenticated generated gRPC duplex stream;
-- queues a primary Knox assignment;
+- bootstraps a two-region canonical theater and queues a primary Knox handoff;
 - observes real pause/arm/materialize/checkpoint game commands;
 - verifies checkpoint upload and authenticated byte-identical download;
 - verifies prepared/checkpoint frames were durably spooled before acknowledgement;
-- sends an ordered movement and receives its typed tactical event;
+- proves the assigned entity freezes while an unrelated entity and theater time
+  advance;
+- sends an ordered movement, receives its typed tactical event, and verifies
+  canonical position, heading, and telegraph;
 - hard-kills and restarts the campaign service; and
-- proves the companion reconnects as a new service session from its durable cursor.
+- proves the companion reconnects as a new service session from its durable
+  cursor, safely replays unacknowledged outbound frames, captures a final
+  checkpoint, and releases the entity back to Operational fidelity.
 
 The story then continues across the pre-existing authenticated HTTP, named-pipe,
 catalog, UI-automation, scenario, controlled-tick, save/load, mutation lifecycle,
@@ -107,7 +132,6 @@ pnpm build
 
 ## Next slice
 
-The service must translate prepared assignments and tactical proposals into
-fenced canonical journal events, attach checkpoint references at the committed
-cursor, advance unrelated operational entities while the assigned entity is
-tactical, and complete quiesce/fence/checkpoint/dematerialize fallback.
+Add bounded suspended fallback and deadline enforcement, resource/damage/
+destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
+measured live Sea Power round trip and player-visible durability timeline.

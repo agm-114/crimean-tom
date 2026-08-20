@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Http.Headers;
@@ -80,6 +80,17 @@ public sealed class CompanionControlIntegrationTests
                 },
                 testTimeout.Token);
             Assert.Equal(HttpStatusCode.Created, createdCampaign.StatusCode);
+            using var bootstrappedCampaign = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/bootstrap",
+                content: null,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.OK, bootstrappedCampaign.StatusCode);
+            using var bootstrap = JsonDocument.Parse(
+                await bootstrappedCampaign.Content.ReadAsStringAsync(testTimeout.Token));
+            var primaryEntityId = bootstrap.RootElement.GetProperty("primaryEntityId").GetString()!;
+            var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
+            var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
+            const string gameEntityId = "unit:crimean-tom:transport-knox";
 
             var start = await RunControlScriptAsync(
                 scriptPath,
@@ -131,39 +142,35 @@ public sealed class CompanionControlIntegrationTests
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
             using var queuedAssignment = await campaignClient.PostAsJsonAsync(
-                "/control/assignments",
-                new TacticalAssignment
+                "/control/handoffs",
+                new
                 {
-                    CampaignId = campaignId,
-                    AssignmentId = "assignment:transport-integration",
-                    EntityId = "unit:crimean-tom:transport-knox",
-                    AuthorityEpoch = 11,
-                    Role = AssignmentRole.Primary,
-                    HandoffCommitPosition = 0,
-                    HandoffTimeQuanta = 0,
-                    ExpectedEntityRevision = 0,
-                    IdempotencyKey = "transport-materialize-1",
-                    RequiredRuntimeFingerprintSha256 = new string('a', 64),
-                    UnitTypeId = "usn_ff_knox_84",
-                    VariantId = "Variant13",
-                    LoadoutId = "Default",
-                    TaskforceId = "taskforce:Blue",
-                    LatitudeMicrodegrees = 12_250_000,
-                    LongitudeMicrodegrees = 44_500_000,
-                    HeadingMillidegrees = 90_000,
-                    Telegraph = 0,
-                    GloballyPaused = true,
+                    campaignId,
+                    canonicalEntityId = primaryEntityId,
+                    gameEntityId,
+                    assignmentId,
+                    authorityEpoch = 11,
+                    idempotencyKey = "transport-materialize-1",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = string.Empty,
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant13",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
                 },
                 JsonOptions,
                 testTimeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, queuedAssignment.StatusCode);
+            Assert.True(
+                queuedAssignment.StatusCode == HttpStatusCode.Accepted,
+                $"Canonical handoff was not queued: {queuedAssignment.StatusCode} "
+                + await queuedAssignment.Content.ReadAsStringAsync(testTimeout.Token));
             var assignmentFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 2,
                 testTimeout.Token);
             var checkpointPublished = Assert.Single(assignmentFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished).CheckpointPublished;
-            Assert.Equal("assignment:transport-integration", checkpointPublished.AssignmentId);
+            Assert.Equal(assignmentId, checkpointPublished.AssignmentId);
             using var checkpointDownload = await campaignClient.GetAsync(
                 $"/content/{checkpointPublished.CheckpointSha256}",
                 testTimeout.Token);
@@ -174,14 +181,55 @@ public sealed class CompanionControlIntegrationTests
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
             Assert.True(prepared.Ready, prepared.ErrorMessage);
 
+            using var activeCampaign = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("lifecycle").GetString() == "Active"),
+                testTimeout.Token);
+            var activeAssignment = Assert.Single(activeCampaign.RootElement.GetProperty("assignments").EnumerateArray());
+            Assert.Equal("Active", activeAssignment.GetProperty("lifecycle").GetString());
+            var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
+            var primaryBeforeAdvance = Assert.Single(activeEntities,
+                item => item.GetProperty("entityId").GetString() == primaryEntityId);
+            var unrelatedBeforeAdvance = Assert.Single(activeEntities,
+                item => item.GetProperty("entityId").GetString() == unrelatedEntityId);
+
+            using var advancedCampaign = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/advance/30",
+                content: null,
+                testTimeout.Token);
+            advancedCampaign.EnsureSuccessStatusCode();
+            using var advance = JsonDocument.Parse(
+                await advancedCampaign.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(30, advance.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.True(advance.RootElement.GetProperty("tacticalEntitiesFrozen").GetBoolean());
+            using var advancedViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            advancedViewResponse.EnsureSuccessStatusCode();
+            using var advancedView = JsonDocument.Parse(
+                await advancedViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var advancedEntities = advancedView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
+            var primaryAfterAdvance = Assert.Single(advancedEntities,
+                item => item.GetProperty("entityId").GetString() == primaryEntityId);
+            var unrelatedAfterAdvance = Assert.Single(advancedEntities,
+                item => item.GetProperty("entityId").GetString() == unrelatedEntityId);
+            Assert.Equal(
+                primaryBeforeAdvance.GetProperty("revision").GetInt64(),
+                primaryAfterAdvance.GetProperty("revision").GetInt64());
+            Assert.True(
+                unrelatedAfterAdvance.GetProperty("revision").GetInt64()
+                > unrelatedBeforeAdvance.GetProperty("revision").GetInt64());
+
             using var queuedCommand = await campaignClient.PostAsJsonAsync(
                 "/control/commands",
                 new OrderedTacticalCommand
                 {
                     CommandId = Guid.NewGuid().ToString("N"),
                     IdempotencyKey = "transport-move-1",
-                    AssignmentId = "assignment:transport-integration",
-                    EntityId = "unit:crimean-tom:transport-knox",
+                    AssignmentId = assignmentId,
+                    EntityId = gameEntityId,
                     AuthorityEpoch = 11,
                     ExpectedEntityRevision = 1,
                     EffectiveTimeQuanta = 1,
@@ -192,7 +240,10 @@ public sealed class CompanionControlIntegrationTests
                 },
                 JsonOptions,
                 testTimeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, queuedCommand.StatusCode);
+            Assert.True(
+                queuedCommand.StatusCode == HttpStatusCode.Accepted,
+                $"Tactical command was not queued: {queuedCommand.StatusCode} "
+                + await queuedCommand.Content.ReadAsStringAsync(testTimeout.Token));
             var commandFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 3,
@@ -200,6 +251,20 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(commandFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
                 && item.TacticalEvent.IdempotencyKey == "transport-move-1");
+            using var movedView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("entities").EnumerateArray().Any(item =>
+                    item.GetProperty("entityId").GetString() == primaryEntityId
+                    && item.GetProperty("latitudeMicrodegrees").GetInt32() == 12_260_000),
+                testTimeout.Token);
+            var movedPrimary = Assert.Single(
+                movedView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId);
+            Assert.Equal(12_260_000, movedPrimary.GetProperty("latitudeMicrodegrees").GetInt32());
+            Assert.Equal(44_510_000, movedPrimary.GetProperty("longitudeMicrodegrees").GetInt32());
+            Assert.Equal(100_000, movedPrimary.GetProperty("headingMilliDegrees").GetInt32());
+            Assert.Equal(1, movedPrimary.GetProperty("telegraph").GetInt32());
 
             campaignService.Kill(entireProcessTree: true);
             await campaignService.WaitForExitAsync(testTimeout.Token);
@@ -215,6 +280,58 @@ public sealed class CompanionControlIntegrationTests
                 firstCampaignSession,
                 testTimeout.Token);
             Assert.NotEqual(firstCampaignSession, secondCampaignSession);
+
+            using var queuedQuiesce = await campaignClient.PostAsJsonAsync(
+                "/control/quiesce",
+                new
+                {
+                    campaignId,
+                    assignmentId,
+                    gameEntityId,
+                    expectedGameRevision = 2,
+                    idempotencyKey = "transport-quiesce-1",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.True(
+                queuedQuiesce.StatusCode == HttpStatusCode.Accepted,
+                $"Quiesce fence was not queued: {queuedQuiesce.StatusCode} "
+                + await queuedQuiesce.Content.ReadAsStringAsync(testTimeout.Token)
+                + Environment.NewLine
+                + ReadSharedText(stdoutPath)
+                + Environment.NewLine
+                + ReadSharedText(Path.Combine(campaignServiceRunDirectory, "service.stdout.log")));
+            var quiesceFrames = await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 5,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                    && item.TacticalEvent.IdempotencyKey == "transport-quiesce-1");
+            Assert.Contains(quiesceFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished
+                && item.CheckpointPublished.EntityRevision == 2);
+            Assert.Contains(quiesceFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                && item.TacticalEvent.IdempotencyKey == "transport-quiesce-1");
+            using var releasedView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("lifecycle").GetString() == "Released")
+                    && root.GetProperty("entities").EnumerateArray().Any(item =>
+                        item.GetProperty("entityId").GetString() == primaryEntityId
+                        && item.GetProperty("fidelity").GetString() == "Operational"),
+                testTimeout.Token);
+            Assert.Equal(
+                "Released",
+                Assert.Single(releasedView.RootElement.GetProperty("assignments").EnumerateArray())
+                    .GetProperty("lifecycle").GetString());
+            Assert.Equal(
+                "Operational",
+                Assert.Single(
+                    releasedView.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == primaryEntityId)
+                    .GetProperty("fidelity").GetString());
 
             using var ping = await GetAuthorizedJsonAsync(
                 client,
@@ -732,6 +849,13 @@ public sealed class CompanionControlIntegrationTests
         }
     }
 
+    private static string ReadSharedText(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
     private static void AssertAnonymousPipeAccessDenied(string pipeName)
     {
         if (!ImpersonateAnonymousToken(GetCurrentThread()))
@@ -813,7 +937,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 10; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 12; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
@@ -1133,13 +1257,13 @@ public sealed class CompanionControlIntegrationTests
         string sessionId,
         long revision,
         string idempotencyKey) => new()
-    {
-        SessionId = sessionId,
-        AssignmentId = "assignment:integration-surface",
-        AuthorityEpoch = 7,
-        ExpectedRevision = revision,
-        IdempotencyKey = idempotencyKey,
-    };
+        {
+            SessionId = sessionId,
+            AssignmentId = "assignment:integration-surface",
+            AuthorityEpoch = 7,
+            ExpectedRevision = revision,
+            IdempotencyKey = idempotencyKey,
+        };
 
     private static string CreateOwnedEntityRequestJson(
         string sessionId,
@@ -1560,7 +1684,10 @@ public sealed class CompanionControlIntegrationTests
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.TryAddWithoutValidation(ProtocolConstants.ControlTokenHeader, token);
         using var response = await client.SendAsync(request, cancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            $"GET {path} returned {response.StatusCode}: "
+            + await response.Content.ReadAsStringAsync(cancellationToken));
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
     }
@@ -1574,7 +1701,10 @@ public sealed class CompanionControlIntegrationTests
         using var request = new HttpRequestMessage(HttpMethod.Post, path);
         request.Headers.TryAddWithoutValidation(ProtocolConstants.ControlTokenHeader, token);
         using var response = await client.SendAsync(request, cancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            $"POST {path} returned {response.StatusCode}: "
+            + await response.Content.ReadAsStringAsync(cancellationToken));
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
     }
@@ -1592,7 +1722,10 @@ public sealed class CompanionControlIntegrationTests
         };
         request.Headers.TryAddWithoutValidation(ProtocolConstants.ControlTokenHeader, token);
         using var response = await client.SendAsync(request, cancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            $"POST {path} returned {response.StatusCode}: "
+            + await response.Content.ReadAsStringAsync(cancellationToken));
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
     }
@@ -1660,13 +1793,28 @@ public sealed class CompanionControlIntegrationTests
         start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        Directory.CreateDirectory(runDirectory);
+        var outputPath = Path.Combine(runDirectory, "service.stdout.log");
+        var outputGate = new object();
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
-        process.OutputDataReceived += (_, _) => { };
-        process.ErrorDataReceived += (_, _) => { };
+        process.OutputDataReceived += (_, args) => AppendLine(args.Data);
+        process.ErrorDataReceived += (_, args) => AppendLine(args.Data);
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         return process;
+
+        void AppendLine(string? line)
+        {
+            if (line is null)
+            {
+                return;
+            }
+            lock (outputGate)
+            {
+                File.AppendAllText(outputPath, line + Environment.NewLine);
+            }
+        }
     }
 
     private static async Task<string> WaitForCampaignServiceAsync(
@@ -1736,7 +1884,8 @@ public sealed class CompanionControlIntegrationTests
     private static async Task<IReadOnlyList<CompanionFrame>> WaitForInboundFramesAsync(
         string runDirectory,
         int count,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<CompanionFrame, bool>? required = null)
     {
         var spool = Path.Combine(runDirectory, "inbound-spool");
         while (true)
@@ -1746,10 +1895,40 @@ public sealed class CompanionControlIntegrationTests
                 var files = Directory.EnumerateFiles(spool, "*.frame", SearchOption.AllDirectories)
                     .OrderBy(path => path, StringComparer.Ordinal)
                     .ToArray();
-                if (files.Length >= count)
+                var authorityFrames = files
+                    .Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path)))
+                    .Where(frame => frame.PayloadCase is
+                        CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                        or CompanionFrame.PayloadOneofCase.CheckpointPublished
+                        or CompanionFrame.PayloadOneofCase.TacticalEvent)
+                    .ToArray();
+                if (authorityFrames.Length >= count
+                    && (required is null || authorityFrames.Any(required)))
                 {
-                    return files.Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path))).ToArray();
+                    return authorityFrames;
                 }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task<JsonDocument> WaitForCampaignViewAsync(
+        HttpClient client,
+        string campaignId,
+        Func<JsonElement, bool> predicate,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            using var response = await client.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                if (predicate(document.RootElement))
+                {
+                    return document;
+                }
+                document.Dispose();
             }
             await Task.Delay(25, cancellationToken);
         }

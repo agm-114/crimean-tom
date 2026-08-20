@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+
 using CrimeanTom.Campaign.Transport.V1;
 
 namespace CrimeanTom.Campaign.ServiceHost;
@@ -76,8 +77,9 @@ public sealed class CampaignCompanionSession
 
     public bool TryQueue(ServiceFrame frame)
     {
-        frame.Sequence = NextSequence();
-        return _outgoing.Writer.TryWrite(frame);
+        var queued = frame.Clone();
+        queued.Sequence = 0;
+        return _outgoing.Writer.TryWrite(queued);
     }
 
     public void Observe(CompanionFrame frame)

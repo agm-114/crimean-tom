@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+
 using CrimeanTom.Campaign.Contracts;
 
 namespace CrimeanTom.Campaign.Domain;
@@ -37,6 +38,8 @@ public sealed record EntityState(
     EntityLifecycle Lifecycle,
     FidelityState Fidelity,
     ImmutableSortedDictionary<ResourceKind, ResourceAmount> Resources,
+    HeadingMilliDegrees Heading,
+    int Telegraph,
     int ReadinessMilliUnits,
     int DamageMilliUnits,
     string ClassifiedTruthTag,
@@ -99,6 +102,7 @@ public sealed record AssignmentState(
     AssignmentRole Role,
     AuthorityEpoch AuthorityEpoch,
     CampaignTime EffectiveAt,
+    AssignmentLifecycle Lifecycle,
     EntityRevision Revision);
 
 public sealed record CampaignState

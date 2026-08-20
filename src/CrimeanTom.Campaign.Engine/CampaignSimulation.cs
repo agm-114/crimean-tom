@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 
@@ -91,7 +92,7 @@ internal static class CampaignSimulation
 
             var activeMembers = group.Members
                 .Select(id => state.Entities[id])
-                .Where(IsOperational)
+                .Where(item => IsOperational(state, item))
                 .ToArray();
             if (activeMembers.Length == 0)
             {
@@ -138,7 +139,7 @@ internal static class CampaignSimulation
 
         var activeMembers = group.Members
             .Select(id => state.Entities[id])
-            .Where(IsOperational)
+            .Where(item => IsOperational(state, item))
             .ToArray();
         if (activeMembers.Length == 0)
         {
@@ -155,7 +156,7 @@ internal static class CampaignSimulation
         var entityUpdates = group.Members.Select(id =>
         {
             var entity = state.Entities[id];
-            if (!IsOperational(entity))
+            if (!IsOperational(state, entity))
             {
                 return entity;
             }
@@ -195,6 +196,10 @@ internal static class CampaignSimulation
         {
             var entity = entities[original.EntityId];
             if (entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+            {
+                continue;
+            }
+            if (entity.Fidelity == FidelityState.Suspended || HasActiveTacticalAuthority(state, entity.EntityId))
             {
                 continue;
             }
@@ -382,8 +387,14 @@ internal static class CampaignSimulation
     private static bool IsActivelyOrdered(CampaignState state, EntityId entityId) =>
         state.Groups.Values.Any(item => item.Members.Contains(entityId) && item.ActiveOrderId is not null);
 
-    private static bool IsOperational(EntityState entity) =>
-        entity.Lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired);
+    private static bool IsOperational(CampaignState state, EntityState entity) =>
+        entity.Lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+        && entity.Fidelity != FidelityState.Suspended
+        && !HasActiveTacticalAuthority(state, entity.EntityId);
+
+    private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
+        state.Assignments.Values.Any(item => item.EntityId == entityId
+            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)

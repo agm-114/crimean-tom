@@ -3,8 +3,10 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
 using CrimeanTom.Campaign.Transport.V1;
 using CrimeanTom.Protocol;
+
 using Grpc.Core;
 using Grpc.Net.Client;
 
@@ -98,41 +100,45 @@ public sealed class CampaignCompanionClient(
                     await SendAcknowledgementAsync(frame.Sequence, stateStore.ReadCursor());
                     break;
                 case ServiceFrame.PayloadOneofCase.Assignment:
-                {
-                    var preparation = await PrepareAssignmentAsync(frame.Assignment, capabilities, token, cancellationToken);
-                    if (preparation.Checkpoint is { } checkpoint)
                     {
+                        var preparation = await PrepareAssignmentAsync(frame.Assignment, capabilities, token, cancellationToken);
+                        if (preparation.Checkpoint is { } checkpoint)
+                        {
+                            await SendAsync(
+                                new CompanionFrame { CheckpointPublished = checkpoint },
+                                $"checkpoint-{checkpoint.AssignmentId}-{checkpoint.EntityRevision}");
+                        }
+                        var prepared = preparation.Prepared;
                         await SendAsync(
-                            new CompanionFrame { CheckpointPublished = checkpoint },
-                            $"checkpoint-{checkpoint.AssignmentId}-{checkpoint.EntityRevision}");
+                            new CompanionFrame { AssignmentPrepared = prepared },
+                            $"assignment-{prepared.AssignmentId}-{prepared.AuthorityEpoch}");
+                        break;
                     }
-                    var prepared = preparation.Prepared;
-                    await SendAsync(
-                        new CompanionFrame { AssignmentPrepared = prepared },
-                        $"assignment-{prepared.AssignmentId}-{prepared.AuthorityEpoch}");
-                    break;
-                }
                 case ServiceFrame.PayloadOneofCase.Command:
-                {
-                    var proposal = await ApplyCommandAsync(frame.Command, cancellationToken);
-                    await SendAsync(
-                        new CompanionFrame { TacticalEvent = proposal },
-                        $"event-{proposal.EventId}");
-                    break;
-                }
+                    {
+                        var proposal = await ApplyCommandAsync(frame.Command, cancellationToken);
+                        await SendAsync(
+                            new CompanionFrame { TacticalEvent = proposal },
+                            $"event-{proposal.EventId}");
+                        break;
+                    }
                 case ServiceFrame.PayloadOneofCase.Fence:
-                {
-                    var proposal = await ApplyFenceAsync(frame.Fence, cancellationToken);
-                    await SendAsync(
-                        new CompanionFrame { TacticalEvent = proposal },
-                        $"event-{proposal.EventId}");
-                    break;
-                }
+                    {
+                        var preparation = await ApplyFenceAsync(frame.Fence, token, cancellationToken);
+                        await SendAsync(
+                            new CompanionFrame { CheckpointPublished = preparation.Checkpoint },
+                            $"checkpoint-{preparation.Checkpoint.AssignmentId}-{preparation.Checkpoint.EntityRevision}");
+                        var proposal = preparation.Proposal;
+                        await SendAsync(
+                            new CompanionFrame { TacticalEvent = proposal },
+                            $"event-{proposal.EventId}");
+                        break;
+                    }
                 case ServiceFrame.PayloadOneofCase.Acknowledgement:
                     if (pending.TryRemove(frame.Acknowledgement.CompanionSequence, out var key)
                         && frame.Acknowledgement.DurablyAccepted)
                     {
-                        stateStore.AcknowledgeOutbound(key);
+                        await stateStore.AcknowledgeOutboundAsync(key, cancellationToken);
                     }
                     break;
                 case ServiceFrame.PayloadOneofCase.Error:
@@ -331,12 +337,29 @@ public sealed class CampaignCompanionClient(
             LatitudeMicrodegrees = checked((int)Math.Round((update.Unit.Latitude ?? 0) * 1_000_000)),
             LongitudeMicrodegrees = checked((int)Math.Round((update.Unit.Longitude ?? 0) * 1_000_000)),
             HeadingMillidegrees = checked((int)Math.Round((update.Unit.HeadingDegrees ?? 0) * 1_000)),
+            Telegraph = update.Unit.Telegraph,
             Destroyed = update.Unit.IsDestroyed,
         };
     }
 
-    private async Task<TacticalEventProposal> ApplyFenceAsync(AuthorityFence fence, CancellationToken cancellationToken)
+    private async Task<FencePreparation> ApplyFenceAsync(
+        AuthorityFence fence,
+        string serviceToken,
+        CancellationToken cancellationToken)
     {
+        var checkpointResult = await RequireGameCommandAsync(
+            GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
+            JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+            {
+                Context = Context(fence.AssignmentId, fence.FencedAuthorityEpoch,
+                    fence.ExpectedEntityRevision, $"{fence.IdempotencyKey}-checkpoint"),
+                EntityId = fence.EntityId,
+            }, JsonOptions),
+            cancellationToken);
+        var checkpointBytes = Encoding.UTF8.GetBytes(checkpointResult.ResultJson);
+        var checkpointHash = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
+        await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
+
         var result = await RequireGameCommandAsync(
             GameCommandTypes.SetOwnedSurfaceSuspension,
             JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
@@ -349,17 +372,27 @@ public sealed class CampaignCompanionClient(
             cancellationToken);
         var suspension = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Tactical fence result was empty.");
-        return new TacticalEventProposal
-        {
-            EventId = DeterministicId(fence.AssignmentId, fence.IdempotencyKey),
-            IdempotencyKey = fence.IdempotencyKey,
-            AssignmentId = fence.AssignmentId,
-            EntityId = fence.EntityId,
-            AuthorityEpoch = fence.FencedAuthorityEpoch,
-            ExpectedEntityRevision = suspension.Revision - 1,
-            EffectiveTimeQuanta = fence.EffectiveTimeQuanta,
-            Kind = TacticalEventKind.Checkpoint,
-        };
+        return new FencePreparation(
+            new TacticalEventProposal
+            {
+                EventId = DeterministicId(fence.AssignmentId, fence.IdempotencyKey),
+                IdempotencyKey = fence.IdempotencyKey,
+                AssignmentId = fence.AssignmentId,
+                EntityId = fence.EntityId,
+                AuthorityEpoch = fence.FencedAuthorityEpoch,
+                ExpectedEntityRevision = suspension.Revision - 1,
+                EffectiveTimeQuanta = fence.EffectiveTimeQuanta,
+                Kind = TacticalEventKind.Checkpoint,
+            },
+            new CheckpointPublished
+            {
+                AssignmentId = fence.AssignmentId,
+                EntityId = fence.EntityId,
+                AuthorityEpoch = fence.FencedAuthorityEpoch,
+                EntityRevision = fence.ExpectedEntityRevision,
+                CheckpointSha256 = checkpointHash,
+                CheckpointLength = checkpointBytes.Length,
+            });
     }
 
     private async Task<GameCommandResult> RequireGameCommandAsync(
@@ -412,4 +445,6 @@ public sealed class CampaignCompanionClient(
         ?? throw new InvalidOperationException("The game session ended during campaign work.");
 
     private sealed record AssignmentPreparation(AssignmentPrepared Prepared, CheckpointPublished? Checkpoint);
+
+    private sealed record FencePreparation(TacticalEventProposal Proposal, CheckpointPublished Checkpoint);
 }

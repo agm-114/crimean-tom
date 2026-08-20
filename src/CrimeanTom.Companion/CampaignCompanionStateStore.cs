@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+
 using CrimeanTom.Campaign.Transport.V1;
+
 using Google.Protobuf;
 
 namespace CrimeanTom.Companion;
@@ -59,21 +61,29 @@ public sealed class CampaignCompanionStateStore
         {
             throw new InvalidDataException("A bounded durable outbound key is required.");
         }
-        var directory = Path.Combine(_root, "outbound");
-        Directory.CreateDirectory(directory);
-        var normalized = frame.Clone();
-        normalized.Sequence = 0;
-        var destination = Path.Combine(directory, $"{safeKey}.frame");
-        var content = normalized.ToByteArray();
-        if (File.Exists(destination))
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            if (!File.ReadAllBytes(destination).AsSpan().SequenceEqual(content))
+            var directory = Path.Combine(_root, "outbound");
+            Directory.CreateDirectory(directory);
+            var normalized = frame.Clone();
+            normalized.Sequence = 0;
+            var destination = Path.Combine(directory, $"{safeKey}.frame");
+            var content = normalized.ToByteArray();
+            if (File.Exists(destination))
             {
-                throw new InvalidDataException("A durable outbound key was reused with different bytes.");
+                if (!File.ReadAllBytes(destination).AsSpan().SequenceEqual(content))
+                {
+                    throw new InvalidDataException("A durable outbound key was reused with different bytes.");
+                }
+                return;
             }
-            return;
+            await WriteAtomicallyAsync(destination, content, cancellationToken);
         }
-        await WriteAtomicallyAsync(destination, content, cancellationToken);
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public IReadOnlyList<StagedCompanionFrame> ReadOutbound()
@@ -91,12 +101,20 @@ public sealed class CampaignCompanionStateStore
             .ToArray();
     }
 
-    public void AcknowledgeOutbound(string key)
+    public async Task AcknowledgeOutboundAsync(string key, CancellationToken cancellationToken)
     {
-        var path = Path.Combine(_root, "outbound", $"{key}.frame");
-        if (File.Exists(path))
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            File.Delete(path);
+            var path = Path.Combine(_root, "outbound", $"{key}.frame");
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
