@@ -24,6 +24,37 @@ public sealed record CampaignRecoveryResult(
     CommitPosition SnapshotPosition,
     string CanonicalHash);
 
+public enum CampaignBlobPurpose
+{
+    TacticalCheckpoint,
+    Catalog,
+}
+
+public sealed record ContentAddressedBlob(
+    string Sha256,
+    long Length,
+    bool Duplicate);
+
+public sealed record CampaignBlobReference(
+    CampaignId CampaignId,
+    CampaignBlobPurpose Purpose,
+    string LogicalId,
+    CommitPosition CommitPosition,
+    string Sha256,
+    long Length,
+    bool Duplicate);
+
+public sealed record CampaignIntegrityHead(
+    CampaignId CampaignId,
+    CommitPosition CommitPosition,
+    string CanonicalHash);
+
+public sealed record CampaignIntegrityReport(
+    IReadOnlyList<CampaignIntegrityHead> Campaigns,
+    int EventCount,
+    int SnapshotCount,
+    int ReferencedBlobCount);
+
 public sealed class CampaignStoreConflict(string code, string message) : InvalidOperationException(message)
 {
     public string Code { get; } = code;

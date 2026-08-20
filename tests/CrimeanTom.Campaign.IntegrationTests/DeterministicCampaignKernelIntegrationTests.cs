@@ -188,6 +188,19 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                     Assert.False(snapshot.Duplicate);
                     var duplicateSnapshot = await journal.SaveSnapshotAsync(lease, durableState, now);
                     Assert.True(duplicateSnapshot.Duplicate);
+
+                    var checkpointBytes = Encoding.UTF8.GetBytes("portable-checkpoint-at-commit-10");
+                    var checkpoint = await journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
+                        "assignment-7/checkpoint-10", durableState.Head, checkpointBytes, now);
+                    Assert.False(checkpoint.Duplicate);
+                    Assert.Equal(checkpointBytes, await journal.ReadBlobAsync(checkpoint.Sha256));
+                    var duplicateCheckpoint = await journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
+                        "assignment-7/checkpoint-10", durableState.Head, checkpointBytes, now);
+                    Assert.True(duplicateCheckpoint.Duplicate);
+                    var blobConflict = await Assert.ThrowsAsync<CampaignStoreConflict>(() => journal.PutBlobAsync(
+                        lease, CampaignBlobPurpose.TacticalCheckpoint, "assignment-7/checkpoint-10",
+                        durableState.Head, Encoding.UTF8.GetBytes("different-checkpoint"), now));
+                    Assert.Equal("blob-reference-conflict", blobConflict.Code);
                 }
             }
 
@@ -215,6 +228,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.Equal(theater.Hash, recovered.CanonicalHash);
             Assert.Equal(CampaignCanonicalSerializer.Serialize(theater.State),
                 CampaignCanonicalSerializer.Serialize(recovered.State));
+            var integrity = await journal.VerifyIntegrityAsync();
+            Assert.Single(integrity.Campaigns);
+            Assert.Equal(theater.Events.Count, integrity.EventCount);
+            Assert.Equal(1, integrity.SnapshotCount);
+            Assert.Equal(1, integrity.ReferencedBlobCount);
 
             var replacement = await journal.AcquireWriterAsync(Ids.Campaign, coordinatorA, now, TimeSpan.FromMinutes(2));
             Assert.True(replacement.WriterEpoch.Value > lease.WriterEpoch.Value);

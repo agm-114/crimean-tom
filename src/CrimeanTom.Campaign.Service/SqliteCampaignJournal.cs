@@ -9,10 +9,11 @@ namespace CrimeanTom.Campaign.Service;
 
 public sealed class SqliteCampaignJournal
 {
-    private const int DatabaseSchemaVersion = 2;
+    private const int DatabaseSchemaVersion = 3;
     private readonly string _connectionString;
+    private readonly ContentAddressedBlobStore _blobStore;
 
-    public SqliteCampaignJournal(string databasePath)
+    public SqliteCampaignJournal(string databasePath, string? blobDirectory = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -21,6 +22,8 @@ public sealed class SqliteCampaignJournal
 
         var fullPath = Path.GetFullPath(databasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        _blobStore = new ContentAddressedBlobStore(blobDirectory
+            ?? Path.Combine(Path.GetDirectoryName(fullPath)!, $"{Path.GetFileName(fullPath)}.blobs"));
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = fullPath,
@@ -58,6 +61,11 @@ public sealed class SqliteCampaignJournal
             if (current == 1)
             {
                 await ExecuteAsync(connection, transaction, SnapshotSchemaSql, cancellationToken);
+                current = 2;
+            }
+            if (current == 2)
+            {
+                await ExecuteAsync(connection, transaction, BlobSchemaSql, cancellationToken);
             }
             await ExecuteAsync(connection, transaction, $"PRAGMA user_version={DatabaseSchemaVersion};", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -335,6 +343,215 @@ public sealed class SqliteCampaignJournal
         var result = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;
+    }
+
+    public async Task<CampaignBlobReference> PutBlobAsync(
+        CampaignWriterLease lease,
+        CampaignBlobPurpose purpose,
+        string logicalId,
+        CommitPosition commitPosition,
+        ReadOnlyMemory<byte> content,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        if (!Enum.IsDefined(purpose) || string.IsNullOrWhiteSpace(logicalId) || logicalId.Length > 256)
+        {
+            throw Conflict("blob-reference-invalid", "A blob purpose and logical ID of at most 256 characters are required.");
+        }
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
+        var head = await ReadHeadAsync(connection, transaction, lease.CampaignId, cancellationToken);
+        if (commitPosition.Value < 0 || commitPosition.Value > head.Value)
+        {
+            throw Conflict("blob-position-invalid", "A blob reference cannot be newer than the durable campaign head.");
+        }
+
+        var blob = await _blobStore.PutAsync(content, cancellationToken);
+        await using (var insertBlob = connection.CreateCommand())
+        {
+            insertBlob.Transaction = transaction;
+            insertBlob.CommandText = """
+                INSERT INTO blobs (content_hash, content_length) VALUES ($hash, $length)
+                ON CONFLICT(content_hash) DO NOTHING;
+                """;
+            insertBlob.Parameters.AddWithValue("$hash", blob.Sha256);
+            insertBlob.Parameters.AddWithValue("$length", blob.Length);
+            await insertBlob.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var verifyBlob = connection.CreateCommand())
+        {
+            verifyBlob.Transaction = transaction;
+            verifyBlob.CommandText = "SELECT content_length FROM blobs WHERE content_hash = $hash;";
+            verifyBlob.Parameters.AddWithValue("$hash", blob.Sha256);
+            if (Convert.ToInt64(await verifyBlob.ExecuteScalarAsync(cancellationToken)) != blob.Length)
+            {
+                throw Conflict("blob-hash-collision", "A content hash is already registered with a different length.");
+            }
+        }
+
+        var inserted = false;
+        await using (var insertReference = connection.CreateCommand())
+        {
+            insertReference.Transaction = transaction;
+            insertReference.CommandText = """
+                INSERT INTO campaign_blob_refs (
+                    campaign_id, purpose, logical_id, commit_position, content_hash)
+                VALUES ($campaign_id, $purpose, $logical_id, $position, $hash)
+                ON CONFLICT(campaign_id, purpose, logical_id) DO NOTHING;
+                """;
+            insertReference.Parameters.AddWithValue("$campaign_id", lease.CampaignId.ToString());
+            insertReference.Parameters.AddWithValue("$purpose", (int)purpose);
+            insertReference.Parameters.AddWithValue("$logical_id", logicalId);
+            insertReference.Parameters.AddWithValue("$position", commitPosition.Value);
+            insertReference.Parameters.AddWithValue("$hash", blob.Sha256);
+            inserted = await insertReference.ExecuteNonQueryAsync(cancellationToken) == 1;
+        }
+
+        if (!inserted)
+        {
+            await using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = """
+                SELECT commit_position, content_hash FROM campaign_blob_refs
+                WHERE campaign_id = $campaign_id AND purpose = $purpose AND logical_id = $logical_id;
+                """;
+            existing.Parameters.AddWithValue("$campaign_id", lease.CampaignId.ToString());
+            existing.Parameters.AddWithValue("$purpose", (int)purpose);
+            existing.Parameters.AddWithValue("$logical_id", logicalId);
+            await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)
+                || reader.GetInt64(0) != commitPosition.Value
+                || reader.GetString(1) != blob.Sha256)
+            {
+                throw Conflict("blob-reference-conflict", "The logical blob identity already references different content or time.");
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new CampaignBlobReference(lease.CampaignId, purpose, logicalId, commitPosition,
+            blob.Sha256, blob.Length, Duplicate: !inserted);
+    }
+
+    public Task<byte[]> ReadBlobAsync(string sha256, CancellationToken cancellationToken = default) =>
+        _blobStore.ReadAsync(sha256, cancellationToken);
+
+    public async Task<CampaignIntegrityReport> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: true);
+        await using (var integrity = connection.CreateCommand())
+        {
+            integrity.Transaction = transaction;
+            integrity.CommandText = "PRAGMA integrity_check;";
+            var result = Convert.ToString(await integrity.ExecuteScalarAsync(cancellationToken));
+            if (!string.Equals(result, "ok", StringComparison.Ordinal))
+            {
+                throw Conflict("database-corrupt", $"SQLite integrity check failed: {result}");
+            }
+        }
+
+        var campaigns = new List<CampaignIntegrityHead>();
+        await using (var campaignQuery = connection.CreateCommand())
+        {
+            campaignQuery.Transaction = transaction;
+            campaignQuery.CommandText = "SELECT campaign_id, head FROM campaigns ORDER BY campaign_id;";
+            await using var reader = await campaignQuery.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var campaignId = new CampaignId(Guid.ParseExact(reader.GetString(0), "N"));
+                var head = new CommitPosition(reader.GetInt64(1));
+                var recovered = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
+                campaigns.Add(new CampaignIntegrityHead(campaignId, head, recovered.CanonicalHash));
+            }
+        }
+
+        var eventCount = await CountAsync(connection, transaction, "events", cancellationToken);
+        var commandCount = await CountAsync(connection, transaction, "commands", cancellationToken);
+        if (eventCount != commandCount || eventCount != campaigns.Sum(item => item.CommitPosition.Value))
+        {
+            throw Conflict("journal-count-conflict", "Command, event, and campaign-head counts disagree.");
+        }
+
+        var expectedRevisions = new Dictionary<(string Campaign, int Kind, string Subject), long>();
+        await using (var events = connection.CreateCommand())
+        {
+            events.Transaction = transaction;
+            events.CommandText = """
+                SELECT campaign_id, subject_kind, subject_id, new_subject_revision
+                FROM events ORDER BY campaign_id, commit_position;
+                """;
+            await using var reader = await events.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                expectedRevisions[(reader.GetString(0), reader.GetInt32(1), reader.GetString(2))] = reader.GetInt64(3);
+            }
+        }
+
+        var actualRevisions = new Dictionary<(string Campaign, int Kind, string Subject), long>();
+        await using (var revisions = connection.CreateCommand())
+        {
+            revisions.Transaction = transaction;
+            revisions.CommandText = "SELECT campaign_id, subject_kind, subject_id, revision FROM subject_revisions;";
+            await using var reader = await revisions.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                actualRevisions.Add((reader.GetString(0), reader.GetInt32(1), reader.GetString(2)), reader.GetInt64(3));
+            }
+        }
+        if (expectedRevisions.Count != actualRevisions.Count
+            || expectedRevisions.Any(item => !actualRevisions.TryGetValue(item.Key, out var value) || value != item.Value))
+        {
+            throw Conflict("subject-revision-corrupt", "Durable subject revisions disagree with the event journal.");
+        }
+
+        var snapshotCount = 0;
+        await using (var snapshots = connection.CreateCommand())
+        {
+            snapshots.Transaction = transaction;
+            snapshots.CommandText = "SELECT campaign_id, commit_position, state_hash, snapshot_json FROM snapshots;";
+            await using var reader = await snapshots.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                snapshotCount++;
+                var campaignId = reader.GetString(0);
+                var position = reader.GetInt64(1);
+                var hash = reader.GetString(2);
+                var json = (byte[])reader[3];
+                VerifyHash(json, hash, "snapshot-corrupt");
+                var state = CampaignCanonicalSerializer.Deserialize(json);
+                if (state.Metadata.CampaignId.ToString() != campaignId || state.Head.Value != position
+                    || CampaignCanonicalSerializer.ComputeHash(state) != hash)
+                {
+                    throw Conflict("snapshot-corrupt", "A stored snapshot identity, position, or canonical hash is invalid.");
+                }
+            }
+        }
+
+        var referencedBlobs = new Dictionary<string, long>(StringComparer.Ordinal);
+        await using (var blobs = connection.CreateCommand())
+        {
+            blobs.Transaction = transaction;
+            blobs.CommandText = """
+                SELECT DISTINCT blobs.content_hash, blobs.content_length FROM blobs
+                JOIN campaign_blob_refs USING (content_hash) ORDER BY blobs.content_hash;
+                """;
+            await using var reader = await blobs.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                referencedBlobs.Add(reader.GetString(0), reader.GetInt64(1));
+            }
+        }
+        foreach (var blob in referencedBlobs)
+        {
+            await _blobStore.VerifyAsync(blob.Key, blob.Value, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new CampaignIntegrityReport(campaigns, eventCount, snapshotCount, referencedBlobs.Count);
     }
 
     public async Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
@@ -727,6 +944,24 @@ public sealed class SqliteCampaignJournal
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task<int> CountAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string table,
+        CancellationToken cancellationToken)
+    {
+        var sql = table switch
+        {
+            "events" => "SELECT COUNT(*) FROM events;",
+            "commands" => "SELECT COUNT(*) FROM commands;",
+            _ => throw new ArgumentOutOfRangeException(nameof(table)),
+        };
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
     private static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
 
     private static void VerifyHash(byte[] content, string expectedHash, string errorCode)
@@ -756,6 +991,24 @@ public sealed class SqliteCampaignJournal
             snapshot_json BLOB NOT NULL,
             PRIMARY KEY (campaign_id, commit_position),
             FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
+        ) STRICT;
+        """;
+
+    private const string BlobSchemaSql = """
+        CREATE TABLE blobs (
+            content_hash TEXT PRIMARY KEY,
+            content_length INTEGER NOT NULL CHECK (content_length >= 0)
+        ) STRICT;
+
+        CREATE TABLE campaign_blob_refs (
+            campaign_id TEXT NOT NULL,
+            purpose INTEGER NOT NULL,
+            logical_id TEXT NOT NULL,
+            commit_position INTEGER NOT NULL CHECK (commit_position >= 0),
+            content_hash TEXT NOT NULL,
+            PRIMARY KEY (campaign_id, purpose, logical_id),
+            FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id),
+            FOREIGN KEY (content_hash) REFERENCES blobs(content_hash)
         ) STRICT;
         """;
 

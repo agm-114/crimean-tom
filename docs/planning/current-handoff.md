@@ -204,8 +204,13 @@ Canonical snapshots are strict-decoded, invariant-checked against durable
 journal replay before storage, content-hashed, and used as a recovery base for
 the remaining journal tail.
 
-The next slice remains Phase 3B: add adjacent content-addressed blobs, database
-integrity diagnostics, and database-plus-blob backup/restore, then inject
+Portable checkpoint and catalog payloads now use an adjacent immutable SHA-256
+blob store. A live writer epoch binds each logical reference to a campaign commit
+position, and full integrity verification crosses SQLite, snapshots, subject
+revisions, event hashes, and every referenced blob.
+
+The next slice remains Phase 3B: add atomic database-plus-blob backup/restore,
+then inject
 interruption at validation, append, snapshot, and acknowledgement boundaries.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
