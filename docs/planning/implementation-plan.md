@@ -462,7 +462,8 @@ content hashes, strict idempotency behavior, ordered reads, and origin-to-head
 replay are implemented. Canonical snapshots now decode strictly, validate all
 domain invariants, and recover by replaying the journal tail. Adjacent
 content-addressed checkpoint/catalog blobs and cross-store integrity diagnostics
-are implemented. Atomic backup/restore and crash-boundary injection remain open. See the
+are implemented. Staged atomic database-plus-blob backup and restore are also
+implemented. Crash-boundary injection remains open. See the
 [Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
 
 - Acquire a compare-and-swap writer epoch before the first durable mutation;

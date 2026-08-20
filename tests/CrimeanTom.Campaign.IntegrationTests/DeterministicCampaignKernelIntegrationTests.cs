@@ -177,6 +177,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
             var durableState = CampaignState.Create(theater.State.Metadata);
             CampaignSnapshotInfo? snapshot = null;
+            CampaignBlobReference? checkpoint = null;
             for (var index = 0; index < theater.Commands.Count; index++)
             {
                 var append = await journal.AppendAsync(lease, theater.Commands[index], theater.Events[index], now);
@@ -190,7 +191,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                     Assert.True(duplicateSnapshot.Duplicate);
 
                     var checkpointBytes = Encoding.UTF8.GetBytes("portable-checkpoint-at-commit-10");
-                    var checkpoint = await journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
+                    checkpoint = await journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
                         "assignment-7/checkpoint-10", durableState.Head, checkpointBytes, now);
                     Assert.False(checkpoint.Duplicate);
                     Assert.Equal(checkpointBytes, await journal.ReadBlobAsync(checkpoint.Sha256));
@@ -233,6 +234,26 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.Equal(theater.Events.Count, integrity.EventCount);
             Assert.Equal(1, integrity.SnapshotCount);
             Assert.Equal(1, integrity.ReferencedBlobCount);
+
+            var backup = await journal.CreateBackupAsync(Path.Combine(directory, "backup"));
+            Assert.Equal(theater.Hash, Assert.Single(backup.Integrity.Campaigns).CanonicalHash);
+            var restore = await SqliteCampaignJournal.RestoreBackupAsync(
+                backup.BackupDirectory, Path.Combine(directory, "restored"));
+            var restoredJournal = new SqliteCampaignJournal(restore.DatabasePath, restore.BlobDirectory);
+            var restored = await restoredJournal.RecoverAsync(Ids.Campaign);
+            Assert.Equal(theater.Hash, restored.CanonicalHash);
+            Assert.NotNull(checkpoint);
+            Assert.Equal(Encoding.UTF8.GetBytes("portable-checkpoint-at-commit-10"),
+                await restoredJournal.ReadBlobAsync(checkpoint.Sha256));
+            var restoredFenced = await Assert.ThrowsAsync<CampaignStoreConflict>(() =>
+                restoredJournal.AppendAsync(lease, theater.Commands[0], theater.Events[0], now));
+            Assert.Equal("writer-fenced", restoredFenced.Code);
+            var restoredLease = await restoredJournal.AcquireWriterAsync(
+                Ids.Campaign, coordinatorB, now, TimeSpan.FromMinutes(2));
+            var restoredDuplicate = await restoredJournal.AppendAsync(
+                restoredLease, theater.Commands[0], theater.Events[0], now);
+            Assert.True(restoredDuplicate.Duplicate);
+            await restoredJournal.ReleaseWriterAsync(restoredLease);
 
             var replacement = await journal.AcquireWriterAsync(Ids.Campaign, coordinatorA, now, TimeSpan.FromMinutes(2));
             Assert.True(replacement.WriterEpoch.Value > lease.WriterEpoch.Value);

@@ -6,7 +6,9 @@ Date: 20 August 2026
 
 Phase 3B is in progress. This checkpoint implements the fenced transactional
 journal, validated canonical snapshots, content-addressed blobs, and full-store
-integrity verification. It does not claim backup or crash-recovery work is complete.
+integrity verification. Atomic backup and restore are also implemented;
+crash-boundary recovery and the independent process-level writer proof remain
+incomplete.
 
 ## Implemented durable boundary
 
@@ -76,6 +78,22 @@ head, reconciles command/event/head counts, reconstructs the exact latest
 subject-revision table from the journal, validates every snapshot, and verifies
 the length and SHA-256 content of every referenced external blob.
 
+## Atomic backup and restore
+
+Backup uses SQLite's online backup API to create a consistent database image in
+a private staging directory. It reads the exact blob-reference set from that
+copied image, copies and re-hashes only those immutable objects, runs the full
+cross-store integrity check on the staged bundle, and writes a strict manifest
+containing the database hash, campaign heads/hashes, and blob hashes/lengths.
+Renaming the complete staging directory is the only publication point.
+
+Restore refuses an existing destination, verifies the strict manifest and every
+byte before staging, copies the database and blobs durably, increments all
+writer epochs while clearing owners/expiries, re-runs full integrity and campaign
+head comparison, and publishes the restored storage with one directory rename.
+Thus a coordinator authorized before the backup cannot write to the restored
+timeline.
+
 ## Broad integration evidence
 
 The existing single campaign story now crosses both the pure kernel and a real
@@ -94,8 +112,11 @@ temporary SQLite database. It:
 11. atomically writes, reads, and retries a checkpoint blob while rejecting changed
     bytes under the same logical reference;
 12. passes the full cross-store integrity check;
-13. reacquires under coordinator A, incrementing the epoch and fencing its old handle; and
-14. releases the replacement so coordinator B can acquire a still-newer epoch.
+13. creates a staged database-plus-blob backup and validates its campaign hash;
+14. restores the bundle, reads the restored checkpoint, and recovers the same canonical head;
+15. proves the source writer handle is fenced in the restored database;
+16. reacquires under coordinator A, incrementing the source epoch and fencing its old handle; and
+17. releases the replacement so coordinator B can acquire a still-newer source epoch.
 
 The temporary database, WAL, and shared-memory files are removed after the broad
 story closes all connections.
@@ -109,5 +130,4 @@ dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.Integ
 ## Remaining work
 
 - crash injection at validation, append, snapshot, and acknowledgement boundaries;
-- atomic database-and-blob backup/export and restore;
 - process-level two-coordinator and kill/restart evidence for the full Phase 3 gate.

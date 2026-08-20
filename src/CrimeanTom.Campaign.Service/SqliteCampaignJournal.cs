@@ -10,6 +10,7 @@ namespace CrimeanTom.Campaign.Service;
 public sealed class SqliteCampaignJournal
 {
     private const int DatabaseSchemaVersion = 3;
+    private readonly string _databasePath;
     private readonly string _connectionString;
     private readonly ContentAddressedBlobStore _blobStore;
 
@@ -21,6 +22,7 @@ public sealed class SqliteCampaignJournal
         }
 
         var fullPath = Path.GetFullPath(databasePath);
+        _databasePath = fullPath;
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _blobStore = new ContentAddressedBlobStore(blobDirectory
             ?? Path.Combine(Path.GetDirectoryName(fullPath)!, $"{Path.GetFileName(fullPath)}.blobs"));
@@ -553,6 +555,17 @@ public sealed class SqliteCampaignJournal
         await transaction.CommitAsync(cancellationToken);
         return new CampaignIntegrityReport(campaigns, eventCount, snapshotCount, referencedBlobs.Count);
     }
+
+    public Task<CampaignBackupResult> CreateBackupAsync(
+        string destinationDirectory,
+        CancellationToken cancellationToken = default) =>
+        CampaignBackupManager.CreateAsync(_databasePath, _blobStore, destinationDirectory, cancellationToken);
+
+    public static Task<CampaignRestoreResult> RestoreBackupAsync(
+        string backupDirectory,
+        string destinationStorageDirectory,
+        CancellationToken cancellationToken = default) =>
+        CampaignBackupManager.RestoreAsync(backupDirectory, destinationStorageDirectory, cancellationToken);
 
     public async Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
         CampaignId campaignId,

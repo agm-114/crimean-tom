@@ -55,6 +55,17 @@ public sealed record CampaignIntegrityReport(
     int SnapshotCount,
     int ReferencedBlobCount);
 
+public sealed record CampaignBackupResult(
+    string BackupDirectory,
+    string DatabaseSha256,
+    CampaignIntegrityReport Integrity);
+
+public sealed record CampaignRestoreResult(
+    string StorageDirectory,
+    string DatabasePath,
+    string BlobDirectory,
+    CampaignIntegrityReport Integrity);
+
 public sealed class CampaignStoreConflict(string code, string message) : InvalidOperationException(message)
 {
     public string Code { get; } = code;

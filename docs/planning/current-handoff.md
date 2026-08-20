@@ -209,9 +209,14 @@ blob store. A live writer epoch binds each logical reference to a campaign commi
 position, and full integrity verification crosses SQLite, snapshots, subject
 revisions, event hashes, and every referenced blob.
 
-The next slice remains Phase 3B: add atomic database-plus-blob backup/restore,
-then inject
-interruption at validation, append, snapshot, and acknowledgement boundaries.
+Backup now copies a consistent SQLite image, derives the exact referenced blob
+set from that copied database, verifies the staged bundle, and publishes it with
+one directory rename. Restore verifies the manifest/database/blob hashes,
+reconstructs every campaign, fences all pre-backup writer epochs, and atomically
+publishes a new storage directory.
+
+The next slice remains Phase 3B: inject interruption at validation, append,
+snapshot, blob-reference, backup-publication, and acknowledgement boundaries.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
