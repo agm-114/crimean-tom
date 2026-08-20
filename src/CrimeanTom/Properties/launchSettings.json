@@ -2,8 +2,9 @@
   "profiles": {
     "Sea Power": {
       "commandName": "Executable",
-      "executablePath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Sea Power\\Sea Power.exe",
-      "workingDirectory": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Sea Power"
+      "executablePath": "C:\\Program Files (x86)\\Steam\\steam.exe",
+      "commandLineArgs": "-applaunch 1286220",
+      "workingDirectory": "C:\\Program Files (x86)\\Steam"
     }
   }
 }

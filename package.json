@@ -1,0 +1,14 @@
+{
+  "name": "crimean-tom",
+  "private": true,
+  "packageManager": "pnpm@10.9.0",
+  "scripts": {
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 build",
+    "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 deploy",
+    "launch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 launch",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 verify",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 dev",
+    "logs": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 logs",
+    "status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 status"
+  }
+}

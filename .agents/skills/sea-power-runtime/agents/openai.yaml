@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sea Power Runtime"
+  short_description: "Build, launch, and verify the Sea Power mod"
+  default_prompt: "Use $sea-power-runtime to build, launch, and verify Crimean Tom in Sea Power."

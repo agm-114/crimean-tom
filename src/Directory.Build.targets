@@ -13,10 +13,15 @@
     <PropertyGroup>
       <_PluginDeployDir>$(StreamingAssets)\CrimeanTom</_PluginDeployDir>
     </PropertyGroup>
+    <ItemGroup>
+      <_PluginDeployFile Include="$(TargetPath)" />
+      <_PluginDeployFile Include="$(TargetDir)$(TargetName).pdb"
+                         Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    </ItemGroup>
     <MakeDir Directories="$(_PluginDeployDir)" />
-    <Copy SourceFiles="$(TargetPath)"
+    <Copy SourceFiles="@(_PluginDeployFile)"
           DestinationFolder="$(_PluginDeployDir)"
           SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="Copied $(TargetFileName) to $(_PluginDeployDir)" />
+    <Message Importance="high" Text="Deployed @(_PluginDeployFile->'%(Filename)%(Extension)', ', ') to $(_PluginDeployDir)" />
   </Target>
 </Project>

@@ -8,6 +8,7 @@ public sealed class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        Debug.Log("[Crimean Tom] loaded via AnchorChain");
+        var assembly = typeof(Plugin).Assembly;
+        Debug.Log($"[Crimean Tom] loaded via AnchorChain v{assembly.GetName().Version} from {assembly.Location}");
     }
 }
