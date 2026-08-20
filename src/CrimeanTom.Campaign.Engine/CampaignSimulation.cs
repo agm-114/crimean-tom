@@ -89,7 +89,16 @@ internal static class CampaignSimulation
                 continue;
             }
 
-            var first = state.Entities[group.Members.Min];
+            var activeMembers = group.Members
+                .Select(id => state.Entities[id])
+                .Where(IsOperational)
+                .ToArray();
+            if (activeMembers.Length == 0)
+            {
+                continue;
+            }
+
+            var first = activeMembers[0];
             var neighbors = Neighbors(state, first.RegionId);
             if (neighbors.Count == 0)
             {
@@ -127,12 +136,29 @@ internal static class CampaignSimulation
             return new GroupMovementResult(group.GroupId, group, null, []);
         }
 
-        var origin = state.Entities[group.Members.Min].RegionId;
+        var activeMembers = group.Members
+            .Select(id => state.Entities[id])
+            .Where(IsOperational)
+            .ToArray();
+        if (activeMembers.Length == 0)
+        {
+            return new GroupMovementResult(
+                group.GroupId,
+                group with { ActiveOrderId = null, Revision = group.Revision.Next() },
+                order with { CompletedAt = dueAt, Revision = order.Revision.Next() },
+                []);
+        }
+
+        var origin = activeMembers[0].RegionId;
         var next = NextRegion(state, origin, order.DestinationRegionId);
         var moved = next != origin;
         var entityUpdates = group.Members.Select(id =>
         {
             var entity = state.Entities[id];
+            if (!IsOperational(entity))
+            {
+                return entity;
+            }
             var resources = entity.Resources;
             if (moved)
             {
@@ -168,6 +194,10 @@ internal static class CampaignSimulation
         foreach (var original in state.Entities.Values)
         {
             var entity = entities[original.EntityId];
+            if (entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+            {
+                continue;
+            }
             var resources = entity.Resources;
             var damage = entity.DamageMilliUnits;
             var lifecycle = entity.Lifecycle;
@@ -216,6 +246,10 @@ internal static class CampaignSimulation
             else if (damage >= 800_000)
             {
                 lifecycle = EntityLifecycle.Disabled;
+            }
+            else if (lifecycle == EntityLifecycle.Disabled && home is not null)
+            {
+                lifecycle = EntityLifecycle.Available;
             }
 
             var readiness = Math.Clamp(
@@ -347,6 +381,9 @@ internal static class CampaignSimulation
 
     private static bool IsActivelyOrdered(CampaignState state, EntityId entityId) =>
         state.Groups.Values.Any(item => item.Members.Contains(entityId) && item.ActiveOrderId is not null);
+
+    private static bool IsOperational(EntityState entity) =>
+        entity.Lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired);
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)

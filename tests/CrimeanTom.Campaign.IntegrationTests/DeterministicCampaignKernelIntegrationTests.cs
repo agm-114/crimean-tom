@@ -99,10 +99,12 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Commands, simulate],
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
-        await ProveDurableJournalAsync(simulatedTheater);
-        await ProvePersistenceBoundariesAsync(simulatedTheater);
-        await ProveProcessCrashRecoveryAsync(simulatedTheater);
-        await ProveIndependentWriterFencingAsync(simulatedTheater);
+        var longHorizon = AdvanceLongHorizon(simulatedTheater);
+        Assert.Equal("214b50d37e85e413d2fa665a71bb0bb2e56537e9732e1d8d03a3593e947bb395", longHorizon.Hash);
+        await ProveDurableJournalAsync(longHorizon);
+        await ProvePersistenceBoundariesAsync(longHorizon);
+        await ProveProcessCrashRecoveryAsync(longHorizon);
+        await ProveIndependentWriterFencingAsync(longHorizon);
     }
 
     private static TheaterResult BuildTheater(bool reverseCollectionInputs)
@@ -199,6 +201,103 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         commands.Add(commandCopy);
         events.Add(eventCopy);
         return CampaignKernel.Apply(state, eventCopy);
+    }
+
+    private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
+    {
+        Assert.Equal(2, CampaignSchema.Version);
+        Assert.Equal(2, CampaignSchema.AlgorithmVersion);
+        var single = theater.State;
+        var parallel = theater.State;
+        var commands = theater.Commands.ToList();
+        var events = theater.Events.ToList();
+        var previousResources = ResourceTotals(single);
+        var sequence = 18;
+        for (var targetQuanta = 60L; targetQuanta <= 600; targetQuanta += 30)
+        {
+            var target = new CampaignTime(targetQuanta);
+            var command = Command(
+                sequence++,
+                CampaignSubject.Campaign(Ids.Campaign),
+                single.CampaignRevision,
+                new SimulateCampaignCommand(target),
+                effectiveAt: target);
+            var singleEvent = CampaignKernel.Decide(single, command, single.Head.Next(), workerCount: 1);
+            var parallelEvent = CampaignKernel.Decide(parallel, command, parallel.Head.Next(), workerCount: 8);
+            Assert.Equal(CampaignContractJson.Serialize(singleEvent), CampaignContractJson.Serialize(parallelEvent));
+            single = CampaignKernel.Apply(single, singleEvent);
+            parallel = CampaignKernel.Apply(parallel, parallelEvent);
+            Assert.Equal(CampaignCanonicalSerializer.Serialize(single), CampaignCanonicalSerializer.Serialize(parallel));
+            CampaignStateValidator.Validate(single);
+            AssertCampaignInvariants(single);
+
+            var resources = ResourceTotals(single);
+            foreach (var kind in Enum.GetValues<ResourceKind>())
+            {
+                Assert.True(resources[kind] <= previousResources[kind],
+                    $"Canonical {kind} increased from {previousResources[kind]} to {resources[kind]}.");
+            }
+            previousResources = resources;
+
+            var projectionJson = JsonSerializer.Serialize(CampaignProjectionBuilder.ForCoalition(single, Ids.BlueCoalition));
+            Assert.DoesNotContain(Ids.RedTruth, projectionJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(Ids.BlueTruth, projectionJson, StringComparison.Ordinal);
+            commands.Add(command);
+            events.Add(singleEvent);
+        }
+
+        return new TheaterResult(single, commands, events, CampaignCanonicalSerializer.ComputeHash(single));
+    }
+
+    private static IReadOnlyDictionary<ResourceKind, long> ResourceTotals(CampaignState state) =>
+        Enum.GetValues<ResourceKind>().ToDictionary(
+            kind => kind,
+            kind => state.Entities.Values.Sum(item =>
+                    item.Resources.TryGetValue(kind, out var amount) ? amount.MilliUnits : 0)
+                + state.Bases.Values.Sum(item =>
+                    item.Resources.TryGetValue(kind, out var amount) ? amount.MilliUnits : 0));
+
+    private static void AssertCampaignInvariants(CampaignState state)
+    {
+        Assert.Equal(state.Head.Value, state.CampaignRevision.Value);
+        Assert.All(state.Entities.Values, entity =>
+        {
+            Assert.InRange(entity.ReadinessMilliUnits, 0, 1_000);
+            Assert.InRange(entity.DamageMilliUnits, 0, 1_000_000);
+            Assert.All(entity.Resources.Values, amount => Assert.True(amount.MilliUnits >= 0));
+        });
+        var members = state.Groups.Values.SelectMany(item => item.Members).ToArray();
+        Assert.Equal(members.Length, members.Distinct().Count());
+        Assert.All(state.ScheduledActivities.Values, activity => Assert.True(activity.DueAt.Quanta > state.Time.Quanta));
+        foreach (var group in state.Groups.Values.Where(item => item.ActiveOrderId is not null))
+        {
+            var order = state.Orders[group.ActiveOrderId!.Value];
+            var origin = state.Entities[group.Members.Min].RegionId;
+            Assert.True(IsReachable(state, origin, order.DestinationRegionId));
+        }
+    }
+
+    private static bool IsReachable(CampaignState state, RegionId origin, RegionId destination)
+    {
+        var visited = new HashSet<RegionId> { origin };
+        var queue = new Queue<RegionId>();
+        queue.Enqueue(origin);
+        while (queue.TryDequeue(out var current))
+        {
+            if (current == destination)
+            {
+                return true;
+            }
+            var neighbors = state.Regions.Values
+                .Where(item => item.RegionId == current || item.Neighbors.Contains(current))
+                .SelectMany(item => item.RegionId == current ? item.Neighbors : [item.RegionId])
+                .Distinct();
+            foreach (var neighbor in neighbors.Where(visited.Add))
+            {
+                queue.Enqueue(neighbor);
+            }
+        }
+        return false;
     }
 
     private static async Task ProveDurableJournalAsync(TheaterResult theater)

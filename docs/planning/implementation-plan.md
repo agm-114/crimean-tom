@@ -13,8 +13,8 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
-Phases 0, 1, and 2 are complete, Phase 3A and 3B are complete, and the repository
-is actively implementing Phase 3D. The local
+Phases 0, 1, 2, and 3 are complete, and the repository is actively implementing
+Phase 4. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -498,14 +498,15 @@ merge produce identical event/state bytes with one or many workers. See the
 
 ### 3D. Replay and invariants
 
-**Status: in progress.** The broad theater already proves snapshot/journal replay,
-strict schema/algorithm pins, scheduling-independent hashes, and fog-of-war
-sentinel exclusion. Long-horizon conservation/lifecycle/reachability evidence
-and the final Phase 3 gate audit remain.
+**Status: complete.** The broad theater proves long-horizon snapshot/journal
+replay to a pinned golden hash, strict schema/algorithm pins, conservation and
+state invariants, scheduling-independent event/state bytes, and fog-of-war
+sentinel exclusion. See the
+[Phase 3D gate evidence](../evidence/phase-3d-gate-evidence-2026-08-21.md).
 
 - Golden replay fixtures.
-- Property tests for conservation, non-negative resources, valid lifecycle,
-  reachability, idempotency, and one canonical owner/revision.
+- Broad long-horizon integration checks for conservation, non-negative resources,
+  valid lifecycle, reachability, idempotency, and one canonical owner/revision.
 - Single-thread versus parallel-worker hash comparison.
 - Schema and algorithm version pinning.
 
@@ -520,6 +521,10 @@ and the final Phase 3 gate audit remain.
 - Fog-of-war projections never include synthetic true-state sentinel fields.
 
 ## Phase 4 - continuous single-client vertical slice
+
+**Status: in progress.** Phase 3 provides the authoritative journaled theater;
+the current work is the typed service/companion transport and the first live
+external-campaign-to-Sea-Power round trip.
 
 ### Objective
 
