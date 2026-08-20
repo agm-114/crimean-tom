@@ -4,11 +4,10 @@ Date: 20 August 2026
 
 ## Current disposition
 
-Phase 3B is in progress. This checkpoint implements the fenced transactional
-journal, validated canonical snapshots, content-addressed blobs, and full-store
-integrity verification. Atomic backup and restore are also implemented;
-crash-boundary recovery and the independent process-level writer proof remain
-incomplete.
+Phase 3B is complete. The fenced transactional journal, validated canonical
+snapshots, content-addressed blobs, full-store integrity verification, atomic
+backup/restore, hard process-crash recovery, and independent process-level
+writer fencing are implemented and pass as one broad campaign story.
 
 ## Implemented durable boundary
 
@@ -96,8 +95,8 @@ timeline.
 
 ## Broad integration evidence
 
-The existing single campaign story now crosses both the pure kernel and a real
-temporary SQLite database. It:
+The existing single campaign story now crosses the pure kernel, a real temporary
+SQLite database, and independent helper processes. It:
 
 1. creates and initializes a WAL campaign database;
 2. acquires coordinator A's writer epoch and rejects coordinator B while it is live;
@@ -116,10 +115,21 @@ temporary SQLite database. It:
 14. restores the bundle, reads the restored checkpoint, and recovers the same canonical head;
 15. proves the source writer handle is fenced in the restored database;
 16. reacquires under coordinator A, incrementing the source epoch and fencing its old handle; and
-17. releases the replacement so coordinator B can acquire a still-newer source epoch.
+17. releases the replacement so coordinator B can acquire a still-newer source epoch;
+18. injects recoverable in-process interruption at every append, snapshot, blob,
+    backup-publication, and post-commit/pre-acknowledgement boundary;
+19. starts and abruptly kills a fresh writer process at all fourteen persistence
+    boundaries, reopens the same store, and proves the head is either entirely
+    pre-commit or entirely committed;
+20. retries every ambiguous operation and proves exactly-once durable effects; and
+21. holds a writer epoch in an independent process, rejects a competing
+    coordinator, kills the holder, advances beyond lease expiry, and proves the
+    successor epoch fences the dead coordinator's handle.
 
-The temporary database, WAL, and shared-memory files are removed after the broad
-story closes all connections.
+`CrimeanTom.Campaign.PersistenceProbe` is a reusable out-of-process diagnostic.
+It can hard-kill itself at a named persistence boundary or hold a real writer
+lease for competing-process checks. The temporary database, WAL, shared-memory,
+blob, backup, and probe files are removed after the broad story closes.
 
 Verification command:
 
@@ -127,7 +137,7 @@ Verification command:
 dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.IntegrationTests.csproj --configuration Debug
 ```
 
-## Remaining work
+## Disposition
 
-- crash injection at validation, append, snapshot, and acknowledgement boundaries;
-- process-level two-coordinator and kill/restart evidence for the full Phase 3 gate.
+The Phase 3B work list and its persistence-specific P3 exit conditions are
+satisfied. Phase 3C core simulation is the next campaign slice.

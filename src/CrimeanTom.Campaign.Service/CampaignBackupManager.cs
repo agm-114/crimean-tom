@@ -17,6 +17,7 @@ internal static class CampaignBackupManager
         string sourceDatabasePath,
         ContentAddressedBlobStore sourceBlobs,
         string destinationDirectory,
+        ICampaignPersistenceFaultInjector faultInjector,
         CancellationToken cancellationToken)
     {
         var destination = RequireNewDirectory(destinationDirectory);
@@ -59,7 +60,9 @@ internal static class CampaignBackupManager
                 JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions),
                 cancellationToken);
 
+            faultInjector.Reach(CampaignPersistenceBoundary.BackupBeforePublication);
             Directory.Move(staging, destination);
+            faultInjector.Reach(CampaignPersistenceBoundary.BackupAfterPublicationBeforeAcknowledgement);
             return new CampaignBackupResult(destination, databaseHash, integrity);
         }
         finally

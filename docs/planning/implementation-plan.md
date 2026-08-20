@@ -13,8 +13,8 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
-Phases 0, 1, and 2 are complete, Phase 3A is complete, and the repository is
-actively implementing Phase 3B. The local
+Phases 0, 1, and 2 are complete, Phase 3A and 3B are complete, and the repository
+is actively implementing Phase 3C. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -456,14 +456,16 @@ coalition projection are implemented. See the
 
 ### 3B. Event journal and snapshots
 
-**Status: in progress.** The initial SQLite WAL schema, compare-and-swap writer
+**Status: complete.** The SQLite WAL schema, compare-and-swap writer
 lease/epoch, transactional command/event append, durable subject revisions,
 content hashes, strict idempotency behavior, ordered reads, and origin-to-head
 replay are implemented. Canonical snapshots now decode strictly, validate all
 domain invariants, and recover by replaying the journal tail. Adjacent
 content-addressed checkpoint/catalog blobs and cross-store integrity diagnostics
 are implemented. Staged atomic database-plus-blob backup and restore are also
-implemented. Crash-boundary injection remains open. See the
+implemented. Controlled faults and abruptly terminated helper processes cover
+all fourteen declared persistence boundaries, including lost acknowledgements,
+and an independent lease-holder process proves successor fencing. See the
 [Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
 
 - Acquire a compare-and-swap writer epoch before the first durable mutation;

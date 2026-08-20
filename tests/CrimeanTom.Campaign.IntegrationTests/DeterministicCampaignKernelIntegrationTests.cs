@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CrimeanTom.Campaign.Contracts;
@@ -62,6 +63,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(first.Hash, CampaignCanonicalSerializer.ComputeHash(first.State));
 
         await ProveDurableJournalAsync(first);
+        await ProvePersistenceBoundariesAsync(first);
+        await ProveProcessCrashRecoveryAsync(first);
+        await ProveIndependentWriterFencingAsync(first);
     }
 
     private static TheaterResult BuildTheater(bool reverseCollectionInputs)
@@ -268,6 +272,399 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         }
         finally
         {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task ProvePersistenceBoundariesAsync(TheaterResult theater)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"crimean-tom-faults-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var injector = new ControlledCampaignPersistenceFaultInjector();
+            var databasePath = Path.Combine(directory, "campaign.db");
+            var journal = new SqliteCampaignJournal(databasePath, faultInjector: injector);
+            await journal.InitializeAsync();
+            await journal.CreateCampaignAsync(theater.State.Metadata);
+            var now = DateTimeOffset.Parse("2026-08-20T13:00:00Z");
+            var coordinator = new CoordinatorId(Guid.Parse("c0000000-0000-0000-0000-000000000001"));
+            var lease = await journal.AcquireWriterAsync(Ids.Campaign, coordinator, now, TimeSpan.FromMinutes(2));
+
+            foreach (var boundary in new[]
+            {
+                CampaignPersistenceBoundary.AppendAfterValidation,
+                CampaignPersistenceBoundary.AppendAfterCommandInsert,
+                CampaignPersistenceBoundary.AppendAfterEventInsert,
+                CampaignPersistenceBoundary.AppendAfterRevisionUpdate,
+                CampaignPersistenceBoundary.AppendAfterHeadUpdate,
+            })
+            {
+                injector.Arm(boundary);
+                var fault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                    journal.AppendAsync(lease, theater.Commands[0], theater.Events[0], now));
+                Assert.Equal(boundary, fault.Boundary);
+                Assert.Equal(CommitPosition.Origin, await journal.ReadHeadAsync(Ids.Campaign));
+            }
+
+            injector.Arm(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
+            var appendAcknowledgementFault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.AppendAsync(lease, theater.Commands[0], theater.Events[0], now));
+            Assert.Equal(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement,
+                appendAcknowledgementFault.Boundary);
+            Assert.Equal(new CommitPosition(1), await journal.ReadHeadAsync(Ids.Campaign));
+            Assert.True((await journal.AppendAsync(lease, theater.Commands[0], theater.Events[0], now)).Duplicate);
+
+            var state = CampaignKernel.Apply(CampaignState.Create(theater.State.Metadata), theater.Events[0]);
+            foreach (var boundary in new[]
+            {
+                CampaignPersistenceBoundary.SnapshotAfterValidation,
+                CampaignPersistenceBoundary.SnapshotAfterInsert,
+            })
+            {
+                injector.Arm(boundary);
+                var fault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                    journal.SaveSnapshotAsync(lease, state, now));
+                Assert.Equal(boundary, fault.Boundary);
+                Assert.Equal(0, (await journal.VerifyIntegrityAsync()).SnapshotCount);
+            }
+
+            injector.Arm(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
+            var snapshotAcknowledgementFault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.SaveSnapshotAsync(lease, state, now));
+            Assert.Equal(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement,
+                snapshotAcknowledgementFault.Boundary);
+            Assert.True((await journal.SaveSnapshotAsync(lease, state, now)).Duplicate);
+
+            var blobBytes = Encoding.UTF8.GetBytes("fault-boundary-checkpoint");
+            foreach (var boundary in new[]
+            {
+                CampaignPersistenceBoundary.BlobAfterFileWrite,
+                CampaignPersistenceBoundary.BlobAfterReferenceInsert,
+            })
+            {
+                injector.Arm(boundary);
+                var fault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() => journal.PutBlobAsync(
+                    lease, CampaignBlobPurpose.TacticalCheckpoint, "fault-checkpoint", state.Head, blobBytes, now));
+                Assert.Equal(boundary, fault.Boundary);
+                Assert.Equal(0, (await journal.VerifyIntegrityAsync()).ReferencedBlobCount);
+            }
+
+            injector.Arm(CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement);
+            var blobAcknowledgementFault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
+                    "fault-checkpoint", state.Head, blobBytes, now));
+            Assert.Equal(CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement,
+                blobAcknowledgementFault.Boundary);
+            Assert.True((await journal.PutBlobAsync(lease, CampaignBlobPurpose.TacticalCheckpoint,
+                "fault-checkpoint", state.Head, blobBytes, now)).Duplicate);
+
+            var beforePublish = Path.Combine(directory, "backup-before-publication");
+            injector.Arm(CampaignPersistenceBoundary.BackupBeforePublication);
+            var backupBeforeFault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.CreateBackupAsync(beforePublish));
+            Assert.Equal(CampaignPersistenceBoundary.BackupBeforePublication, backupBeforeFault.Boundary);
+            Assert.False(Directory.Exists(beforePublish));
+
+            var afterPublish = Path.Combine(directory, "backup-after-publication");
+            injector.Arm(CampaignPersistenceBoundary.BackupAfterPublicationBeforeAcknowledgement);
+            var backupAfterFault = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.CreateBackupAsync(afterPublish));
+            Assert.Equal(CampaignPersistenceBoundary.BackupAfterPublicationBeforeAcknowledgement, backupAfterFault.Boundary);
+            Assert.True(Directory.Exists(afterPublish));
+            var publishedBackup = new SqliteCampaignJournal(
+                Path.Combine(afterPublish, "campaign.db"), Path.Combine(afterPublish, "blobs"));
+            Assert.Equal(1, (await publishedBackup.VerifyIntegrityAsync()).EventCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task ProveProcessCrashRecoveryAsync(TheaterResult theater)
+    {
+        var appendBoundaries = new[]
+        {
+            CampaignPersistenceBoundary.AppendAfterValidation,
+            CampaignPersistenceBoundary.AppendAfterCommandInsert,
+            CampaignPersistenceBoundary.AppendAfterEventInsert,
+            CampaignPersistenceBoundary.AppendAfterRevisionUpdate,
+            CampaignPersistenceBoundary.AppendAfterHeadUpdate,
+            CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement,
+        };
+        foreach (var boundary in appendBoundaries)
+        {
+            await ProveProcessCrashAsync(theater, "append", boundary);
+        }
+
+        var snapshotBoundaries = new[]
+        {
+            CampaignPersistenceBoundary.SnapshotAfterValidation,
+            CampaignPersistenceBoundary.SnapshotAfterInsert,
+            CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement,
+        };
+        foreach (var boundary in snapshotBoundaries)
+        {
+            await ProveProcessCrashAsync(theater, "snapshot", boundary);
+        }
+
+        var blobBoundaries = new[]
+        {
+            CampaignPersistenceBoundary.BlobAfterFileWrite,
+            CampaignPersistenceBoundary.BlobAfterReferenceInsert,
+            CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement,
+        };
+        foreach (var boundary in blobBoundaries)
+        {
+            await ProveProcessCrashAsync(theater, "blob", boundary);
+        }
+
+        await ProveProcessCrashAsync(theater, "backup", CampaignPersistenceBoundary.BackupBeforePublication);
+        await ProveProcessCrashAsync(
+            theater,
+            "backup",
+            CampaignPersistenceBoundary.BackupAfterPublicationBeforeAcknowledgement);
+    }
+
+    private static async Task ProveProcessCrashAsync(
+        TheaterResult theater,
+        string operation,
+        CampaignPersistenceBoundary boundary)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"crimean-tom-process-crash-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var databasePath = Path.Combine(directory, "campaign.db");
+            var blobDirectory = Path.Combine(directory, "blobs");
+            var payloadPath = Path.Combine(directory, "payload.json");
+            var backupDirectory = Path.Combine(directory, "backup");
+            var journal = new SqliteCampaignJournal(databasePath, blobDirectory);
+            await journal.InitializeAsync();
+            await journal.CreateCampaignAsync(theater.State.Metadata);
+            var setupNow = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+            var crashNow = DateTimeOffset.Parse("2026-08-20T13:00:00Z");
+            var recoveryNow = DateTimeOffset.Parse("2026-08-20T14:00:00Z");
+            CampaignState state;
+            if (operation == "append")
+            {
+                state = CampaignState.Create(theater.State.Metadata);
+                await File.WriteAllBytesAsync(payloadPath, CampaignContractJson.Serialize(theater.Commands[0]));
+            }
+            else
+            {
+                var setupLease = await journal.AcquireWriterAsync(
+                    Ids.Campaign,
+                    new CoordinatorId(Guid.Parse("e0000000-0000-0000-0000-000000000001")),
+                    setupNow,
+                    TimeSpan.FromMinutes(2));
+                await journal.AppendAsync(setupLease, theater.Commands[0], theater.Events[0], setupNow);
+                await journal.ReleaseWriterAsync(setupLease);
+                state = CampaignKernel.Apply(CampaignState.Create(theater.State.Metadata), theater.Events[0]);
+                await File.WriteAllBytesAsync(payloadPath, CampaignCanonicalSerializer.Serialize(state));
+            }
+
+            var exitCode = await RunPersistenceProbeAsync(
+                operation,
+                boundary,
+                databasePath,
+                blobDirectory,
+                payloadPath,
+                crashNow,
+                backupDirectory);
+            Assert.NotEqual(0, exitCode);
+
+            var reopened = new SqliteCampaignJournal(databasePath, blobDirectory);
+            await reopened.InitializeAsync();
+            var committed = boundary is
+                CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement or
+                CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement or
+                CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement or
+                CampaignPersistenceBoundary.BackupAfterPublicationBeforeAcknowledgement;
+
+            if (operation == "append")
+            {
+                Assert.Equal(committed ? new CommitPosition(1) : CommitPosition.Origin,
+                    await reopened.ReadHeadAsync(Ids.Campaign));
+                var recoveryLease = await reopened.AcquireWriterAsync(
+                    Ids.Campaign,
+                    new CoordinatorId(Guid.Parse("f0000000-0000-0000-0000-000000000001")),
+                    recoveryNow,
+                    TimeSpan.FromMinutes(2));
+                var retry = await reopened.AppendAsync(
+                    recoveryLease,
+                    theater.Commands[0],
+                    theater.Events[0],
+                    recoveryNow);
+                Assert.Equal(committed, retry.Duplicate);
+                Assert.Equal(new CommitPosition(1), await reopened.ReadHeadAsync(Ids.Campaign));
+            }
+            else if (operation == "snapshot")
+            {
+                Assert.Equal(committed ? 1 : 0, (await reopened.VerifyIntegrityAsync()).SnapshotCount);
+                var recoveryLease = await reopened.AcquireWriterAsync(
+                    Ids.Campaign,
+                    new CoordinatorId(Guid.Parse("f0000000-0000-0000-0000-000000000002")),
+                    recoveryNow,
+                    TimeSpan.FromMinutes(2));
+                var retry = await reopened.SaveSnapshotAsync(recoveryLease, state, recoveryNow);
+                Assert.Equal(committed, retry.Duplicate);
+            }
+            else if (operation == "blob")
+            {
+                Assert.Equal(committed ? 1 : 0, (await reopened.VerifyIntegrityAsync()).ReferencedBlobCount);
+                var recoveryLease = await reopened.AcquireWriterAsync(
+                    Ids.Campaign,
+                    new CoordinatorId(Guid.Parse("f0000000-0000-0000-0000-000000000003")),
+                    recoveryNow,
+                    TimeSpan.FromMinutes(2));
+                var retry = await reopened.PutBlobAsync(
+                    recoveryLease,
+                    CampaignBlobPurpose.TacticalCheckpoint,
+                    "process-crash-checkpoint",
+                    state.Head,
+                    "process-crash-checkpoint-payload"u8.ToArray(),
+                    recoveryNow);
+                Assert.Equal(committed, retry.Duplicate);
+            }
+            else
+            {
+                Assert.Equal(committed, Directory.Exists(backupDirectory));
+                if (committed)
+                {
+                    var backup = new SqliteCampaignJournal(
+                        Path.Combine(backupDirectory, "campaign.db"),
+                        Path.Combine(backupDirectory, "blobs"));
+                    Assert.Equal(1, (await backup.VerifyIntegrityAsync()).EventCount);
+                }
+            }
+
+            Assert.Equal(1, (await reopened.VerifyIntegrityAsync()).EventCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task<int> RunPersistenceProbeAsync(
+        string operation,
+        CampaignPersistenceBoundary boundary,
+        string databasePath,
+        string blobDirectory,
+        string payloadPath,
+        DateTimeOffset now,
+        string backupDirectory)
+    {
+        var probePath = Path.Combine(AppContext.BaseDirectory, "CrimeanTom.Campaign.PersistenceProbe.dll");
+        Assert.True(File.Exists(probePath), $"Persistence probe was not built at {probePath}.");
+        var start = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add(probePath);
+        start.ArgumentList.Add(operation);
+        start.ArgumentList.Add(boundary.ToString());
+        start.ArgumentList.Add(databasePath);
+        start.ArgumentList.Add(blobDirectory);
+        start.ArgumentList.Add(payloadPath);
+        start.ArgumentList.Add(now.ToString("O"));
+        if (operation == "backup")
+        {
+            start.ArgumentList.Add(backupDirectory);
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start persistence probe.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await process.WaitForExitAsync(timeout.Token);
+        return process.ExitCode;
+    }
+
+    private static async Task ProveIndependentWriterFencingAsync(TheaterResult theater)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"crimean-tom-writer-process-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        Process? holder = null;
+        try
+        {
+            var databasePath = Path.Combine(directory, "campaign.db");
+            var blobDirectory = Path.Combine(directory, "blobs");
+            var readyPath = Path.Combine(directory, "writer.ready");
+            var journal = new SqliteCampaignJournal(databasePath, blobDirectory);
+            await journal.InitializeAsync();
+            await journal.CreateCampaignAsync(theater.State.Metadata);
+            var holderNow = DateTimeOffset.Parse("2026-08-20T15:00:00Z");
+            var probePath = Path.Combine(AppContext.BaseDirectory, "CrimeanTom.Campaign.PersistenceProbe.dll");
+            var start = new ProcessStartInfo("dotnet")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            start.ArgumentList.Add(probePath);
+            start.ArgumentList.Add("hold-writer");
+            start.ArgumentList.Add(databasePath);
+            start.ArgumentList.Add(blobDirectory);
+            start.ArgumentList.Add(Ids.Campaign.Value.ToString("D"));
+            start.ArgumentList.Add(holderNow.ToString("O"));
+            start.ArgumentList.Add(readyPath);
+            holder = Process.Start(start) ?? throw new InvalidOperationException("Could not start writer holder.");
+
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+            {
+                while (!File.Exists(readyPath))
+                {
+                    Assert.False(holder.HasExited, "Independent writer exited before acquiring its lease.");
+                    await Task.Delay(25, timeout.Token);
+                }
+            }
+
+            var holderEpoch = new WriterEpoch(long.Parse(await File.ReadAllTextAsync(readyPath)));
+            var holderLease = new CampaignWriterLease(
+                Ids.Campaign,
+                new CoordinatorId(Guid.Parse("d0000000-0000-0000-0000-000000000001")),
+                holderEpoch,
+                holderNow.AddMinutes(2));
+            var unavailable = await Assert.ThrowsAsync<CampaignStoreConflict>(() =>
+                journal.AcquireWriterAsync(
+                    Ids.Campaign,
+                    new CoordinatorId(Guid.Parse("f0000000-0000-0000-0000-000000000004")),
+                    holderNow,
+                    TimeSpan.FromMinutes(2)));
+            Assert.Equal("writer-lease-unavailable", unavailable.Code);
+
+            holder.Kill(entireProcessTree: true);
+            await holder.WaitForExitAsync();
+            var successor = await journal.AcquireWriterAsync(
+                Ids.Campaign,
+                new CoordinatorId(Guid.Parse("f0000000-0000-0000-0000-000000000004")),
+                holderNow.AddHours(1),
+                TimeSpan.FromMinutes(2));
+            Assert.True(successor.WriterEpoch.Value > holderEpoch.Value);
+            var fenced = await Assert.ThrowsAsync<CampaignStoreConflict>(() =>
+                journal.AppendAsync(holderLease, theater.Commands[0], theater.Events[0], holderNow.AddHours(1)));
+            Assert.Equal("writer-fenced", fenced.Code);
+            Assert.False((await journal.AppendAsync(
+                successor,
+                theater.Commands[0],
+                theater.Events[0],
+                holderNow.AddHours(1))).Duplicate);
+            await journal.ReleaseWriterAsync(successor);
+        }
+        finally
+        {
+            if (holder is { HasExited: false })
+            {
+                holder.Kill(entireProcessTree: true);
+                await holder.WaitForExitAsync();
+            }
+
+            holder?.Dispose();
             Directory.Delete(directory, recursive: true);
         }
     }

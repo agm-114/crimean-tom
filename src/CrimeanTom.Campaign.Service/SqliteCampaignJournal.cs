@@ -13,8 +13,12 @@ public sealed class SqliteCampaignJournal
     private readonly string _databasePath;
     private readonly string _connectionString;
     private readonly ContentAddressedBlobStore _blobStore;
+    private readonly ICampaignPersistenceFaultInjector _faultInjector;
 
-    public SqliteCampaignJournal(string databasePath, string? blobDirectory = null)
+    public SqliteCampaignJournal(
+        string databasePath,
+        string? blobDirectory = null,
+        ICampaignPersistenceFaultInjector? faultInjector = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -26,6 +30,7 @@ public sealed class SqliteCampaignJournal
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _blobStore = new ContentAddressedBlobStore(blobDirectory
             ?? Path.Combine(Path.GetDirectoryName(fullPath)!, $"{Path.GetFileName(fullPath)}.blobs"));
+        _faultInjector = faultInjector ?? NullCampaignPersistenceFaultInjector.Instance;
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = fullPath,
@@ -259,11 +264,17 @@ public sealed class SqliteCampaignJournal
 
         var expectedHead = campaignEvent.CommitPosition.Value - 1;
         await RequireHeadAndRevisionAsync(connection, transaction, command, expectedHead, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterValidation);
         await InsertCommandAsync(connection, transaction, command, campaignEvent.CommitPosition, commandJson, commandHash, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommandInsert);
         await InsertEventAsync(connection, transaction, campaignEvent, eventJson, eventHash, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterEventInsert);
         await UpdateSubjectRevisionAsync(connection, transaction, campaignEvent, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterRevisionUpdate);
         await AdvanceHeadAsync(connection, transaction, lease, now, expectedHead, campaignEvent.CommitPosition, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterHeadUpdate);
         await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
         return new CampaignAppendResult(campaignEvent, Duplicate: false);
     }
 
@@ -298,6 +309,7 @@ public sealed class SqliteCampaignJournal
         {
             throw Conflict("snapshot-state-conflict", "The snapshot does not match replay of the durable journal.");
         }
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterValidation);
 
         await using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
@@ -331,7 +343,9 @@ public sealed class SqliteCampaignJournal
             }
         }
 
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
         await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
         return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
     }
 
@@ -372,6 +386,7 @@ public sealed class SqliteCampaignJournal
         }
 
         var blob = await _blobStore.PutAsync(content, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterFileWrite);
         await using (var insertBlob = connection.CreateCommand())
         {
             insertBlob.Transaction = transaction;
@@ -433,7 +448,9 @@ public sealed class SqliteCampaignJournal
             }
         }
 
+        _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterReferenceInsert);
         await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement);
         return new CampaignBlobReference(lease.CampaignId, purpose, logicalId, commitPosition,
             blob.Sha256, blob.Length, Duplicate: !inserted);
     }
@@ -559,7 +576,8 @@ public sealed class SqliteCampaignJournal
     public Task<CampaignBackupResult> CreateBackupAsync(
         string destinationDirectory,
         CancellationToken cancellationToken = default) =>
-        CampaignBackupManager.CreateAsync(_databasePath, _blobStore, destinationDirectory, cancellationToken);
+        CampaignBackupManager.CreateAsync(
+            _databasePath, _blobStore, destinationDirectory, _faultInjector, cancellationToken);
 
     public static Task<CampaignRestoreResult> RestoreBackupAsync(
         string backupDirectory,

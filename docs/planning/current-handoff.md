@@ -2,8 +2,8 @@
 
 ## Repository state
 
-This handoff records the state at the end of the 20 August 2026 implementation
-session. Phases 0, 1, 2, and 3A are complete and Phase 3B is active. No durable
+This handoff records the state through 21 August 2026. Phases 0, 1, 2, 3A, and
+3B are complete and Phase 3C is active. No durable
 campaign service authority or unattended campaign simulation is enabled. The
 game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
@@ -215,8 +215,16 @@ one directory rename. Restore verifies the manifest/database/blob hashes,
 reconstructs every campaign, fences all pre-backup writer epochs, and atomically
 publishes a new storage directory.
 
-The next slice remains Phase 3B: inject interruption at validation, append,
-snapshot, blob-reference, backup-publication, and acknowledgement boundaries.
+All fourteen append, snapshot, blob, backup-publication, and lost-acknowledgement
+boundaries now have both controlled interruption and abrupt child-process death
+coverage. Recovery always selects one valid head and retries have exactly-once
+effects. A separate process also holds the live writer lease while the test
+process proves a second coordinator is rejected; after killing the holder and
+advancing past expiry, a newer epoch fences its stale handle.
+
+The next slice is Phase 3C: implement the campaign clock queue, region movement,
+resource/readiness/repair/attrition rules, minimum unattended AI intent, keyed
+RNG, stable merge, and coalition intelligence evolution.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
