@@ -210,6 +210,10 @@ public static class CampaignKernel
         {
             throw Violation("invalid-assignment", "Authority requires tactical fidelity and a positive epoch.");
         }
+        if (value.EffectiveAt != command.EffectiveAt)
+        {
+            throw Violation("assignment-time-mismatch", "Assignment and command effective times must match.");
+        }
 
         if (value.Role == AssignmentRole.Primary
             && state.Assignments.Values.Any(item => item.EntityId == value.EntityId && item.Role == AssignmentRole.Primary))
@@ -377,6 +381,10 @@ public static class CampaignKernel
         if (command.RequestedAt.Quanta < 0 || command.EffectiveAt.Quanta < state.Time.Quanta)
         {
             throw Violation("invalid-command-time", "The command cannot take effect before the durable campaign head.");
+        }
+        if (command.Data is not AdvanceClockCommand && command.EffectiveAt != state.Time)
+        {
+            throw Violation("future-command-not-scheduled", "Immediate reducers only accept commands effective at the current campaign time.");
         }
         if (position != state.Head.Next())
         {

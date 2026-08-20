@@ -2,13 +2,14 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
+using CrimeanTom.Campaign.Engine;
 using Microsoft.Data.Sqlite;
 
 namespace CrimeanTom.Campaign.Service;
 
 public sealed class SqliteCampaignJournal
 {
-    private const int DatabaseSchemaVersion = 1;
+    private const int DatabaseSchemaVersion = 2;
     private readonly string _connectionString;
 
     public SqliteCampaignJournal(string databasePath)
@@ -41,18 +42,25 @@ public sealed class SqliteCampaignJournal
         await using var version = connection.CreateCommand();
         version.CommandText = "PRAGMA user_version;";
         var current = Convert.ToInt32(await version.ExecuteScalarAsync(cancellationToken));
-        if (current == 0)
-        {
-            await ExecuteAsync(connection, null, SchemaSql, cancellationToken);
-            await ExecuteAsync(connection, null, $"PRAGMA user_version={DatabaseSchemaVersion};", cancellationToken);
-        }
-        else if (current != DatabaseSchemaVersion)
+        if (current < 0 || current > DatabaseSchemaVersion)
         {
             throw Conflict("unsupported-database-schema", $"Database schema {current} is not supported.");
         }
-        else
+
+        if (current < DatabaseSchemaVersion)
         {
-            await ExecuteAsync(connection, null, SchemaSql, cancellationToken);
+            await using var transaction = connection.BeginTransaction(deferred: false);
+            if (current == 0)
+            {
+                await ExecuteAsync(connection, transaction, SchemaSql, cancellationToken);
+                current = 1;
+            }
+            if (current == 1)
+            {
+                await ExecuteAsync(connection, transaction, SnapshotSchemaSql, cancellationToken);
+            }
+            await ExecuteAsync(connection, transaction, $"PRAGMA user_version={DatabaseSchemaVersion};", cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
     }
 
@@ -249,6 +257,86 @@ public sealed class SqliteCampaignJournal
         return new CampaignAppendResult(campaignEvent, Duplicate: false);
     }
 
+    public async Task<CampaignSnapshotInfo> SaveSnapshotAsync(
+        CampaignWriterLease lease,
+        CampaignState state,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(state);
+        CampaignStateValidator.Validate(state);
+        var snapshotJson = CampaignCanonicalSerializer.Serialize(state);
+        var stateHash = Hash(snapshotJson);
+        var decoded = CampaignCanonicalSerializer.Deserialize(snapshotJson);
+        if (CampaignCanonicalSerializer.ComputeHash(decoded) != stateHash)
+        {
+            throw Conflict("snapshot-roundtrip", "The canonical snapshot did not survive its own decoder.");
+        }
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
+        var durableHead = await ReadHeadAsync(connection, transaction, state.Metadata.CampaignId, cancellationToken);
+        if (lease.CampaignId != state.Metadata.CampaignId || durableHead != state.Head)
+        {
+            throw Conflict("snapshot-head-conflict", "A snapshot must describe the current durable campaign head.");
+        }
+
+        var recovered = await RecoverAsync(connection, transaction, state.Metadata.CampaignId, durableHead, cancellationToken);
+        if (recovered.CanonicalHash != stateHash)
+        {
+            throw Conflict("snapshot-state-conflict", "The snapshot does not match replay of the durable journal.");
+        }
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO snapshots (campaign_id, commit_position, state_hash, snapshot_json)
+            VALUES ($campaign_id, $position, $hash, $json)
+            ON CONFLICT(campaign_id, commit_position) DO NOTHING;
+            """;
+        insert.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
+        insert.Parameters.AddWithValue("$position", state.Head.Value);
+        insert.Parameters.AddWithValue("$hash", stateHash);
+        insert.Parameters.AddWithValue("$json", snapshotJson);
+        var inserted = await insert.ExecuteNonQueryAsync(cancellationToken) == 1;
+
+        if (!inserted)
+        {
+            await using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = """
+                SELECT state_hash, snapshot_json FROM snapshots
+                WHERE campaign_id = $campaign_id AND commit_position = $position;
+                """;
+            existing.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
+            existing.Parameters.AddWithValue("$position", state.Head.Value);
+            await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)
+                || reader.GetString(0) != stateHash
+                || !((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
+            {
+                throw Conflict("snapshot-idempotency-conflict", "The snapshot position already contains different state.");
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
+    }
+
+    public async Task<CampaignRecoveryResult> RecoverAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: true);
+        var head = await ReadHeadAsync(connection, transaction, campaignId, cancellationToken);
+        var result = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
     public async Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
         CampaignId campaignId,
         CommitPosition after,
@@ -268,12 +356,7 @@ public sealed class SqliteCampaignJournal
         while (await reader.ReadAsync(cancellationToken))
         {
             var json = (byte[])reader[0];
-            if (!CryptographicOperations.FixedTimeEquals(
-                    Convert.FromHexString(reader.GetString(1)),
-                    SHA256.HashData(json)))
-            {
-                throw Conflict("event-corrupt", "A stored event failed its content hash.");
-            }
+            VerifyHash(json, reader.GetString(1), "event-corrupt");
             result.Add(CampaignContractJson.DeserializeEvent(json));
         }
         return result;
@@ -284,7 +367,125 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
+        return await ReadHeadAsync(connection, null, campaignId, cancellationToken);
+    }
+
+    private static async Task<CampaignRecoveryResult> RecoverAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CampaignId campaignId,
+        CommitPosition durableHead,
+        CancellationToken cancellationToken)
+    {
+        var metadata = await ReadMetadataAsync(connection, transaction, campaignId, cancellationToken);
+        var state = CampaignState.Create(metadata);
+        var snapshotPosition = CommitPosition.Origin;
+
+        await using (var snapshot = connection.CreateCommand())
+        {
+            snapshot.Transaction = transaction;
+            snapshot.CommandText = """
+                SELECT commit_position, state_hash, snapshot_json FROM snapshots
+                WHERE campaign_id = $campaign_id AND commit_position <= $head
+                ORDER BY commit_position DESC LIMIT 1;
+                """;
+            snapshot.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            snapshot.Parameters.AddWithValue("$head", durableHead.Value);
+            await using var reader = await snapshot.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                snapshotPosition = new CommitPosition(reader.GetInt64(0));
+                var expectedHash = reader.GetString(1);
+                var json = (byte[])reader[2];
+                VerifyHash(json, expectedHash, "snapshot-corrupt");
+                try
+                {
+                    state = CampaignCanonicalSerializer.Deserialize(json);
+                }
+                catch (Exception exception) when (exception is JsonException or InvalidDataException or ArgumentException)
+                {
+                    throw Conflict("snapshot-corrupt", $"The newest snapshot is invalid: {exception.Message}");
+                }
+                if (state.Metadata != metadata || state.Head != snapshotPosition
+                    || CampaignCanonicalSerializer.ComputeHash(state) != expectedHash)
+                {
+                    throw Conflict("snapshot-corrupt", "The newest snapshot identity, position, metadata, or hash is invalid.");
+                }
+            }
+        }
+
+        await using (var events = connection.CreateCommand())
+        {
+            events.Transaction = transaction;
+            events.CommandText = """
+                SELECT commit_position, event_json, event_hash FROM events
+                WHERE campaign_id = $campaign_id AND commit_position > $after AND commit_position <= $head
+                ORDER BY commit_position;
+                """;
+            events.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            events.Parameters.AddWithValue("$after", state.Head.Value);
+            events.Parameters.AddWithValue("$head", durableHead.Value);
+            await using var reader = await events.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var position = new CommitPosition(reader.GetInt64(0));
+                if (position != state.Head.Next())
+                {
+                    throw Conflict("journal-gap", "The durable journal contains a commit-position gap.");
+                }
+                var json = (byte[])reader[1];
+                VerifyHash(json, reader.GetString(2), "event-corrupt");
+                CommittedCampaignEvent campaignEvent;
+                try
+                {
+                    campaignEvent = CampaignContractJson.DeserializeEvent(json);
+                    state = CampaignKernel.Apply(state, campaignEvent);
+                }
+                catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException)
+                {
+                    throw Conflict("event-corrupt", $"Event {position.Value} cannot replay: {exception.Message}");
+                }
+            }
+        }
+
+        if (state.Head != durableHead)
+        {
+            throw Conflict("journal-gap", "The durable journal does not reach the campaign head.");
+        }
+        CampaignStateValidator.Validate(state);
+        return new CampaignRecoveryResult(state, snapshotPosition, CampaignCanonicalSerializer.ComputeHash(state));
+    }
+
+    private static async Task<CampaignMetadata> ReadMetadataAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT name, seed, catalog_fingerprint, campaign_schema_version, algorithm_version
+            FROM campaigns WHERE campaign_id = $campaign_id;
+            """;
+        command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw Conflict("campaign-missing", "The campaign does not exist.");
+        }
+        return new CampaignMetadata(campaignId, reader.GetString(0), reader.GetInt64(1), reader.GetString(2),
+            reader.GetInt32(3), reader.GetInt32(4));
+    }
+
+    private static async Task<CommitPosition> ReadHeadAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "SELECT head FROM campaigns WHERE campaign_id = $campaign_id;";
         command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
         var result = await command.ExecuteScalarAsync(cancellationToken);
@@ -527,7 +728,36 @@ public sealed class SqliteCampaignJournal
     }
 
     private static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+
+    private static void VerifyHash(byte[] content, string expectedHash, string errorCode)
+    {
+        byte[] expected;
+        try
+        {
+            expected = Convert.FromHexString(expectedHash);
+        }
+        catch (FormatException)
+        {
+            throw Conflict(errorCode, "A stored content hash is malformed.");
+        }
+        if (!CryptographicOperations.FixedTimeEquals(expected, SHA256.HashData(content)))
+        {
+            throw Conflict(errorCode, "Stored content does not match its hash.");
+        }
+    }
+
     private static CampaignStoreConflict Conflict(string code, string message) => new(code, message);
+
+    private const string SnapshotSchemaSql = """
+        CREATE TABLE snapshots (
+            campaign_id TEXT NOT NULL,
+            commit_position INTEGER NOT NULL CHECK (commit_position >= 0),
+            state_hash TEXT NOT NULL,
+            snapshot_json BLOB NOT NULL,
+            PRIMARY KEY (campaign_id, commit_position),
+            FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
+        ) STRICT;
+        """;
 
     private const string SchemaSql = """
         CREATE TABLE IF NOT EXISTS campaigns (

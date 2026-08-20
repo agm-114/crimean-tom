@@ -8,7 +8,8 @@ campaign service authority or unattended campaign simulation is enabled. The
 game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
 requires a live compare-and-swap writer epoch, commits command/event/revision/head
-changes transactionally, enforces idempotency, and replays from origin. The first allow-listed
+changes transactionally, enforces idempotency, and replays from origin. The first
+allow-listed
 tactical mutation family now materializes one Crimean-Tom-owned Knox surface
 unit after explicit, session-scoped arming. That owned unit can now be
 checkpointed, revision-fenced, updated, suspended outside the active world, and
@@ -199,11 +200,15 @@ counts. Detached recovery release is registry-only, fenced, idempotent, and
 cannot act while a Unity object or checkpoint remains. The Phase 2 gate matrix
 closes the narrow Knox gate.
 
-The next slice remains Phase 3B: add validated snapshots and adjacent
-content-addressed blobs, then inject interruption at validation, append,
-snapshot, and acknowledgement boundaries. Add database-plus-blob backup/restore
-only after those recovery semantics are explicit. Keep tactical projection and
-campaign commit separate: Sea Power remains a fenced client of the external
+Canonical snapshots are strict-decoded, invariant-checked against durable
+journal replay before storage, content-hashed, and used as a recovery base for
+the remaining journal tail.
+
+The next slice remains Phase 3B: add adjacent content-addressed blobs, database
+integrity diagnostics, and database-plus-blob backup/restore, then inject
+interruption at validation, append, snapshot, and acknowledgement boundaries.
+Keep tactical projection and campaign commit separate: Sea Power remains a
+fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
 
 ## Deferred hardening

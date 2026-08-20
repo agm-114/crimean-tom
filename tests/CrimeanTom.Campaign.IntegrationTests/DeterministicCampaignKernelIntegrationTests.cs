@@ -31,6 +31,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(firstBytes, secondBytes);
         Assert.Equal(CampaignCanonicalSerializer.ComputeHash(first.State), CampaignCanonicalSerializer.ComputeHash(second.State));
         Assert.Equal(first.Events.Select(item => item.EventId), second.Events.Select(item => item.EventId));
+        var decoded = CampaignCanonicalSerializer.Deserialize(firstBytes);
+        Assert.Equal(firstBytes, CampaignCanonicalSerializer.Serialize(decoded));
 
         var canonicalJson = Encoding.UTF8.GetString(firstBytes);
         Assert.Contains(Ids.RedTruth, canonicalJson, StringComparison.Ordinal);
@@ -173,12 +175,24 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 journal.AcquireWriterAsync(Ids.Campaign, coordinatorB, now, TimeSpan.FromMinutes(2)));
             Assert.Equal("writer-lease-unavailable", unavailable.Code);
 
+            var durableState = CampaignState.Create(theater.State.Metadata);
+            CampaignSnapshotInfo? snapshot = null;
             for (var index = 0; index < theater.Commands.Count; index++)
             {
                 var append = await journal.AppendAsync(lease, theater.Commands[index], theater.Events[index], now);
                 Assert.False(append.Duplicate);
+                durableState = CampaignKernel.Apply(durableState, append.CampaignEvent);
+                if (index == 9)
+                {
+                    snapshot = await journal.SaveSnapshotAsync(lease, durableState, now);
+                    Assert.False(snapshot.Duplicate);
+                    var duplicateSnapshot = await journal.SaveSnapshotAsync(lease, durableState, now);
+                    Assert.True(duplicateSnapshot.Duplicate);
+                }
             }
 
+            Assert.NotNull(snapshot);
+            Assert.Equal(new CommitPosition(10), snapshot.CommitPosition);
             Assert.Equal(theater.State.Head, await journal.ReadHeadAsync(Ids.Campaign));
             var duplicate = await journal.AppendAsync(lease, theater.Commands[0], theater.Events[0], now);
             Assert.True(duplicate.Duplicate);
@@ -196,6 +210,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 replay = CampaignKernel.Apply(replay, campaignEvent);
             }
             Assert.Equal(theater.Hash, CampaignCanonicalSerializer.ComputeHash(replay));
+            var recovered = await journal.RecoverAsync(Ids.Campaign);
+            Assert.Equal(snapshot.CommitPosition, recovered.SnapshotPosition);
+            Assert.Equal(theater.Hash, recovered.CanonicalHash);
+            Assert.Equal(CampaignCanonicalSerializer.Serialize(theater.State),
+                CampaignCanonicalSerializer.Serialize(recovered.State));
 
             var replacement = await journal.AcquireWriterAsync(Ids.Campaign, coordinatorA, now, TimeSpan.FromMinutes(2));
             Assert.True(replacement.WriterEpoch.Value > lease.WriterEpoch.Value);

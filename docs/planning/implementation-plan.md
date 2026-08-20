@@ -459,8 +459,10 @@ coalition projection are implemented. See the
 **Status: in progress.** The initial SQLite WAL schema, compare-and-swap writer
 lease/epoch, transactional command/event append, durable subject revisions,
 content hashes, strict idempotency behavior, ordered reads, and origin-to-head
-replay are implemented. Snapshots, adjacent content-addressed blobs, atomic
-backup, integrity tooling, and crash-boundary injection remain open. See the
+replay are implemented. Canonical snapshots now decode strictly, validate all
+domain invariants, and recover by replaying the journal tail. Adjacent
+content-addressed blobs, atomic backup, integrity tooling, and crash-boundary
+injection remain open. See the
 [Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
 
 - Acquire a compare-and-swap writer epoch before the first durable mutation;

@@ -5,8 +5,8 @@ Date: 20 August 2026
 ## Current disposition
 
 Phase 3B is in progress. This checkpoint implements the fenced transactional
-journal. It does not claim the Phase 3B snapshot, blob, backup, or crash-recovery
-work is complete.
+journal and validated canonical snapshots. It does not claim the Phase 3B blob,
+backup, integrity, or crash-recovery work is complete.
 
 ## Implemented durable boundary
 
@@ -40,6 +40,26 @@ or idempotency key with different bytes fails as `idempotency-conflict`.
 
 Ordered event reads verify each stored event content hash before deserialization.
 
+## Snapshot and recovery boundary
+
+The canonical serializer now has a strict inverse. It rejects unknown fields,
+missing required fields, malformed or non-canonical IDs, invalid enums,
+duplicate resource keys, and any state that fails cross-entity domain
+invariants. Re-serializing a decoded snapshot is byte-identical.
+
+Database schema migration 1 to 2 adds content-hashed snapshots transactionally.
+A snapshot write requires the live writer epoch and the current durable head.
+Before storage, the service independently recovers that head from the newest
+existing snapshot plus hash-verified journal events and requires the supplied
+snapshot hash to match. A retry at the same position is idempotent only when the
+hash and bytes are identical.
+
+Recovery selects the newest snapshot at or before the durable head, verifies its
+content hash and canonical identity, validates the complete state graph, then
+applies a contiguous hash-verified journal tail. A gap, corrupt snapshot/event,
+metadata mismatch, or final-head mismatch fails recovery rather than silently
+falling back to a different timeline.
+
 ## Broad integration evidence
 
 The existing single campaign story now crosses both the pure kernel and a real
@@ -51,10 +71,12 @@ temporary SQLite database. It:
 4. proves the durable head matches the in-memory head;
 5. proves an exact duplicate returns the original event;
 6. proves changed content under the same idempotency identity is rejected;
-7. reads and hash-checks the full ordered event log;
-8. replays from the metadata origin to the exact Phase 3A canonical hash;
-9. reacquires under coordinator A, incrementing the epoch and fencing its old handle; and
-10. releases the replacement so coordinator B can acquire a still-newer epoch.
+7. writes an idempotent, replay-validated snapshot at commit position 10;
+8. reads and hash-checks the full ordered event log;
+9. replays independently from the metadata origin to the exact Phase 3A canonical hash;
+10. recovers from snapshot 10 plus five journal events to the same bytes and hash;
+11. reacquires under coordinator A, incrementing the epoch and fencing its old handle; and
+12. releases the replacement so coordinator B can acquire a still-newer epoch.
 
 The temporary database, WAL, and shared-memory files are removed after the broad
 story closes all connections.
@@ -67,7 +89,6 @@ dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.Integ
 
 ## Remaining work
 
-- canonical snapshot decode, validation, and replay from the newest valid snapshot;
 - content-addressed adjacent checkpoint/catalog blobs and corruption handling;
 - crash injection at validation, append, snapshot, and acknowledgement boundaries;
 - integrity checks plus atomic database-and-blob backup/export and restore;

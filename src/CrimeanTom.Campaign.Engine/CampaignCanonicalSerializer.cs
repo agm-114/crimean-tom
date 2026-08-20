@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Collections.Immutable;
 using System.Text.Json;
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
@@ -21,6 +22,80 @@ public static class CampaignCanonicalSerializer
 
     public static string ComputeHash(CampaignState state) =>
         Convert.ToHexString(SHA256.HashData(Serialize(state))).ToLowerInvariant();
+
+    public static CampaignState Deserialize(ReadOnlySpan<byte> json)
+    {
+        var document = JsonSerializer.Deserialize<SnapshotDocument>(json, SnapshotOptions)
+            ?? throw new JsonException("Campaign snapshot was null.");
+        var metadata = new CampaignMetadata(
+            ParseId(document.CampaignId, value => new CampaignId(value)),
+            document.Name,
+            document.Seed,
+            document.CatalogFingerprint,
+            document.SchemaVersion,
+            document.AlgorithmVersion);
+        var state = CampaignState.Create(metadata) with
+        {
+            Time = new CampaignTime(document.TimeQuanta),
+            Head = new CommitPosition(document.CommitPosition),
+            CampaignRevision = new EntityRevision(document.CampaignRevision),
+            Regions = document.Regions.Select(item => new RegionState(
+                ParseId(item.Id, value => new RegionId(value)), item.Name,
+                item.Neighbors.Select(value => ParseId(value, id => new RegionId(id))).ToImmutableSortedSet(),
+                new EntityRevision(item.Revision))).ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Bases = document.Bases.Select(item => new BaseState(
+                ParseId(item.Id, value => new BaseId(value)), item.Name,
+                ParseId(item.CoalitionId, value => new CoalitionId(value)),
+                ParseId(item.RegionId, value => new RegionId(value)),
+                new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
+                ReadResources(item.Resources), new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.BaseId, item => item),
+            Entities = document.Entities.Select(item => new EntityState(
+                ParseId(item.Id, value => new EntityId(value)), item.Name, item.CatalogUnitId,
+                ParseId(item.CoalitionId, value => new CoalitionId(value)),
+                ParseId(item.RegionId, value => new RegionId(value)),
+                new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
+                item.HomeBaseId is null ? null : ParseId(item.HomeBaseId, value => new BaseId(value)),
+                ParseEnum<EntityLifecycle>(item.Lifecycle), ParseEnum<FidelityState>(item.Fidelity),
+                ReadResources(item.Resources), item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.EntityId, item => item),
+            Groups = document.Groups.Select(item => new GroupState(
+                ParseId(item.Id, value => new GroupId(value)), item.Name,
+                ParseId(item.CoalitionId, value => new CoalitionId(value)),
+                item.Members.Select(value => ParseId(value, id => new EntityId(id))).ToImmutableSortedSet(),
+                item.ActiveOrderId is null ? null : ParseId(item.ActiveOrderId, value => new OrderId(value)),
+                new EntityRevision(item.Revision))).ToImmutableSortedDictionary(item => item.GroupId, item => item),
+            Orders = document.Orders.Select(item => new OrderState(
+                ParseId(item.Id, value => new OrderId(value)),
+                ParseId(item.GroupId, value => new GroupId(value)), ParseEnum<OrderKind>(item.Kind),
+                ParseId(item.DestinationRegionId, value => new RegionId(value)), new CampaignTime(item.StartsAt),
+                item.MustCompleteBy is null ? null : new CampaignTime(item.MustCompleteBy.Value),
+                new EntityRevision(item.Revision))).ToImmutableSortedDictionary(item => item.OrderId, item => item),
+            Intelligence = document.Intelligence.Select(item =>
+            {
+                var key = new IntelligenceKey(
+                    ParseId(item.ObserverCoalitionId, value => new CoalitionId(value)),
+                    ParseId(item.ContactEntityId, value => new EntityId(value)));
+                return new IntelligenceEstimate(key,
+                    ParseId(item.EstimatedRegionId, value => new RegionId(value)),
+                    new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
+                    ParseEnum<IntelligenceConfidence>(item.Confidence), new CampaignTime(item.ObservedAt),
+                    new EntityRevision(item.Revision));
+            }).ToImmutableSortedDictionary(item => item.Key, item => item),
+            Weather = document.Weather.Select(item => new WeatherState(
+                ParseId(item.RegionId, value => new RegionId(value)), new HeadingMilliDegrees(item.WindDirectionMilliDegrees),
+                new SpeedMillimetersPerSecond(item.WindMillimetersPerSecond), new DistanceMeters(item.VisibilityMeters),
+                item.SeaStateMilliUnits, new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Assignments = document.Assignments.Select(item => new AssignmentState(
+                ParseId(item.Id, value => new AssignmentId(value)), ParseId(item.EntityId, value => new EntityId(value)),
+                ParseEnum<AssignmentRole>(item.Role), new AuthorityEpoch(item.AuthorityEpoch),
+                new CampaignTime(item.EffectiveAt), new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
+        };
+        CampaignStateValidator.Validate(state);
+        return state;
+    }
 
     private static void WriteState(Utf8JsonWriter writer, CampaignState state)
     {
@@ -238,5 +313,158 @@ public static class CampaignCanonicalSerializer
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+    }
+
+    private static readonly JsonSerializerOptions SnapshotOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = false,
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+    };
+
+    private static T ParseId<T>(string value, Func<Guid, T> factory)
+    {
+        if (value.Length != 32 || !Guid.TryParseExact(value, "N", out var parsed)
+            || parsed == Guid.Empty || parsed.ToString("N") != value)
+        {
+            throw new JsonException("A canonical identifier is invalid.");
+        }
+        return factory(parsed);
+    }
+
+    private static T ParseEnum<T>(int value) where T : struct, Enum =>
+        Enum.IsDefined(typeof(T), value)
+            ? (T)Enum.ToObject(typeof(T), value)
+            : throw new JsonException($"{typeof(T).Name} value {value} is invalid.");
+
+    private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> ReadResources(ResourceDocument[] resources)
+    {
+        try
+        {
+            return resources.Select(item => new KeyValuePair<ResourceKind, ResourceAmount>(
+                    ParseEnum<ResourceKind>(item.Kind), new ResourceAmount(item.MilliUnits)))
+                .ToImmutableSortedDictionary();
+        }
+        catch (ArgumentException exception)
+        {
+            throw new JsonException("Canonical resources contain duplicate kinds.", exception);
+        }
+    }
+
+    private sealed class SnapshotDocument
+    {
+        public required int SchemaVersion { get; init; }
+        public required int AlgorithmVersion { get; init; }
+        public required string CampaignId { get; init; }
+        public required string Name { get; init; }
+        public required long Seed { get; init; }
+        public required string CatalogFingerprint { get; init; }
+        public required long TimeQuanta { get; init; }
+        public required long CommitPosition { get; init; }
+        public required long CampaignRevision { get; init; }
+        public required RegionDocument[] Regions { get; init; }
+        public required BaseDocument[] Bases { get; init; }
+        public required EntityDocument[] Entities { get; init; }
+        public required GroupDocument[] Groups { get; init; }
+        public required OrderDocument[] Orders { get; init; }
+        public required IntelligenceDocument[] Intelligence { get; init; }
+        public required WeatherDocument[] Weather { get; init; }
+        public required AssignmentDocument[] Assignments { get; init; }
+    }
+
+    private sealed class RegionDocument
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required long Revision { get; init; }
+        public required string[] Neighbors { get; init; }
+    }
+
+    private sealed class BaseDocument
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required string CoalitionId { get; init; }
+        public required string RegionId { get; init; }
+        public required int LatitudeMicrodegrees { get; init; }
+        public required int LongitudeMicrodegrees { get; init; }
+        public required ResourceDocument[] Resources { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class EntityDocument
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required string CatalogUnitId { get; init; }
+        public required string CoalitionId { get; init; }
+        public required string RegionId { get; init; }
+        public required int LatitudeMicrodegrees { get; init; }
+        public required int LongitudeMicrodegrees { get; init; }
+        public string? HomeBaseId { get; init; }
+        public required int Lifecycle { get; init; }
+        public required int Fidelity { get; init; }
+        public required ResourceDocument[] Resources { get; init; }
+        public required string ClassifiedTruthTag { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class GroupDocument
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required string CoalitionId { get; init; }
+        public required long Revision { get; init; }
+        public required string[] Members { get; init; }
+        public string? ActiveOrderId { get; init; }
+    }
+
+    private sealed class OrderDocument
+    {
+        public required string Id { get; init; }
+        public required string GroupId { get; init; }
+        public required int Kind { get; init; }
+        public required string DestinationRegionId { get; init; }
+        public required long StartsAt { get; init; }
+        public long? MustCompleteBy { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class IntelligenceDocument
+    {
+        public required string ObserverCoalitionId { get; init; }
+        public required string ContactEntityId { get; init; }
+        public required string EstimatedRegionId { get; init; }
+        public required int LatitudeMicrodegrees { get; init; }
+        public required int LongitudeMicrodegrees { get; init; }
+        public required int Confidence { get; init; }
+        public required long ObservedAt { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class WeatherDocument
+    {
+        public required string RegionId { get; init; }
+        public required int WindDirectionMilliDegrees { get; init; }
+        public required long WindMillimetersPerSecond { get; init; }
+        public required long VisibilityMeters { get; init; }
+        public required int SeaStateMilliUnits { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class AssignmentDocument
+    {
+        public required string Id { get; init; }
+        public required string EntityId { get; init; }
+        public required int Role { get; init; }
+        public required long AuthorityEpoch { get; init; }
+        public required long EffectiveAt { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class ResourceDocument
+    {
+        public required int Kind { get; init; }
+        public required long MilliUnits { get; init; }
     }
 }
