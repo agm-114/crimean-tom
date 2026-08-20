@@ -280,7 +280,7 @@ public sealed class SceneStatePayload
 
 public sealed class WorldSnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 9;
+    public int SchemaVersion { get; set; } = 10;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -339,6 +339,36 @@ public sealed class WorldSnapshotPayload
     public PlayerEventLogSnapshotPayload Events { get; set; } = new();
 
     public SpatialDiagnosticsPayload SpatialDiagnostics { get; set; } = new();
+
+    public ControlledTickExperimentPayload ControlledTickExperiment { get; set; } = new();
+}
+
+public sealed class ControlledTickExperimentRequestPayload
+{
+    public int TickCount { get; set; } = 300;
+    public double StepSeconds { get; set; } = 1d / 30d;
+    public int? Seed { get; set; }
+}
+
+public sealed class ControlledTickExperimentPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Mode { get; set; } = "ControlledExperimental";
+    public string State { get; set; } = "idle";
+    public string Postcondition { get; set; } = string.Empty;
+    public bool HooksInstalled { get; set; }
+    public string InstallationError { get; set; } = string.Empty;
+    public int RequestedTicks { get; set; }
+    public int CompletedTicks { get; set; }
+    public int GameUpdateCount { get; set; }
+    public int PhysicsFixedUpdateCount { get; set; }
+    public double StepSeconds { get; set; }
+    public double? StartSimulationTimeSeconds { get; set; }
+    public double? TargetSimulationTimeSeconds { get; set; }
+    public double? CurrentSimulationTimeSeconds { get; set; }
+    public int? Seed { get; set; }
+    public string[] SeededSources { get; set; } = Array.Empty<string>();
+    public string[] UncontrolledSources { get; set; } = Array.Empty<string>();
 }
 
 public sealed class SpatialDiagnosticsPayload

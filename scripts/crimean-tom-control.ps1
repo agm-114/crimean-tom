@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -34,6 +34,14 @@ param(
     [string]$UnitId = '',
 
     [string]$TargetUnitId = '',
+
+    [ValidateRange(1, 10000)]
+    [int]$TickCount = 300,
+
+    [ValidateRange(0.001, 0.1)]
+    [double]$TickStepSeconds = (1.0 / 30.0),
+
+    [int]$Seed = 1042,
 
     [int]$Quantity = 1,
 
@@ -327,7 +335,7 @@ function Test-ControlBridge {
     }
     foreach ($requiredHookName in $requiredHookNames) {
         $reportedHook = @($reportedHooks | Where-Object name -CEQ $requiredHookName)
-        $expectedHookStatus = if ($requiredHookName -ceq 'logical-time') {
+        $expectedHookStatus = if ($requiredHookName -cin @('logical-time', 'stable-update-order')) {
             'verified'
         }
         else {
@@ -554,6 +562,16 @@ switch ($Action) {
             '/game/experimental/pause' `
             'Post' `
             ([pscustomobject]@{ isPaused = $false }))
+    }
+    'run-controlled-ticks-experimental' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/experimental/ticks/run' `
+            'Post' `
+            ([pscustomobject]@{
+                tickCount = $TickCount
+                stepSeconds = $TickStepSeconds
+                seed = $Seed
+            }))
     }
     'save-probe-experimental' {
         Show-Json (Invoke-ControlRequest '/game/experimental/save-load/save' 'Post')

@@ -125,6 +125,12 @@ sensors, damage, or AI to make a phase checkbox pass.
 
 ## Remaining D0 work
 
+The first controlled prototype advances `GameTime` by an exact coordinator-
+issued step and seeds five process-global RNG sources. Equal 300-tick windows
+still observed 150 versus 151 Unity fixed updates, while per-instance RNG,
+coroutines, and job merge order remain uncontrolled. This runtime result
+confirms that owning only the logical `GameUpdater` chain is insufficient.
+
 - Review or instrument the 368 generated promotion-critical unknowns; the
   manifest now provides their exact compiled owners and method hashes.
 - Classify job merge order and the runtime ordering of callback/coroutine owners,

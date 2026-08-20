@@ -108,6 +108,8 @@ internal static class GameCommandDispatcher
                         LaunchExperimentalProbeWeapon(command.PayloadJson),
                     GameCommandTypes.SaveExperimentalProbe => SaveExperimentalProbe(),
                     GameCommandTypes.LoadExperimentalProbe => LoadExperimentalProbe(),
+                    GameCommandTypes.RunControlledTickExperiment =>
+                        RunControlledTickExperiment(command.PayloadJson),
                     _ => Failure(
                         ProtocolErrorCodes.UnsupportedCommand,
                         $"Command '{command.MessageType}' is not supported."),
@@ -203,6 +205,7 @@ internal static class GameCommandDispatcher
                 IsPaused = GameTime.IsPaused(),
                 StableIdentityState = "ready",
                 SpatialDiagnostics = CaptureSpatialDiagnostics([]),
+                ControlledTickExperiment = RuntimeControlledTickAdapter.Capture(),
             };
             PopulateWorldSubsystemHashes(emptySnapshot);
             captureTimer.Stop();
@@ -278,6 +281,7 @@ internal static class GameCommandDispatcher
             Contacts = contacts,
             Events = events,
             SpatialDiagnostics = CaptureSpatialDiagnostics(allObjects),
+            ControlledTickExperiment = RuntimeControlledTickAdapter.Capture(),
         };
         PopulateWorldSubsystemHashes(snapshot);
         captureTimer.Stop();
@@ -1258,6 +1262,36 @@ internal static class GameCommandDispatcher
             TimeCompression = Finite(GameTime.TimeCompression),
             Postcondition = actual ? "tactical-time-paused" : "tactical-time-running",
         });
+    }
+
+    private static CommandResponsePayload RunControlledTickExperiment(string payloadJson)
+    {
+        if (!RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time")
+            || !RuntimeDeterministicHookFingerprintProvider.IsVerified("stable-update-order"))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "The pinned logical-time and stable-update-order seams are not verified.");
+        }
+        if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<SceneCreator>.InstanceExists()
+            || !Singleton<SceneCreator>.Instance.IsLoadingDone
+            || !GameTime.IsPaused())
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "A fully loaded, paused tactical mission is required for controlled ticks.");
+        }
+
+        var request = JsonSerializer.Deserialize<ControlledTickExperimentRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new ControlledTickExperimentRequestPayload();
+        var started = RuntimeControlledTickAdapter.Start(request);
+        if (!started.Success)
+        {
+            return Failure(ProtocolErrorCodes.AutomationPreconditionFailed, started.Error);
+        }
+        return Success(RuntimeControlledTickAdapter.Capture());
     }
 
     private static CommandResponsePayload SaveExperimentalProbe()

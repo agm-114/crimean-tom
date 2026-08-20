@@ -137,6 +137,35 @@ guidance, and final damage, remains the explicit follow-up blocker. Spatial
 diagnostics are observational and are intentionally excluded from the canonical
 world hash.
 
+## Controlled tick, RNG, and update-order prototype
+
+Schema 10 exposes the result of an authenticated, explicitly experimental
+controlled-tick run. The runtime fingerprints and patches the pinned
+`GameTime.OnUpdate`, `GameUpdater.update`, and `GameFixedUpdater.fixedUpdate`
+methods, refuses the command unless the mission is fully loaded and paused, and
+automatically returns to pause after the requested game-update chain. Normal
+runtime behavior is unchanged while the experiment is inactive.
+
+A 30-tick run at a requested step of `0.03333333507180214` seconds advanced
+logical simulation time exactly from `0.5166133642196655` to
+`1.5166133642196655`. It completed 30 requested ticks and 30 `GameUpdater`
+updates, observed 15 Unity fixed-physics updates, and returned paused. A
+300-tick run advanced exactly from `20.6146297454834` to
+`30.6146297454834`, with 300 game updates and 150 fixed updates. The experiment
+seeded five known process-global sources: `Globals._rnd`,
+`Globals._unityRandom`, `AI._aiRandom`, `SystemCompartment._svRandom`, and
+`UnityEngine.Random`.
+
+This is a useful partial control seam, not a deterministic runtime. Equal
+300-tick windows subsequently observed both 150 and 151 fixed updates because
+Unity still schedules physics from its frame cadence. Per-instance random
+owners, job merge order, coroutine scheduling, and direct Unity time readers
+also remain uncontrolled. The adapter reports those limitations in every
+result, stays `ControlledExperimental`, and cannot receive campaign authority.
+The published result therefore blocks convergence and hot-replica promotion
+until fixed physics, indirect RNG ownership, jobs, and coroutine ordering are
+controlled or proven immaterial.
+
 ## Representative facility, submarine, and reload identity
 
 The Red Sea capture contained five exact `LandUnit` records: an observation
@@ -277,11 +306,13 @@ users/VMs) and a launch path proven to create two independent game processes.
 - The D0 structural audit publishes a negative time-rebase result and a
   deterministic compiled manifest with method ownership/hashes. Its 368
   callback/coroutine unknowns explicitly block hot-replica promotion until
-  runtime ownership and scheduling are classified.
+  runtime ownership and scheduling are classified. The controlled-tick
+  prototype provides exact logical time but also demonstrates 150/151 fixed-
+  physics updates across equal windows, so update convergence remains blocked.
 - Replace the temporary maintenance mission context once its minimum UI
   dependencies are proven.
 
-The final broad main-menu control run passed after schema 9 on a fresh game
+The final broad main-menu control run passed after schema 10 on a fresh game
 process. It covered authenticated companion/game transport, thread guards,
 capabilities, world read, all normalized catalogs, override diagnostics, and
 campaign read while preserving the same catalog and mod-set identities.

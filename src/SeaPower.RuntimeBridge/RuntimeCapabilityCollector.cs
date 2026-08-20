@@ -130,6 +130,12 @@ internal static class RuntimeCapabilityCollector
         {
             supportedExperimentalCommands.Add(GameCommandTypes.SetExperimentalPauseState);
         }
+        if (RuntimeControlledTickAdapter.HooksInstalled
+            && RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time")
+            && RuntimeDeterministicHookFingerprintProvider.IsVerified("stable-update-order"))
+        {
+            supportedExperimentalCommands.Add(GameCommandTypes.RunControlledTickExperiment);
+        }
         if (RuntimeDeterministicHookFingerprintProvider.IsVerified("native-save-load"))
         {
             supportedExperimentalCommands.Add(GameCommandTypes.SaveExperimentalProbe);

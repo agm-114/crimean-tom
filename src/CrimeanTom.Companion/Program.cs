@@ -200,6 +200,17 @@ app.MapPost("/game/experimental/pause", (
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/experimental/ticks/run", (
+    ControlledTickExperimentRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.RunControlledTickExperiment,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/experimental/save-load/save", async (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>

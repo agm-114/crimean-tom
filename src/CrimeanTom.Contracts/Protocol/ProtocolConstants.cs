@@ -85,6 +85,7 @@ public static class GameCommandTypes
     public const string LaunchExperimentalProbeWeapon = "launch-experimental-probe-weapon";
     public const string SaveExperimentalProbe = "save-experimental-probe";
     public const string LoadExperimentalProbe = "load-experimental-probe";
+    public const string RunControlledTickExperiment = "run-controlled-tick-experiment";
 
     public static readonly string[] ReadOnlyCommands =
     {
@@ -114,6 +115,7 @@ public static class GameCommandTypes
         LaunchExperimentalProbeWeapon,
         SaveExperimentalProbe,
         LoadExperimentalProbe,
+        RunControlledTickExperiment,
     };
 
     public static readonly string[] AllCommands =
@@ -136,5 +138,6 @@ public static class GameCommandTypes
         LaunchExperimentalProbeWeapon,
         SaveExperimentalProbe,
         LoadExperimentalProbe,
+        RunControlledTickExperiment,
     };
 }

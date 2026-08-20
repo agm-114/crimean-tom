@@ -113,6 +113,19 @@ companion shutdown. Protocol invariants that do not yet fit this flow should be
 proven through a new broad failure/recovery scenario, not a collection of narrow
 method tests.
 
+After a mission is fully loaded and paused, the pinned experimental logical-tick
+adapter can be exercised without menu input:
+
+```powershell
+pwsh -File scripts/crimean-tom-control.ps1 run-controlled-ticks-experimental `
+  -SkipBuild -TickCount 300 -TickStepSeconds 0.0333333333333333 -Seed 1042
+```
+
+Treat the response as diagnostics, not authority evidence. Exact requested time
+and update counts are positive logical-clock evidence; unequal fixed-update
+counts, listed uncontrolled sources, or hook mismatches remain explicit
+determinism blockers.
+
 The Windows ACL test impersonates the anonymous security token against the
 actual broker, requires kernel access denial before handshake, then proves the
 same listener still accepts the current user. This is not a substitute for the

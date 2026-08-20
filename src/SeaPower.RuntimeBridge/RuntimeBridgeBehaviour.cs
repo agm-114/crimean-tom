@@ -24,6 +24,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     private void Awake()
     {
         _mainThreadId = Environment.CurrentManagedThreadId;
+        RuntimeControlledTickAdapter.Install();
         _fileFingerprintProvider = RuntimeFileFingerprintProvider.Start();
         _executionThreadGuardSelfTest.Start(_mainThreadId, _fileFingerprintProvider);
 

@@ -301,6 +301,22 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.True(pause.RootElement.GetProperty("isPaused").GetBoolean());
 
+            using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/experimental/ticks/run",
+                JsonSerializer.Serialize(new ControlledTickExperimentRequestPayload
+                {
+                    TickCount = 30,
+                    StepSeconds = 1d / 30d,
+                    Seed = 1042,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "controlled-ticks-running",
+                controlledTicks.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(30, controlledTicks.RootElement.GetProperty("requestedTicks").GetInt32());
+
             using var launchProbeWeapon = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -650,6 +666,18 @@ public sealed class CompanionControlIntegrationTests
                     JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.RunControlledTickExperiment => JsonSerializer.Serialize(
+                    new ControlledTickExperimentPayload
+                    {
+                        State = "running",
+                        Postcondition = "controlled-ticks-running",
+                        HooksInstalled = true,
+                        RequestedTicks = 30,
+                        StepSeconds = 1d / 30d,
+                        Seed = 1042,
+                        SeededSources = ["Globals._rnd"],
+                    },
                     JsonOptions),
                 GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(
                     new ExperimentalWeaponLaunchResultPayload

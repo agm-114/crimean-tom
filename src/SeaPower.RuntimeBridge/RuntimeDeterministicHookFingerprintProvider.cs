@@ -30,11 +30,13 @@ internal static class RuntimeDeterministicHookFingerprintProvider
                 "random-sources",
                 RequiredField(typeof(Globals), "_rnd"),
                 RequiredField(typeof(Globals), "_unityRandom")),
-            CaptureGroup(
-                "stable-update-order",
-                RequiredMethod(typeof(GameUpdater), "update"),
-                RequiredMethod(typeof(GameFixedUpdater), "fixedUpdate"),
-                RequiredMethod(typeof(GameLateUpdater), "lateUpdate")),
+            Pin(
+                CaptureGroup(
+                    "stable-update-order",
+                    RequiredMethod(typeof(GameUpdater), "update"),
+                    RequiredMethod(typeof(GameFixedUpdater), "fixedUpdate"),
+                    RequiredMethod(typeof(GameLateUpdater), "lateUpdate")),
+                "8a9f13bd821fb11bd940e82a23595f954040c31205ed2518b67cee5068839915"),
             Pin(
                 CaptureGroup(
                 "native-save-load",
