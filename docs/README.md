@@ -56,6 +56,9 @@ The folders separate evidence from design commitments:
     plugin, UI, and campaign-contract checks.
 16. [Source map](research/source-map.md) points future investigators at the highest-value
     decompiled types.
+17. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
+    records D0 scan coverage, initial time/RNG/job/coroutine classification, and
+    the fail-closed clock-rebase verdict for the pinned build.
 
 ## Evidence labels
 

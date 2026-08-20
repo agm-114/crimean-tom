@@ -1244,6 +1244,45 @@ internal static class GameCommandDispatcher
             var weaponSystems = unit._obp?._weaponSystems ?? [];
             for (var weaponSystemIndex = 0; weaponSystemIndex < weaponSystems.Count; weaponSystemIndex++)
             {
+                if (weaponSystems[weaponSystemIndex] is WeaponSystemHardpoint hardpoint)
+                {
+                    var weapon = hardpoint._weapons.FirstOrDefault(candidate =>
+                        candidate is not null
+                        && !candidate.isLaunched()
+                        && candidate._ap?._type == desiredType);
+                    if (weapon is null)
+                    {
+                        continue;
+                    }
+
+                    var forward = unit.transform.forward;
+                    forward.y = 0f;
+                    forward.Normalize();
+                    var launchPosition = unit.transform.position;
+                    launchPosition.y = 0f;
+                    var previousAmmunition = hardpoint._ammoForEngage;
+                    try
+                    {
+                        hardpoint._ammoForEngage = new Ammunition(weapon._ap);
+                        hardpoint.launch(
+                            null,
+                            launchPosition + forward * 44.64281f,
+                            Vector3.zero,
+                            unit.UnityVelocityVector);
+                    }
+                    finally
+                    {
+                        hardpoint._ammoForEngage = previousAmmunition;
+                    }
+                    return CompleteExperimentalWeaponLaunch(
+                        unit,
+                        weaponSystemIndex,
+                        -1,
+                        desiredType,
+                        weapon,
+                        "The pinned hardpoint launch seam returned without launching the selected weapon.");
+                }
+
                 if (weaponSystems[weaponSystemIndex] is not WeaponSystemLauncher launcher)
                 {
                     continue;
@@ -1499,7 +1538,7 @@ internal static class GameCommandDispatcher
             : ScenarioId(normalized);
     }
 
-    private static string NormalizeVirtualPath(string path) => path
+    private static string NormalizeVirtualPath(string? path) => (path ?? string.Empty)
         .Replace('\\', '/')
         .TrimStart('/')
         .ToLowerInvariant();

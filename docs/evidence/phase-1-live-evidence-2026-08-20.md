@@ -61,6 +61,38 @@ and one canonical hash
 `739ec05a732430d3f0c4434bf984ac05121d26bb0c0a942527d3d22ada536adf`.
 Median contact- and event-inclusive full-world capture was 2,265 us.
 
+## Native active-weapon save/load
+
+The pinned `SaveLoadManager.SaveGame` / `UnloadMissionAndReload` path now has a
+controlled, authenticated experimental route. The companion waits for the
+asynchronous native save write to stabilize before reporting its hash. The
+launch route is limited to a paused player task force and uses three public,
+fingerprinted native launch surfaces: a loaded `WeaponContainer`, a magazine
+reload through `WeaponContainer.LaunchFromMagazine`, or an aircraft
+`WeaponSystemHardpoint`. It does not construct or register a weapon directly.
+
+| Family | Scenario and native object | Save SHA-256 | Round-trip and lifecycle evidence |
+| --- | --- | --- | --- |
+| Missile | Red Sea Breakout; Yorktown `usn_rgm-84d`, `weapon:10` | `9ce76cf4c20f35a1339830e4c9921f5908110ee8c642f863822d1b2f15369525` | Native save wrote one `Taskforce1Weapon` with platform/system, position, velocity, stage, launch time, and travel state. Reload restored the missile. Unpause advanced `Launch` to `ToBearing` to `MaintainHeight`; the blind-fire probe completed/disappeared near simulation second 37. |
+| Torpedo | Sub Duel Pacific Shield 1971; Scamp `usn_mk37_mod2`, `weapon:9` | `ba2c638e8c37e1312573a0da781da78c662a3e02b2f24829adc895b393c6bcda` | Magazine count changed 14 to 13, native save wrote one weapon with `UnderwaterLaunch`, platform `1`, and launcher `7`, and reload restored the same ID/type/platform/stage. Unpause advanced it to `UnderwaterToBearing` at 24 knots with increasing distance. |
+| Bomb | Caron at Grenada 1983; A-7E CBU-100/Rockeye, `weapon:257` | `b18d072de1472e63c1f0fd8623aedf75d8fcd0b3034cc2d61c3dd30981a7066e` | Hardpoint store count changed 4 to 3, native save wrote one weapon with `DropFromAircraft`, platform `254`, and `WeaponSystemHardpoint5`, and reload restored the same count and active identity. Unpause advanced it to `TerminalApproach` while descending from about 10,007 to 9,102 feet. |
+
+The native file reported `NumberOfTaskforce1Weapons=1` in all three cases. The
+probe deliberately uses an untargeted point ahead of the platform, so intended
+target links, guided-target reacquisition, and final damage equivalence remain
+unproven. Whole-world canonical hashes also differ across reload. One concrete
+native fidelity defect is now isolated: Scamp's unrelated Mk-16 inventory read
+15 before the Mk-37 save and 9 after reload, even though the launched Mk-37 and
+its 13-round remainder restored. Active-weapon persistence is therefore proven
+for these blind-fire representatives, but the native save is not suitable as
+authoritative external campaign state.
+
+The typed tactical-exit workflow was also exercised after native reload. A
+null relative mission path originally caused the result snapshot to fail after
+Sea Power had already opened its debrief flow. Null-safe path normalization now
+returns the scheduled postcondition and completes the public
+`MissionDebriefViewModel` exit/confirm sequence without a menu click.
+
 ## Representative facility, submarine, and reload identity
 
 The Red Sea capture contained five exact `LandUnit` records: an observation
@@ -128,11 +160,14 @@ atomic and fail-open; `CRIMEAN_TOM_DISABLE_LOAD_CACHE=1` disables reuse and
 
 ## Still-open Phase 1 gates
 
-- Publish native active-weapon save/load, tactical-bubble, time-rebase,
-  default-nondeterminism, and multi-instance evidence. Source inspection found
-  the public save/reload path, but the pinned runtime currently reports native
-  sensor and flight-deck save/load disabled, so no round-trip claim is made.
-- Complete simulation-critical RNG/update call-site classification.
+- Publish targeted-guidance/final-outcome follow-up plus tactical-bubble,
+  default-nondeterminism, and multi-instance evidence. Blind-fire
+  native missile, torpedo, and bomb round trips are now proven, with the Mk-16
+  inventory discrepancy explicitly blocking any stronger full-state claim.
+- The D0 structural audit now publishes a negative time-rebase result: a direct
+  rebase is unsafe because 975 non-UI/non-native-campaign `GameTime.time` hits
+  include unregistered absolute deadlines. Complete method ownership/hashing
+  and simulation-critical RNG/update/coroutine/job classification remain open.
 - Replace the temporary maintenance mission context once its minimum UI
   dependencies are proven.
 
