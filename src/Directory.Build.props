@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <SeaPowerDir Condition="'$(SeaPowerDir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Sea Power\Sea Power.exe')">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <GameManaged Condition="'$(GameManaged)' == ''">$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
+    <BepInExCore Condition="'$(BepInExCore)' == ''">$(SeaPowerDir)\BepInEx\core</BepInExCore>
+    <StreamingAssets Condition="'$(StreamingAssets)' == ''">$(SeaPowerDir)\Sea Power_Data\StreamingAssets</StreamingAssets>
+    <SteamWorkshopSeaPower Condition="'$(SteamWorkshopSeaPower)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220</SteamWorkshopSeaPower>
+    <!-- Copy the plugin DLL after build. Never set OutputPath to StreamingAssets; AnchorChain will also try to load copied dependency DLLs. -->
+    <CopyPluginToGame Condition="'$(CopyPluginToGame)' == ''">false</CopyPluginToGame>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(AnchorChainDll)' == ''">
+    <_AnchorChainDllCandidate Include="$(SteamWorkshopSeaPower)\**\AnchorChain.dll" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(AnchorChainDll)' == ''">
+    <AnchorChainDll>@(_AnchorChainDllCandidate)</AnchorChainDll>
+  </PropertyGroup>
+</Project>

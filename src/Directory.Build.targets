@@ -1,0 +1,22 @@
+<Project>
+  <Target Name="EnsureGameReferences"
+          BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(SeaPowerDir)' == '' or !Exists('$(GameManaged)\UnityEngine.CoreModule.dll')"
+           Text="Sea Power Managed assemblies were not found. Set SeaPowerDir to your game folder (the directory that contains Sea Power.exe)." />
+    <Error Condition="'$(AnchorChainDll)' == '' or !Exists('$(AnchorChainDll)')"
+           Text="AnchorChain.dll was not found. Subscribe to AnchorChain on the Steam Workshop, or set AnchorChainDll to the full path of AnchorChain.dll." />
+  </Target>
+
+  <Target Name="CopyPluginToStreamingAssets"
+          AfterTargets="Build"
+          Condition="'$(CopyPluginToGame)' == 'true' and '$(StreamingAssets)' != ''">
+    <PropertyGroup>
+      <_PluginDeployDir>$(StreamingAssets)\CrimeanTom</_PluginDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_PluginDeployDir)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(_PluginDeployDir)"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Copied $(TargetFileName) to $(_PluginDeployDir)" />
+  </Target>
+</Project>

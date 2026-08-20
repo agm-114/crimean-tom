@@ -1,0 +1,3 @@
+[submodule "AnchorChain"]
+	path = AnchorChain
+	url = https://github.com/SeaPower-Modders/AnchorChain.git
