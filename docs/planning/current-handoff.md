@@ -180,13 +180,18 @@ revision/epoch rejection, and native suspension/enable have live evidence in
 owned Knox from the active world and enable restored the same game unique ID,
 state, and canonical world hash exactly once.
 
-Next, determine whether the retained native suspension is sufficient or a
-separate memory-releasing quiet-removal path can satisfy the safety gate. Then
-rematerialize from the portable checkpoint, preserving the
-session/assignment/epoch/revision/idempotency contract. Measure resource relief
-and synchronous cost, publish per-field tolerances, and inject failures without
-ever touching scenario/user objects. Keep unsupported state explicit and cover
-scene reload and companion reconnect before claiming P2 complete.
+The quiet-removal investigation is now complete: native destruction and the
+partial pooling callback cannot safely provide quiet memory reclamation, so the
+supported P2 lifecycle is explicitly retained suspension. Checkpoint restore is exact on a
+retained object and reconstructs after Unity disposes the object during scene
+reload. A companion reconnect requires and successfully enforces new-session
+arming before lifecycle work resumes. Field tolerances and live timings are in
+the Phase 2 evidence.
+
+The next slice is controlled fault injection for every mutation stage plus
+scheduler accounting for retained suspended objects. Finish the P2 gate matrix
+from that evidence; do not expand to another entity family until the narrow
+Knox gate is closed.
 
 ## Deferred hardening
 

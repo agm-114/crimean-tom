@@ -394,15 +394,43 @@ public sealed class CompanionControlIntegrationTests
             Assert.True(
                 suspendedSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
 
+            using var restoredSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/restore",
+                JsonSerializer.Serialize(new RestoreOwnedSurfaceCheckpointRequestPayload
+                {
+                    Context = CreateOwnedContext(sessionId, 3, "integration-restore-1"),
+                    EntityId = "unit:crimean-tom:integration-knox-1",
+                    CheckpointId = checkpoint.RootElement.GetProperty("checkpointId").GetString()!,
+                    CheckpointSha256 = checkpoint.RootElement
+                        .GetProperty("checkpointSha256")
+                        .GetString()!,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "owned-surface-unit-reenabled-from-portable-checkpoint",
+                restoredSurface.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(4, restoredSurface.RootElement.GetProperty("revision").GetInt64());
+
+            using var resuspendedSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 4, "integration-suspend-2", true),
+                testTimeout.Token);
+            Assert.True(
+                resuspendedSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
+
             using var enabledSurface = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
                 "/game/mutations/surface/suspension",
-                CreateSuspensionRequestJson(sessionId, 3, "integration-enable-1", false),
+                CreateSuspensionRequestJson(sessionId, 5, "integration-enable-1", false),
                 testTimeout.Token);
             Assert.False(
                 enabledSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
-            Assert.Equal(4, enabledSurface.RootElement.GetProperty("revision").GetInt64());
+            Assert.Equal(6, enabledSurface.RootElement.GetProperty("revision").GetInt64());
 
             using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
                 client,
@@ -626,7 +654,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 2; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 3; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
@@ -843,6 +871,9 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.SetOwnedSurfaceSuspension => JsonSerializer.Serialize(
                     CreateSuspensionLifecycleResult(command.PayloadJson),
                     JsonOptions),
+                GameCommandTypes.RestoreOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
+                    CreateRestoreLifecycleResult(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(
                     new ExperimentalWeaponLaunchResultPayload
                     {
@@ -993,6 +1024,26 @@ public sealed class CompanionControlIntegrationTests
             Revision = request.Context.ExpectedRevision + 1,
             IdempotencyKey = request.Context.IdempotencyKey,
             Unit = CreateOwnedSurfaceState(request.IsSuspended),
+        };
+    }
+
+    private static OwnedSurfaceLifecycleResultPayload CreateRestoreLifecycleResult(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<RestoreOwnedSurfaceCheckpointRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new OwnedSurfaceLifecycleResultPayload
+        {
+            Outcome = "restored-from-checkpoint",
+            Postcondition = "owned-surface-unit-reenabled-from-portable-checkpoint",
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision + 1,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            SourceCheckpointId = request.CheckpointId,
+            SourceCheckpointSha256 = request.CheckpointSha256,
+            Unit = CreateOwnedSurfaceState(disabled: false),
         };
     }
 

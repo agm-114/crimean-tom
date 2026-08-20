@@ -338,6 +338,39 @@ app.MapPost("/game/mutations/surface/suspension", (
         wireJsonOptions,
         cancellationToken));
 
+app.MapPost("/game/mutations/surface/restore", (
+    RestoreOwnedSurfaceCheckpointRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateOwnedLifecycleRequest(
+        request.Context,
+        request.EntityId,
+        broker);
+    if (validationError is not null)
+    {
+        return Task.FromResult(validationError);
+    }
+    if (string.IsNullOrWhiteSpace(request.CheckpointId)
+        || request.CheckpointId.Length > 256
+        || request.CheckpointSha256.Length != 64
+        || request.CheckpointSha256.Any(character =>
+            character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+    {
+        return Task.FromResult<IResult>(Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The portable checkpoint identity or SHA-256 is invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest));
+    }
+    return SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken);
+});
+
 app.MapGet("/port-operations/projection", (PortOperationsProjectionStore store) =>
     Results.Ok(store.Load()));
 

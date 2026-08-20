@@ -210,6 +210,14 @@ the inactive root, and its entry in `GameMain._objects` remain allocated. It als
 needs live tests for formation, hosted-aircraft, plotting/contact, trigger, and
 save/load behavior.
 
+The Phase 2 quiet-removal spike now rejects a plugin-composed deeper teardown.
+`OnReturnedToPool()` only calls the private `ClearEntity()` seam; it does not
+remove task-force/manager registrations, dispose the full object graph, or own
+the root GameObject lifecycle. Combining that partial seam with manual Unity
+destruction would be an unsupported teardown with orphan/leak risk. The first
+surface family therefore supports retained `Disable`/`Enable` suspension only;
+memory-releasing dematerialization is not claimed.
+
 `ObjectBase.destroyObject(bool keepInFlightEffectAlive, bool score, TacView.TCEvent eventType)`
 is the terminal destruction path and is semantically a **kill**, not a quiet
 despawn. It detaches from `Formation`, clears user tasks, destroys uncontrolled

@@ -60,8 +60,11 @@ The folders separate evidence from design commitments:
     records D0 scan coverage, initial time/RNG/job/coroutine classification, and
     the fail-closed clock-rebase verdict for the pinned build.
 18. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
-    records authenticated owned-mutation admission and the first live surface-
-    unit materialization/idempotency result.
+    records authenticated mutation admission, materialization, fenced lifecycle,
+    checkpoint restore, scene reload, reconnect, and negative-path observations.
+19. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
+    defines the promotion-critical comparison contract for the first surface
+    family.
 
 ## Evidence labels
 

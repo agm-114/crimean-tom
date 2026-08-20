@@ -99,6 +99,67 @@ The complete path ran while paused on Unity's main thread. `Player.log` showed
 the bridge startup marker and no runtime exception or error entry during the
 lifecycle exercise.
 
+## Checkpoint-backed rematerialization
+
+The next live run captured revision-1 checkpoint
+`checkpoint:unit:crimean-tom:phase2-restore-knox-1:1:005e41ac4ff6`, SHA-256
+`005e41ac4ff65591fecf521b62a4be7b240f50c1560b4883c454730c696bc65a`.
+The unit was then moved away from the checkpoint, advanced to revision 2, and
+suspended at revision 3. Restoring the checkpoint re-enabled retained game ID
+355 at revision 4 in 1,091 µs and restored latitude 12.935, longitude 43.135,
+heading 147, speed zero, and telegraph zero. The complete world canonical hash
+before the update and after restore was exactly
+`cd1664e704279ee2020a441a4557ac7daaac8e5a6b8c2bec7638009a85fc265b`.
+An exact duplicate restore returned `idempotentReplay=true`.
+
+The bridge then suspended the unit and exited the tactical session through the
+typed UI seam. After loading the same scenario again through typed navigation,
+advancing its briefing, and pausing, the old Unity reference was absent. The
+same checkpoint reconstructed a new supported vessel in 102,216 µs with
+`reconstructedAfterSceneLoss=true`, revision 6, exactly one matching external
+identity, and every supported field restored. Native game ID 355 happened to
+be allocated again, but is not part of the cross-scene identity contract.
+
+Finally, the companion was intentionally stopped and restarted while Sea Power
+remained loaded. The pipe session changed from
+`9740287d832044b0a1fa9af531c31a6c` to
+`aa69718c05a64b7e95652bd92dbe1957`. An immediate mutation failed with HTTP 422
+`mutation-disabled`. After explicit arming for the new session, suspend advanced
+revision 6 to 7 and checkpoint restore advanced it to 8 while retaining game ID
+355 and all supported state. The only exception-shaped log entry was the
+expected `EndOfStreamException` recording the deliberate companion disconnect;
+there was no Unity mutation failure.
+
+The implemented comparisons and tolerances are published in
+[Phase 2 surface field tolerances](phase-2-surface-field-tolerances.md). A
+restore with the prior idempotency key but a different valid checkpoint hash
+failed with `idempotency-conflict`. An unsupported Ticonderoga catalog tuple was
+rejected by the companion, and a correctly scoped but unowned entity was
+rejected by the plugin without touching a scenario object.
+
+The final deployed build enforces those comparisons before returning success.
+A fractional live pass materialized latitude `12.935123456` and heading
+`147.125`, updated to latitude `12.945123456` and heading `211.25`, suspended,
+and restored the original fractional position/heading at revision 4 without a
+tolerance assertion failure.
+
+## Quiet-removal disposition
+
+Inspection of the pinned native methods closes the memory-releasing removal
+spike negatively. `destroyObject(score: false)` still sets the destroyed flag,
+emits destruction semantics, detaches relationships, and cascades into child
+objects. `OnReturnedToPool()` only clears an ECS reference and is not an owner
+for task-force, manager, systems, reactive state, or GameObject teardown. A
+plugin-composed hybrid would therefore risk both invented losses and leaked or
+orphaned state.
+
+P2 is explicitly narrowed to Sea Power's supported retained suspension. It
+removes the unit from active object/task-force collections and ECS updates but
+retains the constructed object and its memory. Scheduler capacity must count
+that retained memory; suspension is CPU/update relief, not memory reclamation.
+Cross-scene reconstruction is allowed only after Unity itself has disposed the
+old scene object.
+
 ## Explicit limitations and next gate work
 
 The first materializer intentionally reports damage, fuel, magazine, sensor,
@@ -112,9 +173,12 @@ update, stale revision/epoch rejection, and native suspension/enable are now
 proven. Native suspension is currently the supported reversible lifecycle; it
 does not yet claim memory-releasing removal.
 
-The next slice must either prove safe owned quiet removal or formally narrow
-the architecture to retained suspension, then rematerialize from a checkpoint.
-It must also exercise duplicate removal/rematerialization, unsupported catalog
-rejection, injected partial failure, scene reload, companion reconnect,
-resource relief, per-field tolerances, and scheduler-visible synchronous cost
-before the P2 exit gate can pass.
+The architecture is now formally narrowed to retained suspension and
+checkpoint-backed rematerialization. Duplicate suspension/rematerialization,
+unsupported catalog rejection, scene reload, companion reconnect, per-field
+tolerances, and synchronous costs have live evidence.
+
+The remaining P2 work is injected partial failure at the materialize, update,
+suspend, and restore steps; explicit scheduler accounting for retained objects;
+and the final gate matrix showing that cleanup cannot affect scenario/user
+objects and unsupported fields prevent unsafe promotion.

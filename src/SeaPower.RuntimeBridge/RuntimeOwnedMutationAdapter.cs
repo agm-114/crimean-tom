@@ -17,6 +17,9 @@ internal static class RuntimeOwnedMutationAdapter
     private const string SupportedVariant = "Variant13";
     private const string SupportedLoadout = "Default";
     private const int MaximumArmDurationSeconds = 600;
+    private const double PositionToleranceDegrees = 0.000000001d;
+    private const double HeadingToleranceDegrees = 0.001d;
+    private const double SpeedToleranceKnots = 0.001d;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -275,7 +278,14 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var unit = Capture(record.Vessel, record.TaskforceId);
+        var vessel = record.Vessel!;
+        if (vessel.Disabled)
+        {
+            return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Portable checkpoints may only be captured from an active owned surface unit.");
+        }
+        var unit = Capture(vessel, record.TaskforceId);
         var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var hash = CapabilityFingerprint.ComputeSha256(new[]
         {
@@ -341,7 +351,8 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        if (record.Vessel.Disabled)
+        var vessel = record.Vessel!;
+        if (vessel.Disabled)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
@@ -349,20 +360,21 @@ internal static class RuntimeOwnedMutationAdapter
         }
         var timer = Stopwatch.StartNew();
         var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
-        record.Vessel.transform.position = Utils.longLatToLocalV3(
+        vessel.transform.position = Utils.longLatToLocalV3(
             position,
             Globals._currentCenterTile);
-        record.Vessel.transform.eulerAngles = new Vector3(
+        vessel.transform.eulerAngles = new Vector3(
             0f,
             (float)NormalizeHeading(request.HeadingDegrees),
             0f);
-        record.Vessel._geoPosition = position;
-        record.Vessel.setTelegraph(request.Telegraph);
-        record.Vessel._velocityInKnots = record.Vessel.getSpeedForTelegraph(request.Telegraph);
-        record.Vessel._velocityInUnity = record.Vessel._velocityInKnots * 0.0076554087f;
+        vessel._geoPosition = position;
+        vessel.setTelegraph(request.Telegraph);
+        vessel._velocityInKnots = vessel.getSpeedForTelegraph(request.Telegraph);
+        vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
         Physics.SyncTransforms();
+        var realized = Capture(vessel, record.TaskforceId);
+        AssertUpdatedState(request, realized);
         record.Revision++;
-        record.Checkpoint = null;
         timer.Stop();
         var result = LifecycleResult(
             "updated",
@@ -397,7 +409,8 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        if (record.Vessel.Disabled == request.IsSuspended)
+        var vessel = record.Vessel!;
+        if (vessel.Disabled == request.IsSuspended)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.StaleRevision,
@@ -408,11 +421,11 @@ internal static class RuntimeOwnedMutationAdapter
         var timer = Stopwatch.StartNew();
         if (request.IsSuspended)
         {
-            record.Vessel.Disable();
+            vessel.Disable();
         }
         else
         {
-            record.Vessel.Enable();
+            vessel.Enable();
         }
         record.Revision++;
         timer.Stop();
@@ -432,7 +445,195 @@ internal static class RuntimeOwnedMutationAdapter
         return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
     }
 
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> RestoreCheckpoint(
+        RestoreOwnedSurfaceCheckpointRequestPayload request,
+        string commandSessionId)
+    {
+        var replay = TryLifecycleReplay(
+            GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
+            request.Context,
+            request,
+            commandSessionId);
+        if (replay is not null)
+        {
+            return replay;
+        }
+        var resolved = ResolveRecord<OwnedSurfaceLifecycleResultPayload>(
+            request.Context,
+            request.EntityId,
+            commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved.Error!;
+        }
+
+        var record = resolved.Record!;
+        var checkpoint = record.Checkpoint;
+        if (checkpoint is null
+            || !string.Equals(checkpoint.CheckpointId, request.CheckpointId, StringComparison.Ordinal)
+            || !string.Equals(
+                checkpoint.CheckpointSha256,
+                request.CheckpointSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The requested portable checkpoint is not the retained checkpoint for this entity.");
+        }
+        if (checkpoint.Unit.IsDisabled || checkpoint.Unit.IsDestroyed)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Only an active, non-destroyed portable checkpoint can be rematerialized.");
+        }
+        if (!string.Equals(checkpoint.Unit.UnitTypeId, SupportedUnitType, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.VariantId, SupportedVariant, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.LoadoutId, SupportedLoadout, StringComparison.Ordinal)
+            || checkpoint.Unit.Latitude is not double checkpointLatitude
+            || checkpoint.Unit.Longitude is not double checkpointLongitude
+            || checkpoint.Unit.HeadingDegrees is not double checkpointHeading
+            || !ValidPosition(checkpointLatitude, checkpointLongitude, checkpointHeading)
+            || checkpoint.Unit.SpeedKnots is not double checkpointSpeed
+            || !double.IsFinite(checkpointSpeed)
+            || checkpoint.Unit.Telegraph is < -1 or > 5)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The retained checkpoint does not contain a complete supported Knox state.");
+        }
+
+        var taskforce = ResolveTaskforce(checkpoint.Unit.TaskforceId);
+        if (taskforce is null || taskforce != Globals._playerTaskforce)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The checkpoint task force must resolve exactly to the current player task force.");
+        }
+
+        Vessel? vessel = record.Vessel;
+        var reconstructed = vessel == null;
+        if (!reconstructed)
+        {
+            if (!string.Equals(vessel!._campaignTag, request.EntityId, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    "The retained object no longer bears the exact external ownership tag.");
+            }
+            if (!vessel.Disabled)
+            {
+                return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    "The owned surface unit must be suspended or absent before rematerialization.");
+            }
+        }
+
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            if (reconstructed)
+            {
+                var position = new GeoPosition(
+                    checkpointLatitude,
+                    checkpointLongitude,
+                    0d);
+                var heading = new Vector3(
+                    0f,
+                    (float)NormalizeHeading(checkpointHeading),
+                    0f);
+                vessel = Singleton<ObjectsManager>.Instance.createShip(
+                    checkpoint.Unit.VariantId,
+                    checkpoint.Unit.LoadoutId,
+                    checkpoint.Unit.UnitTypeId,
+                    Singleton<ObjectsManager>.Instance._listOfAllObjects.Count + 1,
+                    Singleton<SceneCreator>.Instance.GeoCenterPosition,
+                    position,
+                    checkpoint.Unit.Telegraph,
+                    heading,
+                    taskforce,
+                    loadAsync: false);
+                if (vessel is null)
+                {
+                    return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                        ProtocolErrorCodes.MutationPreconditionFailed,
+                        "Sea Power's supported ship constructor returned no vessel during rematerialization.");
+                }
+                vessel._campaignTag = request.EntityId;
+                record.Vessel = vessel;
+            }
+
+            ApplyPortableState(vessel!, checkpoint.Unit);
+            if (vessel!.Disabled)
+            {
+                vessel.Enable();
+            }
+            record.TaskforceId = checkpoint.Unit.TaskforceId;
+            var realized = Capture(vessel, record.TaskforceId);
+            AssertCheckpointRestored(checkpoint.Unit, realized);
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                "restored-from-checkpoint",
+                reconstructed
+                    ? "owned-surface-unit-reconstructed-from-portable-checkpoint"
+                    : "owned-surface-unit-reenabled-from-portable-checkpoint",
+                request.Context,
+                record,
+                timer);
+            result.SourceCheckpointId = checkpoint.CheckpointId;
+            result.SourceCheckpointSha256 = checkpoint.CheckpointSha256;
+            result.ReconstructedAfterSceneLoss = reconstructed;
+            StoreLifecycleReplay(
+                GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            if (vessel != null
+                && string.Equals(vessel._campaignTag, request.EntityId, StringComparison.Ordinal))
+            {
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+                record.Vessel = vessel;
+            }
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Checkpoint rematerialization failed and retained only its tagged recoverable object: "
+                + $"{exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
+    }
+
     private static OwnedResolution<T> ResolveOwned<T>(
+        OwnedMutationContextPayload? context,
+        string entityId,
+        string commandSessionId)
+    {
+        var resolved = ResolveRecord<T>(context, entityId, commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved;
+        }
+        var record = resolved.Record!;
+        if (record.Vessel == null
+            || !string.Equals(record.Vessel._campaignTag, entityId, StringComparison.Ordinal))
+        {
+            return OwnedResolution<T>.Fail(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "No recoverable bridge-owned surface unit matches the requested entity.");
+        }
+        return resolved;
+    }
+
+    private static OwnedResolution<T> ResolveRecord<T>(
         OwnedMutationContextPayload? context,
         string entityId,
         string commandSessionId)
@@ -459,13 +660,11 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "Owned entity, assignment, and idempotency identifiers are required.");
         }
-        if (!OwnedEntities.TryGetValue(entityId, out var record)
-            || record.Vessel == null
-            || !string.Equals(record.Vessel._campaignTag, entityId, StringComparison.Ordinal))
+        if (!OwnedEntities.TryGetValue(entityId, out var record))
         {
             return OwnedResolution<T>.Fail(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "No recoverable bridge-owned surface unit matches the requested entity.");
+                "No bridge-owned surface record matches the requested entity.");
         }
         if (!string.Equals(record.AssignmentId, context.AssignmentId, StringComparison.Ordinal))
         {
@@ -486,7 +685,10 @@ internal static class RuntimeOwnedMutationAdapter
                 $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
         }
         if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<SceneCreator>.InstanceExists()
             || !Singleton<ObjectsManager>.InstanceExists()
+            || !Singleton<TaskforceManager>.InstanceExists()
+            || !Singleton<SceneCreator>.Instance.IsLoadingDone
             || !GameTime.IsPaused())
         {
             return OwnedResolution<T>.Fail(
@@ -553,8 +755,25 @@ internal static class RuntimeOwnedMutationAdapter
         Revision = record.Revision,
         IdempotencyKey = context.IdempotencyKey,
         SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
-        Unit = Capture(record.Vessel, record.TaskforceId),
+        Unit = Capture(record.Vessel!, record.TaskforceId),
     };
+
+    private static void ApplyPortableState(
+        Vessel vessel,
+        OwnedSurfaceUnitStatePayload state)
+    {
+        var position = new GeoPosition(state.Latitude!.Value, state.Longitude!.Value, 0d);
+        vessel.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
+        vessel.transform.eulerAngles = new Vector3(
+            0f,
+            (float)NormalizeHeading(state.HeadingDegrees!.Value),
+            0f);
+        vessel._geoPosition = position;
+        vessel.setTelegraph(state.Telegraph);
+        vessel._velocityInKnots = (float)state.SpeedKnots!.Value;
+        vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
+        Physics.SyncTransforms();
+    }
 
     private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>? Validate(
         MaterializeOwnedSurfaceUnitRequestPayload request,
@@ -694,12 +913,68 @@ internal static class RuntimeOwnedMutationAdapter
             || !string.Equals(realized.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
             || !string.Equals(realized.VariantId, request.VariantId, StringComparison.Ordinal)
             || !string.Equals(realized.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
+            || !string.Equals(realized.TaskforceId, request.TaskforceId, StringComparison.Ordinal)
+            || !Within(realized.Latitude, request.Latitude, PositionToleranceDegrees)
+            || !Within(realized.Longitude, request.Longitude, PositionToleranceDegrees)
+            || !Within(
+                realized.HeadingDegrees,
+                NormalizeHeading(request.HeadingDegrees),
+                HeadingToleranceDegrees)
+            || realized.Telegraph != request.Telegraph
             || realized.IsDestroyed
             || realized.IsDisabled)
         {
             throw new InvalidOperationException("Sea Power realized a different surface identity.");
         }
     }
+
+    private static void AssertUpdatedState(
+        UpdateOwnedSurfaceUnitRequestPayload request,
+        OwnedSurfaceUnitStatePayload realized)
+    {
+        if (!string.Equals(realized.EntityId, request.EntityId, StringComparison.Ordinal)
+            || !Within(realized.Latitude, request.Latitude, PositionToleranceDegrees)
+            || !Within(realized.Longitude, request.Longitude, PositionToleranceDegrees)
+            || !Within(
+                realized.HeadingDegrees,
+                NormalizeHeading(request.HeadingDegrees),
+                HeadingToleranceDegrees)
+            || realized.Telegraph != request.Telegraph
+            || realized.IsDestroyed
+            || realized.IsDisabled)
+        {
+            throw new InvalidOperationException(
+                "Sea Power did not realize the requested supported surface update.");
+        }
+    }
+
+    private static void AssertCheckpointRestored(
+        OwnedSurfaceUnitStatePayload expected,
+        OwnedSurfaceUnitStatePayload realized)
+    {
+        if (!string.Equals(realized.StableUnitId, expected.StableUnitId, StringComparison.Ordinal)
+            || !string.Equals(realized.EntityId, expected.EntityId, StringComparison.Ordinal)
+            || !string.Equals(realized.UnitTypeId, expected.UnitTypeId, StringComparison.Ordinal)
+            || !string.Equals(realized.VariantId, expected.VariantId, StringComparison.Ordinal)
+            || !string.Equals(realized.LoadoutId, expected.LoadoutId, StringComparison.Ordinal)
+            || !string.Equals(realized.TaskforceId, expected.TaskforceId, StringComparison.Ordinal)
+            || !Within(realized.Latitude, expected.Latitude, PositionToleranceDegrees)
+            || !Within(realized.Longitude, expected.Longitude, PositionToleranceDegrees)
+            || !Within(realized.HeadingDegrees, expected.HeadingDegrees, HeadingToleranceDegrees)
+            || !Within(realized.SpeedKnots, expected.SpeedKnots, SpeedToleranceKnots)
+            || realized.Telegraph != expected.Telegraph
+            || realized.IsDestroyed
+            || realized.IsDisabled)
+        {
+            throw new InvalidOperationException(
+                "Sea Power did not restore every supported checkpoint field within tolerance.");
+        }
+    }
+
+    private static bool Within(double? actual, double? expected, double tolerance) =>
+        actual is double actualValue
+        && expected is double expectedValue
+        && Math.Abs(actualValue - expectedValue) <= tolerance;
 
     private static MaterializeOwnedSurfaceUnitResultPayload Clone(
         MaterializeOwnedSurfaceUnitResultPayload value) =>
@@ -763,8 +1038,8 @@ internal static class RuntimeOwnedMutationAdapter
         public string AssignmentId { get; } = assignmentId;
         public long AuthorityEpoch { get; } = authorityEpoch;
         public long Revision { get; set; } = revision;
-        public string TaskforceId { get; } = taskforceId;
-        public Vessel Vessel { get; } = vessel;
+        public string TaskforceId { get; set; } = taskforceId;
+        public Vessel? Vessel { get; set; } = vessel;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
     }
 

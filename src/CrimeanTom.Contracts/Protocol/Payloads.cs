@@ -200,6 +200,14 @@ public sealed class SetOwnedSurfaceSuspensionRequestPayload
     public bool IsSuspended { get; set; }
 }
 
+public sealed class RestoreOwnedSurfaceCheckpointRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public string CheckpointId { get; set; } = string.Empty;
+    public string CheckpointSha256 { get; set; } = string.Empty;
+}
+
 public sealed class OwnedSurfaceCheckpointPayload
 {
     public int SchemaVersion { get; set; } = 1;
@@ -224,6 +232,9 @@ public sealed class OwnedSurfaceLifecycleResultPayload
     public string IdempotencyKey { get; set; } = string.Empty;
     public bool IdempotentReplay { get; set; }
     public long SynchronousDurationMicroseconds { get; set; }
+    public string SourceCheckpointId { get; set; } = string.Empty;
+    public string SourceCheckpointSha256 { get; set; } = string.Empty;
+    public bool ReconstructedAfterSceneLoss { get; set; }
     public OwnedSurfaceUnitStatePayload Unit { get; set; } = new();
 }
 

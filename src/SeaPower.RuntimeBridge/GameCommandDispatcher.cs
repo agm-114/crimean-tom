@@ -123,6 +123,8 @@ internal static class GameCommandDispatcher
                         UpdateOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
                     GameCommandTypes.SetOwnedSurfaceSuspension =>
                         SetOwnedSurfaceSuspension(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.RestoreOwnedSurfaceCheckpoint =>
+                        RestoreOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
                     _ => Failure(
                         ProtocolErrorCodes.UnsupportedCommand,
                         $"Command '{command.MessageType}' is not supported."),
@@ -1375,6 +1377,19 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new SetOwnedSurfaceSuspensionRequestPayload();
         var result = RuntimeOwnedMutationAdapter.SetSuspension(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
+    }
+
+    private static CommandResponsePayload RestoreOwnedSurfaceCheckpoint(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<RestoreOwnedSurfaceCheckpointRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new RestoreOwnedSurfaceCheckpointRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.RestoreCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage);

@@ -352,6 +352,14 @@ Build an evidence-backed read model before attempting to create or mutate units.
 
 Prove reversible ownership-scoped mutation for one narrow entity family.
 
+Current implementation status (20 August 2026): the Knox vertical slice now
+materializes, checkpoints, applies fenced updates, suspends outside the active
+world, restores a retained object, and reconstructs from the checkpoint after
+scene reload. The lifecycle claim is explicitly narrowed to retained native
+suspension because the pinned runtime exposes no safe memory-releasing quiet
+teardown. Injected step failures and final scheduler accounting remain before
+exit gate P2.
+
 ### 2A. Mutation safety framework
 
 - Add an allow-listed mutating capability disabled by default.

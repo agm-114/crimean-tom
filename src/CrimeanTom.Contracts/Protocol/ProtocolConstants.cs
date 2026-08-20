@@ -96,6 +96,7 @@ public static class GameCommandTypes
     public const string CaptureOwnedSurfaceCheckpoint = "capture-owned-surface-checkpoint";
     public const string UpdateOwnedSurfaceUnit = "update-owned-surface-unit";
     public const string SetOwnedSurfaceSuspension = "set-owned-surface-suspension";
+    public const string RestoreOwnedSurfaceCheckpoint = "restore-owned-surface-checkpoint";
 
     public static readonly string[] ReadOnlyCommands =
     {
@@ -139,6 +140,7 @@ public static class GameCommandTypes
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
+        RestoreOwnedSurfaceCheckpoint,
     };
 
     public static readonly string[] AllCommands =
@@ -167,5 +169,6 @@ public static class GameCommandTypes
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
+        RestoreOwnedSurfaceCheckpoint,
     };
 }
