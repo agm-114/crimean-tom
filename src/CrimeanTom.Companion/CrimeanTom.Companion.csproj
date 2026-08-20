@@ -9,6 +9,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" Version="2.83.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
     <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
   </ItemGroup>
 

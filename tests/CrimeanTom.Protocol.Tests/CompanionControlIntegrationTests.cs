@@ -2,10 +2,13 @@ using System.Diagnostics;
 using System.ComponentModel;
 using System.IO.Pipes;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
+using CrimeanTom.Campaign.Transport.V1;
 using CrimeanTom.Protocol;
 
 namespace CrimeanTom.Protocol.Tests;
@@ -25,7 +28,7 @@ public sealed class CompanionControlIntegrationTests
             return;
         }
 
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
@@ -36,6 +39,17 @@ public sealed class CompanionControlIntegrationTests
         var tokenPath = Path.Combine(runDirectory, "control.token");
         var stdoutPath = Path.Combine(runDirectory, "companion.stdout.log");
         var stderrPath = Path.Combine(runDirectory, "companion.stderr.log");
+        var campaignServiceRunDirectory = Path.Combine(runDirectory, "campaign-service");
+        var campaignGrpcPort = GetUnusedLoopbackPort();
+        var campaignHttpPort = GetUnusedLoopbackPort();
+        while (campaignHttpPort == campaignGrpcPort)
+        {
+            campaignHttpPort = GetUnusedLoopbackPort();
+        }
+        var campaignGrpcUrl = $"http://127.0.0.1:{campaignGrpcPort}";
+        var campaignHttpUrl = $"http://127.0.0.1:{campaignHttpPort}";
+        var campaignId = Guid.Parse("10000000-0000-0000-0000-000000000004").ToString("N");
+        Process? campaignService = null;
         const string staleMarker = "stale-artifact-marker";
 
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(), testTimeout.Token);
@@ -45,6 +59,28 @@ public sealed class CompanionControlIntegrationTests
 
         try
         {
+            campaignService = StartCampaignService(
+                repositoryRoot,
+                campaignServiceRunDirectory,
+                campaignGrpcUrl,
+                campaignHttpUrl);
+            var campaignToken = await WaitForCampaignServiceAsync(
+                campaignServiceRunDirectory,
+                campaignHttpUrl,
+                testTimeout.Token);
+            using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
+            using var createdCampaign = await campaignClient.PostAsJsonAsync(
+                "/control/campaigns",
+                new
+                {
+                    campaignId,
+                    name = "Phase 4 transport integration",
+                    seed = 4004,
+                    catalogFingerprint = "integration-catalog",
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Created, createdCampaign.StatusCode);
+
             var start = await RunControlScriptAsync(
                 scriptPath,
                 "start",
@@ -52,7 +88,15 @@ public sealed class CompanionControlIntegrationTests
                 controlUrl,
                 gamePipeName,
                 skipBuild: true,
-                testTimeout.Token);
+                testTimeout.Token,
+                new Dictionary<string, string>
+                {
+                    ["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = campaignGrpcUrl,
+                    ["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = campaignHttpUrl,
+                    ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
+                    ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
+                    ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                });
             Assert.True(start.ExitCode == 0, start.FormatFailure("start"));
 
             var companionProcessId = int.Parse(
@@ -85,6 +129,92 @@ public sealed class CompanionControlIntegrationTests
             AssertAnonymousPipeAccessDenied(gamePipeName);
             var gamePeer = RunGamePeerAsync(gamePipeName, probeSavePath, testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
+            using var queuedAssignment = await campaignClient.PostAsJsonAsync(
+                "/control/assignments",
+                new TacticalAssignment
+                {
+                    CampaignId = campaignId,
+                    AssignmentId = "assignment:transport-integration",
+                    EntityId = "unit:crimean-tom:transport-knox",
+                    AuthorityEpoch = 11,
+                    Role = AssignmentRole.Primary,
+                    HandoffCommitPosition = 0,
+                    HandoffTimeQuanta = 0,
+                    ExpectedEntityRevision = 0,
+                    IdempotencyKey = "transport-materialize-1",
+                    RequiredRuntimeFingerprintSha256 = new string('a', 64),
+                    UnitTypeId = "usn_ff_knox_84",
+                    VariantId = "Variant13",
+                    LoadoutId = "Default",
+                    TaskforceId = "taskforce:Blue",
+                    LatitudeMicrodegrees = 12_250_000,
+                    LongitudeMicrodegrees = 44_500_000,
+                    HeadingMillidegrees = 90_000,
+                    Telegraph = 0,
+                    GloballyPaused = true,
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, queuedAssignment.StatusCode);
+            var assignmentFrames = await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 2,
+                testTimeout.Token);
+            var checkpointPublished = Assert.Single(assignmentFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished).CheckpointPublished;
+            Assert.Equal("assignment:transport-integration", checkpointPublished.AssignmentId);
+            using var checkpointDownload = await campaignClient.GetAsync(
+                $"/content/{checkpointPublished.CheckpointSha256}",
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.OK, checkpointDownload.StatusCode);
+            Assert.Equal(checkpointPublished.CheckpointLength,
+                (await checkpointDownload.Content.ReadAsByteArrayAsync(testTimeout.Token)).Length);
+            var prepared = Assert.Single(assignmentFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
+            Assert.True(prepared.Ready, prepared.ErrorMessage);
+
+            using var queuedCommand = await campaignClient.PostAsJsonAsync(
+                "/control/commands",
+                new OrderedTacticalCommand
+                {
+                    CommandId = Guid.NewGuid().ToString("N"),
+                    IdempotencyKey = "transport-move-1",
+                    AssignmentId = "assignment:transport-integration",
+                    EntityId = "unit:crimean-tom:transport-knox",
+                    AuthorityEpoch = 11,
+                    ExpectedEntityRevision = 1,
+                    EffectiveTimeQuanta = 1,
+                    LatitudeMicrodegrees = 12_260_000,
+                    LongitudeMicrodegrees = 44_510_000,
+                    HeadingMillidegrees = 100_000,
+                    Telegraph = 1,
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, queuedCommand.StatusCode);
+            var commandFrames = await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 3,
+                testTimeout.Token);
+            Assert.Contains(commandFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                && item.TacticalEvent.IdempotencyKey == "transport-move-1");
+
+            campaignService.Kill(entireProcessTree: true);
+            await campaignService.WaitForExitAsync(testTimeout.Token);
+            campaignService.Dispose();
+            campaignService = StartCampaignService(
+                repositoryRoot,
+                campaignServiceRunDirectory,
+                campaignGrpcUrl,
+                campaignHttpUrl);
+            await WaitForCampaignServiceAsync(campaignServiceRunDirectory, campaignHttpUrl, testTimeout.Token);
+            var secondCampaignSession = await WaitForCampaignSessionAsync(
+                campaignClient,
+                firstCampaignSession,
+                testTimeout.Token);
+            Assert.NotEqual(firstCampaignSession, secondCampaignSession);
 
             using var ping = await GetAuthorizedJsonAsync(
                 client,
@@ -557,6 +687,12 @@ public sealed class CompanionControlIntegrationTests
         }
         finally
         {
+            if (campaignService is { HasExited: false })
+            {
+                campaignService.Kill(entireProcessTree: true);
+                await campaignService.WaitForExitAsync();
+            }
+            campaignService?.Dispose();
             using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var stop = await RunControlScriptAsync(
                 scriptPath,
@@ -677,7 +813,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 3; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 10; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
@@ -1497,6 +1633,128 @@ public sealed class CompanionControlIntegrationTests
             cancellationToken);
     }
 
+    private static Process StartCampaignService(
+        string repositoryRoot,
+        string runDirectory,
+        string grpcUrl,
+        string httpUrl)
+    {
+        var hostPath = Path.Combine(
+            repositoryRoot,
+            "src",
+            "CrimeanTom.Campaign.ServiceHost",
+            "bin",
+            "Debug",
+            "net8.0",
+            "CrimeanTom.Campaign.ServiceHost.dll");
+        Assert.True(File.Exists(hostPath), $"Campaign service host was not built at {hostPath}.");
+        var start = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = repositoryRoot,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add(hostPath);
+        start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
+        start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
+        start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        var process = new Process { StartInfo = start, EnableRaisingEvents = true };
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, _) => { };
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static async Task<string> WaitForCampaignServiceAsync(
+        string runDirectory,
+        string httpUrl,
+        CancellationToken cancellationToken)
+    {
+        var tokenPath = Path.Combine(runDirectory, "service.token");
+        while (!File.Exists(tokenPath))
+        {
+            await Task.Delay(25, cancellationToken);
+        }
+        var token = (await File.ReadAllTextAsync(tokenPath, cancellationToken)).Trim();
+        using var client = CreateBearerClient(httpUrl, token);
+        while (true)
+        {
+            try
+            {
+                using var response = await client.GetAsync("/health", cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    return token;
+                }
+            }
+            catch (HttpRequestException) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static HttpClient CreateBearerClient(string baseUrl, string token)
+    {
+        var client = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            BaseAddress = new Uri(baseUrl),
+            Timeout = TimeSpan.FromSeconds(8),
+        };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    private static async Task<string> WaitForCampaignSessionAsync(
+        HttpClient client,
+        string? previousSessionId,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            using var response = await client.GetAsync("/health", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("session", out var session)
+                    && session.ValueKind == JsonValueKind.Object
+                    && session.TryGetProperty("sessionId", out var idElement)
+                    && idElement.GetString() is { Length: > 0 } id
+                    && !string.Equals(id, previousSessionId, StringComparison.Ordinal))
+                {
+                    return id;
+                }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task<IReadOnlyList<CompanionFrame>> WaitForInboundFramesAsync(
+        string runDirectory,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        var spool = Path.Combine(runDirectory, "inbound-spool");
+        while (true)
+        {
+            if (Directory.Exists(spool))
+            {
+                var files = Directory.EnumerateFiles(spool, "*.frame", SearchOption.AllDirectories)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+                if (files.Length >= count)
+                {
+                    return files.Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path))).ToArray();
+                }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
     private static async Task<ScriptResult> RunControlScriptAsync(
         string scriptPath,
         string action,
@@ -1504,7 +1762,8 @@ public sealed class CompanionControlIntegrationTests
         string controlUrl,
         string gamePipeName,
         bool skipBuild,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -1527,6 +1786,13 @@ public sealed class CompanionControlIntegrationTests
         if (skipBuild)
         {
             startInfo.ArgumentList.Add("-SkipBuild");
+        }
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                startInfo.Environment[key] = value;
+            }
         }
 
         using var process = new Process { StartInfo = startInfo };

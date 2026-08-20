@@ -32,6 +32,39 @@ builder.Services.AddSingleton(serviceProvider => new GamePipeBroker(
     gamePipeName));
 builder.Services.AddSingleton<PortOperationsProjectionStore>();
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<GamePipeBroker>());
+var campaignServiceGrpcUrl = builder.Configuration["CampaignServiceGrpcUrl"]
+    ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_GRPC_URL");
+if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
+{
+    var campaignServiceHttpUrl = builder.Configuration["CampaignServiceHttpUrl"]
+        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_HTTP_URL")
+        ?? throw new InvalidOperationException("CampaignServiceHttpUrl is required when campaign transport is enabled.");
+    var campaignId = builder.Configuration["CampaignId"]
+        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_ID")
+        ?? throw new InvalidOperationException("CampaignId is required when campaign transport is enabled.");
+    if (!Guid.TryParseExact(campaignId, "N", out _))
+    {
+        throw new InvalidOperationException("CampaignId must use canonical 32-character GUID form.");
+    }
+    var campaignStateDirectory = Path.GetFullPath(
+        builder.Configuration["CampaignStateDirectory"]
+        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY")
+        ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-companion"));
+    Directory.CreateDirectory(campaignStateDirectory);
+    var clientInstanceId = LoadOrCreateClientInstanceId(Path.Combine(campaignStateDirectory, "client-instance-id"));
+    var options = new CampaignCompanionClientOptions(
+        RequireCampaignServiceUri(campaignServiceGrpcUrl),
+        RequireCampaignServiceUri(campaignServiceHttpUrl),
+        campaignId,
+        clientInstanceId,
+        Path.GetFullPath(builder.Configuration["CampaignServiceTokenFile"]
+            ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE")
+            ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-service", "service.token")),
+        campaignStateDirectory);
+    builder.Services.AddSingleton(options);
+    builder.Services.AddSingleton(new CampaignCompanionStateStore(campaignStateDirectory));
+    builder.Services.AddHostedService<CampaignCompanionClient>();
+}
 
 var app = builder.Build();
 
@@ -461,6 +494,37 @@ app.MapPost("/port-operations/drafts/import", async (
 });
 
 app.Run();
+
+static Uri RequireCampaignServiceUri(string value)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+    {
+        throw new InvalidOperationException($"Campaign service URL '{value}' is invalid.");
+    }
+    if (uri.Scheme == Uri.UriSchemeHttp
+        && (!IPAddress.TryParse(uri.Host, out var address) || !IPAddress.IsLoopback(address)))
+    {
+        throw new InvalidOperationException("Unencrypted campaign transport is permitted only on explicit loopback addresses.");
+    }
+    return uri;
+}
+
+static string LoadOrCreateClientInstanceId(string path)
+{
+    if (File.Exists(path))
+    {
+        var existing = File.ReadAllText(path).Trim();
+        if (Guid.TryParseExact(existing, "N", out _))
+        {
+            return existing;
+        }
+        throw new InvalidDataException("Campaign companion client identity is invalid.");
+    }
+    var value = Guid.NewGuid().ToString("N");
+    File.WriteAllText(path, value);
+    return value;
+}
 
 static string RequireLoopbackControlUrl(string value)
 {

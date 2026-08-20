@@ -477,6 +477,11 @@ public sealed class SqliteCampaignJournal
     public Task<byte[]> ReadBlobAsync(string sha256, CancellationToken cancellationToken = default) =>
         _blobStore.ReadAsync(sha256, cancellationToken);
 
+    public Task<ContentAddressedBlob> PutUnreferencedBlobAsync(
+        ReadOnlyMemory<byte> content,
+        CancellationToken cancellationToken = default) =>
+        _blobStore.PutAsync(content, cancellationToken);
+
     public async Task<CampaignIntegrityReport> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);

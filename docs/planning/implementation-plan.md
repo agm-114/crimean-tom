@@ -523,8 +523,11 @@ sentinel exclusion. See the
 ## Phase 4 - continuous single-client vertical slice
 
 **Status: in progress.** Phase 3 provides the authoritative journaled theater;
-the current work is the typed service/companion transport and the first live
-external-campaign-to-Sea-Power round trip.
+generated authenticated duplex gRPC, durable reconnect/spooling, separate
+content-addressed checkpoint HTTP, assignment materialization, ordered movement,
+and service-restart reconnect now work in the broad integration story. Canonical
+tactical commit and the live round trip remain. See the
+[Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
 
 ### Objective
 

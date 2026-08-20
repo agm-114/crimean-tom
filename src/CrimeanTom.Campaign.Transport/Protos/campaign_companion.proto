@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package crimeantom.campaign.v1;
+option csharp_namespace = "CrimeanTom.Campaign.Transport.V1";
+
+service CampaignCompanionTransport {
+  rpc Connect(stream CompanionFrame) returns (stream ServiceFrame);
+}
+
+message CompanionFrame {
+  uint64 sequence = 1;
+  oneof payload {
+    CompanionHello hello = 10;
+    CompanionAcknowledgement acknowledgement = 11;
+    CompanionHeartbeat heartbeat = 12;
+    AssignmentPrepared assignment_prepared = 13;
+    TacticalEventProposal tactical_event = 14;
+    CheckpointPublished checkpoint_published = 15;
+  }
+}
+
+message ServiceFrame {
+  uint64 sequence = 1;
+  oneof payload {
+    ServiceWelcome welcome = 10;
+    ServiceHeartbeat heartbeat = 11;
+    TacticalAssignment assignment = 12;
+    OrderedTacticalCommand command = 13;
+    CommittedCampaignEvent committed_event = 14;
+    AuthorityFence fence = 15;
+    ServiceError error = 16;
+    ServiceAcknowledgement acknowledgement = 17;
+  }
+}
+
+message CompanionHello {
+  uint32 protocol_version = 1;
+  string client_instance_id = 2;
+  string game_session_id = 3;
+  string campaign_id = 4;
+  int64 reconnect_commit_position = 5;
+  string runtime_fingerprint_sha256 = 6;
+  string catalog_fingerprint_sha256 = 7;
+  repeated string capabilities = 8;
+}
+
+message ServiceWelcome {
+  uint32 protocol_version = 1;
+  string service_session_id = 2;
+  string campaign_id = 3;
+  int64 current_commit_position = 4;
+  int64 resumed_after_commit_position = 5;
+  int64 issued_at_unix_milliseconds = 6;
+}
+
+message CompanionAcknowledgement {
+  uint64 service_sequence = 1;
+  int64 applied_commit_position = 2;
+  string idempotency_key = 3;
+}
+
+message CompanionHeartbeat {
+  int64 observed_commit_position = 1;
+  int64 sent_at_unix_milliseconds = 2;
+}
+
+message ServiceHeartbeat {
+  int64 current_commit_position = 1;
+  int64 sent_at_unix_milliseconds = 2;
+}
+
+message ServiceAcknowledgement {
+  uint64 companion_sequence = 1;
+  bool durably_accepted = 2;
+  string error_code = 3;
+}
+
+enum AssignmentRole {
+  ASSIGNMENT_ROLE_UNSPECIFIED = 0;
+  ASSIGNMENT_ROLE_PRIMARY = 1;
+  ASSIGNMENT_ROLE_SHADOW = 2;
+  ASSIGNMENT_ROLE_OBSERVER = 3;
+}
+
+message TacticalAssignment {
+  string campaign_id = 1;
+  string assignment_id = 2;
+  string entity_id = 3;
+  int64 authority_epoch = 4;
+  AssignmentRole role = 5;
+  int64 handoff_commit_position = 6;
+  int64 handoff_time_quanta = 7;
+  int64 expected_entity_revision = 8;
+  string idempotency_key = 9;
+  string required_runtime_fingerprint_sha256 = 10;
+  string required_catalog_fingerprint_sha256 = 11;
+  string checkpoint_sha256 = 12;
+  string checkpoint_uri = 13;
+  string unit_type_id = 14;
+  string variant_id = 15;
+  string loadout_id = 16;
+  string taskforce_id = 17;
+  int32 latitude_microdegrees = 18;
+  int32 longitude_microdegrees = 19;
+  int32 heading_millidegrees = 20;
+  int32 telegraph = 21;
+  bool globally_paused = 22;
+}
+
+message AssignmentPrepared {
+  string assignment_id = 1;
+  string entity_id = 2;
+  int64 authority_epoch = 3;
+  int64 realized_revision = 4;
+  string canonical_state_sha256 = 5;
+  bool ready = 6;
+  string error_code = 7;
+  string error_message = 8;
+}
+
+message OrderedTacticalCommand {
+  string command_id = 1;
+  string idempotency_key = 2;
+  string assignment_id = 3;
+  string entity_id = 4;
+  int64 authority_epoch = 5;
+  int64 expected_entity_revision = 6;
+  int64 effective_time_quanta = 7;
+  int32 latitude_microdegrees = 8;
+  int32 longitude_microdegrees = 9;
+  int32 heading_millidegrees = 10;
+  int32 telegraph = 11;
+}
+
+enum TacticalEventKind {
+  TACTICAL_EVENT_KIND_UNSPECIFIED = 0;
+  TACTICAL_EVENT_KIND_MOVEMENT = 1;
+  TACTICAL_EVENT_KIND_RESOURCES = 2;
+  TACTICAL_EVENT_KIND_DAMAGE = 3;
+  TACTICAL_EVENT_KIND_DESTROYED = 4;
+  TACTICAL_EVENT_KIND_CHECKPOINT = 5;
+}
+
+message TacticalEventProposal {
+  string event_id = 1;
+  string idempotency_key = 2;
+  string assignment_id = 3;
+  string entity_id = 4;
+  int64 authority_epoch = 5;
+  int64 expected_entity_revision = 6;
+  int64 effective_time_quanta = 7;
+  TacticalEventKind kind = 8;
+  int32 latitude_microdegrees = 9;
+  int32 longitude_microdegrees = 10;
+  int32 heading_millidegrees = 11;
+  int64 fuel_milliunits = 12;
+  int64 stores_milliunits = 13;
+  int64 damage_milliunits = 14;
+  bool destroyed = 15;
+  string checkpoint_sha256 = 16;
+}
+
+message CheckpointPublished {
+  string assignment_id = 1;
+  string entity_id = 2;
+  int64 authority_epoch = 3;
+  int64 entity_revision = 4;
+  int64 campaign_commit_position = 5;
+  string checkpoint_sha256 = 6;
+  int64 checkpoint_length = 7;
+}
+
+message CommittedCampaignEvent {
+  int64 commit_position = 1;
+  string event_id = 2;
+  bytes event_json = 3;
+  string event_sha256 = 4;
+}
+
+message AuthorityFence {
+  string assignment_id = 1;
+  int64 fenced_authority_epoch = 2;
+  int64 effective_time_quanta = 3;
+  string reason = 4;
+  string entity_id = 5;
+  int64 expected_entity_revision = 6;
+  string idempotency_key = 7;
+}
+
+message ServiceError {
+  string code = 1;
+  string message = 2;
+  bool terminal = 3;
+}

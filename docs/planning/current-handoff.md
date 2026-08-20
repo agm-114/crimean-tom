@@ -235,9 +235,17 @@ lifecycle, ownership, reachability, schedule, revision, and fog invariants pass;
 snapshot-plus-journal and restored replay both reach the pinned golden hash
 `214b50d37e85e413d2fa665a71bb0bb2e56537e9732e1d8d03a3593e947bb395`.
 
-The next slice is Phase 4: add typed bidirectional service-to-companion transport,
-durable reconnect cursors, checkpoint/catalog bulk endpoints, and the first
-globally paused assignment/materialization round trip into the running game.
+The first Phase 4 transport slice is now implemented. Generated Protobuf types
+cross authenticated bidirectional gRPC between a new campaign-service host and
+the companion. Both sides durably spool authority-affecting frames before
+acknowledgement; committed catch-up advances an atomic reconnect cursor; and
+checkpoint bytes use a separate authenticated content-addressed HTTP endpoint.
+The broad protocol story materializes/checkpoints a Knox, applies an ordered
+movement, returns a typed tactical event, and reconnects after service restart.
+
+Next, bind prepared assignments, checkpoints, and tactical proposals to the
+authoritative SQLite command/event timeline, then implement the quiesce/fence/
+dematerialize path and live-game P4 scenarios.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
