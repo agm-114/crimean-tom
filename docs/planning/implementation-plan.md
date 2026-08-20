@@ -13,8 +13,8 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
-Phases 0, 1, 2, and 3 are complete, and the repository is actively implementing
-Phase 4. The local
+Phases 0 through 4 are complete, and Phase 5 is the next implementation phase.
+The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -522,7 +522,7 @@ sentinel exclusion. See the
 
 ## Phase 4 - continuous single-client vertical slice
 
-**Status: in progress.** Phase 3 provides the authoritative journaled theater;
+**Status: complete (21 August 2026).** Phase 3 provides the authoritative journaled theater;
 generated authenticated duplex gRPC, durable reconnect/spooling, separate
 content-addressed checkpoint HTTP, canonical assignment ownership, frozen
 tactical authority, ordered movement commit, checkpointed quiesce/release, and
@@ -532,7 +532,10 @@ destruction capture are canonical, same-revision initial/final checkpoints have
 distinct durable identities, and catalog mismatch fails before materialization.
 Game crashes before the initial checkpoint and after an unproposed local
 mutation now recover within the fixed bound without admitting local-only state.
-The player-visible outcome policy and live round trip remain. See the
+The live Sea Power round trip and typed normal exit are complete. The service
+exposes the measured display-first/provisional policy, journal durability
+boundary, and fixed rollback rule at authenticated `GET /durability-policy`.
+See the
 [Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
 
 ### Objective

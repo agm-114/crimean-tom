@@ -2,9 +2,9 @@
 
 ## Repository state
 
-This handoff records the state through 21 August 2026. Phases 0, 1, 2, 3A, and
-3B, 3C, and 3D are complete and Phase 4 is active. Durable campaign authority,
-unattended simulation, and the first canonical tactical handoff loop now run
+This handoff records the state through 21 August 2026. Phases 0 through 4 are
+complete and Phase 5 is next. Durable campaign authority, unattended simulation,
+and the first canonical tactical handoff loop now run
 outside Unity. The
 game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
@@ -12,9 +12,10 @@ requires a live compare-and-swap writer epoch, commits command/event/revision/he
 changes transactionally, enforces idempotency, and replays from origin. The first
 allow-listed
 tactical mutation family now materializes one Crimean-Tom-owned Knox surface
-unit after explicit, session-scoped arming. That owned unit can now be
-checkpointed, revision-fenced, updated, suspended outside the active world, and
-re-enabled with stable identity; it still cannot receive campaign authority.
+unit after explicit, session-scoped arming. That owned unit can now receive a
+primary campaign authority epoch, be checkpointed, revision-fenced, updated,
+suspended outside the active world, released, and returned to Operational
+authority with stable identity.
 
 Use `git log` for the current revision. Work is committed after each validated
 slice; preserve unrelated user changes if the worktree is not clean.
@@ -273,11 +274,30 @@ falls back from its committed initial checkpoint. A second game crashes during
 its first checkpoint capture; that Preparing assignment reaches the same fixed
 deadline and reports Operational resolution without a worker checkpoint.
 
-Next, run the live-game P4 scenarios and measure the player-visible durability
-timeline.
-Keep tactical projection and campaign commit separate: Sea Power remains a
-fenced client of the external
-authoritative kernel, and no tactical result may commit before the later outcome gates.
+The live P4 run used typed automation to load Red Sea Breakout, materialized real
+Knox instances into the player task force, committed an ordered movement in
+120.4 ms, and completed a fresh handoff in 287.7 ms. A live no-state-delta final
+checkpoint exposed and then verified a release bug: after the fix, quiesce,
+checkpoint, game suspension, canonical release, and Operational restoration
+completed in 212.7 ms. A typed RIM-66G launch returned a native `weapon:691`
+postcondition in 190.2 ms while the campaign head remained unchanged, directly
+proving the launch was visible/local but not durable. Typed tactical exit then
+scheduled the native debrief flow without a menu click. The final campaign was
+at time 270, commit 35, with every assignment released.
+
+The authenticated `/durability-policy` contract names the resulting policy:
+Sea Power displays native launch, impact, damage, destruction, UI, audio, and
+visual effects immediately and provisionally; movement is proposed
+continuously, while resource and combat outcomes become canonical through typed
+events or final checkpoints. Only the external campaign journal commit is
+durable. A crash discards local-only state and resumes from the last committed
+checkpoint with a maximum 120-quanta rollback. Exact UI/audio/visual emission
+timestamps remain unavailable from Sea Power and are reported as unavailable,
+not inferred as a display delay.
+
+Next, begin Phase 5 operational detection, maneuver, engagement, and dynamic
+fidelity scheduling. Keep tactical projection and campaign commit separate:
+Sea Power remains a fenced client of the external authoritative kernel.
 
 ## Deferred hardening
 
