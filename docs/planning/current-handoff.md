@@ -3,7 +3,7 @@
 ## Repository state
 
 This handoff records the state at the end of the 20 August 2026 implementation
-session. Phases 0 and 1 are complete and Phase 2 is active. No authoritative
+session. Phases 0, 1, and 2 are complete and Phase 3 is active. No authoritative
 campaign commit or campaign simulation is enabled. The first allow-listed
 tactical mutation family now materializes one Crimean-Tom-owned Knox surface
 unit after explicit, session-scoped arming. That owned unit can now be
@@ -188,10 +188,18 @@ reload. A companion reconnect requires and successfully enforces new-session
 arming before lifecycle work resumes. Field tolerances and live timings are in
 the Phase 2 evidence.
 
-The next slice is controlled fault injection for every mutation stage plus
-scheduler accounting for retained suspended objects. Finish the P2 gate matrix
-from that evidence; do not expand to another entity family until the narrow
-Knox gate is closed.
+Transactional fault injection now covers all eleven declared materialize,
+update, suspension, and restore boundaries. A resource snapshot exposes active,
+retained-suspended, detached, recovery-required, and retained-constructed
+counts. Detached recovery release is registry-only, fenced, idempotent, and
+cannot act while a Unity object or checkpoint remains. The Phase 2 gate matrix
+closes the narrow Knox gate.
+
+The next slice is Phase 3A: implement the persistent external campaign domain,
+contracts, SQLite schema, transaction journal, optimistic revision fences, and
+deterministic canonical hashing. Keep tactical projection and campaign commit
+separate: Sea Power remains a fenced client of the external authoritative
+kernel, and no tactical result may commit before the later outcome gates.
 
 ## Deferred hardening
 

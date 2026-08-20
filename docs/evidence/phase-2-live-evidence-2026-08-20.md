@@ -160,7 +160,44 @@ that retained memory; suspension is CPU/update relief, not memory reclamation.
 Cross-scene reconstruction is allowed only after Unity itself has disposed the
 old scene object.
 
-## Explicit limitations and next gate work
+## Transactional fault injection and resource accounting
+
+The final P2 run exercised every declared Unity-mutation boundary using the
+exact confirmation `inject-owned-mutation-failure`. Three materialization
+faults retained one tagged, suspended recovery object apiece while the active
+world stayed at its original 18 scenario units. The resource snapshot reported
+three owned records, zero active objects, three suspended-retained objects,
+three recovery-required objects, and three retained constructed objects.
+
+Three update faults and two suspension faults each returned structured HTTP 422
+`mutation-injected-failure` results with operation, step, and recovery state.
+Every rollback retained revision 1, the original supported fields, exactly one
+active owned object, and canonical world SHA-256
+`89494f3674f47bbf431a063baea63f5137d6f39167489f13b4c50776da135ee1`.
+
+After a real update and suspension, restore faults were injected after state
+application, enable, and readback. All three restored the source suspension at
+revision 3 with `recoveryRequired=false`. A normal retry restored the checkpoint
+at revision 4 and returned the same canonical hash.
+
+The scheduler-facing resource reader explicitly counts active,
+suspended-retained, detached, recovery-required, and retained-constructed
+objects. It reports `memoryReclamationSupported=false` and policy
+`active-and-suspended-retained-objects-consume-materialized-capacity`.
+
+A focused cleanup run proved the only registry-only release path. A failed
+materialization remained suspended and invisible to the 18-unit scenario. Typed
+tactical exit let Unity destroy the scene object, changing it to
+`detached-after-scene-loss`. Release then required the exact owned assignment,
+epoch, revision, recovery flag, absence of checkpoint, and absence of any live
+Unity object. It removed the record without a Unity mutation; an exact duplicate
+replayed, a foreign record failed closed, and all owned resource counts returned
+to zero.
+
+The detailed requirements mapping is in
+[Phase 2 exit-gate matrix](phase-2-exit-gate-matrix.md).
+
+## Explicit limitations and gate disposition
 
 The first materializer intentionally reports damage, fuel, magazine, sensor,
 formation, and hosted-aircraft state application as unsupported. A failure
@@ -168,17 +205,11 @@ after the external ownership tag is attached suspends the tagged object rather
 than deleting it or emitting an ordinary destruction outcome. Cleanup logic may
 act only on both the exact external tag and the bridge-owned registry entry.
 
-This slice does not complete P2. Checkpoint capture, fenced update, duplicate
-update, stale revision/epoch rejection, and native suspension/enable are now
-proven. Native suspension is currently the supported reversible lifecycle; it
-does not yet claim memory-releasing removal.
-
 The architecture is now formally narrowed to retained suspension and
 checkpoint-backed rematerialization. Duplicate suspension/rematerialization,
 unsupported catalog rejection, scene reload, companion reconnect, per-field
 tolerances, and synchronous costs have live evidence.
 
-The remaining P2 work is injected partial failure at the materialize, update,
-suspend, and restore steps; explicit scheduler accounting for retained objects;
-and the final gate matrix showing that cleanup cannot affect scenario/user
-objects and unsupported fields prevent unsafe promotion.
+Exit gate P2 is complete for the narrow allow-listed Knox contract. Unsupported
+fields remain explicit promotion blockers, and every additional entity family
+still requires its own later gate.

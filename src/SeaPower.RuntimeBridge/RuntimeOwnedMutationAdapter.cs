@@ -12,6 +12,7 @@ namespace SeaPowerRuntimeBridge;
 internal static class RuntimeOwnedMutationAdapter
 {
     public const string Confirmation = "enable-owned-mutations";
+    public const string FaultInjectionConfirmation = "inject-owned-mutation-failure";
 
     private const string SupportedUnitType = "usn_ff_knox_84";
     private const string SupportedVariant = "Variant13";
@@ -31,6 +32,8 @@ internal static class RuntimeOwnedMutationAdapter
         new(StringComparer.Ordinal);
     private static readonly Dictionary<string, LifecycleIdempotencyRecord>
         LifecycleIdempotencyRecords = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, RecoveryReleaseIdempotencyRecord>
+        RecoveryReleaseIdempotencyRecords = new(StringComparer.Ordinal);
 
     private static string _armedSessionId = string.Empty;
     private static long _expiresAtUnixMilliseconds;
@@ -99,7 +102,152 @@ internal static class RuntimeOwnedMutationAdapter
             _expiresAtUnixMilliseconds = 0;
             IdempotencyRecords.Clear();
             LifecycleIdempotencyRecords.Clear();
+            RecoveryReleaseIdempotencyRecords.Clear();
         }
+    }
+
+    public static OwnedSurfaceResourceStatePayload CaptureResourceState()
+    {
+        var entries = OwnedEntities
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair =>
+            {
+                var record = pair.Value;
+                var vessel = record.Vessel;
+                var lifecycleState = vessel == null
+                    ? "detached-after-scene-loss"
+                    : vessel.Disabled
+                        ? record.RecoveryRequired
+                            ? "recovery-required-suspended"
+                            : "suspended-retained"
+                        : "active";
+                return new OwnedSurfaceResourceEntryPayload
+                {
+                    EntityId = pair.Key,
+                    AssignmentId = record.AssignmentId,
+                    AuthorityEpoch = record.AuthorityEpoch,
+                    Revision = record.Revision,
+                    LifecycleState = lifecycleState,
+                    HasCheckpoint = record.Checkpoint is not null,
+                    RecoveryRequired = record.RecoveryRequired,
+                    GameUniqueId = vessel == null ? null : vessel.UniqueID,
+                };
+            })
+            .ToArray();
+        var active = entries.Count(entry => entry.LifecycleState == "active");
+        var suspended = entries.Count(entry =>
+            entry.LifecycleState is "suspended-retained" or "recovery-required-suspended");
+        var detached = entries.Count(entry => entry.LifecycleState == "detached-after-scene-loss");
+        return new OwnedSurfaceResourceStatePayload
+        {
+            OwnedRecordCount = entries.Length,
+            ActiveObjectCount = active,
+            SuspendedRetainedObjectCount = suspended,
+            DetachedObjectCount = detached,
+            DetachedCheckpointCount = entries.Count(entry =>
+                entry.LifecycleState == "detached-after-scene-loss" && entry.HasCheckpoint),
+            RecoveryRequiredCount = entries.Count(entry => entry.RecoveryRequired),
+            RetainedConstructedObjectCount = active + suspended,
+            MemoryReclamationSupported = false,
+            SchedulerPolicy = "active-and-suspended-retained-objects-consume-materialized-capacity",
+            Entities = entries,
+        };
+    }
+
+    public static MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>
+        ReleaseDetachedRecovery(
+            OwnedSurfaceEntityRequestPayload request,
+            string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        var context = request.Context;
+        if (context is null
+            || !string.Equals(context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The recovery release session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.EntityId, "unit:crimean-tom:")
+            || !ValidScopedId(context.AssignmentId, "assignment:")
+            || context.AuthorityEpoch < 1
+            || context.ExpectedRevision < 0
+            || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+            || context.IdempotencyKey.Length > 128)
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The detached recovery identity or fence is invalid.");
+        }
+
+        var key = LifecycleKey(GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery, context);
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        if (RecoveryReleaseIdempotencyRecords.TryGetValue(key, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with a different recovery release payload.");
+            }
+            var replay = CloneRecoveryRelease(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Success(replay);
+        }
+
+        if (!OwnedEntities.TryGetValue(request.EntityId, out var record))
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "No bridge-owned recovery record matches the requested entity.");
+        }
+        if (!string.Equals(record.AssignmentId, context.AssignmentId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The mutation assignment does not own this recovery record.");
+        }
+        if (context.AuthorityEpoch != record.AuthorityEpoch)
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.StaleAuthorityEpoch,
+                $"Expected authority epoch {record.AuthorityEpoch}, received {context.AuthorityEpoch}.");
+        }
+        if (context.ExpectedRevision != record.Revision)
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
+        }
+        if (record.Vessel != null
+            || !record.RecoveryRequired
+            || record.Checkpoint is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Recovery release requires a detached partial-materialization record with no checkpoint.");
+        }
+
+        OwnedEntities.Remove(request.EntityId);
+        var result = new OwnedSurfaceRecoveryReleaseResultPayload
+        {
+            Outcome = "released",
+            Postcondition = "detached-owned-recovery-record-released-without-unity-mutation",
+            EntityId = request.EntityId,
+            AssignmentId = record.AssignmentId,
+            AuthorityEpoch = record.AuthorityEpoch,
+            Revision = record.Revision,
+            IdempotencyKey = context.IdempotencyKey,
+        };
+        RecoveryReleaseIdempotencyRecords.Add(
+            key,
+            new(requestJson, CloneRecoveryRelease(result)));
+        return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Success(result);
     }
 
     public static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> Materialize(
@@ -205,6 +353,7 @@ internal static class RuntimeOwnedMutationAdapter
             // Attach external ownership before any later operation can fail. Cleanup paths may
             // only touch objects bearing this exact tag and present in OwnedEntities.
             created._campaignTag = request.EntityId;
+            InjectFailure(request.FaultInjectionStep, "after-owned-tag");
             created.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
             created.transform.eulerAngles = heading;
             created._geoPosition = position;
@@ -212,6 +361,7 @@ internal static class RuntimeOwnedMutationAdapter
             created._velocityInKnots = created.getSpeedForTelegraph(request.Telegraph);
             created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
             Physics.SyncTransforms();
+            InjectFailure(request.FaultInjectionStep, "after-state-apply");
 
             var realized = Capture(created, request.TaskforceId);
             AssertRealizedIdentity(request, realized);
@@ -234,6 +384,7 @@ internal static class RuntimeOwnedMutationAdapter
                 revision,
                 request.TaskforceId,
                 created));
+            InjectFailure(request.FaultInjectionStep, "after-registry-add");
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
             IdempotencyRecords.Add(idempotencyRecordKey, new(requestJson, Clone(result)));
@@ -251,12 +402,19 @@ internal static class RuntimeOwnedMutationAdapter
                     request.Context.AuthorityEpoch,
                     request.Context.ExpectedRevision,
                     request.TaskforceId,
-                    created);
+                    created,
+                    recoveryRequired: true);
             }
+            var injected = exception as InjectedMutationFailureException;
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
-                ProtocolErrorCodes.MutationPreconditionFailed,
-                $"Owned materialization failed and retained only its tagged recoverable object: "
-                + $"{exception.GetType().Name}: {exception.Message}");
+                injected is null
+                    ? ProtocolErrorCodes.MutationPreconditionFailed
+                    : ProtocolErrorCodes.MutationInjectedFailure,
+                "operation=materialize; recovery=recoverable-suspended-owned-object; "
+                + $"failure={exception.GetType().Name}: {exception.Message}",
+                injected is null
+                    ? null
+                    : $"fault:materialize:{injected.Step}:recoverable-suspended-owned-object");
         }
         finally
         {
@@ -279,6 +437,12 @@ internal static class RuntimeOwnedMutationAdapter
 
         var record = resolved.Record!;
         var vessel = record.Vessel!;
+        if (record.RecoveryRequired)
+        {
+            return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "A partial materialization object cannot produce an authoritative checkpoint.");
+        }
         if (vessel.Disabled)
         {
             return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
@@ -332,6 +496,18 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "The surface update position, heading, or telegraph is invalid.");
         }
+        var faultError = ValidateFaultInjection(
+            request.FaultInjectionStep,
+            request.FaultInjectionConfirmation,
+            "after-position-apply",
+            "after-telegraph-apply",
+            "after-readback");
+        if (faultError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                faultError);
+        }
         var replay = TryLifecycleReplay(
             GameCommandTypes.UpdateOwnedSurfaceUnit,
             request.Context,
@@ -358,38 +534,90 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "A suspended surface unit must be enabled before applying an update.");
         }
+        var original = Capture(vessel, record.TaskforceId);
         var timer = Stopwatch.StartNew();
-        var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
-        vessel.transform.position = Utils.longLatToLocalV3(
-            position,
-            Globals._currentCenterTile);
-        vessel.transform.eulerAngles = new Vector3(
-            0f,
-            (float)NormalizeHeading(request.HeadingDegrees),
-            0f);
-        vessel._geoPosition = position;
-        vessel.setTelegraph(request.Telegraph);
-        vessel._velocityInKnots = vessel.getSpeedForTelegraph(request.Telegraph);
-        vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
-        Physics.SyncTransforms();
-        var realized = Capture(vessel, record.TaskforceId);
-        AssertUpdatedState(request, realized);
-        record.Revision++;
-        timer.Stop();
-        var result = LifecycleResult(
-            "updated",
-            "owned-surface-unit-updated-and-read-back",
-            request.Context,
-            record,
-            timer);
-        StoreLifecycleReplay(GameCommandTypes.UpdateOwnedSurfaceUnit, request.Context, request, result);
-        return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        try
+        {
+            var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
+            vessel.transform.position = Utils.longLatToLocalV3(
+                position,
+                Globals._currentCenterTile);
+            vessel.transform.eulerAngles = new Vector3(
+                0f,
+                (float)NormalizeHeading(request.HeadingDegrees),
+                0f);
+            vessel._geoPosition = position;
+            InjectFailure(request.FaultInjectionStep, "after-position-apply");
+            vessel.setTelegraph(request.Telegraph);
+            vessel._velocityInKnots = vessel.getSpeedForTelegraph(request.Telegraph);
+            vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
+            InjectFailure(request.FaultInjectionStep, "after-telegraph-apply");
+            Physics.SyncTransforms();
+            var realized = Capture(vessel, record.TaskforceId);
+            AssertUpdatedState(request, realized);
+            InjectFailure(request.FaultInjectionStep, "after-readback");
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                "updated",
+                "owned-surface-unit-updated-and-read-back",
+                request.Context,
+                record,
+                timer);
+            StoreLifecycleReplay(
+                GameCommandTypes.UpdateOwnedSurfaceUnit,
+                request.Context,
+                request,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            var recovery = "source-state-restored";
+            try
+            {
+                ApplyPortableState(vessel, original);
+                AssertCheckpointRestored(original, Capture(vessel, record.TaskforceId));
+            }
+            catch
+            {
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+                recovery = "recoverable-suspended-owned-object";
+            }
+            record.RecoveryRequired = recovery == "recoverable-suspended-owned-object";
+            var injected = exception as InjectedMutationFailureException;
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                injected is null
+                    ? ProtocolErrorCodes.MutationPreconditionFailed
+                    : ProtocolErrorCodes.MutationInjectedFailure,
+                $"operation=update; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}",
+                injected is null ? null : $"fault:update:{injected.Step}:{recovery}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
     }
 
     public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> SetSuspension(
         SetOwnedSurfaceSuspensionRequestPayload request,
         string commandSessionId)
     {
+        var faultError = ValidateFaultInjection(
+            request.FaultInjectionStep,
+            request.FaultInjectionConfirmation,
+            "after-native-toggle",
+            "after-readback");
+        if (faultError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                faultError);
+        }
         var replay = TryLifecycleReplay(
             GameCommandTypes.SetOwnedSurfaceSuspension,
             request.Context,
@@ -410,6 +638,12 @@ internal static class RuntimeOwnedMutationAdapter
 
         var record = resolved.Record!;
         var vessel = record.Vessel!;
+        if (record.RecoveryRequired && !request.IsSuspended)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "A partial materialization object cannot be enabled; unload its scene before cleanup.");
+        }
         if (vessel.Disabled == request.IsSuspended)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -418,37 +652,104 @@ internal static class RuntimeOwnedMutationAdapter
                     ? "The owned surface unit is already suspended."
                     : "The owned surface unit is already enabled.");
         }
+        var originalDisabled = vessel.Disabled;
         var timer = Stopwatch.StartNew();
-        if (request.IsSuspended)
+        try
         {
-            vessel.Disable();
+            if (request.IsSuspended)
+            {
+                vessel.Disable();
+            }
+            else
+            {
+                vessel.Enable();
+            }
+            InjectFailure(request.FaultInjectionStep, "after-native-toggle");
+            var realized = Capture(vessel, record.TaskforceId);
+            if (realized.IsDisabled != request.IsSuspended || realized.IsDestroyed)
+            {
+                throw new InvalidOperationException(
+                    "Sea Power did not realize the requested suspension state.");
+            }
+            InjectFailure(request.FaultInjectionStep, "after-readback");
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                request.IsSuspended ? "suspended" : "enabled",
+                request.IsSuspended
+                    ? "owned-surface-unit-suspended-outside-active-world"
+                    : "owned-surface-unit-enabled-and-read-back",
+                request.Context,
+                record,
+                timer);
+            StoreLifecycleReplay(
+                GameCommandTypes.SetOwnedSurfaceSuspension,
+                request.Context,
+                request,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
         }
-        else
+        catch (Exception exception)
         {
-            vessel.Enable();
+            var recovery = "source-state-restored";
+            try
+            {
+                if (vessel.Disabled != originalDisabled)
+                {
+                    if (originalDisabled)
+                    {
+                        vessel.Disable();
+                    }
+                    else
+                    {
+                        vessel.Enable();
+                    }
+                }
+                if (vessel.Disabled != originalDisabled)
+                {
+                    throw new InvalidOperationException("Native suspension rollback did not stick.");
+                }
+            }
+            catch
+            {
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+                recovery = "recoverable-suspended-owned-object";
+            }
+            record.RecoveryRequired = recovery == "recoverable-suspended-owned-object";
+            var injected = exception as InjectedMutationFailureException;
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                injected is null
+                    ? ProtocolErrorCodes.MutationPreconditionFailed
+                    : ProtocolErrorCodes.MutationInjectedFailure,
+                $"operation=suspension; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}",
+                injected is null ? null : $"fault:suspension:{injected.Step}:{recovery}");
         }
-        record.Revision++;
-        timer.Stop();
-        var result = LifecycleResult(
-            request.IsSuspended ? "suspended" : "enabled",
-            request.IsSuspended
-                ? "owned-surface-unit-suspended-outside-active-world"
-                : "owned-surface-unit-enabled-and-read-back",
-            request.Context,
-            record,
-            timer);
-        StoreLifecycleReplay(
-            GameCommandTypes.SetOwnedSurfaceSuspension,
-            request.Context,
-            request,
-            result);
-        return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        finally
+        {
+            timer.Stop();
+        }
     }
 
     public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> RestoreCheckpoint(
         RestoreOwnedSurfaceCheckpointRequestPayload request,
         string commandSessionId)
     {
+        var faultError = ValidateFaultInjection(
+            request.FaultInjectionStep,
+            request.FaultInjectionConfirmation,
+            "after-state-apply",
+            "after-enable",
+            "after-readback");
+        if (faultError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                faultError);
+        }
         var replay = TryLifecycleReplay(
             GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
             request.Context,
@@ -524,9 +825,10 @@ internal static class RuntimeOwnedMutationAdapter
             {
                 return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                     ProtocolErrorCodes.MutationPreconditionFailed,
-                    "The owned surface unit must be suspended or absent before rematerialization.");
+                "The owned surface unit must be suspended or absent before rematerialization.");
             }
         }
+        var original = reconstructed ? null : Capture(vessel!, record.TaskforceId);
 
         var timer = Stopwatch.StartNew();
         try
@@ -563,13 +865,17 @@ internal static class RuntimeOwnedMutationAdapter
             }
 
             ApplyPortableState(vessel!, checkpoint.Unit);
+            InjectFailure(request.FaultInjectionStep, "after-state-apply");
             if (vessel!.Disabled)
             {
                 vessel.Enable();
             }
+            InjectFailure(request.FaultInjectionStep, "after-enable");
             record.TaskforceId = checkpoint.Unit.TaskforceId;
+            record.RecoveryRequired = false;
             var realized = Capture(vessel, record.TaskforceId);
             AssertCheckpointRestored(checkpoint.Unit, realized);
+            InjectFailure(request.FaultInjectionStep, "after-readback");
             record.Revision++;
             timer.Stop();
             var result = LifecycleResult(
@@ -592,19 +898,49 @@ internal static class RuntimeOwnedMutationAdapter
         }
         catch (Exception exception)
         {
+            var recovery = reconstructed
+                ? "recoverable-suspended-owned-object"
+                : "source-suspension-restored";
             if (vessel != null
                 && string.Equals(vessel._campaignTag, request.EntityId, StringComparison.Ordinal))
             {
-                if (!vessel.Disabled)
+                try
                 {
-                    vessel.Disable();
+                    if (original is not null)
+                    {
+                        ApplyPortableState(vessel, original);
+                    }
+                    if (!vessel.Disabled)
+                    {
+                        vessel.Disable();
+                    }
+                    if (original is not null)
+                    {
+                        AssertPortableState(
+                            original,
+                            Capture(vessel, record.TaskforceId),
+                            expectedDisabled: true);
+                    }
+                }
+                catch
+                {
+                    recovery = "recoverable-suspended-owned-object";
+                    if (!vessel.Disabled)
+                    {
+                        vessel.Disable();
+                    }
                 }
                 record.Vessel = vessel;
             }
+            record.RecoveryRequired = recovery == "recoverable-suspended-owned-object";
+            var injected = exception as InjectedMutationFailureException;
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
-                ProtocolErrorCodes.MutationPreconditionFailed,
-                "Checkpoint rematerialization failed and retained only its tagged recoverable object: "
-                + $"{exception.GetType().Name}: {exception.Message}");
+                injected is null
+                    ? ProtocolErrorCodes.MutationPreconditionFailed
+                    : ProtocolErrorCodes.MutationInjectedFailure,
+                $"operation=restore; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}",
+                injected is null ? null : $"fault:restore:{injected.Step}:{recovery}");
         }
         finally
         {
@@ -837,6 +1173,20 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return Invalid("telegraph must be between -1 and 5.");
         }
+        var faultError = ValidateFaultInjection(
+            request.FaultInjectionStep,
+            request.FaultInjectionConfirmation,
+            "after-owned-tag",
+            "after-state-apply",
+            "after-registry-add");
+        if (faultError is not null)
+        {
+            return Invalid(faultError);
+        }
+        if (request.Context.DryRun && !string.IsNullOrEmpty(request.FaultInjectionStep))
+        {
+            return Invalid("Controlled materialization faults require a live mutation, not dryRun.");
+        }
         if (!Singleton<GameMain>.InstanceExists()
             || !Singleton<SceneCreator>.InstanceExists()
             || !Singleton<ObjectsManager>.InstanceExists()
@@ -950,7 +1300,13 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static void AssertCheckpointRestored(
         OwnedSurfaceUnitStatePayload expected,
-        OwnedSurfaceUnitStatePayload realized)
+        OwnedSurfaceUnitStatePayload realized) =>
+        AssertPortableState(expected, realized, expectedDisabled: false);
+
+    private static void AssertPortableState(
+        OwnedSurfaceUnitStatePayload expected,
+        OwnedSurfaceUnitStatePayload realized,
+        bool expectedDisabled)
     {
         if (!string.Equals(realized.StableUnitId, expected.StableUnitId, StringComparison.Ordinal)
             || !string.Equals(realized.EntityId, expected.EntityId, StringComparison.Ordinal)
@@ -964,7 +1320,7 @@ internal static class RuntimeOwnedMutationAdapter
             || !Within(realized.SpeedKnots, expected.SpeedKnots, SpeedToleranceKnots)
             || realized.Telegraph != expected.Telegraph
             || realized.IsDestroyed
-            || realized.IsDisabled)
+            || realized.IsDisabled != expectedDisabled)
         {
             throw new InvalidOperationException(
                 "Sea Power did not restore every supported checkpoint field within tolerance.");
@@ -987,6 +1343,13 @@ internal static class RuntimeOwnedMutationAdapter
         JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
             JsonSerializer.Serialize(value, JsonOptions),
             JsonOptions) ?? throw new InvalidOperationException("Could not clone lifecycle result.");
+
+    private static OwnedSurfaceRecoveryReleaseResultPayload CloneRecoveryRelease(
+        OwnedSurfaceRecoveryReleaseResultPayload value) =>
+        JsonSerializer.Deserialize<OwnedSurfaceRecoveryReleaseResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException(
+                "Could not clone recovery release result.");
 
     private static string[] UnsupportedFields() =>
     [
@@ -1028,12 +1391,43 @@ internal static class RuntimeOwnedMutationAdapter
     private static long ElapsedMicroseconds(Stopwatch stopwatch) =>
         stopwatch.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
 
+    private static string? ValidateFaultInjection(
+        string step,
+        string confirmation,
+        params string[] allowedSteps)
+    {
+        if (string.IsNullOrEmpty(step) && string.IsNullOrEmpty(confirmation))
+        {
+            return null;
+        }
+        if (!string.Equals(
+            confirmation,
+            FaultInjectionConfirmation,
+            StringComparison.Ordinal))
+        {
+            return $"faultInjectionConfirmation must be exactly "
+                + $"'{FaultInjectionConfirmation}' when a fault step is requested.";
+        }
+        return allowedSteps.Contains(step, StringComparer.Ordinal)
+            ? null
+            : $"faultInjectionStep '{step}' is not valid for this operation.";
+    }
+
+    private static void InjectFailure(string requestedStep, string currentStep)
+    {
+        if (string.Equals(requestedStep, currentStep, StringComparison.Ordinal))
+        {
+            throw new InjectedMutationFailureException(currentStep);
+        }
+    }
+
     private sealed class OwnedEntityRecord(
         string assignmentId,
         long authorityEpoch,
         long revision,
         string taskforceId,
-        Vessel vessel)
+        Vessel vessel,
+        bool recoveryRequired = false)
     {
         public string AssignmentId { get; } = assignmentId;
         public long AuthorityEpoch { get; } = authorityEpoch;
@@ -1041,6 +1435,7 @@ internal static class RuntimeOwnedMutationAdapter
         public string TaskforceId { get; set; } = taskforceId;
         public Vessel? Vessel { get; set; } = vessel;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
+        public bool RecoveryRequired { get; set; } = recoveryRequired;
     }
 
     private sealed record IdempotencyRecord(
@@ -1050,6 +1445,16 @@ internal static class RuntimeOwnedMutationAdapter
     private sealed record LifecycleIdempotencyRecord(
         string RequestJson,
         OwnedSurfaceLifecycleResultPayload Result);
+
+    private sealed record RecoveryReleaseIdempotencyRecord(
+        string RequestJson,
+        OwnedSurfaceRecoveryReleaseResultPayload Result);
+
+    private sealed class InjectedMutationFailureException(string step)
+        : Exception($"Controlled owned-mutation failure injected at '{step}'.")
+    {
+        public string Step { get; } = step;
+    }
 
     private sealed class OwnedResolution<T>
     {
@@ -1075,6 +1480,7 @@ internal sealed class MutationAdapterResult<T>
     public bool Succeeded { get; private init; }
     public string ErrorCode { get; private init; } = string.Empty;
     public string ErrorMessage { get; private init; } = string.Empty;
+    public string? ErrorId { get; private init; }
     public T? Payload { get; private init; }
 
     public static MutationAdapterResult<T> Success(T payload) => new()
@@ -1083,9 +1489,13 @@ internal sealed class MutationAdapterResult<T>
         Payload = payload,
     };
 
-    public static MutationAdapterResult<T> Failure(string code, string message) => new()
+    public static MutationAdapterResult<T> Failure(
+        string code,
+        string message,
+        string? errorId = null) => new()
     {
         ErrorCode = code,
         ErrorMessage = message,
+        ErrorId = errorId,
     };
 }

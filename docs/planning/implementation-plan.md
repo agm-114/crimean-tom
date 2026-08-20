@@ -11,9 +11,10 @@ records which findings changed this plan, which source claims were corrected,
 and which disagreements remain mandatory experiments.
 
 The [current implementation handoff](current-handoff.md) records the latest
-verified repository state and the exact next Phase 0 implementation slice.
+verified repository state and the exact next implementation slice.
 
-Phases 0 and 1 are complete and the repository is actively implementing Phase 2. The local
+Phases 0, 1, and 2 are complete and the repository is actively implementing
+Phase 3. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -357,8 +358,9 @@ materializes, checkpoints, applies fenced updates, suspends outside the active
 world, restores a retained object, and reconstructs from the checkpoint after
 scene reload. The lifecycle claim is explicitly narrowed to retained native
 suspension because the pinned runtime exposes no safe memory-releasing quiet
-teardown. Injected step failures and final scheduler accounting remain before
-exit gate P2.
+teardown. Eleven live fault-injection boundaries, scheduler resource accounting,
+and fenced detached-recovery cleanup complete exit gate P2 for this narrow
+family.
 
 ### 2A. Mutation safety framework
 

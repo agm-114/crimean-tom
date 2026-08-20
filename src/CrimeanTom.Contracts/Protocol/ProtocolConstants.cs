@@ -64,6 +64,7 @@ public static class ProtocolErrorCodes
     public const string QueueFull = "queue-full";
     public const string UnsupportedCommand = "unsupported-command";
     public const string MutationDisabled = "mutation-disabled";
+    public const string MutationInjectedFailure = "mutation-injected-failure";
     public const string MutationPreconditionFailed = "mutation-precondition-failed";
     public const string StaleAuthorityEpoch = "stale-authority-epoch";
     public const string StaleRevision = "stale-revision";
@@ -97,6 +98,9 @@ public static class GameCommandTypes
     public const string UpdateOwnedSurfaceUnit = "update-owned-surface-unit";
     public const string SetOwnedSurfaceSuspension = "set-owned-surface-suspension";
     public const string RestoreOwnedSurfaceCheckpoint = "restore-owned-surface-checkpoint";
+    public const string GetOwnedSurfaceResourceState = "get-owned-surface-resource-state";
+    public const string ReleaseDetachedOwnedSurfaceRecovery =
+        "release-detached-owned-surface-recovery";
 
     public static readonly string[] ReadOnlyCommands =
     {
@@ -104,6 +108,7 @@ public static class GameCommandTypes
         GetCapabilities,
         GetSceneState,
         GetWorldSnapshot,
+        GetOwnedSurfaceResourceState,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,
@@ -141,6 +146,7 @@ public static class GameCommandTypes
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
         RestoreOwnedSurfaceCheckpoint,
+        ReleaseDetachedOwnedSurfaceRecovery,
     };
 
     public static readonly string[] AllCommands =
@@ -170,5 +176,7 @@ public static class GameCommandTypes
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
         RestoreOwnedSurfaceCheckpoint,
+        GetOwnedSurfaceResourceState,
+        ReleaseDetachedOwnedSurfaceRecovery,
     };
 }

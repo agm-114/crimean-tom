@@ -79,6 +79,15 @@ app.MapGet("/game/world", (GamePipeBroker broker, CancellationToken cancellation
         CommandPriorities.Bulk,
         cancellationToken));
 
+app.MapGet("/game/mutations/surface/resources", (
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetOwnedSurfaceResourceState,
+        CommandPriorities.Normal,
+        cancellationToken));
+
 app.MapGet("/game/catalog/units", (
     int? offset,
     int? limit,
@@ -316,27 +325,46 @@ app.MapPost("/game/mutations/surface/update", (
     UpdateOwnedSurfaceUnitRequestPayload request,
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
-    ForwardOwnedSurfaceCommand(
-        request,
-        request.Context,
-        request.EntityId,
-        GameCommandTypes.UpdateOwnedSurfaceUnit,
-        broker,
-        wireJsonOptions,
-        cancellationToken));
+{
+    var faultError = ValidateFaultInjectionRequest(
+        request.FaultInjectionStep,
+        request.FaultInjectionConfirmation,
+        "after-position-apply",
+        "after-telegraph-apply",
+        "after-readback");
+    return faultError is not null
+        ? Task.FromResult(faultError)
+        : ForwardOwnedSurfaceCommand(
+            request,
+            request.Context,
+            request.EntityId,
+            GameCommandTypes.UpdateOwnedSurfaceUnit,
+            broker,
+            wireJsonOptions,
+            cancellationToken);
+});
 
 app.MapPost("/game/mutations/surface/suspension", (
     SetOwnedSurfaceSuspensionRequestPayload request,
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
-    ForwardOwnedSurfaceCommand(
-        request,
-        request.Context,
-        request.EntityId,
-        GameCommandTypes.SetOwnedSurfaceSuspension,
-        broker,
-        wireJsonOptions,
-        cancellationToken));
+{
+    var faultError = ValidateFaultInjectionRequest(
+        request.FaultInjectionStep,
+        request.FaultInjectionConfirmation,
+        "after-native-toggle",
+        "after-readback");
+    return faultError is not null
+        ? Task.FromResult(faultError)
+        : ForwardOwnedSurfaceCommand(
+            request,
+            request.Context,
+            request.EntityId,
+            GameCommandTypes.SetOwnedSurfaceSuspension,
+            broker,
+            wireJsonOptions,
+            cancellationToken);
+});
 
 app.MapPost("/game/mutations/surface/restore", (
     RestoreOwnedSurfaceCheckpointRequestPayload request,
@@ -363,12 +391,38 @@ app.MapPost("/game/mutations/surface/restore", (
             message = "The portable checkpoint identity or SHA-256 is invalid.",
         }, statusCode: StatusCodes.Status400BadRequest));
     }
+    var faultError = ValidateFaultInjectionRequest(
+        request.FaultInjectionStep,
+        request.FaultInjectionConfirmation,
+        "after-state-apply",
+        "after-enable",
+        "after-readback");
+    if (faultError is not null)
+    {
+        return Task.FromResult(faultError);
+    }
     return SendCommandWithPayloadAsync(
         broker,
         GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
         JsonSerializer.Serialize(request, wireJsonOptions),
         CommandPriorities.Control,
         cancellationToken);
+});
+
+app.MapPost("/game/mutations/surface/recovery/release", (
+    OwnedSurfaceEntityRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateOwnedRecoveryReleaseRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
 });
 
 app.MapGet("/port-operations/projection", (PortOperationsProjectionStore store) =>
@@ -552,6 +606,43 @@ static IResult? ValidateSurfaceMutationRequest(
             message = "The owned surface mutation payload is incomplete or invalid.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
+    if (request.Context.DryRun && !string.IsNullOrEmpty(request.FaultInjectionStep))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "Controlled materialization faults require a live mutation, not dryRun.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return ValidateFaultInjectionRequest(
+        request.FaultInjectionStep,
+        request.FaultInjectionConfirmation,
+        "after-owned-tag",
+        "after-state-apply",
+        "after-registry-add");
+}
+
+static IResult? ValidateFaultInjectionRequest(
+    string step,
+    string confirmation,
+    params string[] allowedSteps)
+{
+    if (string.IsNullOrEmpty(step) && string.IsNullOrEmpty(confirmation))
+    {
+        return null;
+    }
+    if (!string.Equals(
+            confirmation,
+            "inject-owned-mutation-failure",
+            StringComparison.Ordinal)
+        || !allowedSteps.Contains(step, StringComparer.Ordinal))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The controlled fault-injection confirmation or step is invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
     return null;
 }
 
@@ -608,6 +699,44 @@ static IResult? ValidateOwnedLifecycleRequest(
         {
             error = ProtocolErrorCodes.InvalidMessage,
             message = "The owned lifecycle mutation identity or fence is invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
+
+static IResult? ValidateOwnedRecoveryReleaseRequest(
+    OwnedSurfaceEntityRequestPayload request,
+    GamePipeBroker broker)
+{
+    var context = request.Context;
+    if (context is null)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The detached recovery release context is required.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    var sessionError = ValidateMutationSession(context.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    if (string.IsNullOrWhiteSpace(context.AssignmentId)
+        || !context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+        || context.AssignmentId.Length > 128
+        || context.AuthorityEpoch < 1
+        || context.ExpectedRevision < 0
+        || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+        || context.IdempotencyKey.Length > 128
+        || string.IsNullOrWhiteSpace(request.EntityId)
+        || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || request.EntityId.Length > 128)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The detached recovery release identity or fence is invalid.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     return null;

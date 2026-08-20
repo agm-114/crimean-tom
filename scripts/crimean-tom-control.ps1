@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -50,6 +50,10 @@ param(
     [string]$CheckpointId = '',
 
     [string]$CheckpointSha256 = '',
+
+    [string]$FaultInjectionStep = '',
+
+    [switch]$ConfirmFaultInjection,
 
     [long]$AuthorityEpoch = 1,
 
@@ -664,6 +668,10 @@ switch ($Action) {
                 longitude = $Longitude
                 headingDegrees = $HeadingDegrees
                 telegraph = $Telegraph
+                faultInjectionStep = $FaultInjectionStep
+                faultInjectionConfirmation = if ($ConfirmFaultInjection) {
+                    'inject-owned-mutation-failure'
+                } else { '' }
             }))
     }
     'checkpoint-owned-surface' {
@@ -702,6 +710,10 @@ switch ($Action) {
                 longitude = $Longitude
                 headingDegrees = $HeadingDegrees
                 telegraph = $Telegraph
+                faultInjectionStep = $FaultInjectionStep
+                faultInjectionConfirmation = if ($ConfirmFaultInjection) {
+                    'inject-owned-mutation-failure'
+                } else { '' }
             }))
     }
     { $_ -cin @('suspend-owned-surface', 'enable-owned-surface') } {
@@ -720,6 +732,10 @@ switch ($Action) {
                 }
                 entityId = $EntityId
                 isSuspended = ($Action -ceq 'suspend-owned-surface')
+                faultInjectionStep = $FaultInjectionStep
+                faultInjectionConfirmation = if ($ConfirmFaultInjection) {
+                    'inject-owned-mutation-failure'
+                } else { '' }
             }))
     }
     'restore-owned-surface' {
@@ -739,6 +755,30 @@ switch ($Action) {
                 entityId = $EntityId
                 checkpointId = $CheckpointId
                 checkpointSha256 = $CheckpointSha256
+                faultInjectionStep = $FaultInjectionStep
+                faultInjectionConfirmation = if ($ConfirmFaultInjection) {
+                    'inject-owned-mutation-failure'
+                } else { '' }
+            }))
+    }
+    'owned-surface-resources' {
+        Show-Json (Invoke-ControlRequest '/game/mutations/surface/resources')
+    }
+    'release-owned-surface-recovery' {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/surface/recovery/release' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
             }))
     }
     'port-projection' {

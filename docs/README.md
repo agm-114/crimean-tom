@@ -65,6 +65,9 @@ The folders separate evidence from design commitments:
 19. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
     defines the promotion-critical comparison contract for the first surface
     family.
+20. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
+    bounded-mutation exit condition to live evidence and records the narrow
+    gate disposition.
 
 ## Evidence labels
 

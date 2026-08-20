@@ -86,6 +86,8 @@ internal static class GameCommandDispatcher
                         initializedMainThreadId,
                         executingThreadId)),
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
+                    GameCommandTypes.GetOwnedSurfaceResourceState =>
+                        Success(RuntimeOwnedMutationAdapter.CaptureResourceState()),
                     GameCommandTypes.GetUnitCatalogPage => Success(GetUnitCatalogPage(
                         command.PayloadJson,
                         fileFingerprintProvider)),
@@ -125,6 +127,10 @@ internal static class GameCommandDispatcher
                         SetOwnedSurfaceSuspension(command.PayloadJson, command.SessionId),
                     GameCommandTypes.RestoreOwnedSurfaceCheckpoint =>
                         RestoreOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery =>
+                        ReleaseDetachedOwnedSurfaceRecovery(
+                            command.PayloadJson,
+                            command.SessionId),
                     _ => Failure(
                         ProtocolErrorCodes.UnsupportedCommand,
                         $"Command '{command.MessageType}' is not supported."),
@@ -1327,7 +1333,7 @@ internal static class GameCommandDispatcher
             currentFingerprint);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload MaterializeOwnedSurfaceUnit(
@@ -1340,7 +1346,7 @@ internal static class GameCommandDispatcher
         var result = RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload CaptureOwnedSurfaceCheckpoint(
@@ -1353,7 +1359,7 @@ internal static class GameCommandDispatcher
         var result = RuntimeOwnedMutationAdapter.CaptureCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload UpdateOwnedSurfaceUnit(
@@ -1366,7 +1372,7 @@ internal static class GameCommandDispatcher
         var result = RuntimeOwnedMutationAdapter.Update(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload SetOwnedSurfaceSuspension(
@@ -1379,7 +1385,7 @@ internal static class GameCommandDispatcher
         var result = RuntimeOwnedMutationAdapter.SetSuspension(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload RestoreOwnedSurfaceCheckpoint(
@@ -1392,7 +1398,22 @@ internal static class GameCommandDispatcher
         var result = RuntimeOwnedMutationAdapter.RestoreCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
-            : Failure(result.ErrorCode, result.ErrorMessage);
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload ReleaseDetachedOwnedSurfaceRecovery(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.ReleaseDetachedRecovery(
+            request,
+            commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static CommandResponsePayload SaveExperimentalProbe()

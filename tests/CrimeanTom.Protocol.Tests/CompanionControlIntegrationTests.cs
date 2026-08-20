@@ -361,6 +361,29 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("stableUnitId")
                     .GetString());
 
+            using var ownedResources = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/mutations/surface/resources",
+                testTimeout.Token);
+            Assert.Equal(1, ownedResources.RootElement.GetProperty("activeObjectCount").GetInt32());
+            Assert.False(
+                ownedResources.RootElement.GetProperty("memoryReclamationSupported").GetBoolean());
+
+            using var releasedRecovery = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/recovery/release",
+                JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+                {
+                    Context = CreateOwnedContext(sessionId, 0, "integration-release-recovery-1"),
+                    EntityId = "unit:crimean-tom:integration-recovery-1",
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "detached-owned-recovery-record-released-without-unity-mutation",
+                releasedRecovery.RootElement.GetProperty("postcondition").GetString());
+
             using var checkpoint = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -873,6 +896,42 @@ public sealed class CompanionControlIntegrationTests
                     JsonOptions),
                 GameCommandTypes.RestoreOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
                     CreateRestoreLifecycleResult(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
+                    new OwnedSurfaceResourceStatePayload
+                    {
+                        OwnedRecordCount = 1,
+                        ActiveObjectCount = 1,
+                        RetainedConstructedObjectCount = 1,
+                        MemoryReclamationSupported = false,
+                        SchedulerPolicy =
+                            "active-and-suspended-retained-objects-consume-materialized-capacity",
+                        Entities =
+                        [
+                            new OwnedSurfaceResourceEntryPayload
+                            {
+                                EntityId = "unit:crimean-tom:integration-knox-1",
+                                AssignmentId = "assignment:integration-surface",
+                                AuthorityEpoch = 7,
+                                Revision = 1,
+                                LifecycleState = "active",
+                                GameUniqueId = 44,
+                            },
+                        ],
+                    },
+                    JsonOptions),
+                GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery => JsonSerializer.Serialize(
+                    new OwnedSurfaceRecoveryReleaseResultPayload
+                    {
+                        Outcome = "released",
+                        Postcondition =
+                            "detached-owned-recovery-record-released-without-unity-mutation",
+                        EntityId = "unit:crimean-tom:integration-recovery-1",
+                        AssignmentId = "assignment:integration-surface",
+                        AuthorityEpoch = 7,
+                        Revision = 0,
+                        IdempotencyKey = "integration-release-recovery-1",
+                    },
                     JsonOptions),
                 GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(
                     new ExperimentalWeaponLaunchResultPayload

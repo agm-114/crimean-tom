@@ -140,6 +140,8 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
+    public string FaultInjectionStep { get; set; } = string.Empty;
+    public string FaultInjectionConfirmation { get; set; } = string.Empty;
 }
 
 public sealed class OwnedSurfaceUnitStatePayload
@@ -191,6 +193,8 @@ public sealed class UpdateOwnedSurfaceUnitRequestPayload
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
+    public string FaultInjectionStep { get; set; } = string.Empty;
+    public string FaultInjectionConfirmation { get; set; } = string.Empty;
 }
 
 public sealed class SetOwnedSurfaceSuspensionRequestPayload
@@ -198,6 +202,8 @@ public sealed class SetOwnedSurfaceSuspensionRequestPayload
     public OwnedMutationContextPayload Context { get; set; } = new();
     public string EntityId { get; set; } = string.Empty;
     public bool IsSuspended { get; set; }
+    public string FaultInjectionStep { get; set; } = string.Empty;
+    public string FaultInjectionConfirmation { get; set; } = string.Empty;
 }
 
 public sealed class RestoreOwnedSurfaceCheckpointRequestPayload
@@ -206,6 +212,49 @@ public sealed class RestoreOwnedSurfaceCheckpointRequestPayload
     public string EntityId { get; set; } = string.Empty;
     public string CheckpointId { get; set; } = string.Empty;
     public string CheckpointSha256 { get; set; } = string.Empty;
+    public string FaultInjectionStep { get; set; } = string.Empty;
+    public string FaultInjectionConfirmation { get; set; } = string.Empty;
+}
+
+public sealed class OwnedSurfaceResourceStatePayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public int OwnedRecordCount { get; set; }
+    public int ActiveObjectCount { get; set; }
+    public int SuspendedRetainedObjectCount { get; set; }
+    public int DetachedObjectCount { get; set; }
+    public int DetachedCheckpointCount { get; set; }
+    public int RecoveryRequiredCount { get; set; }
+    public int RetainedConstructedObjectCount { get; set; }
+    public bool MemoryReclamationSupported { get; set; }
+    public string SchedulerPolicy { get; set; } = string.Empty;
+    public OwnedSurfaceResourceEntryPayload[] Entities { get; set; } =
+        Array.Empty<OwnedSurfaceResourceEntryPayload>();
+}
+
+public sealed class OwnedSurfaceResourceEntryPayload
+{
+    public string EntityId { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string LifecycleState { get; set; } = string.Empty;
+    public bool HasCheckpoint { get; set; }
+    public bool RecoveryRequired { get; set; }
+    public int? GameUniqueId { get; set; }
+}
+
+public sealed class OwnedSurfaceRecoveryReleaseResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool IdempotentReplay { get; set; }
 }
 
 public sealed class OwnedSurfaceCheckpointPayload
