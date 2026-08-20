@@ -13,14 +13,16 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next Phase 0 implementation slice.
 
-Phase 0 is complete and the repository is actively closing Phase 1. The local
+Phases 0 and 1 are complete and the repository is actively implementing Phase 2. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
 game build `0.8.2-23444+s358`. Runtime authority and external campaign commit
-remain disabled. One broad integration scenario crosses the real companion,
+remain disabled by default. The first opt-in, ownership-scoped surface-unit
+materializer now has live dry-run, create, read-back, and idempotent-replay
+evidence. One broad integration scenario crosses the real companion,
 HTTP authentication, named pipe, mock game peer, catalogs, UI actions, and port
-draft validation.
+draft validation, and the mutation admission path.
 
 ## Delivery rules
 

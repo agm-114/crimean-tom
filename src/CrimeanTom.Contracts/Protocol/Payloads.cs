@@ -86,6 +86,12 @@ public sealed class CapabilitiesPayload
 
     public bool MutatingCommandsEnabled { get; set; }
 
+    public string MutationMode { get; set; } = "disabled";
+
+    public string[] SupportedMutationCommands { get; set; } = Array.Empty<string>();
+
+    public long? MutationModeExpiresAtUnixMilliseconds { get; set; }
+
     public bool CommandCancellationSupported { get; set; }
 
     public int[] SupportedPriorities { get; set; } = Array.Empty<int>();
@@ -93,6 +99,82 @@ public sealed class CapabilitiesPayload
     public string ExecutionThreadGuardSelfTest { get; set; } = "pending";
 
     public RuntimeCapabilityFingerprintPayload RuntimeFingerprint { get; set; } = new();
+}
+
+public sealed class ArmOwnedMutationModeRequestPayload
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string RuntimeFingerprintSha256 { get; set; } = string.Empty;
+    public string Confirmation { get; set; } = string.Empty;
+    public int DurationSeconds { get; set; } = 300;
+}
+
+public sealed class ArmOwnedMutationModeResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Mode { get; set; } = "disabled";
+    public string SessionId { get; set; } = string.Empty;
+    public long? ExpiresAtUnixMilliseconds { get; set; }
+    public string Postcondition { get; set; } = string.Empty;
+}
+
+public sealed class OwnedMutationContextPayload
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long ExpectedRevision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool DryRun { get; set; }
+}
+
+public sealed class MaterializeOwnedSurfaceUnitRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = "Default";
+    public string TaskforceId { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double HeadingDegrees { get; set; }
+    public int Telegraph { get; set; }
+}
+
+public sealed class OwnedSurfaceUnitStatePayload
+{
+    public string StableUnitId { get; set; } = string.Empty;
+    public int GameUniqueId { get; set; }
+    public string EntityId { get; set; } = string.Empty;
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = string.Empty;
+    public string TaskforceId { get; set; } = string.Empty;
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? HeadingDegrees { get; set; }
+    public double? SpeedKnots { get; set; }
+    public int Telegraph { get; set; }
+    public bool IsDisabled { get; set; }
+    public bool IsDestroyed { get; set; }
+}
+
+public sealed class MaterializeOwnedSurfaceUnitResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool DryRun { get; set; }
+    public bool IdempotentReplay { get; set; }
+    public bool RecoverableOwnedObject { get; set; }
+    public long SynchronousDurationMicroseconds { get; set; }
+    public OwnedSurfaceUnitStatePayload? RealizedUnit { get; set; }
+    public string[] UnsupportedFields { get; set; } = Array.Empty<string>();
 }
 
 public sealed class RuntimeCapabilityFingerprintPayload

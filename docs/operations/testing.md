@@ -126,6 +126,25 @@ and update counts are positive logical-clock evidence; unequal fixed-update
 counts, listed uncontrolled sources, or hook mismatches remain explicit
 determinism blockers.
 
+Owned Phase 2 mutations start disabled. In a disposable, fully loaded paused
+mission, arm only the current authenticated pipe session, dry-run, and then
+materialize the first allow-listed surface fixture:
+
+```powershell
+pwsh -File scripts/crimean-tom-control.ps1 arm-owned-mutations -SkipBuild
+pwsh -File scripts/crimean-tom-control.ps1 dry-run-owned-surface -SkipBuild `
+  -Latitude 12.9396320322755 -Longitude 43.1309606993161 `
+  -HeadingDegrees 144.830795288086
+pwsh -File scripts/crimean-tom-control.ps1 materialize-owned-surface -SkipBuild `
+  -Latitude 12.9396320322755 -Longitude 43.1309606993161 `
+  -HeadingDegrees 144.830795288086
+```
+
+Use unique assignment/entity/idempotency values for a new live object. Repeating
+the exact same payload is an idempotency check and must return the original
+object/revision. Never aim this command at a user/scenario identity; the plugin
+accepts only its `unit:crimean-tom:` ownership namespace.
+
 The Windows ACL test impersonates the anonymous security token against the
 actual broker, requires kernel access denial before handshake, then proves the
 same listener still accepts the current user. This is not a substitute for the

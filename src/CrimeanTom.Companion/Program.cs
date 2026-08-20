@@ -267,6 +267,38 @@ app.MapPost("/game/experimental/save-load/load", (
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/mutations/arm", (
+    ArmOwnedMutationModeRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateMutationArmRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.ArmOwnedMutationMode,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+});
+
+app.MapPost("/game/mutations/surface/materialize", (
+    MaterializeOwnedSurfaceUnitRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateSurfaceMutationRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.MaterializeOwnedSurfaceUnit,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+});
+
 app.MapGet("/port-operations/projection", (PortOperationsProjectionStore store) =>
     Results.Ok(store.Load()));
 
@@ -362,6 +394,94 @@ static IResult CommandFailure(GameCommandResult result) => Results.Json(new
     message = result.ErrorMessage,
     errorId = result.ErrorId,
 }, statusCode: result.HttpStatusCode);
+
+static IResult? ValidateMutationSession(string requestedSessionId, GamePipeBroker broker)
+{
+    if (string.IsNullOrWhiteSpace(requestedSessionId)
+        || !string.Equals(requestedSessionId, broker.SessionId, StringComparison.Ordinal))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidSession,
+            message = "The mutation request session does not match the connected game session.",
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+    return null;
+}
+
+static IResult? ValidateMutationArmRequest(
+    ArmOwnedMutationModeRequestPayload request,
+    GamePipeBroker broker)
+{
+    var sessionError = ValidateMutationSession(request.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    if (!string.Equals(
+            request.Confirmation,
+            "enable-owned-mutations",
+            StringComparison.Ordinal)
+        || request.DurationSeconds is < 1 or > 600
+        || request.RuntimeFingerprintSha256.Length != 64
+        || request.RuntimeFingerprintSha256.Any(character =>
+            character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "Mutation arming confirmation, duration, or runtime fingerprint is invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
+
+static IResult? ValidateSurfaceMutationRequest(
+    MaterializeOwnedSurfaceUnitRequestPayload request,
+    GamePipeBroker broker)
+{
+    if (request.Context is null)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned surface mutation context is required.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    var sessionError = ValidateMutationSession(request.Context.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    if (string.IsNullOrWhiteSpace(request.Context.AssignmentId)
+        || request.Context.AssignmentId.Length > 128
+        || !request.Context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+        || request.Context.AuthorityEpoch < 1
+        || request.Context.ExpectedRevision != 0
+        || string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+        || request.Context.IdempotencyKey.Length > 128
+        || string.IsNullOrWhiteSpace(request.EntityId)
+        || request.EntityId.Length > 128
+        || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || !string.Equals(request.UnitTypeId, "usn_ff_knox_84", StringComparison.Ordinal)
+        || !string.Equals(request.VariantId, "Variant13", StringComparison.Ordinal)
+        || !string.Equals(request.LoadoutId, "Default", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.TaskforceId)
+        || !double.IsFinite(request.Latitude)
+        || !double.IsFinite(request.Longitude)
+        || !double.IsFinite(request.HeadingDegrees)
+        || request.Latitude is < -90d or > 90d
+        || request.Longitude is < -180d or > 180d
+        || request.Telegraph is < -1 or > 5)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned surface mutation payload is incomplete or invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
 
 static async Task<string> WaitForStableFileHashAsync(
     string path,

@@ -1,0 +1,461 @@
+using System.Diagnostics;
+using System.Text.Json;
+
+using CrimeanTom.Protocol;
+
+using SeaPower;
+
+using UnityEngine;
+
+namespace SeaPowerRuntimeBridge;
+
+internal static class RuntimeOwnedMutationAdapter
+{
+    public const string Confirmation = "enable-owned-mutations";
+
+    private const string SupportedUnitType = "usn_ff_knox_84";
+    private const string SupportedVariant = "Variant13";
+    private const string SupportedLoadout = "Default";
+    private const int MaximumArmDurationSeconds = 600;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    private static readonly Dictionary<string, OwnedEntityRecord> OwnedEntities =
+        new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, IdempotencyRecord> IdempotencyRecords =
+        new(StringComparer.Ordinal);
+
+    private static string _armedSessionId = string.Empty;
+    private static long _expiresAtUnixMilliseconds;
+
+    public static bool IsArmed => !string.IsNullOrEmpty(_armedSessionId)
+        && _expiresAtUnixMilliseconds > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    public static long? ExpiresAtUnixMilliseconds => IsArmed
+        ? _expiresAtUnixMilliseconds
+        : null;
+
+    public static bool IsArmedFor(string? sessionId) => IsArmed
+        && string.Equals(_armedSessionId, sessionId, StringComparison.Ordinal);
+
+    public static MutationAdapterResult<ArmOwnedMutationModeResultPayload> Arm(
+        ArmOwnedMutationModeRequestPayload request,
+        string commandSessionId,
+        string currentRuntimeFingerprint)
+    {
+        if (!string.Equals(request.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<ArmOwnedMutationModeResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The arming request session does not match the executing pipe session.");
+        }
+        if (!string.Equals(request.Confirmation, Confirmation, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<ArmOwnedMutationModeResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"confirmation must be exactly '{Confirmation}'.");
+        }
+        if (request.DurationSeconds is < 1 or > MaximumArmDurationSeconds)
+        {
+            return MutationAdapterResult<ArmOwnedMutationModeResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"durationSeconds must be between 1 and {MaximumArmDurationSeconds}.");
+        }
+        if (!string.Equals(
+            request.RuntimeFingerprintSha256,
+            currentRuntimeFingerprint,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return MutationAdapterResult<ArmOwnedMutationModeResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The requested runtime fingerprint does not match the executing build.");
+        }
+
+        _armedSessionId = commandSessionId;
+        _expiresAtUnixMilliseconds = DateTimeOffset.UtcNow
+            .AddSeconds(request.DurationSeconds)
+            .ToUnixTimeMilliseconds();
+        return MutationAdapterResult<ArmOwnedMutationModeResultPayload>.Success(new()
+        {
+            Mode = "owned-mutations-armed",
+            SessionId = commandSessionId,
+            ExpiresAtUnixMilliseconds = _expiresAtUnixMilliseconds,
+            Postcondition = "owned-mutations-armed-for-current-session",
+        });
+    }
+
+    public static void EndSession(string sessionId)
+    {
+        if (string.Equals(_armedSessionId, sessionId, StringComparison.Ordinal))
+        {
+            _armedSessionId = string.Empty;
+            _expiresAtUnixMilliseconds = 0;
+            IdempotencyRecords.Clear();
+        }
+    }
+
+    public static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> Materialize(
+        MaterializeOwnedSurfaceUnitRequestPayload request,
+        string commandSessionId)
+    {
+        var validationError = Validate(request, commandSessionId);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var idempotencyRecordKey = string.Join(
+            "|",
+            request.Context.AssignmentId,
+            request.Context.IdempotencyKey);
+        if (IdempotencyRecords.TryGetValue(idempotencyRecordKey, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with a different mutation payload.");
+            }
+
+            var replay = Clone(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(replay);
+        }
+
+        var taskforce = ResolveTaskforce(request.TaskforceId);
+        if (taskforce is null || taskforce != Globals._playerTaskforce)
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "taskforceId must resolve exactly to the current player task force.");
+        }
+
+        if (OwnedEntities.ContainsKey(request.EntityId)
+            || Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
+                candidate is not null
+                && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal)))
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                "The requested external entity already has a live or retained owned object.");
+        }
+
+        var predicted = new OwnedSurfaceUnitStatePayload
+        {
+            StableUnitId = $"campaign-unit:{request.EntityId}",
+            EntityId = request.EntityId,
+            UnitTypeId = request.UnitTypeId,
+            VariantId = request.VariantId,
+            LoadoutId = request.LoadoutId,
+            TaskforceId = request.TaskforceId,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            HeadingDegrees = NormalizeHeading(request.HeadingDegrees),
+            Telegraph = request.Telegraph,
+        };
+        if (request.Context.DryRun)
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(new()
+            {
+                Outcome = "validated",
+                Postcondition = "owned-surface-unit-materialization-valid",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = request.Context.ExpectedRevision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                DryRun = true,
+                RealizedUnit = predicted,
+                UnsupportedFields = UnsupportedFields(),
+            });
+        }
+
+        Vessel? created = null;
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
+            var heading = new Vector3(0f, (float)NormalizeHeading(request.HeadingDegrees), 0f);
+            created = Singleton<ObjectsManager>.Instance.createShip(
+                request.VariantId,
+                request.LoadoutId,
+                request.UnitTypeId,
+                Singleton<ObjectsManager>.Instance._listOfAllObjects.Count + 1,
+                Singleton<SceneCreator>.Instance.GeoCenterPosition,
+                position,
+                request.Telegraph,
+                heading,
+                taskforce,
+                loadAsync: false);
+            if (created is null)
+            {
+                return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    "Sea Power's supported ship constructor returned no vessel.");
+            }
+
+            // Attach external ownership before any later operation can fail. Cleanup paths may
+            // only touch objects bearing this exact tag and present in OwnedEntities.
+            created._campaignTag = request.EntityId;
+            created.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
+            created.transform.eulerAngles = heading;
+            created._geoPosition = position;
+            created.setTelegraph(request.Telegraph);
+            created._velocityInKnots = created.getSpeedForTelegraph(request.Telegraph);
+            created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
+            Physics.SyncTransforms();
+
+            var realized = Capture(created, request.TaskforceId);
+            AssertRealizedIdentity(request, realized);
+            var revision = request.Context.ExpectedRevision + 1;
+            var result = new MaterializeOwnedSurfaceUnitResultPayload
+            {
+                Outcome = "materialized",
+                Postcondition = "owned-surface-unit-materialized-and-read-back",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = revision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                RealizedUnit = realized,
+                RecoverableOwnedObject = true,
+                UnsupportedFields = UnsupportedFields(),
+            };
+            OwnedEntities.Add(request.EntityId, new(
+                request.Context.AssignmentId,
+                request.Context.AuthorityEpoch,
+                revision,
+                created));
+            stopwatch.Stop();
+            result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
+            IdempotencyRecords.Add(idempotencyRecordKey, new(requestJson, Clone(result)));
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            if (created is not null
+                && string.Equals(created._campaignTag, request.EntityId, StringComparison.Ordinal)
+                && !created.Disabled)
+            {
+                created.Disable();
+                OwnedEntities[request.EntityId] = new(
+                    request.Context.AssignmentId,
+                    request.Context.AuthorityEpoch,
+                    request.Context.ExpectedRevision,
+                    created);
+            }
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"Owned materialization failed and retained only its tagged recoverable object: "
+                + $"{exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            stopwatch.Stop();
+        }
+    }
+
+    private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>? Validate(
+        MaterializeOwnedSurfaceUnitRequestPayload request,
+        string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        if (request.Context is null)
+        {
+            return Invalid("mutation context is required.");
+        }
+        if (!string.Equals(request.Context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The mutation context session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.Context.AssignmentId, "assignment:"))
+        {
+            return Invalid("assignmentId must be a bounded 'assignment:' identifier.");
+        }
+        if (!ValidScopedId(request.EntityId, "unit:crimean-tom:"))
+        {
+            return Invalid("entityId must be a bounded 'unit:crimean-tom:' identifier.");
+        }
+        if (request.Context.AuthorityEpoch < 1)
+        {
+            return Invalid("authorityEpoch must be positive.");
+        }
+        if (request.Context.ExpectedRevision != 0)
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                "Initial surface materialization requires expectedRevision 0.");
+        }
+        if (string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+            || request.Context.IdempotencyKey.Length > 128)
+        {
+            return Invalid("idempotencyKey must contain 1 to 128 characters.");
+        }
+        if (!string.Equals(request.UnitTypeId, SupportedUnitType, StringComparison.Ordinal)
+            || !string.Equals(request.VariantId, SupportedVariant, StringComparison.Ordinal)
+            || !string.Equals(request.LoadoutId, SupportedLoadout, StringComparison.Ordinal))
+        {
+            return Invalid(
+                $"Only {SupportedUnitType}/{SupportedVariant}/{SupportedLoadout} is allow-listed.");
+        }
+        if (!double.IsFinite(request.Latitude)
+            || !double.IsFinite(request.Longitude)
+            || !double.IsFinite(request.HeadingDegrees)
+            || request.Latitude is < -90d or > 90d
+            || request.Longitude is < -180d or > 180d)
+        {
+            return Invalid("Latitude, longitude, and heading must be finite and geographically valid.");
+        }
+        if (request.Telegraph is < -1 or > 5)
+        {
+            return Invalid("telegraph must be between -1 and 5.");
+        }
+        if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<SceneCreator>.InstanceExists()
+            || !Singleton<ObjectsManager>.InstanceExists()
+            || !Singleton<TaskforceManager>.InstanceExists()
+            || !Singleton<SceneCreator>.Instance.IsLoadingDone
+            || !GameTime.IsPaused())
+        {
+            return Invalid("A fully loaded, paused tactical mission is required.");
+        }
+        return null;
+    }
+
+    private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> Invalid(
+        string message) =>
+        MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+            ProtocolErrorCodes.MutationPreconditionFailed,
+            message);
+
+    private static bool ValidScopedId(string value, string prefix) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Length <= 128
+        && value.StartsWith(prefix, StringComparison.Ordinal)
+        && value.All(character => char.IsLetterOrDigit(character)
+            || character is ':' or '-' or '_' or '.');
+
+    private static Taskforce? ResolveTaskforce(string requestedId)
+    {
+        var taskforces = Singleton<TaskforceManager>.Instance._taskForces
+            .Where(taskforce => taskforce is not null)
+            .ToArray();
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < taskforces.Length; index++)
+        {
+            var taskforce = taskforces[index];
+            var identityName = string.IsNullOrWhiteSpace(taskforce._nameInMissionFile)
+                ? $"{taskforce.Side.ToString().ToLowerInvariant()}-{index + 1}"
+                : taskforce._nameInMissionFile.Trim();
+            var baseId = $"taskforce:{identityName}";
+            occurrences.TryGetValue(baseId, out var occurrence);
+            occurrence++;
+            occurrences[baseId] = occurrence;
+            var id = occurrence == 1 ? baseId : $"{baseId}#{occurrence}";
+            if (string.Equals(id, requestedId, StringComparison.Ordinal))
+            {
+                return taskforce;
+            }
+        }
+        return null;
+    }
+
+    private static OwnedSurfaceUnitStatePayload Capture(Vessel vessel, string taskforceId) => new()
+    {
+        StableUnitId = $"campaign-unit:{vessel._campaignTag}",
+        GameUniqueId = vessel.UniqueID,
+        EntityId = vessel._campaignTag ?? string.Empty,
+        UnitTypeId = vessel._obp?._objectIniName ?? string.Empty,
+        VariantId = vessel._obp?._objectVariantReference ?? string.Empty,
+        LoadoutId = vessel._obp?._loadoutVariant ?? string.Empty,
+        TaskforceId = taskforceId,
+        Latitude = Finite(vessel._geoPosition._latitude),
+        Longitude = Finite(vessel._geoPosition._longitude),
+        HeadingDegrees = Finite(vessel.getHeading()),
+        SpeedKnots = Finite(vessel.getVelocityInKnots()),
+        Telegraph = vessel.getTelegraph(),
+        IsDisabled = vessel.Disabled,
+        IsDestroyed = vessel.IsDestroyed,
+    };
+
+    private static void AssertRealizedIdentity(
+        MaterializeOwnedSurfaceUnitRequestPayload request,
+        OwnedSurfaceUnitStatePayload realized)
+    {
+        if (!string.Equals(realized.EntityId, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(realized.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
+            || !string.Equals(realized.VariantId, request.VariantId, StringComparison.Ordinal)
+            || !string.Equals(realized.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
+            || realized.IsDestroyed
+            || realized.IsDisabled)
+        {
+            throw new InvalidOperationException("Sea Power realized a different surface identity.");
+        }
+    }
+
+    private static MaterializeOwnedSurfaceUnitResultPayload Clone(
+        MaterializeOwnedSurfaceUnitResultPayload value) =>
+        JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException("Could not clone mutation result.");
+
+    private static string[] UnsupportedFields() =>
+    [
+        "damage-state-application",
+        "fuel-state-application",
+        "magazine-state-application",
+        "sensor-state-application",
+        "formation-state-application",
+        "hosted-aircraft-application",
+    ];
+
+    private static double NormalizeHeading(double value)
+    {
+        var normalized = value % 360d;
+        return normalized < 0d ? normalized + 360d : normalized;
+    }
+
+    private static double? Finite(double value) =>
+        double.IsFinite(value) ? value : null;
+
+    private static long ElapsedMicroseconds(Stopwatch stopwatch) =>
+        stopwatch.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
+
+    private sealed record OwnedEntityRecord(
+        string AssignmentId,
+        long AuthorityEpoch,
+        long Revision,
+        Vessel Vessel);
+
+    private sealed record IdempotencyRecord(
+        string RequestJson,
+        MaterializeOwnedSurfaceUnitResultPayload Result);
+}
+
+internal sealed class MutationAdapterResult<T>
+{
+    public bool Succeeded { get; private init; }
+    public string ErrorCode { get; private init; } = string.Empty;
+    public string ErrorMessage { get; private init; } = string.Empty;
+    public T? Payload { get; private init; }
+
+    public static MutationAdapterResult<T> Success(T payload) => new()
+    {
+        Succeeded = true,
+        Payload = payload,
+    };
+
+    public static MutationAdapterResult<T> Failure(string code, string message) => new()
+    {
+        ErrorCode = code,
+        ErrorMessage = message,
+    };
+}

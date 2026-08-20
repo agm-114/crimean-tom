@@ -56,12 +56,17 @@ public static class ProtocolErrorCodes
     public const string CommandCancelled = "command-cancelled";
     public const string CommandExpired = "command-expired";
     public const string InternalError = "internal-error";
+    public const string IdempotencyConflict = "idempotency-conflict";
     public const string InvalidMessage = "invalid-message";
     public const string InvalidMessageKind = "invalid-message-kind";
     public const string InvalidSession = "invalid-session";
     public const string ProtocolVersionMismatch = "protocol-version-mismatch";
     public const string QueueFull = "queue-full";
     public const string UnsupportedCommand = "unsupported-command";
+    public const string MutationDisabled = "mutation-disabled";
+    public const string MutationPreconditionFailed = "mutation-precondition-failed";
+    public const string StaleAuthorityEpoch = "stale-authority-epoch";
+    public const string StaleRevision = "stale-revision";
     public const string WrongExecutionThread = "wrong-execution-thread";
 }
 
@@ -86,6 +91,8 @@ public static class GameCommandTypes
     public const string SaveExperimentalProbe = "save-experimental-probe";
     public const string LoadExperimentalProbe = "load-experimental-probe";
     public const string RunControlledTickExperiment = "run-controlled-tick-experiment";
+    public const string ArmOwnedMutationMode = "arm-owned-mutation-mode";
+    public const string MaterializeOwnedSurfaceUnit = "materialize-owned-surface-unit";
 
     public static readonly string[] ReadOnlyCommands =
     {
@@ -118,6 +125,16 @@ public static class GameCommandTypes
         RunControlledTickExperiment,
     };
 
+    public static readonly string[] MutationControlCommands =
+    {
+        ArmOwnedMutationMode,
+    };
+
+    public static readonly string[] MutationCommands =
+    {
+        MaterializeOwnedSurfaceUnit,
+    };
+
     public static readonly string[] AllCommands =
     {
         Ping,
@@ -139,5 +156,7 @@ public static class GameCommandTypes
         SaveExperimentalProbe,
         LoadExperimentalProbe,
         RunControlledTickExperiment,
+        ArmOwnedMutationMode,
+        MaterializeOwnedSurfaceUnit,
     };
 }

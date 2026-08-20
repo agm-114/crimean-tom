@@ -59,6 +59,9 @@ The folders separate evidence from design commitments:
 17. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
     records D0 scan coverage, initial time/RNG/job/coroutine classification, and
     the fail-closed clock-rebase verdict for the pinned build.
+18. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
+    records authenticated owned-mutation admission and the first live surface-
+    unit materialization/idempotency result.
 
 ## Evidence labels
 

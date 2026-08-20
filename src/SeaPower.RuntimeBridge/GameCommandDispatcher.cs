@@ -110,6 +110,13 @@ internal static class GameCommandDispatcher
                     GameCommandTypes.LoadExperimentalProbe => LoadExperimentalProbe(),
                     GameCommandTypes.RunControlledTickExperiment =>
                         RunControlledTickExperiment(command.PayloadJson),
+                    GameCommandTypes.ArmOwnedMutationMode => ArmOwnedMutationMode(
+                        command.PayloadJson,
+                        command.SessionId,
+                        fileFingerprintProvider,
+                        executionThreadGuardSelfTest),
+                    GameCommandTypes.MaterializeOwnedSurfaceUnit =>
+                        MaterializeOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
                     _ => Failure(
                         ProtocolErrorCodes.UnsupportedCommand,
                         $"Command '{command.MessageType}' is not supported."),
@@ -1292,6 +1299,40 @@ internal static class GameCommandDispatcher
             return Failure(ProtocolErrorCodes.AutomationPreconditionFailed, started.Error);
         }
         return Success(RuntimeControlledTickAdapter.Capture());
+    }
+
+    private static CommandResponsePayload ArmOwnedMutationMode(
+        string payloadJson,
+        string commandSessionId,
+        RuntimeFileFingerprintProvider fileFingerprintProvider,
+        string executionThreadGuardSelfTest)
+    {
+        var request = JsonSerializer.Deserialize<ArmOwnedMutationModeRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new ArmOwnedMutationModeRequestPayload();
+        var currentFingerprint = RuntimeCapabilityCollector.Capture(
+            fileFingerprintProvider,
+            executionThreadGuardSelfTest).RuntimeFingerprint.FingerprintSha256;
+        var result = RuntimeOwnedMutationAdapter.Arm(
+            request,
+            commandSessionId,
+            currentFingerprint);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
+    }
+
+    private static CommandResponsePayload MaterializeOwnedSurfaceUnit(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new MaterializeOwnedSurfaceUnitRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage);
     }
 
     private static CommandResponsePayload SaveExperimentalProbe()

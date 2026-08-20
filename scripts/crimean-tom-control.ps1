@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -42,6 +42,30 @@ param(
     [double]$TickStepSeconds = (1.0 / 30.0),
 
     [int]$Seed = 1042,
+
+    [string]$AssignmentId = 'assignment:phase2-surface-probe',
+
+    [string]$EntityId = 'unit:crimean-tom:phase2-knox-1',
+
+    [long]$AuthorityEpoch = 1,
+
+    [long]$ExpectedEntityRevision = 0,
+
+    [string]$MutationIdempotencyKey = 'phase2-materialize-knox-1',
+
+    [string]$TaskforceId = 'taskforce:Taskforce1',
+
+    [double]$Latitude = 0,
+
+    [double]$Longitude = 0,
+
+    [double]$HeadingDegrees = 0,
+
+    [ValidateRange(-1, 5)]
+    [int]$Telegraph = 0,
+
+    [ValidateRange(1, 600)]
+    [int]$MutationArmSeconds = 300,
 
     [int]$Quantity = 1,
 
@@ -271,7 +295,8 @@ function Test-ControlBridge {
         'start-port-operations',
         'add-maintenance-draft-unit',
         'start-scenario',
-        'continue-mission-briefing'
+        'continue-mission-briefing',
+        'exit-tactical-session'
     )
     if (-not $capabilities.uiAutomationEnabled -or
         @(Compare-Object $requiredUiCommands @($capabilities.supportedUiAutomationCommands)).Count -ne 0) {
@@ -328,14 +353,24 @@ function Test-ControlBridge {
         throw 'The fail-open load-acceleration cache is unavailable or has no measured work.'
     }
 
-    $requiredHookNames = @('logical-time', 'random-sources', 'stable-update-order')
+    $requiredHookNames = @(
+        'logical-time',
+        'random-sources',
+        'stable-update-order',
+        'native-save-load',
+        'weapon-probe-launch'
+    )
     $reportedHooks = @($fingerprint.deterministicHooks)
     if ($reportedHooks.Count -ne $requiredHookNames.Count) {
         throw "Expected $($requiredHookNames.Count) deterministic hook inventories, got $($reportedHooks.Count)."
     }
     foreach ($requiredHookName in $requiredHookNames) {
         $reportedHook = @($reportedHooks | Where-Object name -CEQ $requiredHookName)
-        $expectedHookStatus = if ($requiredHookName -cin @('logical-time', 'stable-update-order')) {
+        $expectedHookStatus = if ($requiredHookName -cin @(
+                'logical-time',
+                'stable-update-order',
+                'native-save-load',
+                'weapon-probe-launch')) {
             'verified'
         }
         else {
@@ -348,8 +383,8 @@ function Test-ControlBridge {
         }
     }
     $uiAutomationSeams = @($fingerprint.uiAutomationSeams)
-    if ($uiAutomationSeams.Count -ne 5) {
-        throw "Expected 5 UI automation seam fingerprints, got $($uiAutomationSeams.Count)."
+    if ($uiAutomationSeams.Count -ne 6) {
+        throw "Expected 6 UI automation seam fingerprints, got $($uiAutomationSeams.Count)."
     }
     foreach ($uiAutomationSeam in $uiAutomationSeams) {
         if ($uiAutomationSeam.status -cne 'verified' -or
@@ -588,6 +623,44 @@ switch ($Action) {
     }
     'load-probe-experimental' {
         Show-Json (Invoke-ControlRequest '/game/experimental/save-load/load' 'Post')
+    }
+    'arm-owned-mutations' {
+        $health = Invoke-ControlRequest '/health'
+        $capabilities = Invoke-ControlRequest '/game/capabilities'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/arm' `
+            'Post' `
+            ([pscustomobject]@{
+                sessionId = $health.sessionId
+                runtimeFingerprintSha256 = $capabilities.runtimeFingerprint.fingerprintSha256
+                confirmation = 'enable-owned-mutations'
+                durationSeconds = $MutationArmSeconds
+            }))
+    }
+    { $_ -cin @('dry-run-owned-surface', 'materialize-owned-surface') } {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/surface/materialize' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = ($Action -ceq 'dry-run-owned-surface')
+                }
+                entityId = $EntityId
+                unitTypeId = 'usn_ff_knox_84'
+                variantId = 'Variant13'
+                loadoutId = 'Default'
+                taskforceId = $TaskforceId
+                latitude = $Latitude
+                longitude = $Longitude
+                headingDegrees = $HeadingDegrees
+                telegraph = $Telegraph
+            }))
     }
     'port-projection' {
         Show-Json (Invoke-ControlRequest '/port-operations/projection')

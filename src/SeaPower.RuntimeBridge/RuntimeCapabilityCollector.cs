@@ -16,7 +16,7 @@ internal static class RuntimeCapabilityCollector
         RuntimeFileFingerprintProvider fileFingerprintProvider,
         string executionThreadGuardSelfTest)
     {
-        const bool mutatingCommandsEnabled = false;
+        var mutatingCommandsEnabled = RuntimeOwnedMutationAdapter.IsArmed;
         var fileIdentity = fileFingerprintProvider.GetSnapshot();
         var fileManagerAvailable = Singleton<FileManager>.InstanceExists();
         if (fileManagerAvailable)
@@ -155,6 +155,14 @@ internal static class RuntimeCapabilityCollector
             ExperimentalRuntimeMode = "ControlledExperimental",
             SupportedExperimentalCommands = supportedExperimentalCommands.ToArray(),
             MutatingCommandsEnabled = mutatingCommandsEnabled,
+            MutationMode = mutatingCommandsEnabled
+                ? "owned-mutations-armed"
+                : "disabled",
+            SupportedMutationCommands = mutatingCommandsEnabled
+                ? GameCommandTypes.MutationCommands
+                : [],
+            MutationModeExpiresAtUnixMilliseconds =
+                RuntimeOwnedMutationAdapter.ExpiresAtUnixMilliseconds,
             CommandCancellationSupported = true,
             SupportedPriorities = CommandPriorities.Supported,
             ExecutionThreadGuardSelfTest = executionThreadGuardSelfTest,

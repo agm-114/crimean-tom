@@ -110,6 +110,8 @@ public sealed class CompanionControlIntegrationTests
                 capabilities.RootElement
                     .GetProperty("supportedUiAutomationCommands")[0]
                     .GetString());
+            Assert.False(
+                capabilities.RootElement.GetProperty("mutatingCommandsEnabled").GetBoolean());
 
             using var scene = await GetAuthorizedJsonAsync(
                 client,
@@ -300,6 +302,64 @@ public sealed class CompanionControlIntegrationTests
                 }, JsonOptions),
                 testTimeout.Token);
             Assert.True(pause.RootElement.GetProperty("isPaused").GetBoolean());
+
+            using var connectedHealth = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/health",
+                testTimeout.Token);
+            var sessionId = connectedHealth.RootElement.GetProperty("sessionId").GetString()!;
+            using var armedMutations = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/arm",
+                JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
+                {
+                    SessionId = sessionId,
+                    RuntimeFingerprintSha256 = new string('a', 64),
+                    Confirmation = "enable-owned-mutations",
+                    DurationSeconds = 60,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "owned-mutations-armed-for-current-session",
+                armedMutations.RootElement.GetProperty("postcondition").GetString());
+
+            using var materializedSurface = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/materialize",
+                JsonSerializer.Serialize(new MaterializeOwnedSurfaceUnitRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-surface",
+                        AuthorityEpoch = 7,
+                        ExpectedRevision = 0,
+                        IdempotencyKey = "integration-knox-1",
+                    },
+                    EntityId = "unit:crimean-tom:integration-knox-1",
+                    UnitTypeId = "usn_ff_knox_84",
+                    VariantId = "Variant13",
+                    LoadoutId = "Default",
+                    TaskforceId = "taskforce:Blue",
+                    Latitude = 12.25,
+                    Longitude = 44.5,
+                    HeadingDegrees = 90,
+                    Telegraph = 0,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "owned-surface-unit-materialized-and-read-back",
+                materializedSurface.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(1, materializedSurface.RootElement.GetProperty("revision").GetInt64());
+            Assert.Equal(
+                "campaign-unit:unit:crimean-tom:integration-knox-1",
+                materializedSurface.RootElement
+                    .GetProperty("realizedUnit")
+                    .GetProperty("stableUnitId")
+                    .GetString());
 
             using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
                 client,
@@ -564,9 +624,14 @@ public sealed class CompanionControlIntegrationTests
                     ExperimentalRuntimeMode = "ControlledExperimental",
                     SupportedExperimentalCommands = GameCommandTypes.ExperimentalCommands,
                     MutatingCommandsEnabled = false,
+                    MutationMode = "disabled",
                     CommandCancellationSupported = true,
                     SupportedPriorities = CommandPriorities.Supported,
                     ExecutionThreadGuardSelfTest = "passed",
+                    RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
+                    {
+                        FingerprintSha256 = new string('a', 64),
+                    },
                 }, JsonOptions),
                 GameCommandTypes.GetSceneState => JsonSerializer.Serialize(new SceneStatePayload
                 {
@@ -677,6 +742,45 @@ public sealed class CompanionControlIntegrationTests
                         StepSeconds = 1d / 30d,
                         Seed = 1042,
                         SeededSources = ["Globals._rnd"],
+                    },
+                    JsonOptions),
+                GameCommandTypes.ArmOwnedMutationMode => JsonSerializer.Serialize(
+                    new ArmOwnedMutationModeResultPayload
+                    {
+                        Mode = "owned-mutations-armed",
+                        SessionId = handshake.SessionId!,
+                        ExpiresAtUnixMilliseconds = DateTimeOffset.UtcNow
+                            .AddMinutes(1)
+                            .ToUnixTimeMilliseconds(),
+                        Postcondition = "owned-mutations-armed-for-current-session",
+                    },
+                    JsonOptions),
+                GameCommandTypes.MaterializeOwnedSurfaceUnit => JsonSerializer.Serialize(
+                    new MaterializeOwnedSurfaceUnitResultPayload
+                    {
+                        Outcome = "materialized",
+                        Postcondition = "owned-surface-unit-materialized-and-read-back",
+                        AssignmentId = "assignment:integration-surface",
+                        AuthorityEpoch = 7,
+                        Revision = 1,
+                        IdempotencyKey = "integration-knox-1",
+                        RecoverableOwnedObject = true,
+                        SynchronousDurationMicroseconds = 4200,
+                        RealizedUnit = new OwnedSurfaceUnitStatePayload
+                        {
+                            StableUnitId =
+                                "campaign-unit:unit:crimean-tom:integration-knox-1",
+                            GameUniqueId = 44,
+                            EntityId = "unit:crimean-tom:integration-knox-1",
+                            UnitTypeId = "usn_ff_knox_84",
+                            VariantId = "Variant13",
+                            LoadoutId = "Default",
+                            TaskforceId = "taskforce:Blue",
+                            Latitude = 12.25,
+                            Longitude = 44.5,
+                            HeadingDegrees = 90,
+                            Telegraph = 0,
+                        },
                     },
                     JsonOptions),
                 GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(

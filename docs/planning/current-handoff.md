@@ -3,22 +3,21 @@
 ## Repository state
 
 This handoff records the state at the end of the 20 August 2026 implementation
-session. The repository remains in Phase 0. No authoritative campaign-state
-mutation is enabled, and no campaign simulation has been implemented yet. The
-first allow-listed UI automation command only opens a native force-management
-panel; it does not purchase, confirm, save, or resolve anything.
+session. Phases 0 and 1 are complete and Phase 2 is active. No authoritative
+campaign commit or campaign simulation is enabled. The first allow-listed
+tactical mutation family now materializes one Crimean-Tom-owned Knox surface
+unit after explicit, session-scoped arming; it still cannot receive campaign
+authority.
 
-The last committed revision is `ed22f12`. A large earlier body of work is
-already staged, while the latest implementation and documentation changes are
-unstaged. Preserve that split unless the user explicitly requests staging or a
-commit.
+Use `git log` for the current revision. Work is committed after each validated
+slice; preserve unrelated user changes if the worktree is not clean.
 
-Sea Power and the Crimean Tom companion were stopped after live verification.
-The deployed bridge remains current and hash-matched. Agents may launch Sea
+Check `pnpm status` for the current process state. The deployed bridge should
+remain build/hash-matched. Agents may launch Sea
 Power when runtime verification or interactive UI work requires it, minimize
 it when not used interactively, and close agent-launched applications afterward.
 
-## Latest completed Phase 0 slice
+## Historical Phase 0 foundation
 
 The hardened read-only bridge currently provides:
 
@@ -174,22 +173,13 @@ container is preferable once the required native UI context is understood.
 
 ## Next implementation slice
 
-Turn the working builder entry point into a useful read-only maintenance draft:
-extract selected/purchased unit instances, variant/loadout choices, points,
-repairable damage, rearm state, and reinforcement availability using stable
-source identities. Keep the external campaign revision and validation boundary
-explicit. Do not add generic reflection automation or make the native campaign
-save authoritative. Add typed add/remove/refit/confirm actions only as this
-vertical flow naturally reaches those controls; do not stop implementation to
-build unrelated menu-button links.
+Extend the owned Knox vertical slice through checkpoint, fenced update,
+suspension, enable, owned cleanup/removal, and rematerialization. Preserve the
+session/assignment/epoch/revision/idempotency contract, measure synchronous
+stall and suspension resource behavior, and inject failures without ever
+touching scenario/user objects. Keep unsupported state explicit.
 
-After the draft can round-trip without committing it, generate the local roster
-projection from a disposable external port-state fixture, perform the controlled
-restart, import the edited draft, validate it, and commit it to that fixture.
-The first broad live scenario should cover docked refit plus reinforcement in a
-single flow and prove that unrelated theater entities continue advancing.
-
-## Remaining Phase 0 gates after that slice
+## Deferred hardening
 
 - Complete the stronger named-local-account pipe rejection proof when a
   disposable second-user credential or pre-authorized helper is available.
@@ -214,5 +204,5 @@ pnpm build
 ```
 
 The final `pnpm build` intentionally stops the companion and Sea Power after
-the live check while leaving the verified DLL deployed. Do not stage or commit
-unless the user explicitly asks.
+the live check while leaving the verified DLL deployed. Commit each validated
+implementation slice as required by the active project goal.

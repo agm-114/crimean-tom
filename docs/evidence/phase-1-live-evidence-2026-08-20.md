@@ -293,7 +293,7 @@ shared native persistent data and preferences, and shared native logs. D1 paired
 tests require a supported per-process data/profile root (or isolated Windows
 users/VMs) and a launch path proven to create two independent game processes.
 
-## Still-open Phase 1 gates
+## Phase 1 gate disposition and carried blockers
 
 - Expand targeted guidance/final-outcome coverage beyond the proven RIM-66G
   missile when a later portable-field gate needs torpedo, bomb, or
@@ -309,10 +309,19 @@ users/VMs) and a launch path proven to create two independent game processes.
   runtime ownership and scheduling are classified. The controlled-tick
   prototype provides exact logical time but also demonstrates 150/151 fixed-
   physics updates across equal windows, so update convergence remains blocked.
-- Replace the temporary maintenance mission context once its minimum UI
-  dependencies are proven.
+- The temporary maintenance mission remains a fenced disposable UI container.
+  Replacing it with a repository-owned non-resolving mission is later content
+  hardening, not a campaign-authority or Phase 1 read-contract dependency.
 
 The final broad main-menu control run passed after schema 10 on a fresh game
 process. It covered authenticated companion/game transport, thread guards,
 capabilities, world read, all normalized catalogs, override diagnostics, and
 campaign read while preserving the same catalog and mod-set identities.
+
+The P1 exit gate is complete. Representative entities and reload invalidation,
+quiescent canonical extraction, catalog provenance, measured extraction budget,
+portable-field classification, typed UI seams, determinism experiments, and the
+uncommitted port draft all have pinned live evidence above. The listed
+determinism, native-save, tactical-envelope, and multi-instance limitations are
+fail-closed inputs to later promotion/handoff gates rather than unreported P1
+work.

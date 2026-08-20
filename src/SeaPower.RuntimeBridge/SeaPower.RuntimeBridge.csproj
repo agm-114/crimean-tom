@@ -45,6 +45,10 @@
       <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Seapower-Scripts">
       <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
       <Private>false</Private>
