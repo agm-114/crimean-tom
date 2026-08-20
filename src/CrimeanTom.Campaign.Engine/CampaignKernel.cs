@@ -206,9 +206,10 @@ public static class CampaignKernel
         var entity = RequireEntity(state, value.EntityId);
         RequireRevision(command, entity.Revision);
         RequireCoalitionOrAdministrator(command, entity.CoalitionId);
-        if (entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+        if ((entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+            && value.Fidelity != FidelityState.Operational)
         {
-            throw Violation("terminal-entity", "A terminal entity cannot change fidelity.");
+            throw Violation("terminal-entity", "A terminal entity may only return to operational fidelity.");
         }
 
         return Decision.Create(command.Subject, new FidelityChangedEvent(value), entity.Revision.Next());

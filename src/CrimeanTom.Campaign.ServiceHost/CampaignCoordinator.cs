@@ -41,6 +41,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             var campaignBase = new BaseId(KeyedGuid(campaignId.Value, "base"));
             var primary = new EntityId(KeyedGuid(campaignId.Value, "primary"));
             var fallback = new EntityId(KeyedGuid(campaignId.Value, "fallback"));
+            var combat = new EntityId(KeyedGuid(campaignId.Value, "combat"));
+            var mismatch = new EntityId(KeyedGuid(campaignId.Value, "mismatch"));
             var unrelated = new EntityId(KeyedGuid(campaignId.Value, "unrelated"));
             var unrelatedGroup = new GroupId(KeyedGuid(campaignId.Value, "unrelated-group"));
             var resources = new Dictionary<ResourceKind, ResourceAmount>
@@ -65,6 +67,14 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 new RegisterEntityCommand(fallback, "USS Ainsworth", "usn_ff_knox_84", blue, harbor,
                     GeoCoordinate.FromMicrodegrees(44_200_000, 28_700_000), campaignBase, EntityLifecycle.Deployed,
                     FidelityState.Operational, resources, "PHASE4-FALLBACK-TRUE"), "bootstrap-fallback"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(combat), EntityRevision.None,
+                new RegisterEntityCommand(combat, "USS Miller", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_220_000, 28_750_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE4-COMBAT-TRUE"), "bootstrap-combat"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(mismatch), EntityRevision.None,
+                new RegisterEntityCommand(mismatch, "USS Ouellet", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_240_000, 28_800_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE4-MISMATCH-TRUE"), "bootstrap-mismatch"), cancellationToken);
             state = await CommitAsync(state, Command(state, CampaignSubject.Entity(unrelated), EntityRevision.None,
                 new RegisterEntityCommand(unrelated, "Unrelated patrol", "vmf_krivak", red, offshore,
                     GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), null, EntityLifecycle.Deployed,
@@ -76,6 +86,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 campaignId.ToString(),
                 primary.ToString(),
                 fallback.ToString(),
+                combat.ToString(),
+                mismatch.ToString(),
                 unrelated.ToString(),
                 harbor.ToString(),
                 offshore.ToString(),
@@ -412,7 +424,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         await journal.PutBlobAsync(
             lease,
             CampaignBlobPurpose.TacticalCheckpoint,
-            $"{checkpoint.AssignmentId}/revision-{checkpoint.EntityRevision}",
+            $"{checkpoint.AssignmentId}/revision-{checkpoint.EntityRevision}/{checkpoint.CheckpointSha256}",
             state.Head,
             content,
             DateTimeOffset.UtcNow,
@@ -675,6 +687,8 @@ public sealed record CampaignBootstrapResult(
     string CampaignId,
     string PrimaryEntityId,
     string FallbackEntityId,
+    string CombatEntityId,
+    string MismatchEntityId,
     string UnrelatedEntityId,
     string HarborRegionId,
     string OffshoreRegionId,

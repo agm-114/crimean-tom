@@ -89,6 +89,8 @@ public sealed class CompanionControlIntegrationTests
                 await bootstrappedCampaign.Content.ReadAsStringAsync(testTimeout.Token));
             var primaryEntityId = bootstrap.RootElement.GetProperty("primaryEntityId").GetString()!;
             var fallbackEntityId = bootstrap.RootElement.GetProperty("fallbackEntityId").GetString()!;
+            var combatEntityId = bootstrap.RootElement.GetProperty("combatEntityId").GetString()!;
+            var mismatchEntityId = bootstrap.RootElement.GetProperty("mismatchEntityId").GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
             var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
             const string gameEntityId = "unit:crimean-tom:transport-knox";
@@ -334,6 +336,77 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(800_000, releasedPrimary.GetProperty("fuelMilliunits").GetInt64());
             Assert.Equal(300_000, releasedPrimary.GetProperty("storesMilliunits").GetInt64());
             Assert.Equal(250_000, releasedPrimary.GetProperty("damageMilliunits").GetInt32());
+
+            var mismatchAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000006"):N}";
+            using var mismatchHandoff = await campaignClient.PostAsJsonAsync(
+                "/control/handoffs",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = mismatchEntityId,
+                    gameEntityId = "unit:crimean-tom:mismatch-knox",
+                    assignmentId = mismatchAssignmentId,
+                    authorityEpoch = 14,
+                    idempotencyKey = "mismatch-materialize-1",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = "deliberately-wrong-catalog",
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant13",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, mismatchHandoff.StatusCode);
+            var mismatchFrames = await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 1,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                    && item.AssignmentPrepared.AssignmentId == mismatchAssignmentId);
+            var rejectedMismatch = Assert.Single(mismatchFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                && item.AssignmentPrepared.AssignmentId == mismatchAssignmentId).AssignmentPrepared;
+            Assert.False(rejectedMismatch.Ready);
+            Assert.Equal("assignment-preparation-failed", rejectedMismatch.ErrorCode);
+
+            var combatAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000007"):N}";
+            const string combatGameEntityId = "unit:crimean-tom:combat-knox";
+            using var combatHandoff = await campaignClient.PostAsJsonAsync(
+                "/control/handoffs",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = combatEntityId,
+                    gameEntityId = combatGameEntityId,
+                    assignmentId = combatAssignmentId,
+                    authorityEpoch = 13,
+                    idempotencyKey = "combat-materialize-1",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = string.Empty,
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant13",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, combatHandoff.StatusCode);
+            await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 1,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                    && item.AssignmentPrepared.AssignmentId == combatAssignmentId
+                    && item.AssignmentPrepared.Ready);
+            using var activeCombatView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString()
+                        == combatAssignmentId["assignment:".Length..]
+                    && item.GetProperty("lifecycle").GetString() == "Active"),
+                testTimeout.Token);
 
             using var ping = await GetAuthorizedJsonAsync(
                 client,
@@ -802,6 +875,43 @@ public sealed class CompanionControlIntegrationTests
                 "native-tactical-exit-scheduled",
                 exitTactical.RootElement.GetProperty("postcondition").GetString());
 
+            using var combatQuiesce = await campaignClient.PostAsJsonAsync(
+                "/control/quiesce",
+                new
+                {
+                    campaignId,
+                    assignmentId = combatAssignmentId,
+                    gameEntityId = combatGameEntityId,
+                    expectedGameRevision = 1,
+                    idempotencyKey = "combat-quiesce-1",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, combatQuiesce.StatusCode);
+            await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 1,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                    && item.TacticalEvent.IdempotencyKey == "combat-quiesce-1"
+                    && item.TacticalEvent.Destroyed);
+            using var destroyedCombatView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString()
+                        == combatAssignmentId["assignment:".Length..]
+                    && item.GetProperty("lifecycle").GetString() == "Released")
+                    && root.GetProperty("entities").EnumerateArray().Any(item =>
+                        item.GetProperty("entityId").GetString() == combatEntityId
+                        && item.GetProperty("lifecycle").GetString() == "Destroyed"
+                        && item.GetProperty("fidelity").GetString() == "Operational"),
+                testTimeout.Token);
+            var destroyedCombat = Assert.Single(
+                destroyedCombatView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == combatEntityId);
+            Assert.Equal(1_000_000, destroyedCombat.GetProperty("damageMilliunits").GetInt32());
+
             var fallbackAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000005"):N}";
             using var fallbackHandoff = await campaignClient.PostAsJsonAsync(
                 "/control/handoffs",
@@ -856,13 +966,21 @@ public sealed class CompanionControlIntegrationTests
             using var fallback = JsonDocument.Parse(
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(150, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
-            var fallbackAssignment = Assert.Single(fallback.RootElement.GetProperty("assignments").EnumerateArray());
+            var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
+            Assert.Equal(2, fallbackAssignments.Length);
+            var fallbackAssignment = Assert.Single(fallbackAssignments, item =>
+                item.GetProperty("assignmentId").GetString() == fallbackAssignmentId);
             Assert.Equal(150, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
             Assert.Equal(120, fallbackAssignment.GetProperty("maximumLossQuanta").GetInt64());
             Assert.Equal(
                 "operational-resolution-from-last-committed-checkpoint",
                 fallbackAssignment.GetProperty("resolution").GetString());
             Assert.Equal(64, fallbackAssignment.GetProperty("lastCheckpointSha256").GetString()!.Length);
+            var mismatchFallback = Assert.Single(fallbackAssignments, item =>
+                item.GetProperty("assignmentId").GetString() == mismatchAssignmentId);
+            Assert.Equal(
+                "operational-resolution-without-worker-checkpoint",
+                mismatchFallback.GetProperty("resolution").GetString());
             using var fallbackViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{campaignId}",
                 testTimeout.Token);
@@ -1018,7 +1136,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 16; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 22; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
@@ -1390,6 +1508,13 @@ public sealed class CompanionControlIntegrationTests
             unit.FuelFractionMilliunits = 800_000;
             unit.StoresFractionMilliunits = 600_000;
             unit.DamageFractionMilliunits = 250_000;
+        }
+        else if (request.Context.IdempotencyKey == "combat-quiesce-1-checkpoint")
+        {
+            unit.FuelFractionMilliunits = 700_000;
+            unit.StoresFractionMilliunits = 400_000;
+            unit.DamageFractionMilliunits = 1_000_000;
+            unit.IsDestroyed = true;
         }
         return new OwnedSurfaceCheckpointPayload
         {

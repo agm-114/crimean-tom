@@ -9,9 +9,11 @@ authenticated checkpoint transfer, canonical assignment lifecycle, ordered
 movement commit, service-restart reconnect, and checkpointed quiesce/release
 are working. Portable checkpoints now carry normalized runtime fuel, magazine,
 and damage fractions and combine them with the durable handoff baseline before
-canonical release. Live Sea Power scenarios, combat destruction capture,
-outcome-timeline policy, and the final P4 gate are not yet
-complete. Tactical assignments have a fixed 120-quanta maximum interval: if a
+canonical release. Catalog mismatch now fails closed before materialization,
+and a destroyed tactical unit returns as canonical terminal damage before its
+assignment releases. Live Sea Power scenarios, crash-boundary coverage,
+outcome-timeline policy, and the final P4 gate are not yet complete. Tactical
+assignments have a fixed 120-quanta maximum interval: if a
 worker does not return, the coordinator resolves at that exact campaign time,
 releases authority, restores Operational fidelity from the latest committed
 checkpoint, and reports the checkpoint cursor/hash and maximum-loss bound.
@@ -111,6 +113,18 @@ that state before `Released` and Operational fidelity. The broad story proves a
 round trip from 1,000,000 fuel / 500,000 stores / zero damage to 800,000 fuel /
 300,000 stores / 250,000 damage without disturbing identity or revision fences.
 
+A second combat handoff deliberately performs no intervening tactical movement,
+then publishes a final checkpoint at the same game revision as its initial
+checkpoint. Durable spool keys and blob-reference identities incorporate the
+checkpoint content hash, so both captures coexist and exact reconnect replay is
+still idempotent. The final proposal carries terminal destruction and 1,000,000
+damage into canonical state before the assignment becomes `Released`; terminal
+entities may return only to Operational fidelity, not to another tactical state.
+
+A deliberately incompatible catalog fingerprint produces a durable negative
+preparation report, issues no materialization commands, and leaves the
+assignment in `Preparing` until the bounded operational fallback releases it.
+
 The broad story also hands off a second Knox, waits for its initial checkpoint,
 stops the companion, and advances directly to its 120-quanta deadline. The
 assigned entity stays frozen until the deadline, unrelated simulation continues,
@@ -135,7 +149,12 @@ service process in addition to the real companion and mock game peer. It:
 - hard-kills and restarts the campaign service; and
 - proves the companion reconnects as a new service session from its durable
   cursor, safely replays unacknowledged outbound frames, captures a final
-  checkpoint, and releases the entity back to Operational fidelity.
+  checkpoint, and releases the entity back to Operational fidelity;
+- rejects a catalog-mismatched assignment without touching game state;
+- captures and commits a destroyed combat entity before releasing authority;
+  and
+- proves initial/final checkpoints at the same game revision remain distinct,
+  durable, and replay-safe.
 
 The story then continues across the pre-existing authenticated HTTP, named-pipe,
 catalog, UI-automation, scenario, controlled-tick, save/load, mutation lifecycle,
@@ -151,5 +170,5 @@ pnpm build
 
 ## Next slice
 
-Add destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
-measured live Sea Power round trip and player-visible durability timeline.
+Add the unacknowledged crash-boundary scenario, then run the measured live Sea
+Power round trip and establish the player-visible durability timeline policy.

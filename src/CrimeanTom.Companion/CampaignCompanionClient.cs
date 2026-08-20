@@ -106,7 +106,7 @@ public sealed class CampaignCompanionClient(
                         {
                             await SendAsync(
                                 new CompanionFrame { CheckpointPublished = checkpoint },
-                                $"checkpoint-{checkpoint.AssignmentId}-{checkpoint.EntityRevision}");
+                                CheckpointSpoolKey(checkpoint));
                         }
                         var prepared = preparation.Prepared;
                         await SendAsync(
@@ -127,7 +127,7 @@ public sealed class CampaignCompanionClient(
                         var preparation = await ApplyFenceAsync(frame.Fence, token, cancellationToken);
                         await SendAsync(
                             new CompanionFrame { CheckpointPublished = preparation.Checkpoint },
-                            $"checkpoint-{preparation.Checkpoint.AssignmentId}-{preparation.Checkpoint.EntityRevision}");
+                            CheckpointSpoolKey(preparation.Checkpoint));
                         var proposal = preparation.Proposal;
                         await SendAsync(
                             new CompanionFrame { TacticalEvent = proposal },
@@ -471,6 +471,11 @@ public sealed class CampaignCompanionClient(
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}:{idempotencyKey}"));
         return new Guid(hash.AsSpan(0, 16)).ToString("N");
     }
+
+    private static string CheckpointSpoolKey(CheckpointPublished checkpoint) =>
+        $"checkpoint-{DeterministicId(
+            checkpoint.AssignmentId,
+            $"{checkpoint.AuthorityEpoch}:{checkpoint.EntityRevision}:{checkpoint.CheckpointSha256}")}";
 
     private string CurrentGameSessionId() => game.SessionId
         ?? throw new InvalidOperationException("The game session ended during campaign work.");

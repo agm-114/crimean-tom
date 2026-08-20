@@ -259,9 +259,15 @@ baseline and submits one fenced final-state event before release. The broad
 story proves canonical fuel `1,000,000 -> 800,000`, stores `500,000 -> 300,000`,
 and damage `0 -> 250,000` together with the prior kinematics round trip.
 
-Next, implement destruction capture, catalog-mismatch and
-crash-boundary stories, then run the live-game P4 scenarios
-and measure the player-visible durability timeline.
+The same broad story now rejects an incompatible catalog before issuing any
+materialization command, captures a destroyed combat Knox as canonical terminal
+damage before release, and resolves the rejected Preparing assignment through
+the same 120-quanta fallback. Initial and final checkpoints may legitimately
+share a game revision; their durable spool/blob identities now include content
+hashes so both captures coexist while exact replay remains idempotent.
+
+Next, implement the unacknowledged crash-boundary story, then run the live-game
+P4 scenarios and measure the player-visible durability timeline.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
