@@ -110,7 +110,7 @@ app.MapPost("/control/handoffs", async (
     CancellationToken cancellationToken) =>
 {
     var assignment = await coordinator.PrepareHandoffAsync(request, cancellationToken);
-    return sessions.TryQueue(new ServiceFrame { Assignment = assignment })
+    return sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Assignment = assignment })
         ? Results.Accepted(value: assignment)
         : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
@@ -130,10 +130,19 @@ app.MapPost("/control/quiesce", async (
     CancellationToken cancellationToken) =>
 {
     var fence = await coordinator.BeginQuiesceAsync(request, cancellationToken);
-    return sessions.TryQueue(new ServiceFrame { Fence = fence })
+    return sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Fence = fence })
         ? Results.Accepted(value: fence)
         : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
+app.MapPost("/control/campaigns/{campaignId}/resolve-expired/{target:long}", async (
+    string campaignId,
+    long target,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.ResolveExpiredAssignmentsAsync(
+            new CampaignId(parsed), new CampaignTime(target), cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
 app.MapGet("/content/{sha256}", async (
     string sha256,
     SqliteCampaignJournal store,

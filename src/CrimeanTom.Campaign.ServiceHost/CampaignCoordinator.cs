@@ -40,6 +40,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             var offshore = new RegionId(KeyedGuid(campaignId.Value, "offshore"));
             var campaignBase = new BaseId(KeyedGuid(campaignId.Value, "base"));
             var primary = new EntityId(KeyedGuid(campaignId.Value, "primary"));
+            var fallback = new EntityId(KeyedGuid(campaignId.Value, "fallback"));
             var unrelated = new EntityId(KeyedGuid(campaignId.Value, "unrelated"));
             var unrelatedGroup = new GroupId(KeyedGuid(campaignId.Value, "unrelated-group"));
             var resources = new Dictionary<ResourceKind, ResourceAmount>
@@ -60,6 +61,10 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 new RegisterEntityCommand(primary, "USS Pharris", "usn_ff_knox_84", blue, harbor,
                     GeoCoordinate.FromMicrodegrees(44_180_000, 28_650_000), campaignBase, EntityLifecycle.Deployed,
                     FidelityState.Operational, resources, "PHASE4-PRIMARY-TRUE"), "bootstrap-primary"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(fallback), EntityRevision.None,
+                new RegisterEntityCommand(fallback, "USS Ainsworth", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_200_000, 28_700_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE4-FALLBACK-TRUE"), "bootstrap-fallback"), cancellationToken);
             state = await CommitAsync(state, Command(state, CampaignSubject.Entity(unrelated), EntityRevision.None,
                 new RegisterEntityCommand(unrelated, "Unrelated patrol", "vmf_krivak", red, offshore,
                     GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), null, EntityLifecycle.Deployed,
@@ -70,6 +75,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             return new CampaignBootstrapResult(
                 campaignId.ToString(),
                 primary.ToString(),
+                fallback.ToString(),
                 unrelated.ToString(),
                 harbor.ToString(),
                 offshore.ToString(),
@@ -239,7 +245,112 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.EntityId.ToString(),
                 item.AuthorityEpoch.Value,
                 item.Lifecycle.ToString(),
+                item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
                 item.Revision.Value)).ToArray());
+    }
+
+    public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(
+        CampaignId campaignId,
+        CampaignTime target,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (target.Quanta < state.Time.Quanta)
+            {
+                throw new CampaignStoreConflict("fallback-time-stale", "Fallback cannot run before campaign time.");
+            }
+            var reports = new List<CampaignFallbackAssignment>();
+            while (true)
+            {
+                var pending = state.Assignments.Values
+                    .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+                    .Select(item => new
+                    {
+                        Assignment = item,
+                        Deadline = item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
+                    })
+                    .Where(item => item.Deadline <= target.Quanta)
+                    .OrderBy(item => item.Deadline)
+                    .ThenBy(item => item.Assignment.AssignmentId)
+                    .ToArray();
+                if (pending.Length == 0)
+                {
+                    break;
+                }
+                var deadline = pending[0].Deadline;
+                if (state.Time.Quanta < deadline)
+                {
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Campaign(campaignId),
+                        state.CampaignRevision,
+                        new SimulateCampaignCommand(new CampaignTime(deadline)),
+                        $"fallback-advance-{deadline}",
+                        new CampaignTime(deadline)), cancellationToken);
+                }
+                foreach (var due in pending.Where(item => item.Deadline == deadline))
+                {
+                    var assignment = state.Assignments[due.Assignment.AssignmentId];
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Assignment(assignment.AssignmentId),
+                        assignment.Revision,
+                        new SetAssignmentLifecycleCommand(
+                            assignment.AssignmentId,
+                            assignment.AuthorityEpoch,
+                            AssignmentLifecycle.Released,
+                            state.Time),
+                        $"fallback-release-{assignment.AssignmentId}-{deadline}"), cancellationToken);
+                    var entity = state.Entities[assignment.EntityId];
+                    if (entity.Fidelity != FidelityState.Operational)
+                    {
+                        state = await CommitAsync(state, Command(
+                            state,
+                            CampaignSubject.Entity(entity.EntityId),
+                            entity.Revision,
+                            new ChangeFidelityCommand(entity.EntityId, FidelityState.Operational),
+                            $"fallback-operational-{assignment.AssignmentId}-{deadline}"), cancellationToken);
+                    }
+                    var checkpoint = await journal.ReadLatestBlobReferenceAsync(
+                        campaignId,
+                        CampaignBlobPurpose.TacticalCheckpoint,
+                        $"assignment:{assignment.AssignmentId}/",
+                        cancellationToken);
+                    reports.Add(new CampaignFallbackAssignment(
+                        $"assignment:{assignment.AssignmentId}",
+                        assignment.EntityId.ToString(),
+                        deadline,
+                        CampaignSchema.MaximumTacticalAssignmentQuanta,
+                        checkpoint?.CommitPosition.Value,
+                        checkpoint?.Sha256,
+                        checkpoint is null
+                            ? "operational-resolution-without-worker-checkpoint"
+                            : "operational-resolution-from-last-committed-checkpoint"));
+                }
+            }
+            if (state.Time.Quanta < target.Quanta)
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Campaign(campaignId),
+                    state.CampaignRevision,
+                    new SimulateCampaignCommand(target),
+                    $"fallback-final-advance-{target.Quanta}",
+                    target), cancellationToken);
+            }
+            return new CampaignFallbackResult(
+                state.Head.Value,
+                state.Time.Quanta,
+                CampaignCanonicalSerializer.ComputeHash(state),
+                reports);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private async Task ActivateAsync(
@@ -548,6 +659,7 @@ public sealed record CampaignQuiesceRequest(
 public sealed record CampaignBootstrapResult(
     string CampaignId,
     string PrimaryEntityId,
+    string FallbackEntityId,
     string UnrelatedEntityId,
     string HarborRegionId,
     string OffshoreRegionId,
@@ -578,4 +690,20 @@ public sealed record CampaignAssignmentView(
     string EntityId,
     long AuthorityEpoch,
     string Lifecycle,
+    long ResolveByQuanta,
     long Revision);
+
+public sealed record CampaignFallbackResult(
+    long CommitPosition,
+    long TimeQuanta,
+    string CanonicalHash,
+    IReadOnlyList<CampaignFallbackAssignment> Assignments);
+
+public sealed record CampaignFallbackAssignment(
+    string AssignmentId,
+    string EntityId,
+    long ResolvedAtQuanta,
+    long MaximumLossQuanta,
+    long? LastCheckpointCommitPosition,
+    string? LastCheckpointSha256,
+    string Resolution);

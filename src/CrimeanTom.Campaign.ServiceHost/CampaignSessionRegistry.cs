@@ -46,6 +46,16 @@ public sealed class CampaignSessionRegistry
             return _active?.TryQueue(frame) == true;
         }
     }
+
+    public bool TryQueueForCampaign(string campaignId, ServiceFrame frame)
+    {
+        lock (_gate)
+        {
+            return _active is not null
+                && string.Equals(_active.Hello.CampaignId, campaignId, StringComparison.Ordinal)
+                && _active.TryQueue(frame);
+        }
+    }
 }
 
 public sealed class CampaignCompanionSession

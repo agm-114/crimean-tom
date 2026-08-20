@@ -247,8 +247,14 @@ strategic simulation while freezing that entity, commits ordered movement, hard
 restarts the service, idempotently replays unacknowledged frames, captures a
 final checkpoint, and returns the entity to Operational fidelity.
 
-Next, implement bounded suspended fallback, resource/damage/destruction capture,
-catalog-mismatch and crash-boundary stories, then run the live-game P4 scenarios
+A second handoff now proves bounded worker-loss recovery. After the companion
+publishes the initial checkpoint it is stopped; the coordinator advances to the
+fixed 120-quanta assignment deadline, keeps unrelated simulation moving, then
+releases authority and restores Operational fidelity with an explicit last-
+checkpoint cursor/hash and maximum-loss report.
+
+Next, implement resource/damage/destruction capture, catalog-mismatch and
+crash-boundary stories, then run the live-game P4 scenarios
 and measure the player-visible durability timeline.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external

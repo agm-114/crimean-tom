@@ -8,6 +8,7 @@ public static class CampaignSchema
     public const int Version = 2;
     public const int AlgorithmVersion = 2;
     public const long TimeQuantumMicroseconds = 1_000_000;
+    public const long MaximumTacticalAssignmentQuanta = 120;
 }
 
 public enum EntityLifecycle

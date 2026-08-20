@@ -9,7 +9,10 @@ authenticated checkpoint transfer, canonical assignment lifecycle, ordered
 movement commit, service-restart reconnect, and checkpointed quiesce/release
 are working. Live Sea Power scenarios, bounded suspended fallback, resource and
 combat event capture, outcome-timeline policy, and the final P4 gate are not yet
-complete.
+complete. Tactical assignments have a fixed 120-quanta maximum interval: if a
+worker does not return, the coordinator resolves at that exact campaign time,
+releases authority, restores Operational fidelity from the latest committed
+checkpoint, and reports the checkpoint cursor/hash and maximum-loss bound.
 
 ## Generated transport contract
 
@@ -98,6 +101,12 @@ at connection, and later live commits remain queued behind it. Replayed
 prepared/checkpoint/movement frames cannot repeat canonical effects. Logical
 checkpoint retries retain their originally fenced commit position.
 
+The broad story also hands off a second Knox, waits for its initial checkpoint,
+stops the companion, and advances directly to its 120-quanta deadline. The
+assigned entity stays frozen until the deadline, unrelated simulation continues,
+and the coordinator then releases it at the bound using the durable checkpoint;
+no tactical assignment can remain indefinitely suspended or active.
+
 ## Broad integration evidence
 
 The existing single companion integration story now starts a real campaign
@@ -132,6 +141,5 @@ pnpm build
 
 ## Next slice
 
-Add bounded suspended fallback and deadline enforcement, resource/damage/
-destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
+Add resource/damage/destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
 measured live Sea Power round trip and player-visible durability timeline.

@@ -88,6 +88,7 @@ public sealed class CompanionControlIntegrationTests
             using var bootstrap = JsonDocument.Parse(
                 await bootstrappedCampaign.Content.ReadAsStringAsync(testTimeout.Token));
             var primaryEntityId = bootstrap.RootElement.GetProperty("primaryEntityId").GetString()!;
+            var fallbackEntityId = bootstrap.RootElement.GetProperty("fallbackEntityId").GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
             var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
             const string gameEntityId = "unit:crimean-tom:transport-knox";
@@ -800,7 +801,86 @@ public sealed class CompanionControlIntegrationTests
                 "native-tactical-exit-scheduled",
                 exitTactical.RootElement.GetProperty("postcondition").GetString());
 
+            var fallbackAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000005"):N}";
+            using var fallbackHandoff = await campaignClient.PostAsJsonAsync(
+                "/control/handoffs",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = fallbackEntityId,
+                    gameEntityId = "unit:crimean-tom:fallback-knox",
+                    assignmentId = fallbackAssignmentId,
+                    authorityEpoch = 12,
+                    idempotencyKey = "fallback-materialize-1",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = string.Empty,
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant13",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, fallbackHandoff.StatusCode);
+            await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 7,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                    && item.AssignmentPrepared.AssignmentId == fallbackAssignmentId);
+            using var activeFallbackView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString()
+                        == fallbackAssignmentId["assignment:".Length..]
+                    && item.GetProperty("lifecycle").GetString() == "Active"),
+                testTimeout.Token);
             await gamePeer;
+            using var stopBeforeFallback = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var stoppedCompanion = await RunControlScriptAsync(
+                scriptPath,
+                "stop",
+                runDirectory,
+                controlUrl,
+                gamePipeName,
+                skipBuild: true,
+                stopBeforeFallback.Token);
+            Assert.True(stoppedCompanion.ExitCode == 0, stoppedCompanion.FormatFailure("stop-before-fallback"));
+            using var fallbackResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/resolve-expired/150",
+                content: null,
+                testTimeout.Token);
+            fallbackResponse.EnsureSuccessStatusCode();
+            using var fallback = JsonDocument.Parse(
+                await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(150, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
+            var fallbackAssignment = Assert.Single(fallback.RootElement.GetProperty("assignments").EnumerateArray());
+            Assert.Equal(150, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
+            Assert.Equal(120, fallbackAssignment.GetProperty("maximumLossQuanta").GetInt64());
+            Assert.Equal(
+                "operational-resolution-from-last-committed-checkpoint",
+                fallbackAssignment.GetProperty("resolution").GetString());
+            Assert.Equal(64, fallbackAssignment.GetProperty("lastCheckpointSha256").GetString()!.Length);
+            using var fallbackViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            fallbackViewResponse.EnsureSuccessStatusCode();
+            using var fallbackView = JsonDocument.Parse(
+                await fallbackViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "Released",
+                Assert.Single(
+                    fallbackView.RootElement.GetProperty("assignments").EnumerateArray(),
+                    item => item.GetProperty("assignmentId").GetString()
+                        == fallbackAssignmentId["assignment:".Length..])
+                    .GetProperty("lifecycle").GetString());
+            Assert.Equal(
+                "Operational",
+                Assert.Single(
+                    fallbackView.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == fallbackEntityId)
+                    .GetProperty("fidelity").GetString());
         }
         finally
         {
@@ -937,7 +1017,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 12; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 16; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);

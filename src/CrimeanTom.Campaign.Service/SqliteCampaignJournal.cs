@@ -485,6 +485,43 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken = default) =>
         _blobStore.PutAsync(content, cancellationToken);
 
+    public async Task<CampaignBlobReference?> ReadLatestBlobReferenceAsync(
+        CampaignId campaignId,
+        CampaignBlobPurpose purpose,
+        string logicalIdPrefix,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(logicalIdPrefix))
+        {
+            throw Conflict("blob-prefix-invalid", "A logical blob prefix is required.");
+        }
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT refs.logical_id, refs.commit_position, refs.content_hash, blobs.content_length
+            FROM campaign_blob_refs AS refs
+            JOIN blobs ON blobs.content_hash = refs.content_hash
+            WHERE refs.campaign_id = $campaign_id AND refs.purpose = $purpose
+              AND substr(refs.logical_id, 1, length($prefix)) = $prefix
+            ORDER BY refs.commit_position DESC, refs.logical_id DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+        command.Parameters.AddWithValue("$purpose", (int)purpose);
+        command.Parameters.AddWithValue("$prefix", logicalIdPrefix);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new CampaignBlobReference(
+                campaignId,
+                purpose,
+                reader.GetString(0),
+                new CommitPosition(reader.GetInt64(1)),
+                reader.GetString(2),
+                reader.GetInt64(3),
+                Duplicate: false)
+            : null;
+    }
+
     public async Task<CampaignIntegrityReport> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);

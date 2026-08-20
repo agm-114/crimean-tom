@@ -333,6 +333,12 @@ public static class CampaignKernel
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active) => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
+            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Released)
+                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
+                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
+            (AssignmentLifecycle.Active, AssignmentLifecycle.Released)
+                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
+                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
             _ => false,
         };
         if (!validTransition)
@@ -450,7 +456,6 @@ public static class CampaignKernel
         var assignment = state.Assignments[value.Change.AssignmentId] with
         {
             Lifecycle = value.Change.Lifecycle,
-            EffectiveAt = value.Change.EffectiveAt,
             Revision = item.NewSubjectRevision,
         };
         return state with { Assignments = state.Assignments.SetItem(assignment.AssignmentId, assignment) };
