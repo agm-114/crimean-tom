@@ -158,6 +158,9 @@ public sealed class OwnedSurfaceUnitStatePayload
     public double? HeadingDegrees { get; set; }
     public double? SpeedKnots { get; set; }
     public int Telegraph { get; set; }
+    public long? FuelFractionMilliunits { get; set; }
+    public long? StoresFractionMilliunits { get; set; }
+    public long? DamageFractionMilliunits { get; set; }
     public bool IsDisabled { get; set; }
     public bool IsDestroyed { get; set; }
 }

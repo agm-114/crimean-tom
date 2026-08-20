@@ -7,8 +7,10 @@ Date: 21 August 2026
 Phase 4 is in progress. The service/companion transport, durable spools,
 authenticated checkpoint transfer, canonical assignment lifecycle, ordered
 movement commit, service-restart reconnect, and checkpointed quiesce/release
-are working. Live Sea Power scenarios, bounded suspended fallback, resource and
-combat event capture, outcome-timeline policy, and the final P4 gate are not yet
+are working. Portable checkpoints now carry normalized runtime fuel, magazine,
+and damage fractions and combine them with the durable handoff baseline before
+canonical release. Live Sea Power scenarios, combat destruction capture,
+outcome-timeline policy, and the final P4 gate are not yet
 complete. Tactical assignments have a fixed 120-quanta maximum interval: if a
 worker does not return, the coordinator resolves at that exact campaign time,
 releases authority, restores Operational fidelity from the latest committed
@@ -101,6 +103,14 @@ at connection, and later live commits remain queued behind it. Replayed
 prepared/checkpoint/movement frames cannot repeat canonical effects. Logical
 checkpoint retries retain their originally fenced commit position.
 
+The companion durably stores each complete assignment baseline. The final
+checkpoint proposal uses that baseline to convert Sea Power fuel and magazine
+fractions into absolute canonical resources, and carries kinematics, telegraph,
+damage, and destruction state in the same fenced event. The coordinator commits
+that state before `Released` and Operational fidelity. The broad story proves a
+round trip from 1,000,000 fuel / 500,000 stores / zero damage to 800,000 fuel /
+300,000 stores / 250,000 damage without disturbing identity or revision fences.
+
 The broad story also hands off a second Knox, waits for its initial checkpoint,
 stops the companion, and advances directly to its 120-quanta deadline. The
 assigned entity stays frozen until the deadline, unrelated simulation continues,
@@ -141,5 +151,5 @@ pnpm build
 
 ## Next slice
 
-Add resource/damage/destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
+Add destruction proposals, catalog-mismatch and crash-boundary scenarios, and the
 measured live Sea Power round trip and player-visible durability timeline.

@@ -253,7 +253,13 @@ fixed 120-quanta assignment deadline, keeps unrelated simulation moving, then
 releases authority and restores Operational fidelity with an explicit last-
 checkpoint cursor/hash and maximum-loss report.
 
-Next, implement resource/damage/destruction capture, catalog-mismatch and
+Portable owned-surface checkpoints now include normalized fuel, magazine, and
+damage fractions. The companion combines those values with its durable handoff
+baseline and submits one fenced final-state event before release. The broad
+story proves canonical fuel `1,000,000 -> 800,000`, stores `500,000 -> 300,000`,
+and damage `0 -> 250,000` together with the prior kinematics round trip.
+
+Next, implement destruction capture, catalog-mismatch and
 crash-boundary stories, then run the live-game P4 scenarios
 and measure the player-visible durability timeline.
 Keep tactical projection and campaign commit separate: Sea Power remains a

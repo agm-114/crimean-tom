@@ -219,6 +219,7 @@ public sealed class CampaignCompanionClient(
             {
                 throw new InvalidOperationException("Assignment pause, role, runtime, or catalog requirements are incompatible.");
             }
+            await stateStore.SaveAssignmentAsync(assignment, cancellationToken);
 
             await RequireGameCommandAsync(
                 GameCommandTypes.SetExperimentalPauseState,
@@ -359,6 +360,20 @@ public sealed class CampaignCompanionClient(
         var checkpointBytes = Encoding.UTF8.GetBytes(checkpointResult.ResultJson);
         var checkpointHash = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
         await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
+        var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(
+            checkpointResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Final tactical checkpoint was empty.");
+        var assignment = stateStore.ReadAssignment(fence.AssignmentId);
+        if (assignment.AuthorityEpoch != fence.FencedAuthorityEpoch
+            || !string.Equals(assignment.EntityId, fence.EntityId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The authority fence does not match the durable assignment baseline.");
+        }
+        var unit = checkpoint.Unit;
+        if (unit.Latitude is null || unit.Longitude is null || unit.HeadingDegrees is null)
+        {
+            throw new InvalidDataException("The final tactical checkpoint has incomplete kinematics.");
+        }
 
         var result = await RequireGameCommandAsync(
             GameCommandTypes.SetOwnedSurfaceSuspension,
@@ -383,6 +398,19 @@ public sealed class CampaignCompanionClient(
                 ExpectedEntityRevision = suspension.Revision - 1,
                 EffectiveTimeQuanta = fence.EffectiveTimeQuanta,
                 Kind = TacticalEventKind.Checkpoint,
+                LatitudeMicrodegrees = checked((int)Math.Round(unit.Latitude.Value * 1_000_000)),
+                LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
+                HeadingMillidegrees = checked((int)Math.Round(unit.HeadingDegrees.Value * 1_000)),
+                Telegraph = unit.Telegraph,
+                FuelMilliunits = ScaleResource(
+                    assignment.InitialFuelMilliunits,
+                    unit.FuelFractionMilliunits),
+                StoresMilliunits = ScaleResource(
+                    assignment.InitialStoresMilliunits,
+                    unit.StoresFractionMilliunits),
+                DamageMilliunits = Math.Clamp(unit.DamageFractionMilliunits ?? 0, 0, 1_000_000),
+                Destroyed = unit.IsDestroyed,
+                CheckpointSha256 = checkpointHash,
             },
             new CheckpointPublished
             {
@@ -434,6 +462,9 @@ public sealed class CampaignCompanionClient(
 
     private static bool MatchesRequirement(string required, string? actual) =>
         string.IsNullOrEmpty(required) || string.Equals(required, actual, StringComparison.Ordinal);
+
+    private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
+        baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
 
     private static string DeterministicId(string identity, string idempotencyKey)
     {

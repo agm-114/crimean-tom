@@ -363,7 +363,8 @@ internal static class RuntimeOwnedMutationAdapter
             Physics.SyncTransforms();
             InjectFailure(request.FaultInjectionStep, "after-state-apply");
 
-            var realized = Capture(created, request.TaskforceId);
+            var initialStoresQuantity = StoreQuantity(created);
+            var realized = Capture(created, request.TaskforceId, initialStoresQuantity);
             AssertRealizedIdentity(request, realized);
             var revision = request.Context.ExpectedRevision + 1;
             var result = new MaterializeOwnedSurfaceUnitResultPayload
@@ -383,7 +384,8 @@ internal static class RuntimeOwnedMutationAdapter
                 request.Context.AuthorityEpoch,
                 revision,
                 request.TaskforceId,
-                created));
+                created,
+                initialStoresQuantity));
             InjectFailure(request.FaultInjectionStep, "after-registry-add");
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
@@ -403,6 +405,7 @@ internal static class RuntimeOwnedMutationAdapter
                     request.Context.ExpectedRevision,
                     request.TaskforceId,
                     created,
+                    StoreQuantity(created),
                     recoveryRequired: true);
             }
             var injected = exception as InjectedMutationFailureException;
@@ -449,7 +452,7 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "Portable checkpoints may only be captured from an active owned surface unit.");
         }
-        var unit = Capture(vessel, record.TaskforceId);
+        var unit = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
         var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var hash = CapabilityFingerprint.ComputeSha256(new[]
         {
@@ -467,6 +470,9 @@ internal static class RuntimeOwnedMutationAdapter
             Field("heading", unit.HeadingDegrees),
             Field("speed", unit.SpeedKnots),
             Field("telegraph", unit.Telegraph),
+            Field("fuel-fraction-milliunits", unit.FuelFractionMilliunits),
+            Field("stores-fraction-milliunits", unit.StoresFractionMilliunits),
+            Field("damage-fraction-milliunits", unit.DamageFractionMilliunits),
             Field("disabled", unit.IsDisabled),
             Field("destroyed", unit.IsDestroyed),
         });
@@ -534,7 +540,7 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "A suspended surface unit must be enabled before applying an update.");
         }
-        var original = Capture(vessel, record.TaskforceId);
+        var original = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
         var timer = Stopwatch.StartNew();
         try
         {
@@ -553,7 +559,7 @@ internal static class RuntimeOwnedMutationAdapter
             vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
             InjectFailure(request.FaultInjectionStep, "after-telegraph-apply");
             Physics.SyncTransforms();
-            var realized = Capture(vessel, record.TaskforceId);
+            var realized = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
             AssertUpdatedState(request, realized);
             InjectFailure(request.FaultInjectionStep, "after-readback");
             record.Revision++;
@@ -577,7 +583,7 @@ internal static class RuntimeOwnedMutationAdapter
             try
             {
                 ApplyPortableState(vessel, original);
-                AssertCheckpointRestored(original, Capture(vessel, record.TaskforceId));
+                AssertCheckpointRestored(original, Capture(vessel, record.TaskforceId, record.InitialStoresQuantity));
             }
             catch
             {
@@ -665,7 +671,7 @@ internal static class RuntimeOwnedMutationAdapter
                 vessel.Enable();
             }
             InjectFailure(request.FaultInjectionStep, "after-native-toggle");
-            var realized = Capture(vessel, record.TaskforceId);
+            var realized = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
             if (realized.IsDisabled != request.IsSuspended || realized.IsDestroyed)
             {
                 throw new InvalidOperationException(
@@ -828,7 +834,7 @@ internal static class RuntimeOwnedMutationAdapter
                 "The owned surface unit must be suspended or absent before rematerialization.");
             }
         }
-        var original = reconstructed ? null : Capture(vessel!, record.TaskforceId);
+        var original = reconstructed ? null : Capture(vessel!, record.TaskforceId, record.InitialStoresQuantity);
 
         var timer = Stopwatch.StartNew();
         try
@@ -873,7 +879,7 @@ internal static class RuntimeOwnedMutationAdapter
             InjectFailure(request.FaultInjectionStep, "after-enable");
             record.TaskforceId = checkpoint.Unit.TaskforceId;
             record.RecoveryRequired = false;
-            var realized = Capture(vessel, record.TaskforceId);
+            var realized = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
             AssertCheckpointRestored(checkpoint.Unit, realized);
             InjectFailure(request.FaultInjectionStep, "after-readback");
             record.Revision++;
@@ -918,7 +924,7 @@ internal static class RuntimeOwnedMutationAdapter
                     {
                         AssertPortableState(
                             original,
-                            Capture(vessel, record.TaskforceId),
+                            Capture(vessel, record.TaskforceId, record.InitialStoresQuantity),
                             expectedDisabled: true);
                     }
                 }
@@ -1091,7 +1097,7 @@ internal static class RuntimeOwnedMutationAdapter
         Revision = record.Revision,
         IdempotencyKey = context.IdempotencyKey,
         SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
-        Unit = Capture(record.Vessel!, record.TaskforceId),
+        Unit = Capture(record.Vessel!, record.TaskforceId, record.InitialStoresQuantity),
     };
 
     private static void ApplyPortableState(
@@ -1237,8 +1243,23 @@ internal static class RuntimeOwnedMutationAdapter
         return null;
     }
 
-    private static OwnedSurfaceUnitStatePayload Capture(Vessel vessel, string taskforceId) => new()
+    private static OwnedSurfaceUnitStatePayload Capture(
+        Vessel vessel,
+        string taskforceId,
+        long initialStoresQuantity)
     {
+        var parameters = vessel._obp;
+        var fuelFraction = parameters is not null && parameters._maxFuel > 0
+            ? FractionMilliunits(parameters._currentFuelMass / parameters._maxFuel)
+            : null;
+        var storesFraction = initialStoresQuantity > 0
+            ? FractionMilliunits((double)StoreQuantity(vessel) / initialStoresQuantity)
+            : null;
+        var damageFraction = vessel._totalDamagePoints > 0
+            ? FractionMilliunits(vessel._overallDamage / vessel._totalDamagePoints)
+            : null;
+        return new()
+        {
         StableUnitId = $"campaign-unit:{vessel._campaignTag}",
         GameUniqueId = vessel.UniqueID,
         EntityId = vessel._campaignTag ?? string.Empty,
@@ -1251,9 +1272,21 @@ internal static class RuntimeOwnedMutationAdapter
         HeadingDegrees = Finite(vessel.getHeading()),
         SpeedKnots = Finite(vessel.getVelocityInKnots()),
         Telegraph = vessel.getTelegraph(),
+        FuelFractionMilliunits = fuelFraction,
+        StoresFractionMilliunits = storesFraction,
+        DamageFractionMilliunits = damageFraction,
         IsDisabled = vessel.Disabled,
         IsDestroyed = vessel.IsDestroyed,
-    };
+        };
+    }
+
+    private static long StoreQuantity(Vessel vessel) => vessel.AmmunitionAmountDictionary.Values
+        .Where(value => value > 0)
+        .Sum(value => checked((long)value));
+
+    private static long? FractionMilliunits(double value) => double.IsFinite(value)
+        ? checked((long)Math.Round(Math.Clamp(value, 0d, 1d) * 1_000_000d))
+        : null;
 
     private static void AssertRealizedIdentity(
         MaterializeOwnedSurfaceUnitRequestPayload request,
@@ -1427,12 +1460,14 @@ internal static class RuntimeOwnedMutationAdapter
         long revision,
         string taskforceId,
         Vessel vessel,
+        long initialStoresQuantity,
         bool recoveryRequired = false)
     {
         public string AssignmentId { get; } = assignmentId;
         public long AuthorityEpoch { get; } = authorityEpoch;
         public long Revision { get; set; } = revision;
         public string TaskforceId { get; set; } = taskforceId;
+        public long InitialStoresQuantity { get; } = initialStoresQuantity;
         public Vessel? Vessel { get; set; } = vessel;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
         public bool RecoveryRequired { get; set; } = recoveryRequired;

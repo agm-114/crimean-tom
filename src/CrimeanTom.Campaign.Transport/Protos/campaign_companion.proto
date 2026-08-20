@@ -106,6 +106,8 @@ message TacticalAssignment {
   int32 telegraph = 21;
   bool globally_paused = 22;
   string canonical_entity_id = 23;
+  int64 initial_fuel_milliunits = 24;
+  int64 initial_stores_milliunits = 25;
 }
 
 message AssignmentPrepared {

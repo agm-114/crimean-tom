@@ -147,6 +147,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 HeadingMillidegrees = entity.Heading.Value,
                 Telegraph = entity.Telegraph,
                 GloballyPaused = true,
+                InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
+                InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
             };
         }
         finally
@@ -239,6 +241,10 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.Coordinate.LongitudeMicrodegrees,
                 item.Heading.Value,
                 item.Telegraph,
+                item.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
+                item.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+                item.DamageMilliUnits,
+                item.Lifecycle.ToString(),
                 item.Revision.Value)).ToArray(),
             recovery.State.Assignments.Values.Select(item => new CampaignAssignmentView(
                 item.AssignmentId.ToString(),
@@ -429,9 +435,59 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         {
             return;
         }
+        var current = state.Entities[assignment.EntityId];
+        var applyKinematics = proposal.Kind is TacticalEventKind.Movement or TacticalEventKind.Checkpoint;
+        var coordinate = applyKinematics
+            ? GeoCoordinate.FromMicrodegrees(proposal.LatitudeMicrodegrees, proposal.LongitudeMicrodegrees)
+            : current.Coordinate;
+        var heading = applyKinematics ? proposal.HeadingMillidegrees : current.Heading.Value;
+        var telegraph = applyKinematics ? proposal.Telegraph : current.Telegraph;
+        var resources = current.Resources;
+        if (proposal.Kind is TacticalEventKind.Resources or TacticalEventKind.Checkpoint)
+        {
+            resources = resources
+                .SetItem(ResourceKind.Fuel, ResourceAmount.FromMilliUnits(proposal.FuelMilliunits))
+                .SetItem(ResourceKind.Stores, ResourceAmount.FromMilliUnits(proposal.StoresMilliunits));
+        }
+        var damage = proposal.Kind is TacticalEventKind.Damage or TacticalEventKind.Destroyed or TacticalEventKind.Checkpoint
+            ? checked((int)proposal.DamageMilliunits)
+            : current.DamageMilliUnits;
+        var lifecycle = proposal.Destroyed || proposal.Kind == TacticalEventKind.Destroyed
+            ? EntityLifecycle.Destroyed
+            : damage >= 800_000 ? EntityLifecycle.Disabled : current.Lifecycle;
+        if (current.Coordinate == coordinate
+            && current.Heading.Value == heading
+            && current.Telegraph == telegraph
+            && current.Resources.SequenceEqual(resources)
+            && current.DamageMilliUnits == damage
+            && current.Lifecycle == lifecycle)
+        {
+            return;
+        }
+        else
+        {
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Entity(current.EntityId),
+                current.Revision,
+                new ApplyTacticalStateCommand(
+                    assignmentId,
+                    assignment.AuthorityEpoch,
+                    current.EntityId,
+                    coordinate,
+                    heading,
+                    telegraph,
+                    resources,
+                    damage,
+                    lifecycle),
+                proposal.Kind == TacticalEventKind.Checkpoint
+                    ? $"{proposal.IdempotencyKey}-state"
+                    : proposal.IdempotencyKey), cancellationToken);
+        }
         if (assignment.Lifecycle == AssignmentLifecycle.Quiescing
             && proposal.Kind == TacticalEventKind.Checkpoint)
         {
+            assignment = state.Assignments[assignmentId];
             state = await CommitAsync(state, Command(
                 state,
                 CampaignSubject.Assignment(assignmentId),
@@ -449,48 +505,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 entity.Revision,
                 new ChangeFidelityCommand(entity.EntityId, FidelityState.Operational),
                 $"operational-{proposal.IdempotencyKey}"), cancellationToken);
-            return;
         }
-
-        var current = state.Entities[assignment.EntityId];
-        var resources = current.Resources;
-        if (proposal.Kind == TacticalEventKind.Resources)
-        {
-            resources = resources
-                .SetItem(ResourceKind.Fuel, ResourceAmount.FromMilliUnits(proposal.FuelMilliunits))
-                .SetItem(ResourceKind.Stores, ResourceAmount.FromMilliUnits(proposal.StoresMilliunits));
-        }
-        var damage = proposal.Kind is TacticalEventKind.Damage or TacticalEventKind.Destroyed
-            ? checked((int)proposal.DamageMilliunits)
-            : current.DamageMilliUnits;
-        var lifecycle = proposal.Destroyed || proposal.Kind == TacticalEventKind.Destroyed
-            ? EntityLifecycle.Destroyed
-            : damage >= 800_000 ? EntityLifecycle.Disabled : current.Lifecycle;
-        if (current.Coordinate.LatitudeMicrodegrees == proposal.LatitudeMicrodegrees
-            && current.Coordinate.LongitudeMicrodegrees == proposal.LongitudeMicrodegrees
-            && current.Heading.Value == proposal.HeadingMillidegrees
-            && current.Telegraph == proposal.Telegraph
-            && current.Resources == resources
-            && current.DamageMilliUnits == damage
-            && current.Lifecycle == lifecycle)
-        {
-            return;
-        }
-        await CommitAsync(state, Command(
-            state,
-            CampaignSubject.Entity(current.EntityId),
-            current.Revision,
-            new ApplyTacticalStateCommand(
-                assignmentId,
-                assignment.AuthorityEpoch,
-                current.EntityId,
-                GeoCoordinate.FromMicrodegrees(proposal.LatitudeMicrodegrees, proposal.LongitudeMicrodegrees),
-                proposal.HeadingMillidegrees,
-                proposal.Telegraph,
-                resources,
-                damage,
-                lifecycle),
-            proposal.IdempotencyKey), cancellationToken);
     }
 
     public async Task<AuthorityFence> BeginQuiesceAsync(
@@ -683,6 +698,10 @@ public sealed record CampaignEntityView(
     int LongitudeMicrodegrees,
     int HeadingMilliDegrees,
     int Telegraph,
+    long FuelMilliunits,
+    long StoresMilliunits,
+    int DamageMilliunits,
+    string Lifecycle,
     long Revision);
 
 public sealed record CampaignAssignmentView(

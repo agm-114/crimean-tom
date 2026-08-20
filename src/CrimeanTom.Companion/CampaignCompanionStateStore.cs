@@ -101,6 +101,38 @@ public sealed class CampaignCompanionStateStore
             .ToArray();
     }
 
+    public async Task SaveAssignmentAsync(TacticalAssignment assignment, CancellationToken cancellationToken)
+    {
+        var safeId = SafeKey(assignment.AssignmentId);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var path = Path.Combine(_root, "assignments", $"{safeId}.assignment");
+            var content = assignment.ToByteArray();
+            if (File.Exists(path))
+            {
+                if (!File.ReadAllBytes(path).AsSpan().SequenceEqual(content))
+                {
+                    throw new InvalidDataException("A durable assignment identity was reused with different bytes.");
+                }
+                return;
+            }
+            await WriteAtomicallyAsync(path, content, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public TacticalAssignment ReadAssignment(string assignmentId)
+    {
+        var path = Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.assignment");
+        return File.Exists(path)
+            ? TacticalAssignment.Parser.ParseFrom(File.ReadAllBytes(path))
+            : throw new InvalidDataException("The durable tactical assignment baseline is missing.");
+    }
+
     public async Task AcknowledgeOutboundAsync(string key, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -148,6 +180,15 @@ public sealed class CampaignCompanionStateStore
                 File.Delete(temporary);
             }
         }
+    }
+
+    private static string SafeKey(string key)
+    {
+        var safe = string.Concat(key.Select(character =>
+            char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '_'));
+        return safe.Length is > 0 and <= 180
+            ? safe
+            : throw new InvalidDataException("A bounded durable key is required.");
     }
 }
 

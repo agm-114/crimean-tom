@@ -327,12 +327,13 @@ public sealed class CompanionControlIntegrationTests
                 "Released",
                 Assert.Single(releasedView.RootElement.GetProperty("assignments").EnumerateArray())
                     .GetProperty("lifecycle").GetString());
-            Assert.Equal(
-                "Operational",
-                Assert.Single(
-                    releasedView.RootElement.GetProperty("entities").EnumerateArray(),
-                    item => item.GetProperty("entityId").GetString() == primaryEntityId)
-                    .GetProperty("fidelity").GetString());
+            var releasedPrimary = Assert.Single(
+                releasedView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId);
+            Assert.Equal("Operational", releasedPrimary.GetProperty("fidelity").GetString());
+            Assert.Equal(800_000, releasedPrimary.GetProperty("fuelMilliunits").GetInt64());
+            Assert.Equal(300_000, releasedPrimary.GetProperty("storesMilliunits").GetInt64());
+            Assert.Equal(250_000, releasedPrimary.GetProperty("damageMilliunits").GetInt32());
 
             using var ping = await GetAuthorizedJsonAsync(
                 client,
@@ -1218,15 +1219,7 @@ public sealed class CompanionControlIntegrationTests
                     },
                     JsonOptions),
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
-                    new OwnedSurfaceCheckpointPayload
-                    {
-                        CheckpointId = "checkpoint:integration:1",
-                        CheckpointSha256 = new string('c', 64),
-                        AssignmentId = "assignment:integration-surface",
-                        AuthorityEpoch = 7,
-                        Revision = 1,
-                        Unit = CreateOwnedSurfaceState(disabled: false),
-                    },
+                    CreateOwnedSurfaceCheckpoint(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.UpdateOwnedSurfaceUnit => JsonSerializer.Serialize(
                     CreateLifecycleResult(command.PayloadJson, "updated", 2, disabled: false),
@@ -1382,8 +1375,32 @@ public sealed class CompanionControlIntegrationTests
         Longitude = 44.51,
         HeadingDegrees = 100,
         Telegraph = 1,
+        FuelFractionMilliunits = 1_000_000,
+        StoresFractionMilliunits = 1_000_000,
+        DamageFractionMilliunits = 0,
         IsDisabled = disabled,
     };
+
+    private static OwnedSurfaceCheckpointPayload CreateOwnedSurfaceCheckpoint(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(payloadJson, JsonOptions)!;
+        var unit = CreateOwnedSurfaceState(disabled: false);
+        if (request.Context.IdempotencyKey == "transport-quiesce-1-checkpoint")
+        {
+            unit.FuelFractionMilliunits = 800_000;
+            unit.StoresFractionMilliunits = 600_000;
+            unit.DamageFractionMilliunits = 250_000;
+        }
+        return new OwnedSurfaceCheckpointPayload
+        {
+            CheckpointId = $"checkpoint:{request.EntityId}:{request.Context.ExpectedRevision}",
+            CheckpointSha256 = new string('c', 64),
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision,
+            Unit = unit,
+        };
+    }
 
     private static OwnedSurfaceLifecycleResultPayload CreateLifecycleResult(
         string payloadJson,
@@ -1998,19 +2015,28 @@ public sealed class CompanionControlIntegrationTests
         Func<JsonElement, bool> predicate,
         CancellationToken cancellationToken)
     {
-        while (true)
+        string lastView = "campaign view was never available";
+        try
         {
-            using var response = await client.GetAsync($"/campaigns/{campaignId}", cancellationToken);
-            if (response.IsSuccessStatusCode)
+            while (true)
             {
-                var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-                if (predicate(document.RootElement))
+                using var response = await client.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+                lastView = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (response.IsSuccessStatusCode)
                 {
-                    return document;
+                    var document = JsonDocument.Parse(lastView);
+                    if (predicate(document.RootElement))
+                    {
+                        return document;
+                    }
+                    document.Dispose();
                 }
-                document.Dispose();
+                await Task.Delay(25, cancellationToken);
             }
-            await Task.Delay(25, cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            throw new TimeoutException($"Campaign view predicate was not reached. Last view: {lastView}", exception);
         }
     }
 

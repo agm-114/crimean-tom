@@ -527,8 +527,9 @@ generated authenticated duplex gRPC, durable reconnect/spooling, separate
 content-addressed checkpoint HTTP, canonical assignment ownership, frozen
 tactical authority, ordered movement commit, checkpointed quiesce/release, and
 service-restart replay, and deterministic 120-quanta checkpoint fallback now
-work in the broad integration story. Resource/combat capture, crash-boundary
-policy, and the live round trip remain. See the
+work in the broad integration story. Checkpointed fuel/store/damage capture is
+also canonical. Destruction capture, crash-boundary policy, and the live round
+trip remain. See the
 [Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
 
 ### Objective
