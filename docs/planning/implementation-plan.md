@@ -14,7 +14,7 @@ The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
 Phases 0, 1, and 2 are complete, Phase 3A and 3B are complete, and the repository
-is actively implementing Phase 3C. The local
+is actively implementing Phase 3D. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -483,6 +483,12 @@ and an independent lease-holder process proves successor fencing. See the
 
 ### 3C. Core simulation
 
+**Status: complete.** A typed simulation command/event now advances a durable
+scheduled queue through region movement, sustainment, repair, attrition, AI
+patrol intent, and coalition intelligence. Keyed randomness and stable sorted
+merge produce identical event/state bytes with one or many workers. See the
+[Phase 3C evidence](../evidence/phase-3c-simulation-evidence-2026-08-21.md).
+
 - Campaign clock and scheduled event queue.
 - Graph/region movement and cross-region transfer.
 - Basic fuel/stores consumption, replenishment, readiness, repair, and attrition.
@@ -491,6 +497,11 @@ and an independent lease-holder process proves successor fencing. See the
 - Basic coalition intelligence estimates distinct from true state.
 
 ### 3D. Replay and invariants
+
+**Status: in progress.** The broad theater already proves snapshot/journal replay,
+strict schema/algorithm pins, scheduling-independent hashes, and fog-of-war
+sentinel exclusion. Long-horizon conservation/lifecycle/reachability evidence
+and the final Phase 3 gate audit remain.
 
 - Golden replay fixtures.
 - Property tests for conservation, non-negative resources, valid lifecycle,

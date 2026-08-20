@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 1;
-    public const int AlgorithmVersion = 1;
+    public const int Version = 2;
+    public const int AlgorithmVersion = 2;
     public const long TimeQuantumMicroseconds = 1_000_000;
 }
 
@@ -64,6 +64,16 @@ public enum IntelligenceConfidence
     Confirmed,
 }
 
+public enum CampaignActivityKind
+{
+    AiIntent,
+    Movement,
+    Sustainment,
+    Repair,
+    Attrition,
+    Intelligence,
+}
+
 public enum CampaignSubjectKind
 {
     Campaign,
@@ -74,6 +84,8 @@ public enum CampaignSubjectKind
     Intelligence,
     Weather,
     Assignment,
+    Order,
+    ScheduledActivity,
 }
 
 public readonly record struct CampaignSubject(CampaignSubjectKind Kind, Guid Value)
@@ -84,6 +96,8 @@ public readonly record struct CampaignSubject(CampaignSubjectKind Kind, Guid Val
     public static CampaignSubject Entity(EntityId id) => new(CampaignSubjectKind.Entity, id.Value);
     public static CampaignSubject Group(GroupId id) => new(CampaignSubjectKind.Group, id.Value);
     public static CampaignSubject Assignment(AssignmentId id) => new(CampaignSubjectKind.Assignment, id.Value);
+    public static CampaignSubject Order(OrderId id) => new(CampaignSubjectKind.Order, id.Value);
+    public static CampaignSubject ScheduledActivity(ScheduledActivityId id) => new(CampaignSubjectKind.ScheduledActivity, id.Value);
 }
 
 public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, bool MaySeeClassifiedTruth);
@@ -99,6 +113,7 @@ public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, 
 [JsonDerivedType(typeof(ReportIntelligenceCommand), "report-intelligence/v1")]
 [JsonDerivedType(typeof(SetWeatherCommand), "set-weather/v1")]
 [JsonDerivedType(typeof(AdvanceClockCommand), "advance-clock/v1")]
+[JsonDerivedType(typeof(SimulateCampaignCommand), "simulate-campaign/v1")]
 public abstract record CampaignCommandData;
 
 public sealed record RegisterRegionCommand(RegionId RegionId, string Name, IReadOnlyList<RegionId> Neighbors)
@@ -168,6 +183,8 @@ public sealed record SetWeatherCommand(
 
 public sealed record AdvanceClockCommand(CampaignTime NewTime) : CampaignCommandData;
 
+public sealed record SimulateCampaignCommand(CampaignTime NewTime) : CampaignCommandData;
+
 public sealed record CampaignCommand(
     CommandId CommandId,
     IdempotencyKey IdempotencyKey,
@@ -192,6 +209,7 @@ public sealed record CampaignCommand(
 [JsonDerivedType(typeof(IntelligenceReportedEvent), "intelligence-reported/v1")]
 [JsonDerivedType(typeof(WeatherSetEvent), "weather-set/v1")]
 [JsonDerivedType(typeof(ClockAdvancedEvent), "clock-advanced/v1")]
+[JsonDerivedType(typeof(CampaignSimulatedEvent), "campaign-simulated/v1")]
 public abstract record CampaignEventData;
 
 public sealed record RegionRegisteredEvent(RegisterRegionCommand Region) : CampaignEventData;
@@ -204,6 +222,59 @@ public sealed record AuthorityAssignedEvent(AssignAuthorityCommand Assignment) :
 public sealed record IntelligenceReportedEvent(ReportIntelligenceCommand Report) : CampaignEventData;
 public sealed record WeatherSetEvent(SetWeatherCommand Weather) : CampaignEventData;
 public sealed record ClockAdvancedEvent(AdvanceClockCommand Clock) : CampaignEventData;
+
+public sealed record SimulatedEntityUpdate(
+    EntityId EntityId,
+    RegionId RegionId,
+    GeoCoordinate Coordinate,
+    EntityLifecycle Lifecycle,
+    IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
+    int ReadinessMilliUnits,
+    int DamageMilliUnits,
+    EntityRevision Revision);
+
+public sealed record SimulatedBaseUpdate(
+    BaseId BaseId,
+    IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
+    EntityRevision Revision);
+
+public sealed record SimulatedGroupUpdate(GroupId GroupId, OrderId? ActiveOrderId, EntityRevision Revision);
+
+public sealed record SimulatedOrderUpdate(
+    OrderId OrderId,
+    GroupId GroupId,
+    OrderKind Kind,
+    RegionId DestinationRegionId,
+    CampaignTime StartsAt,
+    CampaignTime? MustCompleteBy,
+    CampaignTime? CompletedAt,
+    EntityRevision Revision);
+
+public sealed record SimulatedIntelligenceUpdate(
+    CoalitionId ObserverCoalitionId,
+    EntityId ContactEntityId,
+    RegionId EstimatedRegionId,
+    GeoCoordinate EstimatedCoordinate,
+    IntelligenceConfidence Confidence,
+    CampaignTime ObservedAt,
+    EntityRevision Revision);
+
+public sealed record ScheduledCampaignActivity(
+    ScheduledActivityId ActivityId,
+    CampaignActivityKind Kind,
+    CampaignSubject Subject,
+    CampaignTime DueAt,
+    EntityRevision Revision);
+
+public sealed record CampaignSimulatedEvent(
+    CampaignTime NewTime,
+    IReadOnlyList<SimulatedEntityUpdate> Entities,
+    IReadOnlyList<SimulatedBaseUpdate> Bases,
+    IReadOnlyList<SimulatedGroupUpdate> Groups,
+    IReadOnlyList<SimulatedOrderUpdate> Orders,
+    IReadOnlyList<SimulatedIntelligenceUpdate> Intelligence,
+    IReadOnlyList<ScheduledCampaignActivity> PendingActivities)
+    : CampaignEventData;
 
 public sealed record CommittedCampaignEvent(
     EventId EventId,

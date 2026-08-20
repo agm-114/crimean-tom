@@ -3,7 +3,7 @@
 ## Repository state
 
 This handoff records the state through 21 August 2026. Phases 0, 1, 2, 3A, and
-3B are complete and Phase 3C is active. No durable
+3B and 3C are complete and Phase 3D is active. No durable
 campaign service authority or unattended campaign simulation is enabled. The
 game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
@@ -222,9 +222,15 @@ effects. A separate process also holds the live writer lease while the test
 process proves a second coordinator is rejected; after killing the holder and
 advancing past expiry, a newer epoch fences its stale handle.
 
-The next slice is Phase 3C: implement the campaign clock queue, region movement,
-resource/readiness/repair/attrition rules, minimum unattended AI intent, keyed
-RNG, stable merge, and coalition intelligence evolution.
+The authoritative kernel now advances a durable scheduled queue through graph
+movement, resource consumption and port replenishment, damage/readiness,
+spare-parts repair, attrition, deterministic AI patrol intent, and coalition
+intelligence refresh. One-worker and four-worker decisions produce identical
+event and snapshot bytes. The journal recomputes decisions from its recovered
+head before append and revision-fences every secondary simulation mutation.
+
+The next slice is Phase 3D: add long-horizon invariant/conservation evidence,
+replay fixtures, and the final scheduling/fog/schema gate audit.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.

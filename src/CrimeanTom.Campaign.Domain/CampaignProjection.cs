@@ -13,6 +13,8 @@ public sealed record FriendlyEntityProjection(
     FidelityState Fidelity,
     GroupId? GroupId,
     IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
+    int ReadinessMilliUnits,
+    int DamageMilliUnits,
     EntityRevision Revision);
 
 public sealed record ContactProjection(
@@ -52,6 +54,8 @@ public static class CampaignProjectionBuilder
                 entity.Fidelity,
                 state.Groups.Values.FirstOrDefault(group => group.Members.Contains(entity.EntityId))?.GroupId,
                 entity.Resources,
+                entity.ReadinessMilliUnits,
+                entity.DamageMilliUnits,
                 entity.Revision))
             .ToArray();
 

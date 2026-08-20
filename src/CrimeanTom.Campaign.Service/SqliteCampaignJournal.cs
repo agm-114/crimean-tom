@@ -264,6 +264,25 @@ public sealed class SqliteCampaignJournal
 
         var expectedHead = campaignEvent.CommitPosition.Value - 1;
         await RequireHeadAndRevisionAsync(connection, transaction, command, expectedHead, cancellationToken);
+        var recovered = await RecoverAsync(
+            connection,
+            transaction,
+            command.CampaignId,
+            new CommitPosition(expectedHead),
+            cancellationToken);
+        CommittedCampaignEvent expectedEvent;
+        try
+        {
+            expectedEvent = CampaignKernel.Decide(recovered.State, command, campaignEvent.CommitPosition);
+        }
+        catch (CampaignRuleViolation exception)
+        {
+            throw Conflict("event-decision-conflict", $"The command is invalid at the durable head: {exception.Code}.");
+        }
+        if (!CryptographicOperations.FixedTimeEquals(CampaignContractJson.Serialize(expectedEvent), eventJson))
+        {
+            throw Conflict("event-decision-conflict", "The supplied event is not the canonical decision for the durable head.");
+        }
         _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterValidation);
         await InsertCommandAsync(connection, transaction, command, campaignEvent.CommitPosition, commandJson, commandHash, cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommandInsert);
@@ -499,14 +518,16 @@ public sealed class SqliteCampaignJournal
         await using (var events = connection.CreateCommand())
         {
             events.Transaction = transaction;
-            events.CommandText = """
-                SELECT campaign_id, subject_kind, subject_id, new_subject_revision
-                FROM events ORDER BY campaign_id, commit_position;
-                """;
+            events.CommandText = "SELECT campaign_id, event_json FROM events ORDER BY campaign_id, commit_position;";
             await using var reader = await events.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                expectedRevisions[(reader.GetString(0), reader.GetInt32(1), reader.GetString(2))] = reader.GetInt64(3);
+                var campaign = reader.GetString(0);
+                var campaignEvent = CampaignContractJson.DeserializeEvent((byte[])reader[1]);
+                foreach (var (subject, revision) in EnumerateRevisionEffects(campaignEvent))
+                {
+                    expectedRevisions[(campaign, (int)subject.Kind, subject.Value.ToString("N"))] = revision.Value;
+                }
             }
         }
 
@@ -910,18 +931,56 @@ public sealed class SqliteCampaignJournal
         CommittedCampaignEvent eventValue,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO subject_revisions (campaign_id, subject_kind, subject_id, revision)
-            VALUES ($campaign_id, $kind, $subject_id, $revision)
-            ON CONFLICT(campaign_id, subject_kind, subject_id) DO UPDATE SET revision = excluded.revision;
-            """;
-        command.Parameters.AddWithValue("$campaign_id", eventValue.CampaignId.ToString());
-        command.Parameters.AddWithValue("$kind", (int)eventValue.Subject.Kind);
-        command.Parameters.AddWithValue("$subject_id", eventValue.Subject.Value.ToString("N"));
-        command.Parameters.AddWithValue("$revision", eventValue.NewSubjectRevision.Value);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        foreach (var (subject, revision) in EnumerateRevisionEffects(eventValue))
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO subject_revisions (campaign_id, subject_kind, subject_id, revision)
+                VALUES ($campaign_id, $kind, $subject_id, $revision)
+                ON CONFLICT(campaign_id, subject_kind, subject_id) DO UPDATE SET revision = excluded.revision;
+                """;
+            command.Parameters.AddWithValue("$campaign_id", eventValue.CampaignId.ToString());
+            command.Parameters.AddWithValue("$kind", (int)subject.Kind);
+            command.Parameters.AddWithValue("$subject_id", subject.Value.ToString("N"));
+            command.Parameters.AddWithValue("$revision", revision.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static IEnumerable<(CampaignSubject Subject, EntityRevision Revision)> EnumerateRevisionEffects(
+        CommittedCampaignEvent campaignEvent)
+    {
+        yield return (campaignEvent.Subject, campaignEvent.NewSubjectRevision);
+        if (campaignEvent.Data is not CampaignSimulatedEvent simulation)
+        {
+            yield break;
+        }
+
+        foreach (var item in simulation.Entities)
+        {
+            yield return (CampaignSubject.Entity(item.EntityId), item.Revision);
+        }
+        foreach (var item in simulation.Bases)
+        {
+            yield return (CampaignSubject.Base(item.BaseId), item.Revision);
+        }
+        foreach (var item in simulation.Groups)
+        {
+            yield return (CampaignSubject.Group(item.GroupId), item.Revision);
+        }
+        foreach (var item in simulation.Orders)
+        {
+            yield return (CampaignSubject.Order(item.OrderId), item.Revision);
+        }
+        foreach (var item in simulation.Intelligence)
+        {
+            yield return (new CampaignSubject(CampaignSubjectKind.Intelligence, item.ContactEntityId.Value), item.Revision);
+        }
+        foreach (var item in simulation.PendingActivities)
+        {
+            yield return (CampaignSubject.ScheduledActivity(item.ActivityId), item.Revision);
+        }
     }
 
     private static async Task AdvanceHeadAsync(

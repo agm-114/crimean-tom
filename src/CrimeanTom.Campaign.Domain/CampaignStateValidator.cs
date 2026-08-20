@@ -52,6 +52,10 @@ public static class CampaignStateValidator
             CampaignInvariants.RequireText(entity.ClassifiedTruthTag, nameof(entity.ClassifiedTruthTag));
             ValidateCoordinate(entity.Coordinate);
             ValidateResources(entity.Resources);
+            if (entity.ReadinessMilliUnits is < 0 or > 1_000 || entity.DamageMilliUnits is < 0 or > 1_000_000)
+            {
+                throw Invalid("entity-condition", "Entity readiness or damage is outside its canonical range.");
+            }
             if (entity.HomeBaseId is { } homeBaseId
                 && (!state.Bases.TryGetValue(homeBaseId, out var homeBase) || homeBase.CoalitionId != entity.CoalitionId))
             {
@@ -93,6 +97,11 @@ public static class CampaignStateValidator
             {
                 throw Invalid("order", "An order identity, relationship, time, kind, or revision is invalid.");
             }
+            if (order.CompletedAt is { } completed
+                && (completed.Quanta < order.StartsAt.Quanta || completed.Quanta > state.Time.Quanta))
+            {
+                throw Invalid("order-completion", "An order completion time is outside the canonical campaign interval.");
+            }
         }
 
         foreach (var (key, estimate) in state.Intelligence)
@@ -131,6 +140,33 @@ public static class CampaignStateValidator
             if (assignment.Role == AssignmentRole.Primary && !primaryEntities.Add(assignment.EntityId))
             {
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
+            }
+        }
+
+        foreach (var (key, activity) in state.ScheduledActivities)
+        {
+            if (key != activity.ActivityId || activity.Revision.Value <= 0
+                || !Enum.IsDefined(activity.Kind) || !Enum.IsDefined(activity.Subject.Kind)
+                || activity.Subject.Value == Guid.Empty || activity.DueAt.Quanta <= state.Time.Quanta)
+            {
+                throw Invalid("scheduled-activity", "A scheduled activity identity, kind, subject, revision, or time is invalid.");
+            }
+            var subjectExists = activity.Subject.Kind switch
+            {
+                CampaignSubjectKind.Campaign => activity.Subject.Value == state.Metadata.CampaignId.Value,
+                CampaignSubjectKind.Region => state.Regions.ContainsKey(new RegionId(activity.Subject.Value)),
+                CampaignSubjectKind.Base => state.Bases.ContainsKey(new BaseId(activity.Subject.Value)),
+                CampaignSubjectKind.Entity => state.Entities.ContainsKey(new EntityId(activity.Subject.Value)),
+                CampaignSubjectKind.Group => state.Groups.ContainsKey(new GroupId(activity.Subject.Value)),
+                CampaignSubjectKind.Assignment => state.Assignments.ContainsKey(new AssignmentId(activity.Subject.Value)),
+                CampaignSubjectKind.Order => state.Orders.ContainsKey(new OrderId(activity.Subject.Value)),
+                CampaignSubjectKind.ScheduledActivity => state.ScheduledActivities.ContainsKey(new ScheduledActivityId(activity.Subject.Value)),
+                CampaignSubjectKind.Intelligence or CampaignSubjectKind.Weather => true,
+                _ => false,
+            };
+            if (!subjectExists)
+            {
+                throw Invalid("scheduled-subject", "A scheduled activity references a missing canonical subject.");
             }
         }
     }

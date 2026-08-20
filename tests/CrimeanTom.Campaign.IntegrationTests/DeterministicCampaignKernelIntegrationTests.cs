@@ -19,7 +19,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(3, first.State.Regions.Count);
         Assert.Equal(2, first.State.Bases.Count);
         Assert.Equal(3, first.State.Entities.Count);
-        Assert.Single(first.State.Groups);
+        Assert.Equal(2, first.State.Groups.Count);
         Assert.Single(first.State.Orders);
         Assert.Single(first.State.Assignments);
         Assert.Equal(new CampaignTime(10), first.State.Time);
@@ -62,10 +62,47 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal("revision-conflict", conflict.Code);
         Assert.Equal(first.Hash, CampaignCanonicalSerializer.ComputeHash(first.State));
 
-        await ProveDurableJournalAsync(first);
-        await ProvePersistenceBoundariesAsync(first);
-        await ProveProcessCrashRecoveryAsync(first);
-        await ProveIndependentWriterFencingAsync(first);
+        var simulate = Command(
+            17,
+            CampaignSubject.Campaign(Ids.Campaign),
+            first.State.CampaignRevision,
+            new SimulateCampaignCommand(new CampaignTime(30)),
+            effectiveAt: new CampaignTime(30));
+        var singleWorkerEvent = CampaignKernel.Decide(first.State, simulate, first.State.Head.Next(), workerCount: 1);
+        var parallelWorkerEvent = CampaignKernel.Decide(first.State, simulate, first.State.Head.Next(), workerCount: 4);
+        Assert.Equal(
+            CampaignContractJson.Serialize(singleWorkerEvent),
+            CampaignContractJson.Serialize(parallelWorkerEvent));
+        var simulated = CampaignKernel.Apply(first.State, singleWorkerEvent);
+        var parallel = CampaignKernel.Apply(second.State, parallelWorkerEvent);
+        Assert.Equal(CampaignCanonicalSerializer.Serialize(simulated), CampaignCanonicalSerializer.Serialize(parallel));
+        Assert.Equal(new CampaignTime(30), simulated.Time);
+        Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueKnox].RegionId);
+        Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueOiler].RegionId);
+        Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
+        Assert.True(simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits < 800_000);
+        Assert.True(simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits < 1_000);
+        Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
+        Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits < 900_000);
+        Assert.Equal(15, simulated.ScheduledActivities.Count);
+        Assert.Equal(3, simulated.Intelligence.Count);
+
+        var simulatedProjection = CampaignProjectionBuilder.ForCoalition(simulated, Ids.BlueCoalition);
+        var simulatedProjectionJson = JsonSerializer.Serialize(simulatedProjection);
+        Assert.DoesNotContain("ClassifiedTruth", simulatedProjectionJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Ids.RedTruth, simulatedProjectionJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(Ids.BlueTruth, simulatedProjectionJson, StringComparison.Ordinal);
+
+        var simulatedTheater = new TheaterResult(
+            simulated,
+            [.. first.Commands, simulate],
+            [.. first.Events, singleWorkerEvent],
+            CampaignCanonicalSerializer.ComputeHash(simulated));
+        await ProveDurableJournalAsync(simulatedTheater);
+        await ProvePersistenceBoundariesAsync(simulatedTheater);
+        await ProveProcessCrashRecoveryAsync(simulatedTheater);
+        await ProveIndependentWriterFencingAsync(simulatedTheater);
     }
 
     private static TheaterResult BuildTheater(bool reverseCollectionInputs)
@@ -140,6 +177,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 new AuthorityEpoch(7), CampaignTime.Origin)), commands, events);
         state = Commit(state, Command(15, CampaignSubject.Campaign(Ids.Campaign), state.CampaignRevision,
             new AdvanceClockCommand(new CampaignTime(10)), effectiveAt: new CampaignTime(10)), commands, events);
+        state = Commit(state, Command(16, CampaignSubject.Group(Ids.RedGroup), EntityRevision.None,
+            new FormGroupCommand(Ids.RedGroup, "Black Sea patrol", Ids.RedCoalition, [Ids.RedKrivak]),
+            effectiveAt: state.Time), commands, events);
 
         return new TheaterResult(state, commands, events, CampaignCanonicalSerializer.ComputeHash(state));
     }
@@ -184,6 +224,22 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignBlobReference? checkpoint = null;
             for (var index = 0; index < theater.Commands.Count; index++)
             {
+                if (theater.Events[index].Data is CampaignSimulatedEvent simulation)
+                {
+                    var changedEntities = simulation.Entities.ToArray();
+                    changedEntities[0] = changedEntities[0] with
+                    {
+                        ReadinessMilliUnits = Math.Max(0, changedEntities[0].ReadinessMilliUnits - 1),
+                    };
+                    var fabricated = theater.Events[index] with
+                    {
+                        Data = simulation with { Entities = changedEntities },
+                    };
+                    var rejected = await Assert.ThrowsAsync<CampaignStoreConflict>(() =>
+                        journal.AppendAsync(lease, theater.Commands[index], fabricated, now));
+                    Assert.Equal("event-decision-conflict", rejected.Code);
+                    Assert.Equal(durableState.Head, await journal.ReadHeadAsync(Ids.Campaign));
+                }
                 var append = await journal.AppendAsync(lease, theater.Commands[index], theater.Events[index], now);
                 Assert.False(append.Duplicate);
                 durableState = CampaignKernel.Apply(durableState, append.CampaignEvent);
@@ -720,6 +776,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly EntityId BlueOiler = new(Guid.Parse("60000000-0000-0000-0000-000000000002"));
         public static readonly EntityId RedKrivak = new(Guid.Parse("60000000-0000-0000-0000-000000000003"));
         public static readonly GroupId BlueGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000001"));
+        public static readonly GroupId RedGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000002"));
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
         public static readonly AssignmentId Assignment = new(Guid.Parse("90000000-0000-0000-0000-000000000001"));
         public const string BlueTruth = "BLUE-TRUE-STATE-SENTINEL";

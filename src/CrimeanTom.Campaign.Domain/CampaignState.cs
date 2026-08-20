@@ -37,6 +37,8 @@ public sealed record EntityState(
     EntityLifecycle Lifecycle,
     FidelityState Fidelity,
     ImmutableSortedDictionary<ResourceKind, ResourceAmount> Resources,
+    int ReadinessMilliUnits,
+    int DamageMilliUnits,
     string ClassifiedTruthTag,
     EntityRevision Revision);
 
@@ -55,6 +57,14 @@ public sealed record OrderState(
     RegionId DestinationRegionId,
     CampaignTime StartsAt,
     CampaignTime? MustCompleteBy,
+    CampaignTime? CompletedAt,
+    EntityRevision Revision);
+
+public sealed record ScheduledActivityState(
+    ScheduledActivityId ActivityId,
+    CampaignActivityKind Kind,
+    CampaignSubject Subject,
+    CampaignTime DueAt,
     EntityRevision Revision);
 
 public readonly record struct IntelligenceKey(CoalitionId ObserverCoalitionId, EntityId ContactEntityId)
@@ -105,6 +115,7 @@ public sealed record CampaignState
     public ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate> Intelligence { get; init; } = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty;
     public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
     public ImmutableSortedDictionary<AssignmentId, AssignmentState> Assignments { get; init; } = ImmutableSortedDictionary<AssignmentId, AssignmentState>.Empty;
+    public ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> ScheduledActivities { get; init; } = ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState>.Empty;
 
     public static CampaignState Create(CampaignMetadata metadata)
     {

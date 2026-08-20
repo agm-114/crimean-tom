@@ -1,0 +1,437 @@
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
+using CrimeanTom.Campaign.Contracts;
+using CrimeanTom.Campaign.Domain;
+
+namespace CrimeanTom.Campaign.Engine;
+
+internal static class CampaignSimulation
+{
+    private const long ActivityInterval = 10;
+    private const long FuelPerMovement = 25_000;
+    private const long StoresPerActivity = 5_000;
+    private const long RepairPerActivity = 50_000;
+
+    public static CampaignSimulatedEvent Resolve(CampaignState state, CampaignTime target, int workerCount)
+    {
+        if (workerCount is < 1 or > 64)
+        {
+            throw new ArgumentOutOfRangeException(nameof(workerCount), "Worker count must be between 1 and 64.");
+        }
+
+        var world = state;
+        var activities = state.ScheduledActivities.Count == 0
+            ? CreateActivities(state, new CampaignTime(checked(state.Time.Quanta + ActivityInterval)))
+            : state.ScheduledActivities;
+        while (activities.Count > 0)
+        {
+            var dueAt = activities.Values.Min(item => item.DueAt);
+            if (dueAt.Quanta > target.Quanta)
+            {
+                break;
+            }
+
+            world = ResolveTick(world with { Time = dueAt }, dueAt, workerCount);
+            activities = CreateActivities(world, new CampaignTime(checked(dueAt.Quanta + ActivityInterval)));
+        }
+
+        return new CampaignSimulatedEvent(
+            target,
+            world.Entities.Values.Select(ToUpdate).ToArray(),
+            world.Bases.Values.Select(ToUpdate).ToArray(),
+            world.Groups.Values.Select(ToUpdate).ToArray(),
+            world.Orders.Values.Select(ToUpdate).ToArray(),
+            world.Intelligence.Values.Select(ToUpdate).ToArray(),
+            activities.Values.Select(ToContract).ToArray());
+    }
+
+    private static CampaignState ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
+    {
+        var withIntent = ResolveAiIntent(state, dueAt);
+        var movementResults = new ConcurrentBag<GroupMovementResult>();
+        Parallel.ForEach(
+            withIntent.Groups.Values,
+            new ParallelOptions { MaxDegreeOfParallelism = workerCount },
+            group => movementResults.Add(ResolveMovement(withIntent, group, dueAt)));
+
+        var entities = withIntent.Entities;
+        var groups = withIntent.Groups;
+        var orders = withIntent.Orders;
+        foreach (var result in movementResults.OrderBy(item => item.GroupId))
+        {
+            foreach (var entity in result.Entities.OrderBy(item => item.EntityId))
+            {
+                entities = entities.SetItem(entity.EntityId, entity);
+            }
+            groups = groups.SetItem(result.Group.GroupId, result.Group);
+            if (result.Order is { } order)
+            {
+                orders = orders.SetItem(order.OrderId, order);
+            }
+        }
+
+        var sustained = ResolveSustainmentAndAttrition(
+            withIntent with { Entities = entities, Groups = groups, Orders = orders },
+            dueAt);
+        return ResolveIntelligence(sustained, dueAt);
+    }
+
+    private static CampaignState ResolveAiIntent(CampaignState state, CampaignTime dueAt)
+    {
+        var groups = state.Groups;
+        var orders = state.Orders;
+        foreach (var group in state.Groups.Values)
+        {
+            if (group.ActiveOrderId is not null)
+            {
+                continue;
+            }
+
+            var first = state.Entities[group.Members.Min];
+            var neighbors = Neighbors(state, first.RegionId);
+            if (neighbors.Count == 0)
+            {
+                continue;
+            }
+
+            var destination = neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count];
+            var orderId = new OrderId(KeyedGuid(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-order"));
+            var order = new OrderState(
+                orderId,
+                group.GroupId,
+                OrderKind.Patrol,
+                destination,
+                dueAt,
+                new CampaignTime(checked(dueAt.Quanta + 30)),
+                CompletedAt: null,
+                new EntityRevision(1));
+            orders = orders.SetItem(orderId, order);
+            groups = groups.SetItem(group.GroupId, group with
+            {
+                ActiveOrderId = orderId,
+                Revision = group.Revision.Next(),
+            });
+        }
+        return state with { Groups = groups, Orders = orders };
+    }
+
+    private static GroupMovementResult ResolveMovement(CampaignState state, GroupState group, CampaignTime dueAt)
+    {
+        if (group.ActiveOrderId is not { } orderId
+            || !state.Orders.TryGetValue(orderId, out var order)
+            || order.StartsAt.Quanta > dueAt.Quanta
+            || order.CompletedAt is not null)
+        {
+            return new GroupMovementResult(group.GroupId, group, null, []);
+        }
+
+        var origin = state.Entities[group.Members.Min].RegionId;
+        var next = NextRegion(state, origin, order.DestinationRegionId);
+        var moved = next != origin;
+        var entityUpdates = group.Members.Select(id =>
+        {
+            var entity = state.Entities[id];
+            var resources = entity.Resources;
+            if (moved)
+            {
+                resources = Consume(resources, ResourceKind.Fuel, FuelPerMovement);
+            }
+            resources = Consume(resources, ResourceKind.Stores, StoresPerActivity);
+            var changed = moved || !resources.SequenceEqual(entity.Resources);
+            return changed
+                ? entity with
+                {
+                    RegionId = next,
+                    Resources = resources,
+                    DamageMilliUnits = moved ? Math.Min(1_000_000, entity.DamageMilliUnits + 10_000) : entity.DamageMilliUnits,
+                    Revision = entity.Revision.Next(),
+                }
+                : entity;
+        }).ToArray();
+
+        if (next != order.DestinationRegionId)
+        {
+            return new GroupMovementResult(group.GroupId, group, order, entityUpdates);
+        }
+
+        var completed = order with { CompletedAt = dueAt, Revision = order.Revision.Next() };
+        var released = group with { ActiveOrderId = null, Revision = group.Revision.Next() };
+        return new GroupMovementResult(group.GroupId, released, completed, entityUpdates);
+    }
+
+    private static CampaignState ResolveSustainmentAndAttrition(CampaignState state, CampaignTime dueAt)
+    {
+        var bases = state.Bases;
+        var entities = state.Entities;
+        foreach (var original in state.Entities.Values)
+        {
+            var entity = entities[original.EntityId];
+            var resources = entity.Resources;
+            var damage = entity.DamageMilliUnits;
+            var lifecycle = entity.Lifecycle;
+            var baseChanged = false;
+            BaseState? home = null;
+            if (entity.HomeBaseId is { } homeBaseId
+                && bases.TryGetValue(homeBaseId, out var found)
+                && found.RegionId == entity.RegionId
+                && !IsActivelyOrdered(state, entity.EntityId))
+            {
+                home = found;
+                (resources, home, baseChanged) = Replenish(resources, home);
+                if (damage > 0)
+                {
+                    var available = Get(home.Resources, ResourceKind.SpareParts);
+                    var repaired = Math.Min(Math.Min(available, RepairPerActivity), damage);
+                    if (repaired > 0)
+                    {
+                        damage -= checked((int)repaired);
+                        home = home with
+                        {
+                            Resources = Set(home.Resources, ResourceKind.SpareParts, available - repaired),
+                        };
+                        baseChanged = true;
+                    }
+                }
+            }
+
+            var shortageDamage = 0;
+            if (Get(resources, ResourceKind.Fuel) == 0)
+            {
+                shortageDamage += 100_000;
+            }
+            if (Get(resources, ResourceKind.Stores) == 0)
+            {
+                shortageDamage += 50_000;
+            }
+            var randomDamage = KeyedValue(state.Metadata.Seed, entity.EntityId.Value, dueAt, "attrition") % 1_000 < 25
+                ? 25_000
+                : 0;
+            damage = Math.Min(1_000_000, checked(damage + shortageDamage + randomDamage));
+            if (damage >= 1_000_000)
+            {
+                lifecycle = EntityLifecycle.Destroyed;
+            }
+            else if (damage >= 800_000)
+            {
+                lifecycle = EntityLifecycle.Disabled;
+            }
+
+            var readiness = Math.Clamp(
+                1_000 - damage / 1_000
+                - (Get(resources, ResourceKind.Fuel) == 0 ? 300 : 0)
+                - (Get(resources, ResourceKind.Stores) == 0 ? 200 : 0),
+                0,
+                1_000);
+            var changed = damage != entity.DamageMilliUnits
+                || readiness != entity.ReadinessMilliUnits
+                || lifecycle != entity.Lifecycle
+                || !resources.SequenceEqual(entity.Resources);
+            if (changed)
+            {
+                entities = entities.SetItem(entity.EntityId, entity with
+                {
+                    Resources = resources,
+                    DamageMilliUnits = damage,
+                    ReadinessMilliUnits = readiness,
+                    Lifecycle = lifecycle,
+                    Revision = entity.Revision.Next(),
+                });
+            }
+            if (home is not null && baseChanged)
+            {
+                bases = bases.SetItem(home.BaseId, home with { Revision = home.Revision.Next() });
+            }
+        }
+        return state with { Bases = bases, Entities = entities };
+    }
+
+    private static CampaignState ResolveIntelligence(CampaignState state, CampaignTime dueAt)
+    {
+        var intelligence = state.Intelligence;
+        var coalitions = state.Entities.Values.Select(item => item.CoalitionId)
+            .Concat(state.Bases.Values.Select(item => item.CoalitionId))
+            .Distinct()
+            .OrderBy(item => item)
+            .ToArray();
+        foreach (var observer in coalitions)
+        {
+            foreach (var contact in state.Entities.Values.Where(item => item.CoalitionId != observer))
+            {
+                var key = new IntelligenceKey(observer, contact.EntityId);
+                var revision = intelligence.TryGetValue(key, out var current)
+                    ? current.Revision.Next()
+                    : new EntityRevision(1);
+                var latitudeJitter = KeyedValue(state.Metadata.Seed, contact.EntityId.Value, dueAt, $"intel-lat-{observer}") % 20_001 - 10_000;
+                var longitudeJitter = KeyedValue(state.Metadata.Seed, contact.EntityId.Value, dueAt, $"intel-lon-{observer}") % 20_001 - 10_000;
+                var coordinate = GeoCoordinate.FromMicrodegrees(
+                    Math.Clamp(contact.Coordinate.LatitudeMicrodegrees + latitudeJitter, -90_000_000, 90_000_000),
+                    Math.Clamp(contact.Coordinate.LongitudeMicrodegrees + longitudeJitter, -180_000_000, 180_000_000));
+                intelligence = intelligence.SetItem(key, new IntelligenceEstimate(
+                    key,
+                    contact.RegionId,
+                    coordinate,
+                    IntelligenceConfidence.Probable,
+                    dueAt,
+                    revision));
+            }
+        }
+        return state with { Intelligence = intelligence };
+    }
+
+    private static ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> CreateActivities(
+        CampaignState state,
+        CampaignTime dueAt)
+    {
+        var result = ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState>.Empty;
+        foreach (var group in state.Groups.Values)
+        {
+            foreach (var kind in new[] { CampaignActivityKind.AiIntent, CampaignActivityKind.Movement, CampaignActivityKind.Sustainment })
+            {
+                var subject = CampaignSubject.Group(group.GroupId);
+                var id = ActivityId(state.Metadata.Seed, subject, dueAt, kind);
+                result = result.Add(id, new ScheduledActivityState(id, kind, subject, dueAt, new EntityRevision(1)));
+            }
+        }
+        foreach (var entity in state.Entities.Values)
+        {
+            foreach (var kind in new[] { CampaignActivityKind.Repair, CampaignActivityKind.Attrition, CampaignActivityKind.Intelligence })
+            {
+                var subject = CampaignSubject.Entity(entity.EntityId);
+                var id = ActivityId(state.Metadata.Seed, subject, dueAt, kind);
+                result = result.Add(id, new ScheduledActivityState(id, kind, subject, dueAt, new EntityRevision(1)));
+            }
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<RegionId> Neighbors(CampaignState state, RegionId regionId) =>
+        state.Regions.Values
+            .Where(item => item.RegionId == regionId || item.Neighbors.Contains(regionId))
+            .SelectMany(item => item.RegionId == regionId ? item.Neighbors : [item.RegionId])
+            .Distinct()
+            .OrderBy(item => item)
+            .ToArray();
+
+    private static RegionId NextRegion(CampaignState state, RegionId origin, RegionId destination)
+    {
+        if (origin == destination)
+        {
+            return origin;
+        }
+
+        var visited = new HashSet<RegionId> { origin };
+        var queue = new Queue<(RegionId Region, RegionId First)>();
+        foreach (var neighbor in Neighbors(state, origin))
+        {
+            visited.Add(neighbor);
+            queue.Enqueue((neighbor, neighbor));
+        }
+        while (queue.TryDequeue(out var item))
+        {
+            if (item.Region == destination)
+            {
+                return item.First;
+            }
+            foreach (var neighbor in Neighbors(state, item.Region))
+            {
+                if (visited.Add(neighbor))
+                {
+                    queue.Enqueue((neighbor, item.First));
+                }
+            }
+        }
+        return origin;
+    }
+
+    private static bool IsActivelyOrdered(CampaignState state, EntityId entityId) =>
+        state.Groups.Values.Any(item => item.Members.Contains(entityId) && item.ActiveOrderId is not null);
+
+    private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
+        Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)
+    {
+        var result = entity;
+        var home = campaignBase;
+        var changed = false;
+        foreach (var (kind, target) in new[]
+        {
+            (ResourceKind.Fuel, 1_000_000L),
+            (ResourceKind.Stores, 500_000L),
+            (ResourceKind.Munitions, 500_000L),
+        })
+        {
+            var current = Get(result, kind);
+            var available = Get(home.Resources, kind);
+            var transfer = Math.Min(Math.Max(0, target - current), available);
+            if (transfer == 0)
+            {
+                continue;
+            }
+            result = Set(result, kind, checked(current + transfer));
+            home = home with { Resources = Set(home.Resources, kind, available - transfer) };
+            changed = true;
+        }
+        return (result, home, changed);
+    }
+
+    private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> Consume(
+        ImmutableSortedDictionary<ResourceKind, ResourceAmount> resources,
+        ResourceKind kind,
+        long amount) =>
+        Set(resources, kind, Math.Max(0, Get(resources, kind) - amount));
+
+    private static long Get(ImmutableSortedDictionary<ResourceKind, ResourceAmount> resources, ResourceKind kind) =>
+        resources.TryGetValue(kind, out var value) ? value.MilliUnits : 0;
+
+    private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> Set(
+        ImmutableSortedDictionary<ResourceKind, ResourceAmount> resources,
+        ResourceKind kind,
+        long value) => resources.SetItem(kind, ResourceAmount.FromMilliUnits(value));
+
+    private static ScheduledActivityId ActivityId(
+        long seed,
+        CampaignSubject subject,
+        CampaignTime dueAt,
+        CampaignActivityKind kind) =>
+        new(KeyedGuid(seed, subject.Value, dueAt, $"activity-{subject.Kind}-{kind}"));
+
+    private static int KeyedValue(long seed, Guid subject, CampaignTime time, string purpose)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{seed}:{subject:N}:{time.Quanta}:{purpose}"));
+        return (int)(BitConverter.ToUInt32(bytes, 0) & 0x7FFFFFFF);
+    }
+
+    private static Guid KeyedGuid(long seed, Guid subject, CampaignTime time, string purpose)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{seed}:{subject:N}:{time.Quanta}:{purpose}"));
+        return new Guid(bytes.AsSpan(0, 16));
+    }
+
+    private static SimulatedEntityUpdate ToUpdate(EntityState item) => new(
+        item.EntityId, item.RegionId, item.Coordinate, item.Lifecycle, item.Resources,
+        item.ReadinessMilliUnits, item.DamageMilliUnits, item.Revision);
+
+    private static SimulatedBaseUpdate ToUpdate(BaseState item) =>
+        new(item.BaseId, item.Resources, item.Revision);
+
+    private static SimulatedGroupUpdate ToUpdate(GroupState item) =>
+        new(item.GroupId, item.ActiveOrderId, item.Revision);
+
+    private static SimulatedOrderUpdate ToUpdate(OrderState item) => new(
+        item.OrderId, item.GroupId, item.Kind, item.DestinationRegionId, item.StartsAt,
+        item.MustCompleteBy, item.CompletedAt, item.Revision);
+
+    private static SimulatedIntelligenceUpdate ToUpdate(IntelligenceEstimate item) => new(
+        item.Key.ObserverCoalitionId, item.Key.ContactEntityId, item.EstimatedRegionId,
+        item.EstimatedCoordinate, item.Confidence, item.ObservedAt, item.Revision);
+
+    private static ScheduledCampaignActivity ToContract(ScheduledActivityState item) => new(
+        item.ActivityId, item.Kind, item.Subject, item.DueAt, item.Revision);
+
+    private sealed record GroupMovementResult(
+        GroupId GroupId,
+        GroupState Group,
+        OrderState? Order,
+        IReadOnlyList<EntityState> Entities);
+}

@@ -14,7 +14,14 @@ public static class CampaignKernel
     public static CommittedCampaignEvent Decide(
         CampaignState state,
         CampaignCommand command,
-        CommitPosition commitPosition)
+        CommitPosition commitPosition) =>
+        Decide(state, command, commitPosition, workerCount: 1);
+
+    public static CommittedCampaignEvent Decide(
+        CampaignState state,
+        CampaignCommand command,
+        CommitPosition commitPosition,
+        int workerCount)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(command);
@@ -32,6 +39,7 @@ public static class CampaignKernel
             ReportIntelligenceCommand value => DecideIntelligence(state, command, value),
             SetWeatherCommand value => DecideWeather(state, command, value),
             AdvanceClockCommand value => DecideClock(state, command, value),
+            SimulateCampaignCommand value => DecideSimulation(state, command, value, workerCount),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
         };
 
@@ -77,6 +85,7 @@ public static class CampaignKernel
             IntelligenceReportedEvent value => ApplyIntelligence(state, campaignEvent, value),
             WeatherSetEvent value => ApplyWeather(state, campaignEvent, value),
             ClockAdvancedEvent value => state with { Time = value.Clock.NewTime },
+            CampaignSimulatedEvent value => ApplySimulation(state, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
         };
 
@@ -278,6 +287,25 @@ public static class CampaignKernel
         return Decision.Create(command.Subject, new ClockAdvancedEvent(value), state.CampaignRevision.Next());
     }
 
+    private static Decision DecideSimulation(
+        CampaignState state,
+        CampaignCommand command,
+        SimulateCampaignCommand value,
+        int workerCount)
+    {
+        RequireSubject(command, CampaignSubject.Campaign(state.Metadata.CampaignId));
+        RequireRevision(command, state.CampaignRevision);
+        if (value.NewTime.Quanta <= state.Time.Quanta || command.EffectiveAt != value.NewTime)
+        {
+            throw Violation("invalid-simulation-advance", "Simulation time must advance and equal the event effective time.");
+        }
+
+        return Decision.Create(
+            command.Subject,
+            CampaignSimulation.Resolve(state, value.NewTime, workerCount),
+            state.CampaignRevision.Next());
+    }
+
     private static CampaignState ApplyRegion(CampaignState state, CommittedCampaignEvent item, RegionRegisteredEvent value)
     {
         var region = value.Region;
@@ -302,7 +330,7 @@ public static class CampaignKernel
         var data = value.Entity;
         var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CoalitionId, data.RegionId,
             data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.Resources.ToImmutableSortedDictionary(),
-            data.ClassifiedTruthTag, item.NewSubjectRevision);
+            ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag, item.NewSubjectRevision);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
 
@@ -318,7 +346,7 @@ public static class CampaignKernel
     {
         var data = value.Order;
         var order = new OrderState(data.OrderId, data.GroupId, data.Kind, data.DestinationRegionId, data.StartsAt,
-            data.MustCompleteBy, new EntityRevision(1));
+            data.MustCompleteBy, CompletedAt: null, new EntityRevision(1));
         var group = state.Groups[data.GroupId] with { ActiveOrderId = data.OrderId, Revision = item.NewSubjectRevision };
         return state with { Orders = state.Orders.Add(order.OrderId, order), Groups = state.Groups.SetItem(group.GroupId, group) };
     }
@@ -382,7 +410,7 @@ public static class CampaignKernel
         {
             throw Violation("invalid-command-time", "The command cannot take effect before the durable campaign head.");
         }
-        if (command.Data is not AdvanceClockCommand && command.EffectiveAt != state.Time)
+        if (command.Data is not (AdvanceClockCommand or SimulateCampaignCommand) && command.EffectiveAt != state.Time)
         {
             throw Violation("future-command-not-scheduled", "Immediate reducers only accept commands effective at the current campaign time.");
         }
@@ -390,6 +418,92 @@ public static class CampaignKernel
         {
             throw Violation("commit-gap", "The event position must immediately follow the durable head.");
         }
+    }
+
+    private static CampaignState ApplySimulation(CampaignState state, CampaignSimulatedEvent value)
+    {
+        var entities = state.Entities;
+        foreach (var update in value.Entities)
+        {
+            var current = entities[update.EntityId];
+            entities = entities.SetItem(update.EntityId, current with
+            {
+                RegionId = update.RegionId,
+                Coordinate = update.Coordinate,
+                Lifecycle = update.Lifecycle,
+                Resources = update.Resources.ToImmutableSortedDictionary(),
+                ReadinessMilliUnits = update.ReadinessMilliUnits,
+                DamageMilliUnits = update.DamageMilliUnits,
+                Revision = update.Revision,
+            });
+        }
+
+        var bases = state.Bases;
+        foreach (var update in value.Bases)
+        {
+            bases = bases.SetItem(update.BaseId, bases[update.BaseId] with
+            {
+                Resources = update.Resources.ToImmutableSortedDictionary(),
+                Revision = update.Revision,
+            });
+        }
+
+        var groups = state.Groups;
+        foreach (var update in value.Groups)
+        {
+            groups = groups.SetItem(update.GroupId, groups[update.GroupId] with
+            {
+                ActiveOrderId = update.ActiveOrderId,
+                Revision = update.Revision,
+            });
+        }
+
+        var orders = state.Orders;
+        foreach (var update in value.Orders)
+        {
+            orders = orders.SetItem(update.OrderId, new OrderState(
+                update.OrderId,
+                update.GroupId,
+                update.Kind,
+                update.DestinationRegionId,
+                update.StartsAt,
+                update.MustCompleteBy,
+                update.CompletedAt,
+                update.Revision));
+        }
+
+        var intelligence = state.Intelligence;
+        foreach (var update in value.Intelligence)
+        {
+            var key = new IntelligenceKey(update.ObserverCoalitionId, update.ContactEntityId);
+            intelligence = intelligence.SetItem(key, new IntelligenceEstimate(
+                key,
+                update.EstimatedRegionId,
+                update.EstimatedCoordinate,
+                update.Confidence,
+                update.ObservedAt,
+                update.Revision));
+        }
+
+        var scheduled = value.PendingActivities.Select(item => new ScheduledActivityState(
+                item.ActivityId,
+                item.Kind,
+                item.Subject,
+                item.DueAt,
+                item.Revision))
+            .ToImmutableSortedDictionary(item => item.ActivityId, item => item);
+        var updated = state with
+        {
+            Time = value.NewTime,
+            Entities = entities,
+            Bases = bases,
+            Groups = groups,
+            Orders = orders,
+            Intelligence = intelligence,
+            ScheduledActivities = scheduled,
+        };
+        CampaignStateValidator.Validate(updated);
+        return updated;
     }
 
     private static void RequireSubject(CampaignCommand command, CampaignSubject expected)

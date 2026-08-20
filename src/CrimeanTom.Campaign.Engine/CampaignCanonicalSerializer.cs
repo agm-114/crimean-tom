@@ -57,7 +57,8 @@ public static class CampaignCanonicalSerializer
                 new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
                 item.HomeBaseId is null ? null : ParseId(item.HomeBaseId, value => new BaseId(value)),
                 ParseEnum<EntityLifecycle>(item.Lifecycle), ParseEnum<FidelityState>(item.Fidelity),
-                ReadResources(item.Resources), item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
+                ReadResources(item.Resources), item.ReadinessMilliUnits, item.DamageMilliUnits,
+                item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.EntityId, item => item),
             Groups = document.Groups.Select(item => new GroupState(
                 ParseId(item.Id, value => new GroupId(value)), item.Name,
@@ -70,6 +71,7 @@ public static class CampaignCanonicalSerializer
                 ParseId(item.GroupId, value => new GroupId(value)), ParseEnum<OrderKind>(item.Kind),
                 ParseId(item.DestinationRegionId, value => new RegionId(value)), new CampaignTime(item.StartsAt),
                 item.MustCompleteBy is null ? null : new CampaignTime(item.MustCompleteBy.Value),
+                item.CompletedAt is null ? null : new CampaignTime(item.CompletedAt.Value),
                 new EntityRevision(item.Revision))).ToImmutableSortedDictionary(item => item.OrderId, item => item),
             Intelligence = document.Intelligence.Select(item =>
             {
@@ -92,6 +94,13 @@ public static class CampaignCanonicalSerializer
                 ParseEnum<AssignmentRole>(item.Role), new AuthorityEpoch(item.AuthorityEpoch),
                 new CampaignTime(item.EffectiveAt), new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
+            ScheduledActivities = document.ScheduledActivities.Select(item => new ScheduledActivityState(
+                ParseId(item.Id, value => new ScheduledActivityId(value)),
+                ParseEnum<CampaignActivityKind>(item.Kind),
+                new CampaignSubject(ParseEnum<CampaignSubjectKind>(item.SubjectKind), ParseGuid(item.SubjectId)),
+                new CampaignTime(item.DueAt),
+                new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.ActivityId, item => item),
         };
         CampaignStateValidator.Validate(state);
         return state;
@@ -117,6 +126,7 @@ public static class CampaignCanonicalSerializer
         WriteIntelligence(writer, state);
         WriteWeather(writer, state);
         WriteAssignments(writer, state);
+        WriteScheduledActivities(writer, state);
         writer.WriteEndObject();
     }
 
@@ -181,6 +191,8 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("fidelity", (int)item.Fidelity);
             WriteResources(writer, item.Resources);
+            writer.WriteNumber("readinessMilliUnits", item.ReadinessMilliUnits);
+            writer.WriteNumber("damageMilliUnits", item.DamageMilliUnits);
             writer.WriteString("classifiedTruthTag", item.ClassifiedTruthTag);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
@@ -235,6 +247,14 @@ public static class CampaignCanonicalSerializer
             else
             {
                 writer.WriteNull("mustCompleteBy");
+            }
+            if (item.CompletedAt is { } completedAt)
+            {
+                writer.WriteNumber("completedAt", completedAt.Quanta);
+            }
+            else
+            {
+                writer.WriteNull("completedAt");
             }
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
@@ -294,6 +314,23 @@ public static class CampaignCanonicalSerializer
         writer.WriteEndArray();
     }
 
+    private static void WriteScheduledActivities(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("scheduledActivities");
+        foreach (var item in state.ScheduledActivities.Values)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", item.ActivityId.ToString());
+            writer.WriteNumber("kind", (int)item.Kind);
+            writer.WriteNumber("subjectKind", (int)item.Subject.Kind);
+            writer.WriteString("subjectId", item.Subject.Value.ToString("N"));
+            writer.WriteNumber("dueAt", item.DueAt.Quanta);
+            writer.WriteNumber("revision", item.Revision.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
     private static void WriteCoordinate(Utf8JsonWriter writer, GeoCoordinate coordinate)
     {
         writer.WriteNumber("latitudeMicrodegrees", coordinate.LatitudeMicrodegrees);
@@ -331,6 +368,8 @@ public static class CampaignCanonicalSerializer
         }
         return factory(parsed);
     }
+
+    private static Guid ParseGuid(string value) => ParseId(value, parsed => parsed);
 
     private static T ParseEnum<T>(int value) where T : struct, Enum =>
         Enum.IsDefined(typeof(T), value)
@@ -370,6 +409,7 @@ public static class CampaignCanonicalSerializer
         public required IntelligenceDocument[] Intelligence { get; init; }
         public required WeatherDocument[] Weather { get; init; }
         public required AssignmentDocument[] Assignments { get; init; }
+        public required ScheduledActivityDocument[] ScheduledActivities { get; init; }
     }
 
     private sealed class RegionDocument
@@ -405,6 +445,8 @@ public static class CampaignCanonicalSerializer
         public required int Lifecycle { get; init; }
         public required int Fidelity { get; init; }
         public required ResourceDocument[] Resources { get; init; }
+        public required int ReadinessMilliUnits { get; init; }
+        public required int DamageMilliUnits { get; init; }
         public required string ClassifiedTruthTag { get; init; }
         public required long Revision { get; init; }
     }
@@ -427,6 +469,7 @@ public static class CampaignCanonicalSerializer
         public required string DestinationRegionId { get; init; }
         public required long StartsAt { get; init; }
         public long? MustCompleteBy { get; init; }
+        public long? CompletedAt { get; init; }
         public required long Revision { get; init; }
     }
 
@@ -466,5 +509,15 @@ public static class CampaignCanonicalSerializer
     {
         public required int Kind { get; init; }
         public required long MilliUnits { get; init; }
+    }
+
+    private sealed class ScheduledActivityDocument
+    {
+        public required string Id { get; init; }
+        public required int Kind { get; init; }
+        public required int SubjectKind { get; init; }
+        public required string SubjectId { get; init; }
+        public required long DueAt { get; init; }
+        public required long Revision { get; init; }
     }
 }
