@@ -186,11 +186,74 @@ misses while producing the exact same catalog and mod-set hashes. The cache is
 atomic and fail-open; `CRIMEAN_TOM_DISABLE_LOAD_CACHE=1` disables reuse and
 `CRIMEAN_TOM_REFRESH_LOAD_CACHE=1` forces a refresh for a process.
 
+## Default divergence baseline
+
+Three fresh Sea Power processes loaded the same Red Sea Breakout mission through
+the typed scenario and briefing actions. No deterministic hooks changed game
+behavior. Each run was polled through the authenticated world route and paused
+on the first main-thread command after simulation time crossed 20 seconds.
+
+| Run | First observed >=20 s | Paused time | Objects / contacts / alerts |
+| --- | ---: | ---: | --- |
+| 1 | 20.028200 | 20.061533 | 44 / 11 / 15 |
+| 2 | 20.026928 | 20.060263 | 43 / 12 / 16 |
+| 3 | 20.016735 | 20.033403 | 43 / 12 / 16 |
+
+All three runs had the same identity hash
+`d4b81af247e3555522ab3b68a5a297a4621ec1a659761ff9f2e73dd793b23706`,
+damage hash
+`51343735eca12b97b8665b26d7a21d2718b4b1b43fbf767577bb81f2bc3defba`,
+and authored-order hash
+`d9cdd7467949690c43f0bdb3ac5ab6403422ae896e8e1e83ae24b33d3edf5be1`.
+Every run had a distinct canonical, kinematics, logistics, active-weapons, and
+contacts hash. Run 1 also had a distinct player-event hash; runs 2 and 3 shared
+the 16-alert event projection.
+
+This is the default baseline, not a statistical determinism claim. The pause
+boundary itself varied by 28.13 ms because `GameTime.OnUpdate` advances from the
+render-frame delta and the command executes on a later frame. That is already a
+material failure for exact replay: the same typed load and nominal logical-time
+boundary produced different object/contact/event counts and subsystem state.
+Later controlled-clock measurements must separate frame-boundary drift from RNG
+and update-order divergence rather than treating these hashes as interchangeable.
+
+## Multi-instance isolation experiment
+
+Crimean Tom's companion-side isolation works concurrently. While the primary
+companion served `127.0.0.1:5137` and `CrimeanTom.Game.v1`, a second real
+companion served `127.0.0.1:5138` and
+`CrimeanTom.Game.v1.instance-b` from a separate run directory. Both control
+hosts were healthy, their 43-character control tokens differed, and the primary
+game remained connected only to the primary pipe.
+
+The runtime bridge now resolves and advertises an instance ID, pipe name,
+native persistent-data path, and bridge-owned experimental save directory. Its
+probe save can be placed in a per-instance directory instead of Sea Power's
+default `Saves` directory. This is a working isolation seam for control traffic
+and Crimean-Tom-owned probe files, not a claim that the game is isolated.
+
+The supported Steam launch path blocked the paired-game experiment. Requesting
+app ID `1286220` a second time and waiting 12 seconds left exactly one Sea Power
+process with the same PID. Source inspection found 43 direct
+`Application.persistentDataPath` references across 20 game files, covering
+native saves, `last_save`, mission/campaign status, cache/export paths,
+`usersettings.ini`, `Player.log`, `ScriptEngine.log`, and Sentry archives. Unity
+`PlayerPrefs` also uses the shared current-user registry key. The experimental
+save route still causes native `SaveGame` to update shared `last_save`, even
+when the save body itself is redirected.
+
+Therefore simultaneous same-user replicas are **not valid evidence** on this
+installation. The explicit blockers are Steam's single-process launch behavior,
+shared native persistent data and preferences, and shared native logs. D1 paired
+tests require a supported per-process data/profile root (or isolated Windows
+users/VMs) and a launch path proven to create two independent game processes.
+
 ## Still-open Phase 1 gates
 
-- Publish targeted-guidance/final-outcome follow-up plus default-nondeterminism
-  and multi-instance evidence. The tactical-envelope experiment is now
-  published with its continuous-physics blocker. Blind-fire
+- Publish targeted-guidance/final-outcome follow-up. Default nondeterminism and
+  multi-instance evidence are now published; paired same-user runs fail closed
+  on Steam and shared native-profile blockers. The tactical-envelope experiment
+  is published with its continuous-physics blocker. Blind-fire
   native missile, torpedo, and bomb round trips are now proven, with the Mk-16
   inventory discrepancy explicitly blocking any stronger full-state claim.
 - The D0 structural audit now publishes a negative time-rebase result: a direct

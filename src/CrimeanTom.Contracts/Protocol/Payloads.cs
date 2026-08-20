@@ -4,6 +4,14 @@ public sealed class GameHelloPayload
 {
     public string ClientInstanceId { get; set; } = string.Empty;
 
+    public string RuntimeInstanceId { get; set; } = "default";
+
+    public string GamePipeName { get; set; } = ProtocolConstants.GamePipeName;
+
+    public string PersistentDataPath { get; set; } = string.Empty;
+
+    public string ExperimentalSaveDirectory { get; set; } = string.Empty;
+
     public string PluginVersion { get; set; } = string.Empty;
 
     public int ProcessId { get; set; }

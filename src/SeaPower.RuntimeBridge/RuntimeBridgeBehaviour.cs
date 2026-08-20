@@ -28,9 +28,14 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
         _executionThreadGuardSelfTest.Start(_mainThreadId, _fileFingerprintProvider);
 
         var assembly = typeof(Plugin).Assembly;
+        var instance = RuntimeInstanceConfiguration.Current;
         var hello = new GameHelloPayload
         {
             ClientInstanceId = Guid.NewGuid().ToString("N"),
+            RuntimeInstanceId = instance.InstanceId,
+            GamePipeName = instance.PipeName,
+            PersistentDataPath = Application.persistentDataPath,
+            ExperimentalSaveDirectory = instance.ExperimentalSaveDirectory,
             PluginVersion = assembly.GetName().Version?.ToString() ?? "unknown",
             ProcessId = Process.GetCurrentProcess().Id,
             GameVersion = Application.version,
@@ -39,12 +44,14 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
 
         _pipeClient = new PipeGameClient(
             hello,
+            instance.PipeName,
             QueueCommand,
             CancelCommand,
             EndSession,
             QueueLogMessage);
         _pipeClient.Start();
-        UnityEngine.Debug.Log("[Sea Power Runtime Bridge] game-control bridge started");
+        UnityEngine.Debug.Log(
+            $"[Sea Power Runtime Bridge] game-control bridge started for instance {instance.InstanceId} on pipe {instance.PipeName}");
     }
 
     private void Update()

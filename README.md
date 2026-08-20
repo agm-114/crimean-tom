@@ -46,6 +46,18 @@ The loopback control API is authenticated with a per-run token in the ignored
 `.run/` directory. The repository commands supply it automatically; callers do
 not need to place tokens in source or shell history.
 
+The runtime bridge resolves optional per-process isolation settings at startup:
+
+- `CRIMEAN_TOM_INSTANCE_ID` identifies the runtime in its authenticated hello;
+- `CRIMEAN_TOM_GAME_PIPE_NAME` selects the matching companion pipe; and
+- `CRIMEAN_TOM_EXPERIMENTAL_SAVE_DIRECTORY` isolates bridge-owned probe saves.
+
+The companion already accepts a distinct `-ControlUrl`, `-RunDirectory`, and
+`-GamePipeName`. These settings isolate Crimean Tom's control port, token, logs,
+pipe, and experimental checkpoint, but they do not relocate Sea Power's native
+`Application.persistentDataPath` or Unity `PlayerPrefs`. A process is not a safe
+paired replica until those native paths are isolated too.
+
 The planned campaign application is local-first: packaged .NET 8, SQLite WAL,
 and content-addressed local checkpoint files. Named pipes remain the same-machine
 game bridge. Generated gRPC/Protobuf services connect .NET companions and

@@ -14,6 +14,7 @@ internal sealed class PipeGameClient : IDisposable
     };
 
     private readonly GameHelloPayload _hello;
+    private readonly string _pipeName;
     private readonly Func<WireEnvelope, PriorityEnqueueResult> _receiveCommand;
     private readonly Func<string, bool> _cancelCommand;
     private readonly Action<string> _endSession;
@@ -26,12 +27,14 @@ internal sealed class PipeGameClient : IDisposable
 
     public PipeGameClient(
         GameHelloPayload hello,
+        string pipeName,
         Func<WireEnvelope, PriorityEnqueueResult> receiveCommand,
         Func<string, bool> cancelCommand,
         Action<string> endSession,
         Action<string, bool> log)
     {
         _hello = hello;
+        _pipeName = pipeName;
         _receiveCommand = receiveCommand;
         _cancelCommand = cancelCommand;
         _endSession = endSession;
@@ -81,7 +84,7 @@ internal sealed class PipeGameClient : IDisposable
             {
                 using var pipe = new NamedPipeClientStream(
                     ".",
-                    ProtocolConstants.GamePipeName,
+                    _pipeName,
                     PipeDirection.InOut,
                     PipeOptions.Asynchronous);
 

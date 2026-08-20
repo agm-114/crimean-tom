@@ -1285,12 +1285,15 @@ internal static class GameCommandDispatcher
                 "The native save probe requires at least one taskforce-registered missile, torpedo, or bomb; mounted systems and deployed noisemakers do not qualify.");
         }
         var before = GetWorldSnapshot();
-        var expectedSavePath = SaveLoadManager.GetSaveFilePath(ExperimentalProbeSaveFileName);
+        var expectedSavePath = RuntimeInstanceConfiguration.Current
+            .GetExperimentalSavePath(ExperimentalProbeSaveFileName);
         if (File.Exists(expectedSavePath))
         {
             File.Delete(expectedSavePath);
         }
-        var savePath = SaveLoadManager.SaveGame(ExperimentalProbeSaveFileName);
+        var savePath = SaveLoadManager.SaveGame(
+            ExperimentalProbeSaveFileName,
+            filePath: expectedSavePath);
         if (string.IsNullOrWhiteSpace(savePath))
         {
             return Failure(
@@ -1551,7 +1554,8 @@ internal static class GameCommandDispatcher
                 ProtocolErrorCodes.AutomationPreconditionFailed,
                 "A tactical mission is required for the save/load probe reload.");
         }
-        var savePath = SaveLoadManager.GetSaveFilePath(ExperimentalProbeSaveFileName);
+        var savePath = RuntimeInstanceConfiguration.Current
+            .GetExperimentalSavePath(ExperimentalProbeSaveFileName);
         if (!File.Exists(savePath))
         {
             return Failure(
