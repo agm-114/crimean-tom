@@ -93,6 +93,34 @@ Sea Power had already opened its debrief flow. Null-safe path normalization now
 returns the scheduled postcondition and completes the public
 `MissionDebriefViewModel` exit/confirm sequence without a menu click.
 
+## Tactical spatial envelope
+
+Schema 9 adds read-only spatial diagnostics to make the native tactical envelope
+measurable without inferring it from the map UI. In a fully loaded Red Sea
+Breakout capture, 40 observed objects occupied a maximum horizontal radius of
+302.204 km and a maximum pair separation of 375.867 km (`unit:326` to
+`unit:331`). Three objects were beyond the configured floating-origin rebase
+threshold of 1,000 Unity units, or 67.2 km. The camera was only 5.09 km from the
+current origin, so the distant objects were not an artifact of moving the view
+to them.
+
+The terrain manager reported 50 loaded and 50 finalized chunks. Each chunk is
+approximately 22.224 km wide, the configured view distance is four chunks, and
+the farthest loaded chunk center was 311.928 km from the current center tile.
+Those chunks are a discontiguous set around active areas, not continuous terrain
+covering the full object-to-object diameter.
+
+Both extreme units continued to simulate while off-camera. Across 5.03 seconds
+of unpaused simulation, their kinematics hashes and latitude/longitude changed;
+the E-2C changed from about 238.3 to 236.5 knots and the MiG-21 from about 618.6
+to 612.3 knots. The measured pair separation fell from 373.770 to 371.848 km.
+This is positive evidence that one process can advance widely separated units,
+but it is not yet proof of a continuous 300+ km physics bubble. A distant
+sensor/weapon engagement crossing active terrain, including collision, effects,
+guidance, and final damage, remains the explicit follow-up blocker. Spatial
+diagnostics are observational and are intentionally excluded from the canonical
+world hash.
+
 ## Representative facility, submarine, and reload identity
 
 The Red Sea capture contained five exact `LandUnit` records: an observation
@@ -160,8 +188,9 @@ atomic and fail-open; `CRIMEAN_TOM_DISABLE_LOAD_CACHE=1` disables reuse and
 
 ## Still-open Phase 1 gates
 
-- Publish targeted-guidance/final-outcome follow-up plus tactical-bubble,
-  default-nondeterminism, and multi-instance evidence. Blind-fire
+- Publish targeted-guidance/final-outcome follow-up plus default-nondeterminism
+  and multi-instance evidence. The tactical-envelope experiment is now
+  published with its continuous-physics blocker. Blind-fire
   native missile, torpedo, and bomb round trips are now proven, with the Mk-16
   inventory discrepancy explicitly blocking any stronger full-state claim.
 - The D0 structural audit now publishes a negative time-rebase result: a direct
@@ -171,7 +200,7 @@ atomic and fail-open; `CRIMEAN_TOM_DISABLE_LOAD_CACHE=1` disables reuse and
 - Replace the temporary maintenance mission context once its minimum UI
   dependencies are proven.
 
-The final broad main-menu control run passed after schema 8 on a fresh game
+The final broad main-menu control run passed after schema 9 on a fresh game
 process. It covered authenticated companion/game transport, thread guards,
 capabilities, world read, all normalized catalogs, override diagnostics, and
 campaign read while preserving the same catalog and mod-set identities.

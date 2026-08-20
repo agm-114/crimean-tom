@@ -202,6 +202,7 @@ internal static class GameCommandDispatcher
                 TimeCompression = Finite(GameTime.TimeCompression),
                 IsPaused = GameTime.IsPaused(),
                 StableIdentityState = "ready",
+                SpatialDiagnostics = CaptureSpatialDiagnostics([]),
             };
             PopulateWorldSubsystemHashes(emptySnapshot);
             captureTimer.Stop();
@@ -276,12 +277,121 @@ internal static class GameCommandDispatcher
             Weapons = weapons,
             Contacts = contacts,
             Events = events,
+            SpatialDiagnostics = CaptureSpatialDiagnostics(allObjects),
         };
         PopulateWorldSubsystemHashes(snapshot);
         captureTimer.Stop();
         snapshot.MainThreadCaptureDurationMicroseconds =
             captureTimer.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
         return snapshot;
+    }
+
+    private static SpatialDiagnosticsPayload CaptureSpatialDiagnostics(
+        IEnumerable<ObjectBase> objects)
+    {
+        const double metersPerUnityUnit = 67.2;
+        const double terrainChunkSizeUnity = 330.71396;
+        var candidates = objects
+            .Where(candidate => candidate is not null)
+            .Select(candidate => new
+            {
+                Object = candidate,
+                Position = candidate.transform.position,
+                Id = candidate is WeaponBase
+                    ? $"weapon:{candidate.UniqueID}"
+                    : candidate.isUnit()
+                        ? StableUnitId(candidate)
+                        : $"object:{candidate.UniqueID}",
+            })
+            .ToArray();
+        var rebaseThreshold = Math.Max(0d, Finite(Globals._rebaseToOrigin) ?? 0d);
+        var maximumDistance = 0d;
+        var maximumDistanceObjectId = string.Empty;
+        var beyondThreshold = 0;
+        foreach (var candidate in candidates)
+        {
+            var distance = Math.Sqrt(
+                candidate.Position.x * candidate.Position.x
+                + candidate.Position.z * candidate.Position.z);
+            if (distance > maximumDistance)
+            {
+                maximumDistance = distance;
+                maximumDistanceObjectId = candidate.Id;
+            }
+            if (rebaseThreshold > 0d && distance > rebaseThreshold)
+            {
+                beyondThreshold++;
+            }
+        }
+
+        var maximumPairDistance = 0d;
+        var maximumPairFirstObjectId = string.Empty;
+        var maximumPairSecondObjectId = string.Empty;
+        for (var firstIndex = 0; firstIndex < candidates.Length; firstIndex++)
+        {
+            for (var secondIndex = firstIndex + 1; secondIndex < candidates.Length; secondIndex++)
+            {
+                var deltaX = candidates[firstIndex].Position.x - candidates[secondIndex].Position.x;
+                var deltaZ = candidates[firstIndex].Position.z - candidates[secondIndex].Position.z;
+                var distance = Math.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+                if (distance <= maximumPairDistance)
+                {
+                    continue;
+                }
+                maximumPairDistance = distance;
+                maximumPairFirstObjectId = candidates[firstIndex].Id;
+                maximumPairSecondObjectId = candidates[secondIndex].Id;
+            }
+        }
+
+        var cameraPosition = Singleton<CameraManager>.InstanceExists()
+            ? Singleton<CameraManager>.Instance.getCameraUnityPosition()
+            : Vector3.zero;
+        var cameraDistance = Math.Sqrt(
+            cameraPosition.x * cameraPosition.x
+            + cameraPosition.z * cameraPosition.z);
+        var terrainManager = Singleton<TerrainManager>.InstanceExists()
+            ? Singleton<TerrainManager>.Instance
+            : null;
+        var maximumLoadedTerrainTileOffset = terrainManager?.TerrainChunkDictionary.Keys
+            .Select(tile => Math.Sqrt(
+                Math.Pow(tile.x - Globals._currentCenterTile.x, 2d)
+                + Math.Pow(tile.y - Globals._currentCenterTile.y, 2d)))
+            .DefaultIfEmpty(0d)
+            .Max() ?? 0d;
+        var relocationHandler = Singleton<RelocationHandler>.InstanceExists()
+            ? Singleton<RelocationHandler>.Instance
+            : null;
+        return new SpatialDiagnosticsPayload
+        {
+            MetersPerUnityUnit = metersPerUnityUnit,
+            CenterTileX = Globals._currentCenterTile.x,
+            CenterTileY = Globals._currentCenterTile.y,
+            RebaseThresholdUnity = rebaseThreshold,
+            RebaseThresholdMeters = rebaseThreshold * metersPerUnityUnit,
+            CameraHorizontalDistanceUnity = cameraDistance,
+            CameraHorizontalDistanceMeters = cameraDistance * metersPerUnityUnit,
+            ObjectCountBeyondRebaseThreshold = beyondThreshold,
+            MaximumObjectHorizontalDistanceUnity = maximumDistance,
+            MaximumObjectHorizontalDistanceMeters = maximumDistance * metersPerUnityUnit,
+            MaximumDistanceObjectId = maximumDistanceObjectId,
+            MaximumPairHorizontalSeparationUnity = maximumPairDistance,
+            MaximumPairHorizontalSeparationMeters = maximumPairDistance * metersPerUnityUnit,
+            MaximumPairFirstObjectId = maximumPairFirstObjectId,
+            MaximumPairSecondObjectId = maximumPairSecondObjectId,
+            TerrainChunkSizeUnity = terrainChunkSizeUnity,
+            TerrainChunkSizeMeters = terrainChunkSizeUnity * metersPerUnityUnit,
+            ConfiguredTerrainChunkViewDistance = Globals._terrainChunksViewDistance,
+            LoadedTerrainChunkCount = terrainManager?.TerrainChunkDictionary.Count ?? 0,
+            FinalizedTerrainChunkCount = terrainManager?.TerrainChunkDictionary.Values.Count(
+                chunk => chunk is not null && chunk._isFinalized) ?? 0,
+            MaximumLoadedTerrainTileOffset = maximumLoadedTerrainTileOffset,
+            MaximumLoadedTerrainCenterDistanceMeters =
+                maximumLoadedTerrainTileOffset * terrainChunkSizeUnity * metersPerUnityUnit,
+            InitialTerrainLoadingDone = terrainManager?.IsInitialLoadingDone ?? false,
+            RelocationHandlerAvailable = relocationHandler is not null,
+            LastRelocationEventTimeMilliseconds = relocationHandler?.LastRelocationEventTime ?? 0L,
+        };
     }
 
     private static void PopulateWorldSubsystemHashes(WorldSnapshotPayload snapshot)
