@@ -45,9 +45,10 @@ internal static class RuntimeDeterministicHookFingerprintProvider
                 CaptureGroup(
                     "weapon-probe-launch",
                     RequiredMethod(typeof(WeaponContainer), "testLaunch"),
+                    RequiredMethod(typeof(WeaponContainer), "launch"),
                     RequiredMethod(typeof(WeaponContainer), "LaunchFromMagazine"),
                     RequiredMethod(typeof(WeaponSystemHardpoint), "launch")),
-                "e503a9063a1440e3a0a76ad619bfe1598a4a4718dabc141ed6528c11a15b1146"),
+                "28870a35de4e170c642823e69dc520707187224067c89590643cca2f3a6c19c3"),
         };
     }
 

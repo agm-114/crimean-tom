@@ -1346,6 +1346,33 @@ internal static class GameCommandDispatcher
                 "weaponType must be Missile, Torpedo, or Bomb.");
         }
 
+        ObjectBase? intendedTarget = null;
+        if (!string.IsNullOrWhiteSpace(request.TargetUnitId))
+        {
+            var targetMatches = Singleton<ObjectsManager>.Instance._listOfAllObjects
+                .Where(candidate => candidate is not null
+                    && candidate.isUnit()
+                    && !candidate.IsDestroyed
+                    && string.Equals(
+                        StableUnitId(candidate),
+                        request.TargetUnitId,
+                        StringComparison.Ordinal))
+                .ToArray();
+            if (targetMatches.Length != 1)
+            {
+                return Failure(
+                    ProtocolErrorCodes.AutomationPreconditionFailed,
+                    $"Target unit '{request.TargetUnitId}' resolved to {targetMatches.Length} live units.");
+            }
+            intendedTarget = targetMatches[0];
+            if (Globals._playerTaskforce._taskforceUnits.Contains(intendedTarget))
+            {
+                return Failure(
+                    ProtocolErrorCodes.AutomationPreconditionFailed,
+                    "The experimental probe refuses a player-taskforce target.");
+            }
+        }
+
         var units = Globals._playerTaskforce._taskforceUnits
             .Where(unit => unit is not null && unit.isUnit())
             .Where(unit => string.IsNullOrWhiteSpace(request.UnitId)
@@ -1378,8 +1405,10 @@ internal static class GameCommandDispatcher
                     {
                         hardpoint._ammoForEngage = new Ammunition(weapon._ap);
                         hardpoint.launch(
-                            null,
-                            launchPosition + forward * 44.64281f,
+                            intendedTarget,
+                            intendedTarget is null
+                                ? launchPosition + forward * 44.64281f
+                                : intendedTarget.transform.position,
                             Vector3.zero,
                             unit.UnityVelocityVector);
                     }
@@ -1393,6 +1422,7 @@ internal static class GameCommandDispatcher
                         -1,
                         desiredType,
                         weapon,
+                        intendedTarget,
                         "The pinned hardpoint launch seam returned without launching the selected weapon.");
                 }
 
@@ -1409,14 +1439,27 @@ internal static class GameCommandDispatcher
                         && candidate._ap?._type == desiredType);
                     if (weapon is not null)
                     {
-                        launcher.testLaunchWeapon(containerIndex);
+                        if (intendedTarget is null)
+                        {
+                            launcher.testLaunchWeapon(containerIndex);
+                        }
+                        else
+                        {
+                            container.launch(
+                                intendedTarget,
+                                intendedTarget.transform.position,
+                                Vector3.zero,
+                                0f,
+                                weapon._ap._ammunitionFileName);
+                        }
                         return CompleteExperimentalWeaponLaunch(
                             unit,
                             weaponSystemIndex,
                             containerIndex,
                             desiredType,
                             weapon,
-                            "The pinned test launch seam returned without launching the selected weapon.");
+                            intendedTarget,
+                            "The pinned container launch seam returned without launching the selected weapon.");
                     }
 
                     var weaponParameters = launcher._vwp;
@@ -1445,8 +1488,10 @@ internal static class GameCommandDispatcher
                     var targetPosition = launchPosition + forward * 44.64281f;
                     if (!container.LaunchFromMagazine(
                         ammunition._ap._ammunitionFileName,
-                        null,
-                        targetPosition,
+                        intendedTarget,
+                        intendedTarget is null
+                            ? targetPosition
+                            : intendedTarget.transform.position,
                         Vector3.zero,
                         0f,
                         weaponParameters._magazineReloadTime))
@@ -1475,6 +1520,7 @@ internal static class GameCommandDispatcher
                         containerIndex,
                         desiredType,
                         weapon,
+                        intendedTarget,
                         "The magazine launch returned a weapon that was not marked launched.");
                 }
             }
@@ -1491,6 +1537,7 @@ internal static class GameCommandDispatcher
         int containerIndex,
         Ammunition.Type desiredType,
         WeaponBase weapon,
+        ObjectBase? intendedTarget,
         string notLaunchedMessage)
     {
         if (!weapon.isLaunched())
@@ -1517,6 +1564,9 @@ internal static class GameCommandDispatcher
             WeaponType = desiredType.ToString(),
             AmmunitionId = weapon._ap?._ammunitionFileName ?? string.Empty,
             ActiveWeaponId = $"weapon:{weapon.UniqueID}",
+            IntendedTargetUnitId = intendedTarget is null
+                ? string.Empty
+                : StableUnitId(intendedTarget),
             SerializableActiveWeaponCount = serializableWeapons.Length,
         });
     }

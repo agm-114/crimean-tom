@@ -228,9 +228,11 @@ Build an evidence-backed read model before attempting to create or mutate units.
 - Test native save/load with a missile, torpedo, and bomb in flight, including
   guidance/target links and final outcome.
 - Blind-fire representatives for all three weapon families now survive the
-  pinned native round trip and resume their native lifecycle. Target links and
-  final outcome remain open, and an unrelated submarine magazine-count change
-  prevents treating the native save as authoritative full-state persistence.
+  pinned native round trip and resume their native lifecycle. A targeted RIM-66G
+  also restored its target link, resumed guidance, and destroyed that target.
+  Torpedo/bomb target equivalence remains open, and an unrelated submarine
+  magazine-count change prevents treating the native save as authoritative
+  full-state persistence.
 - Record unsupported or lossy fields rather than inventing mappings.
 
 ### 1E. Bridge-driven UI automation

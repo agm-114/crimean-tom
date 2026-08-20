@@ -73,19 +73,35 @@ reload through `WeaponContainer.LaunchFromMagazine`, or an aircraft
 
 | Family | Scenario and native object | Save SHA-256 | Round-trip and lifecycle evidence |
 | --- | --- | --- | --- |
-| Missile | Red Sea Breakout; Yorktown `usn_rgm-84d`, `weapon:10` | `9ce76cf4c20f35a1339830e4c9921f5908110ee8c642f863822d1b2f15369525` | Native save wrote one `Taskforce1Weapon` with platform/system, position, velocity, stage, launch time, and travel state. Reload restored the missile. Unpause advanced `Launch` to `ToBearing` to `MaintainHeight`; the blind-fire probe completed/disappeared near simulation second 37. |
+| Missile | Red Sea Breakout; Yorktown `usn_rgm-84d`, `weapon:10` | `9ce76cf4c20f35a1339830e4c9921f5908110ee8c642f863822d1b2f15369525` | Native save wrote one `Taskforce1Weapon` with platform/system, position, velocity, stage, launch time, and travel state. Reload restored the missile. Unpause advanced `Launch` to `ToBearing` to `MaintainHeight`; the blind-fire probe completed/disappeared near simulation second 37. A separate targeted RIM-66G round trip is described below. |
 | Torpedo | Sub Duel Pacific Shield 1971; Scamp `usn_mk37_mod2`, `weapon:9` | `ba2c638e8c37e1312573a0da781da78c662a3e02b2f24829adc895b393c6bcda` | Magazine count changed 14 to 13, native save wrote one weapon with `UnderwaterLaunch`, platform `1`, and launcher `7`, and reload restored the same ID/type/platform/stage. Unpause advanced it to `UnderwaterToBearing` at 24 knots with increasing distance. |
 | Bomb | Caron at Grenada 1983; A-7E CBU-100/Rockeye, `weapon:257` | `b18d072de1472e63c1f0fd8623aedf75d8fcd0b3034cc2d61c3dd30981a7066e` | Hardpoint store count changed 4 to 3, native save wrote one weapon with `DropFromAircraft`, platform `254`, and `WeaponSystemHardpoint5`, and reload restored the same count and active identity. Unpause advanced it to `TerminalApproach` while descending from about 10,007 to 9,102 feet. |
 
-The native file reported `NumberOfTaskforce1Weapons=1` in all three cases. The
-probe deliberately uses an untargeted point ahead of the platform, so intended
-target links, guided-target reacquisition, and final damage equivalence remain
-unproven. Whole-world canonical hashes also differ across reload. One concrete
+The native file reported `NumberOfTaskforce1Weapons=1` in all three blind-fire
+cases. Whole-world canonical hashes differ across reload. One concrete
 native fidelity defect is now isolated: Scamp's unrelated Mk-16 inventory read
 15 before the Mk-37 save and 9 after reload, even though the launched Mk-37 and
 its 13-round remainder restored. Active-weapon persistence is therefore proven
 for these blind-fire representatives, but the native save is not suitable as
 authoritative external campaign state.
+
+The typed launch request now also accepts a foreign observed unit ID. In a
+separate Red Sea run, Yorktown launched RIM-66G `weapon:354` at P6
+`unit:89`. The pre-save weapon observation reported semi-active radar homing and
+`intendedTargetId=unit:89`. Native save SHA-256
+`f3a5df8526e0fb21c700782ba1233763b22b53656b826c4de0692a33c9c62e41`
+contained `TargetObject=Taskforce2Vessel1`, the target geo-position, platform
+`8`, and the launcher reference. Reload restored the same weapon ID, target ID,
+launch time, and `Launch` stage at the exact saved simulation time.
+
+After unpause the restored missile progressed through `ToBearing`,
+`MaintainHeight`, `MaintainLoftAlt`, and `TerminalApproach`. At simulation second
+23.267 the weapon disappeared and the P6 reported destroyed with 34.704 damage
+points (0.2413 of its captured total-damage capacity). This proves target-link,
+guidance-lifecycle, and final native outcome continuity for one targeted missile.
+It does not prove equivalence for torpedo homing, bomb targeting, countermeasures,
+or every damage subsystem, and the unrelated Mk-16 defect still prevents using
+the native save as authoritative campaign state.
 
 The typed tactical-exit workflow was also exercised after native reload. A
 null relative mission path originally caused the result snapshot to fail after
@@ -250,8 +266,10 @@ users/VMs) and a launch path proven to create two independent game processes.
 
 ## Still-open Phase 1 gates
 
-- Publish targeted-guidance/final-outcome follow-up. Default nondeterminism and
-  multi-instance evidence are now published; paired same-user runs fail closed
+- Expand targeted guidance/final-outcome coverage beyond the proven RIM-66G
+  missile when a later portable-field gate needs torpedo, bomb, or
+  countermeasure equivalence. Default nondeterminism and multi-instance evidence
+  are published; paired same-user runs fail closed
   on Steam and shared native-profile blockers. The tactical-envelope experiment
   is published with its continuous-physics blocker. Blind-fire
   native missile, torpedo, and bomb round trips are now proven, with the Mk-16

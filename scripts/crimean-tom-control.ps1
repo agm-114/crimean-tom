@@ -33,6 +33,8 @@ param(
 
     [string]$UnitId = '',
 
+    [string]$TargetUnitId = '',
+
     [int]$Quantity = 1,
 
     [switch]$SkipBuild
@@ -560,7 +562,11 @@ switch ($Action) {
         Show-Json (Invoke-ControlRequest `
             '/game/experimental/save-load/launch' `
             'Post' `
-            ([pscustomobject]@{ weaponType = $WeaponType; unitId = $UnitId }))
+            ([pscustomobject]@{
+                weaponType = $WeaponType
+                unitId = $UnitId
+                targetUnitId = $TargetUnitId
+            }))
     }
     'load-probe-experimental' {
         Show-Json (Invoke-ControlRequest '/game/experimental/save-load/load' 'Post')
