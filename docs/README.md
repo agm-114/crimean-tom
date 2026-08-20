@@ -68,6 +68,9 @@ The folders separate evidence from design commitments:
 20. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
     bounded-mutation exit condition to live evidence and records the narrow
     gate disposition.
+21. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
+    records the game-independent deterministic domain, contract, canonical hash,
+    and information-filtering slice.
 
 ## Evidence labels
 

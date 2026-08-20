@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CrimeanTom.Campaign.Engine</AssemblyName>
+    <RootNamespace>CrimeanTom.Campaign.Engine</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrimeanTom.Campaign.Contracts\CrimeanTom.Campaign.Contracts.csproj" />
+    <ProjectReference Include="..\CrimeanTom.Campaign.Domain\CrimeanTom.Campaign.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -13,8 +13,8 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
-Phases 0, 1, and 2 are complete and the repository is actively implementing
-Phase 3. The local
+Phases 0, 1, and 2 are complete, Phase 3A is complete, and the repository is
+actively implementing Phase 3B. The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
 navigation, and disposable port-maintenance draft flow have live evidence on
@@ -439,6 +439,12 @@ save transfer may permit whole-island handoff without field-level reconstruction
 Run a persistent campaign outside Sea Power with exact replay.
 
 ### 3A. Domain and contracts
+
+**Status: complete (20 August 2026).** The game-independent contracts, immutable
+canonical domain, in-memory command/event reducer, strict versioned JSON wire
+format, fixed-point units, canonical state hash, and structurally filtered
+coalition projection are implemented. See the
+[Phase 3A evidence](../evidence/phase-3a-kernel-evidence-2026-08-20.md).
 
 - Create campaign domain, engine, contracts, and test projects without game
   assembly references.

@@ -1,0 +1,142 @@
+using System.Collections.Immutable;
+using CrimeanTom.Campaign.Contracts;
+
+namespace CrimeanTom.Campaign.Domain;
+
+public sealed record CampaignMetadata(
+    CampaignId CampaignId,
+    string Name,
+    long Seed,
+    string CatalogFingerprint,
+    int SchemaVersion,
+    int AlgorithmVersion);
+
+public sealed record RegionState(
+    RegionId RegionId,
+    string Name,
+    ImmutableSortedSet<RegionId> Neighbors,
+    EntityRevision Revision);
+
+public sealed record BaseState(
+    BaseId BaseId,
+    string Name,
+    CoalitionId CoalitionId,
+    RegionId RegionId,
+    GeoCoordinate Coordinate,
+    ImmutableSortedDictionary<ResourceKind, ResourceAmount> Resources,
+    EntityRevision Revision);
+
+public sealed record EntityState(
+    EntityId EntityId,
+    string Name,
+    string CatalogUnitId,
+    CoalitionId CoalitionId,
+    RegionId RegionId,
+    GeoCoordinate Coordinate,
+    BaseId? HomeBaseId,
+    EntityLifecycle Lifecycle,
+    FidelityState Fidelity,
+    ImmutableSortedDictionary<ResourceKind, ResourceAmount> Resources,
+    string ClassifiedTruthTag,
+    EntityRevision Revision);
+
+public sealed record GroupState(
+    GroupId GroupId,
+    string Name,
+    CoalitionId CoalitionId,
+    ImmutableSortedSet<EntityId> Members,
+    OrderId? ActiveOrderId,
+    EntityRevision Revision);
+
+public sealed record OrderState(
+    OrderId OrderId,
+    GroupId GroupId,
+    OrderKind Kind,
+    RegionId DestinationRegionId,
+    CampaignTime StartsAt,
+    CampaignTime? MustCompleteBy,
+    EntityRevision Revision);
+
+public readonly record struct IntelligenceKey(CoalitionId ObserverCoalitionId, EntityId ContactEntityId)
+    : IComparable<IntelligenceKey>
+{
+    public int CompareTo(IntelligenceKey other)
+    {
+        var coalition = ObserverCoalitionId.CompareTo(other.ObserverCoalitionId);
+        return coalition != 0 ? coalition : ContactEntityId.CompareTo(other.ContactEntityId);
+    }
+}
+
+public sealed record IntelligenceEstimate(
+    IntelligenceKey Key,
+    RegionId EstimatedRegionId,
+    GeoCoordinate EstimatedCoordinate,
+    IntelligenceConfidence Confidence,
+    CampaignTime ObservedAt,
+    EntityRevision Revision);
+
+public sealed record WeatherState(
+    RegionId RegionId,
+    HeadingMilliDegrees WindDirection,
+    SpeedMillimetersPerSecond WindSpeed,
+    DistanceMeters Visibility,
+    int SeaStateMilliUnits,
+    EntityRevision Revision);
+
+public sealed record AssignmentState(
+    AssignmentId AssignmentId,
+    EntityId EntityId,
+    AssignmentRole Role,
+    AuthorityEpoch AuthorityEpoch,
+    CampaignTime EffectiveAt,
+    EntityRevision Revision);
+
+public sealed record CampaignState
+{
+    public required CampaignMetadata Metadata { get; init; }
+    public CampaignTime Time { get; init; } = CampaignTime.Origin;
+    public CommitPosition Head { get; init; } = CommitPosition.Origin;
+    public EntityRevision CampaignRevision { get; init; } = EntityRevision.None;
+    public ImmutableSortedDictionary<RegionId, RegionState> Regions { get; init; } = ImmutableSortedDictionary<RegionId, RegionState>.Empty;
+    public ImmutableSortedDictionary<BaseId, BaseState> Bases { get; init; } = ImmutableSortedDictionary<BaseId, BaseState>.Empty;
+    public ImmutableSortedDictionary<EntityId, EntityState> Entities { get; init; } = ImmutableSortedDictionary<EntityId, EntityState>.Empty;
+    public ImmutableSortedDictionary<GroupId, GroupState> Groups { get; init; } = ImmutableSortedDictionary<GroupId, GroupState>.Empty;
+    public ImmutableSortedDictionary<OrderId, OrderState> Orders { get; init; } = ImmutableSortedDictionary<OrderId, OrderState>.Empty;
+    public ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate> Intelligence { get; init; } = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty;
+    public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
+    public ImmutableSortedDictionary<AssignmentId, AssignmentState> Assignments { get; init; } = ImmutableSortedDictionary<AssignmentId, AssignmentState>.Empty;
+
+    public static CampaignState Create(CampaignMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        CampaignInvariants.RequireId(metadata.CampaignId);
+        CampaignInvariants.RequireText(metadata.Name, nameof(metadata.Name));
+        CampaignInvariants.RequireText(metadata.CatalogFingerprint, nameof(metadata.CatalogFingerprint));
+
+        if (metadata.SchemaVersion != CampaignSchema.Version || metadata.AlgorithmVersion != CampaignSchema.AlgorithmVersion)
+        {
+            throw new InvalidOperationException("Campaign metadata versions are not supported by this engine.");
+        }
+
+        return new CampaignState { Metadata = metadata };
+    }
+}
+
+public static class CampaignInvariants
+{
+    public static void RequireId<T>(T id) where T : struct, ICampaignId
+    {
+        if (id.Value == Guid.Empty)
+        {
+            throw new InvalidOperationException($"{typeof(T).Name} cannot be empty.");
+        }
+    }
+
+    public static void RequireText(string value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException($"{name} cannot be empty.");
+        }
+    }
+}

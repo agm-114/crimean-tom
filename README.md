@@ -19,7 +19,7 @@ dependency DLLs. The build removes the obsolete `StreamingAssets\CrimeanTom`
 plugin directory created by pre-rename builds.
 
 ```powershell
-pnpm test        # run the broad companion/control integration scenario
+pnpm test        # run the broad control and campaign integration stories
 pnpm build       # build and deploy
 pnpm launch      # launch the game and wait for the plugin health marker
 pnpm dev         # restart as needed, then build, deploy, launch, and verify

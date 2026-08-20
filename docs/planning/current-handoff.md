@@ -3,8 +3,10 @@
 ## Repository state
 
 This handoff records the state at the end of the 20 August 2026 implementation
-session. Phases 0, 1, and 2 are complete and Phase 3 is active. No authoritative
-campaign commit or campaign simulation is enabled. The first allow-listed
+session. Phases 0, 1, 2, and 3A are complete and Phase 3B is active. No durable
+campaign service authority or unattended campaign simulation is enabled. The
+game-independent kernel can now validate typed commands, produce and apply
+ordered events, and hash immutable canonical state. The first allow-listed
 tactical mutation family now materializes one Crimean-Tom-owned Knox surface
 unit after explicit, session-scoped arming. That owned unit can now be
 checkpointed, revision-fenced, updated, suspended outside the active world, and
@@ -195,11 +197,12 @@ counts. Detached recovery release is registry-only, fenced, idempotent, and
 cannot act while a Unity object or checkpoint remains. The Phase 2 gate matrix
 closes the narrow Knox gate.
 
-The next slice is Phase 3A: implement the persistent external campaign domain,
-contracts, SQLite schema, transaction journal, optimistic revision fences, and
-deterministic canonical hashing. Keep tactical projection and campaign commit
-separate: Sea Power remains a fenced client of the external authoritative
-kernel, and no tactical result may commit before the later outcome gates.
+The next slice is Phase 3B: add a SQLite WAL campaign store, compare-and-swap
+writer epochs, transactional command/event append, idempotency, snapshots, and
+crash-boundary recovery around the Phase 3A kernel. Keep tactical projection and
+campaign commit separate: Sea Power remains a fenced client of the external
+authoritative kernel, and no tactical result may commit before the later outcome
+gates.
 
 ## Deferred hardening
 
