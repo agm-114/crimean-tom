@@ -11,7 +11,8 @@ are working. Portable checkpoints now carry normalized runtime fuel, magazine,
 and damage fractions and combine them with the durable handoff baseline before
 canonical release. Catalog mismatch now fails closed before materialization,
 and a destroyed tactical unit returns as canonical terminal damage before its
-assignment releases. Live Sea Power scenarios, crash-boundary coverage,
+assignment releases. Game-process crashes before the first checkpoint and after
+a local mutation but before its proposal are covered. Live Sea Power scenarios,
 outcome-timeline policy, and the final P4 gate are not yet complete. Tactical
 assignments have a fixed 120-quanta maximum interval: if a
 worker does not return, the coordinator resolves at that exact campaign time,
@@ -125,6 +126,18 @@ A deliberately incompatible catalog fingerprint produces a durable negative
 preparation report, issues no materialization commands, and leaves the
 assignment in `Preparing` until the bounded operational fallback releases it.
 
+The crash-boundary continuation uses two replacement game-pipe peers. In the
+first boundary, the fallback Knox applies an update locally and its simulated
+game process disconnects before returning the command response. The companion
+therefore cannot construct or spool a tactical proposal; after it reconnects,
+the inbound durable spool contains no event for that idempotency key and the
+canonical entity retains its prior coordinate. Its already committed initial
+checkpoint remains available to the deadline resolver. In the second boundary,
+a new Knox materializes and the game disconnects while capturing its first
+checkpoint. The assignment remains Preparing, has no checkpoint reference, and
+is released at the same fixed deadline with the explicit
+`operational-resolution-without-worker-checkpoint` report.
+
 The broad story also hands off a second Knox, waits for its initial checkpoint,
 stops the companion, and advances directly to its 120-quanta deadline. The
 assigned entity stays frozen until the deadline, unrelated simulation continues,
@@ -154,7 +167,11 @@ service process in addition to the real companion and mock game peer. It:
 - captures and commits a destroyed combat entity before releasing authority;
   and
 - proves initial/final checkpoints at the same game revision remain distinct,
-  durable, and replay-safe.
+  durable, and replay-safe;
+- crashes a game peer after local mutation but before proposal creation and
+  proves the local-only state never reaches the canonical journal; and
+- crashes a replacement peer before its first checkpoint and proves bounded
+  no-checkpoint Operational resolution.
 
 The story then continues across the pre-existing authenticated HTTP, named-pipe,
 catalog, UI-automation, scenario, controlled-tick, save/load, mutation lifecycle,
@@ -170,5 +187,5 @@ pnpm build
 
 ## Next slice
 
-Add the unacknowledged crash-boundary scenario, then run the measured live Sea
-Power round trip and establish the player-visible durability timeline policy.
+Run the measured live Sea Power round trip and establish the player-visible
+durability timeline policy.

@@ -91,6 +91,9 @@ public sealed class CompanionControlIntegrationTests
             var fallbackEntityId = bootstrap.RootElement.GetProperty("fallbackEntityId").GetString()!;
             var combatEntityId = bootstrap.RootElement.GetProperty("combatEntityId").GetString()!;
             var mismatchEntityId = bootstrap.RootElement.GetProperty("mismatchEntityId").GetString()!;
+            var crashBeforeCheckpointEntityId = bootstrap.RootElement
+                .GetProperty("crashBeforeCheckpointEntityId")
+                .GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
             var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
             const string gameEntityId = "unit:crimean-tom:transport-knox";
@@ -913,13 +916,14 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(1_000_000, destroyedCombat.GetProperty("damageMilliunits").GetInt32());
 
             var fallbackAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000005"):N}";
+            const string fallbackGameEntityId = "unit:crimean-tom:fallback-knox";
             using var fallbackHandoff = await campaignClient.PostAsJsonAsync(
                 "/control/handoffs",
                 new
                 {
                     campaignId,
                     canonicalEntityId = fallbackEntityId,
-                    gameEntityId = "unit:crimean-tom:fallback-knox",
+                    gameEntityId = fallbackGameEntityId,
                     assignmentId = fallbackAssignmentId,
                     authorityEpoch = 12,
                     idempotencyKey = "fallback-materialize-1",
@@ -948,6 +952,92 @@ public sealed class CompanionControlIntegrationTests
                     && item.GetProperty("lifecycle").GetString() == "Active"),
                 testTimeout.Token);
             await gamePeer;
+
+            var crashAfterCheckpointPeer = RunGameCrashPeerAsync(
+                gamePipeName,
+                CrashPeerBoundary.AfterMutationBeforeProposal,
+                "crash-local-only-1",
+                testTimeout.Token);
+            await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            using var crashLocalCommand = await campaignClient.PostAsJsonAsync(
+                "/control/commands",
+                new OrderedTacticalCommand
+                {
+                    CommandId = Guid.NewGuid().ToString("N"),
+                    IdempotencyKey = "crash-local-only-1",
+                    AssignmentId = fallbackAssignmentId,
+                    EntityId = fallbackGameEntityId,
+                    AuthorityEpoch = 12,
+                    ExpectedEntityRevision = 1,
+                    EffectiveTimeQuanta = 31,
+                    LatitudeMicrodegrees = 13_500_000,
+                    LongitudeMicrodegrees = 45_500_000,
+                    HeadingMillidegrees = 180_000,
+                    Telegraph = 2,
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, crashLocalCommand.StatusCode);
+            var localOnlyMutation = await crashAfterCheckpointPeer;
+            Assert.Equal(GameCommandTypes.UpdateOwnedSurfaceUnit, localOnlyMutation.CommandType);
+            Assert.Equal("crash-local-only-1", localOnlyMutation.IdempotencyKey);
+
+            var crashBeforeCheckpointPeer = RunGameCrashPeerAsync(
+                gamePipeName,
+                CrashPeerBoundary.BeforeInitialCheckpoint,
+                "crash-before-checkpoint-1-checkpoint",
+                testTimeout.Token);
+            await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            await WaitForCampaignSessionAsync(campaignClient, secondCampaignSession, testTimeout.Token);
+            Assert.DoesNotContain(
+                ReadInboundAuthorityFrames(campaignServiceRunDirectory),
+                item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                    && item.TacticalEvent.IdempotencyKey == "crash-local-only-1");
+            using var localOnlyViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            localOnlyViewResponse.EnsureSuccessStatusCode();
+            using var localOnlyView = JsonDocument.Parse(
+                await localOnlyViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var unchangedFallback = Assert.Single(
+                localOnlyView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == fallbackEntityId);
+            Assert.NotEqual(13_500_000, unchangedFallback.GetProperty("latitudeMicrodegrees").GetInt32());
+
+            var crashBeforeCheckpointAssignmentId =
+                $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000008"):N}";
+            using var crashBeforeCheckpointHandoff = await campaignClient.PostAsJsonAsync(
+                "/control/handoffs",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = crashBeforeCheckpointEntityId,
+                    gameEntityId = "unit:crimean-tom:crash-before-checkpoint-knox",
+                    assignmentId = crashBeforeCheckpointAssignmentId,
+                    authorityEpoch = 15,
+                    idempotencyKey = "crash-before-checkpoint-1",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = string.Empty,
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant13",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
+                },
+                JsonOptions,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Accepted, crashBeforeCheckpointHandoff.StatusCode);
+            var beforeCheckpointCrash = await crashBeforeCheckpointPeer;
+            Assert.Equal(GameCommandTypes.CaptureOwnedSurfaceCheckpoint, beforeCheckpointCrash.CommandType);
+            Assert.Equal("crash-before-checkpoint-1-checkpoint", beforeCheckpointCrash.IdempotencyKey);
+            using var preparingAfterCrash = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString()
+                        == crashBeforeCheckpointAssignmentId["assignment:".Length..]
+                    && item.GetProperty("lifecycle").GetString() == "Preparing"),
+                testTimeout.Token);
+
             using var stopBeforeFallback = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var stoppedCompanion = await RunControlScriptAsync(
                 scriptPath,
@@ -967,7 +1057,7 @@ public sealed class CompanionControlIntegrationTests
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(150, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
             var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
-            Assert.Equal(2, fallbackAssignments.Length);
+            Assert.Equal(3, fallbackAssignments.Length);
             var fallbackAssignment = Assert.Single(fallbackAssignments, item =>
                 item.GetProperty("assignmentId").GetString() == fallbackAssignmentId);
             Assert.Equal(150, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
@@ -981,6 +1071,11 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "operational-resolution-without-worker-checkpoint",
                 mismatchFallback.GetProperty("resolution").GetString());
+            var beforeCheckpointFallback = Assert.Single(fallbackAssignments, item =>
+                item.GetProperty("assignmentId").GetString() == crashBeforeCheckpointAssignmentId);
+            Assert.Equal(
+                "operational-resolution-without-worker-checkpoint",
+                beforeCheckpointFallback.GetProperty("resolution").GetString());
             using var fallbackViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{campaignId}",
                 testTimeout.Token);
@@ -1442,6 +1537,156 @@ public sealed class CompanionControlIntegrationTests
                 Priority = command.Priority,
             }, cancellationToken);
         }
+    }
+
+    private static async Task<CrashPeerObservation> RunGameCrashPeerAsync(
+        string pipeName,
+        CrashPeerBoundary boundary,
+        string targetIdempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        using var pipe = new NamedPipeClientStream(
+            ".",
+            pipeName,
+            PipeDirection.InOut,
+            PipeOptions.Asynchronous);
+        await pipe.ConnectAsync(cancellationToken);
+        await WriteEnvelopeAsync(pipe, new WireEnvelope
+        {
+            Kind = MessageKinds.Hello,
+            MessageId = Guid.NewGuid().ToString("N"),
+            MessageType = "game",
+            PayloadJson = JsonSerializer.Serialize(new GameHelloPayload
+            {
+                ClientInstanceId = Guid.NewGuid().ToString("N"),
+                PluginVersion = "integration-crash-peer",
+                ProcessId = Environment.ProcessId,
+                GameVersion = "integration",
+                InitialScene = "IntegrationScenario",
+            }, JsonOptions),
+        }, cancellationToken);
+        var accepted = await ReadEnvelopeAsync(pipe, cancellationToken);
+        var handshake = JsonSerializer.Deserialize<HandshakeResponsePayload>(
+            accepted.PayloadJson,
+            JsonOptions)!;
+        Assert.True(handshake.Accepted);
+
+        while (true)
+        {
+            var command = await ReadEnvelopeAsync(pipe, cancellationToken);
+            if (command.MessageType == GameCommandTypes.UpdateOwnedSurfaceUnit)
+            {
+                var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
+                    command.PayloadJson,
+                    JsonOptions)!;
+                if (boundary == CrashPeerBoundary.AfterMutationBeforeProposal
+                    && request.Context.IdempotencyKey == targetIdempotencyKey)
+                {
+                    return new CrashPeerObservation(
+                        command.MessageType,
+                        request.Context.IdempotencyKey,
+                        request.EntityId);
+                }
+            }
+            if (command.MessageType == GameCommandTypes.CaptureOwnedSurfaceCheckpoint)
+            {
+                var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                    command.PayloadJson,
+                    JsonOptions)!;
+                if (boundary == CrashPeerBoundary.BeforeInitialCheckpoint
+                    && request.Context.IdempotencyKey == targetIdempotencyKey)
+                {
+                    return new CrashPeerObservation(
+                        command.MessageType,
+                        request.Context.IdempotencyKey,
+                        request.EntityId);
+                }
+            }
+
+            var resultJson = command.MessageType switch
+            {
+                GameCommandTypes.GetCapabilities => JsonSerializer.Serialize(new CapabilitiesPayload
+                {
+                    ProtocolVersion = ProtocolConstants.Version,
+                    SupportedCommands = GameCommandTypes.AllCommands,
+                    SupportedUiAutomationCommands = GameCommandTypes.UiAutomationCommands,
+                    UiAutomationEnabled = true,
+                    RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
+                    {
+                        FingerprintSha256 = new string('a', 64),
+                        CatalogSha256 = "integration-catalog-sha256",
+                    },
+                }, JsonOptions),
+                GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
+                    CreateExperimentalPauseResult(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.ArmOwnedMutationMode => JsonSerializer.Serialize(
+                    new ArmOwnedMutationModeResultPayload
+                    {
+                        Mode = "owned-mutations-armed",
+                        SessionId = handshake.SessionId!,
+                        ExpiresAtUnixMilliseconds = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(),
+                        Postcondition = "owned-mutations-armed-for-current-session",
+                    },
+                    JsonOptions),
+                GameCommandTypes.MaterializeOwnedSurfaceUnit => CreateCrashPeerMaterialization(
+                    command.PayloadJson),
+                GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
+                    CreateOwnedSurfaceCheckpoint(command.PayloadJson),
+                    JsonOptions),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected crash-peer command '{command.MessageType}'."),
+            };
+            await WriteEnvelopeAsync(pipe, new WireEnvelope
+            {
+                Kind = MessageKinds.Response,
+                MessageId = Guid.NewGuid().ToString("N"),
+                CorrelationId = command.MessageId,
+                SessionId = handshake.SessionId,
+                MessageType = command.MessageType,
+                PayloadJson = JsonSerializer.Serialize(new CommandResponsePayload
+                {
+                    Success = true,
+                    ResultJson = resultJson,
+                }, JsonOptions),
+                Priority = command.Priority,
+            }, cancellationToken);
+        }
+    }
+
+    private static string CreateCrashPeerMaterialization(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return JsonSerializer.Serialize(new MaterializeOwnedSurfaceUnitResultPayload
+        {
+            Outcome = "materialized",
+            Postcondition = "owned-surface-unit-materialized-and-read-back",
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = 1,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            RecoverableOwnedObject = true,
+            SynchronousDurationMicroseconds = 4200,
+            RealizedUnit = new OwnedSurfaceUnitStatePayload
+            {
+                StableUnitId = $"campaign-unit:{request.EntityId}",
+                GameUniqueId = 55,
+                EntityId = request.EntityId,
+                UnitTypeId = request.UnitTypeId,
+                VariantId = request.VariantId,
+                LoadoutId = request.LoadoutId,
+                TaskforceId = request.TaskforceId,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                HeadingDegrees = request.HeadingDegrees,
+                Telegraph = request.Telegraph,
+                FuelFractionMilliunits = 1_000_000,
+                StoresFractionMilliunits = 1_000_000,
+                DamageFractionMilliunits = 0,
+            },
+        }, JsonOptions);
     }
 
     private static OwnedMutationContextPayload CreateOwnedContext(
@@ -2114,17 +2359,8 @@ public sealed class CompanionControlIntegrationTests
         {
             if (Directory.Exists(spool))
             {
-                var files = Directory.EnumerateFiles(spool, "*.frame", SearchOption.AllDirectories)
-                    .OrderBy(path => path, StringComparer.Ordinal)
-                    .ToArray();
-                var authorityFrames = files
-                    .Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path)))
-                    .Where(frame => frame.PayloadCase is
-                        CompanionFrame.PayloadOneofCase.AssignmentPrepared
-                        or CompanionFrame.PayloadOneofCase.CheckpointPublished
-                        or CompanionFrame.PayloadOneofCase.TacticalEvent)
-                    .ToArray();
-                if (authorityFrames.Length >= count
+                var authorityFrames = ReadInboundAuthorityFrames(runDirectory);
+                if (authorityFrames.Count >= count
                     && (required is null || authorityFrames.Any(required)))
                 {
                     return authorityFrames;
@@ -2132,6 +2368,21 @@ public sealed class CompanionControlIntegrationTests
             }
             await Task.Delay(25, cancellationToken);
         }
+    }
+
+    private static IReadOnlyList<CompanionFrame> ReadInboundAuthorityFrames(string runDirectory)
+    {
+        var spool = Path.Combine(runDirectory, "inbound-spool");
+        return Directory.Exists(spool)
+            ? Directory.EnumerateFiles(spool, "*.frame", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path)))
+                .Where(frame => frame.PayloadCase is
+                    CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                    or CompanionFrame.PayloadOneofCase.CheckpointPublished
+                    or CompanionFrame.PayloadOneofCase.TacticalEvent)
+                .ToArray()
+            : [];
     }
 
     private static async Task<JsonDocument> WaitForCampaignViewAsync(
@@ -2265,6 +2516,17 @@ public sealed class CompanionControlIntegrationTests
         Directory.CreateDirectory(directory);
         return directory;
     }
+
+    private enum CrashPeerBoundary
+    {
+        AfterMutationBeforeProposal,
+        BeforeInitialCheckpoint,
+    }
+
+    private sealed record CrashPeerObservation(
+        string CommandType,
+        string IdempotencyKey,
+        string EntityId);
 
     private sealed record ScriptResult(int ExitCode)
     {

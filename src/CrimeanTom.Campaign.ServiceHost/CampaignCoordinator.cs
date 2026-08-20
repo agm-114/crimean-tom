@@ -43,6 +43,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             var fallback = new EntityId(KeyedGuid(campaignId.Value, "fallback"));
             var combat = new EntityId(KeyedGuid(campaignId.Value, "combat"));
             var mismatch = new EntityId(KeyedGuid(campaignId.Value, "mismatch"));
+            var crashBeforeCheckpoint = new EntityId(KeyedGuid(campaignId.Value, "crash-before-checkpoint"));
             var unrelated = new EntityId(KeyedGuid(campaignId.Value, "unrelated"));
             var unrelatedGroup = new GroupId(KeyedGuid(campaignId.Value, "unrelated-group"));
             var resources = new Dictionary<ResourceKind, ResourceAmount>
@@ -75,6 +76,11 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 new RegisterEntityCommand(mismatch, "USS Ouellet", "usn_ff_knox_84", blue, harbor,
                     GeoCoordinate.FromMicrodegrees(44_240_000, 28_800_000), campaignBase, EntityLifecycle.Deployed,
                     FidelityState.Operational, resources, "PHASE4-MISMATCH-TRUE"), "bootstrap-mismatch"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(crashBeforeCheckpoint), EntityRevision.None,
+                new RegisterEntityCommand(crashBeforeCheckpoint, "USS Cook", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_260_000, 28_850_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE4-CRASH-BEFORE-CHECKPOINT-TRUE"),
+                "bootstrap-crash-before-checkpoint"), cancellationToken);
             state = await CommitAsync(state, Command(state, CampaignSubject.Entity(unrelated), EntityRevision.None,
                 new RegisterEntityCommand(unrelated, "Unrelated patrol", "vmf_krivak", red, offshore,
                     GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), null, EntityLifecycle.Deployed,
@@ -88,6 +94,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 fallback.ToString(),
                 combat.ToString(),
                 mismatch.ToString(),
+                crashBeforeCheckpoint.ToString(),
                 unrelated.ToString(),
                 harbor.ToString(),
                 offshore.ToString(),
@@ -689,6 +696,7 @@ public sealed record CampaignBootstrapResult(
     string FallbackEntityId,
     string CombatEntityId,
     string MismatchEntityId,
+    string CrashBeforeCheckpointEntityId,
     string UnrelatedEntityId,
     string HarborRegionId,
     string OffshoreRegionId,

@@ -266,8 +266,15 @@ the same 120-quanta fallback. Initial and final checkpoints may legitimately
 share a game revision; their durable spool/blob identities now include content
 hashes so both captures coexist while exact replay remains idempotent.
 
-Next, implement the unacknowledged crash-boundary story, then run the live-game
-P4 scenarios and measure the player-visible durability timeline.
+The broad story now also replaces the game pipe twice to prove both crash
+boundaries. A local movement applied before the game returns its response never
+becomes a tactical proposal or canonical event, while the assignment still
+falls back from its committed initial checkpoint. A second game crashes during
+its first checkpoint capture; that Preparing assignment reaches the same fixed
+deadline and reports Operational resolution without a worker checkpoint.
+
+Next, run the live-game P4 scenarios and measure the player-visible durability
+timeline.
 Keep tactical projection and campaign commit separate: Sea Power remains a
 fenced client of the external
 authoritative kernel, and no tactical result may commit before the later outcome gates.
