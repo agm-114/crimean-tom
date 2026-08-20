@@ -42,6 +42,17 @@ Run the game-independent broad integration scenario first:
 pnpm test
 ```
 
+Regenerate the pinned compiled determinism inventory after a game assembly or
+classifier change:
+
+```powershell
+pnpm inventory:determinism
+```
+
+The ignored manifest is deterministic and includes method-level IL hashes. Its
+`promotionCriticalUnknownCount` is an authority blocker, not a coverage number
+to suppress by broadening name heuristics.
+
 It starts the real companion and crosses Kestrel token authentication, the
 current-user named-pipe boundary, one connected game peer, capability/catalog/
 world reads, typed UI actions, and uncommitted port-draft validation. Avoid

@@ -26,6 +26,7 @@ pnpm dev         # restart as needed, then build, deploy, launch, and verify
 pnpm verify      # compare deployed/build hashes and inspect the current Player.log
 pnpm logs        # show recent runtime bridge / Crimean Tom / AnchorChain errors
 pnpm status      # show paths, process state, hashes, and current load state
+pnpm inventory:determinism # generate the pinned compiled call-site manifest
 ```
 
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game

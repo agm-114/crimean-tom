@@ -39,6 +39,43 @@ pattern too narrow.
 The AST/text count differences are retained rather than normalized away. They
 show why neither tool is sufficient alone for the final generated manifest.
 
+## Compiled method manifest
+
+`pnpm inventory:determinism` now scans the pinned `Seapower-Scripts.dll` with
+Mono.Cecil and writes the ignored generated artifact
+`artifacts/determinism/callsite-manifest.json`. Unlike the syntax baseline, each
+entry records the compiled declaring method, metadata token, normalized IL
+SHA-256, IL offset, referenced operand, classification, classification basis,
+and whether it remains a promotion-critical unknown.
+
+Two consecutive generations produced byte-identical manifest SHA-256
+`19aaf790b46635861e871c21d625336d2e20b07143349d8699c13d4a678b9ae0`
+for assembly SHA-256
+`33f4051f46788d7cf7b0032ef492231d1292cc49a0bb172ce0d16d9d244c5cbb`.
+The scanner visited 31,028 compiled method bodies and emitted 3,480 entries:
+
+| Classification | Entries |
+| --- | ---: |
+| Simulation-critical | 2,652 |
+| Presentation-only | 421 |
+| Native campaign, non-authoritative | 39 |
+| Unknown / promotion blocker | 368 |
+
+The 368 blockers comprise 217 direct update callbacks, 97 coroutine owners, and
+54 coroutine-start calls outside types the conservative classifier can already
+identify as presentation or native campaign. High-frequency unknown owners
+include `SceneCreator`, `LandUnit`, `TerrainManager`, `Compartments`,
+`MissionManager`, fixed-wing physics, `GameMain`, `FlightDeck`, and state-machine
+types. They are not silently downgraded merely because their owner name is
+ambiguous.
+
+The compiled families include 1,062 `GameTime.time` reads, 345 game fixed-delta
+reads, 274 global-RNG field reads, 71 Unity-random calls, 291 `System.Random`
+calls, 77 weighted-random calls, 20 job schedules, 28 job completions, 30 job
+owners, 271 direct update callbacks, 170 coroutine owners, 68 coroutine starts,
+69 object-registration calls, and 293 order/state-dispatch calls. Counts are
+compiled call sites and intentionally differ from source syntax counts.
+
 ## Initial classification
 
 Known simulation-critical sequential RNG owners include:
@@ -88,11 +125,13 @@ sensors, damage, or AI to make a phase checkbox pass.
 
 ## Remaining D0 work
 
-- Generate declaring type/method ownership and method fingerprints for every
-  raw call site, rather than stopping at file/line evidence.
-- Classify the 231 tactical-or-unknown coroutine hits and all job merge order.
+- Review or instrument the 368 generated promotion-critical unknowns; the
+  manifest now provides their exact compiled owners and method hashes.
+- Classify job merge order and the runtime ordering of callback/coroutine owners,
+  rather than treating method ownership as scheduling proof.
 - Trace `WeightedRandomBag` and other indirect random wrappers to their callers.
 - Enumerate direct `MonoBehaviour` callbacks and serialized scene components
-  that execute outside `GameMain` roots.
+  that execute outside `GameMain` roots; direct compiled callbacks are now
+  enumerated, but serialized live-instantiation remains unresolved.
 - Promote every simulation-critical unknown to a keyed/seeded hook plan or an
   explicit blocker before any hot-replica claim.

@@ -274,10 +274,10 @@ users/VMs) and a launch path proven to create two independent game processes.
   is published with its continuous-physics blocker. Blind-fire
   native missile, torpedo, and bomb round trips are now proven, with the Mk-16
   inventory discrepancy explicitly blocking any stronger full-state claim.
-- The D0 structural audit now publishes a negative time-rebase result: a direct
-  rebase is unsafe because 975 non-UI/non-native-campaign `GameTime.time` hits
-  include unregistered absolute deadlines. Complete method ownership/hashing
-  and simulation-critical RNG/update/coroutine/job classification remain open.
+- The D0 structural audit publishes a negative time-rebase result and a
+  deterministic compiled manifest with method ownership/hashes. Its 368
+  callback/coroutine unknowns explicitly block hot-replica promotion until
+  runtime ownership and scheduling are classified.
 - Replace the temporary maintenance mission context once its minimum UI
   dependencies are proven.
 

@@ -22,6 +22,7 @@
     "game:campaign": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 campaign",
     "game:open-task-force-builder": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 open-task-force-builder",
     "game:control-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 test",
+    "inventory:determinism": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/determinism-inventory.ps1",
     "decompile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 game",
     "decompile:anchorchain": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 anchorchain",
     "decompile:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 all-managed"
