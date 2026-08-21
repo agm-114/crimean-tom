@@ -47,6 +47,7 @@ var runDirectory = Path.GetFullPath(
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY")
     ?? Path.Combine(repositoryRoot ?? workingDirectory, ".run", "campaign-service"));
 var token = CampaignServiceToken.LoadOrCreate(Path.Combine(runDirectory, "service.token"));
+var monitorSession = new CampaignMonitorSession();
 var journal = new SqliteCampaignJournal(
     Path.Combine(runDirectory, "campaign.db"),
     Path.Combine(runDirectory, "blobs"));
@@ -56,12 +57,33 @@ builder.Services.AddGrpc(options => options.MaxReceiveMessageSize = 256 * 1024);
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(token);
+builder.Services.AddSingleton(monitorSession);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton<CampaignSessionRegistry>();
 builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory, "inbound-spool")));
 builder.Services.AddSingleton<CampaignCoordinator>();
 var app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+    var requestPath = context.Request.Path.Value;
+    if (context.Request.Method == HttpMethods.Get
+        && requestPath is "/monitor" or "/monitor/" or "/monitor/index.html")
+    {
+        context.Response.Cookies.Append(
+            CampaignMonitorSession.CookieName,
+            monitorSession.Value,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                IsEssential = true,
+                Path = "/",
+                SameSite = SameSiteMode.Strict,
+                Secure = false,
+            });
+    }
+    await next(context);
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.Use(async (context, next) =>
@@ -78,7 +100,13 @@ app.Use(async (context, next) =>
     }
     var supplied = context.Request.Headers.Authorization.ToString();
     const string prefix = "Bearer ";
-    if (!supplied.StartsWith(prefix, StringComparison.Ordinal) || !token.IsMatch(supplied[prefix.Length..]))
+    var bearerAuthenticated = supplied.StartsWith(prefix, StringComparison.Ordinal)
+        && token.IsMatch(supplied[prefix.Length..]);
+    var monitorAuthenticated = context.Request.Cookies.TryGetValue(
+        CampaignMonitorSession.CookieName,
+        out var monitorCookie)
+        && monitorSession.IsMatch(monitorCookie);
+    if (!bearerAuthenticated && !monitorAuthenticated)
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         await context.Response.WriteAsJsonAsync(new { error = "invalid-campaign-service-token" });
@@ -141,10 +169,19 @@ app.MapPost("/control/handoffs", async (
     CampaignSessionRegistry sessions,
     CancellationToken cancellationToken) =>
 {
+    var session = sessions.Snapshot();
+    if (session is null || !string.Equals(session.CampaignId, request.CampaignId, StringComparison.Ordinal))
+    {
+        return Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
+    }
     var assignment = await coordinator.PrepareHandoffAsync(request, cancellationToken);
-    return sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Assignment = assignment })
-        ? Results.Accepted(value: assignment)
-        : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
+    if (sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Assignment = assignment }))
+    {
+        return Results.Accepted(value: assignment);
+    }
+    await coordinator.CancelPreparingHandoffAsync(
+        request, "session-lost-before-queue", cancellationToken);
+    return Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
 app.MapPost("/control/campaigns/{campaignId}/advance/{target:long}", async (
     string campaignId,

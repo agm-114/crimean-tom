@@ -74,12 +74,16 @@ public sealed class CompanionControlIntegrationTests
                 Timeout = TimeSpan.FromSeconds(10),
             })
             {
+                using var protectedHealthBeforeMonitor = await anonymousCampaignClient.GetAsync(
+                    "/health",
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, protectedHealthBeforeMonitor.StatusCode);
                 using var monitorResponse = await anonymousCampaignClient.GetAsync("/monitor/", testTimeout.Token);
                 monitorResponse.EnsureSuccessStatusCode();
                 var monitorHtml = await monitorResponse.Content.ReadAsStringAsync(testTimeout.Token);
                 Assert.Contains("Crimean Tom Campaign Monitor", monitorHtml, StringComparison.Ordinal);
                 using var protectedHealth = await anonymousCampaignClient.GetAsync("/health", testTimeout.Token);
-                Assert.Equal(HttpStatusCode.Unauthorized, protectedHealth.StatusCode);
+                Assert.Equal(HttpStatusCode.OK, protectedHealth.StatusCode);
             }
             using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
             using var durabilityPolicyResponse = await campaignClient.GetAsync(
@@ -205,6 +209,18 @@ public sealed class CompanionControlIntegrationTests
             var promotionTransitions = promoted.RootElement.GetProperty("transitions").EnumerateArray().ToArray();
             Assert.Contains(promotionTransitions, item => item.GetProperty("entityId").GetString() == tacticalDemoEntityId
                 && item.GetProperty("toFidelity").GetString() == "Tactical");
+            using var pendingPromotionViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{fuldaCampaignId}",
+                testTimeout.Token);
+            pendingPromotionViewResponse.EnsureSuccessStatusCode();
+            using var pendingPromotionView = JsonDocument.Parse(
+                await pendingPromotionViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "Operational",
+                Assert.Single(
+                    pendingPromotionView.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == tacticalDemoEntityId)
+                    .GetProperty("fidelity").GetString());
             Assert.Contains(
                 promoted.RootElement.GetProperty("islands").EnumerateArray(),
                 item => item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == landEntityId)
@@ -246,14 +262,9 @@ public sealed class CompanionControlIntegrationTests
             using var overloaded = JsonDocument.Parse(
                 await overloadedResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(20, overloaded.RootElement.GetProperty("targetTicksPerWallSecond").GetInt32());
-            Assert.Equal("demote-whole-islands-before-tempo",
+            Assert.Equal("global-tempo-reduced",
                 overloaded.RootElement.GetProperty("loadAction").GetString());
-            Assert.Contains(
-                overloaded.RootElement.GetProperty("transitions").EnumerateArray(),
-                item => item.GetProperty("entityId").GetString() == loadSheddingEntityId
-                    && item.GetProperty("fromFidelity").GetString() == "Tactical"
-                    && item.GetProperty("toFidelity").GetString() == "Operational"
-                    && item.GetProperty("reason").GetString() == "source-drainonly");
+            Assert.Empty(overloaded.RootElement.GetProperty("transitions").EnumerateArray());
             Assert.DoesNotContain(
                 overloaded.RootElement.GetProperty("transitions").EnumerateArray(),
                 item => item.GetProperty("fromFidelity").GetString() == "Strategic"
@@ -288,11 +299,7 @@ public sealed class CompanionControlIntegrationTests
             demoteResponse.EnsureSuccessStatusCode();
             using var demoted = JsonDocument.Parse(
                 await demoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Contains(
-                demoted.RootElement.GetProperty("transitions").EnumerateArray(),
-                item => item.GetProperty("entityId").GetString() == loadSheddingEntityId
-                    && item.GetProperty("fromFidelity").GetString() == "Tactical"
-                    && item.GetProperty("toFidelity").GetString() == "Strategic");
+            Assert.Empty(demoted.RootElement.GetProperty("transitions").EnumerateArray());
 
             var start = await RunControlScriptAsync(
                 scriptPath,
@@ -568,6 +575,14 @@ public sealed class CompanionControlIntegrationTests
                 && item.AssignmentPrepared.AssignmentId == mismatchAssignmentId).AssignmentPrepared;
             Assert.False(rejectedMismatch.Ready);
             Assert.Equal("assignment-preparation-failed", rejectedMismatch.ErrorCode);
+            using var rejectedMismatchView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString()
+                        == mismatchAssignmentId["assignment:".Length..]
+                    && item.GetProperty("lifecycle").GetString() == "Released"),
+                testTimeout.Token);
 
             var combatAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000007"):N}";
             const string combatGameEntityId = "unit:crimean-tom:combat-knox";
@@ -1225,13 +1240,16 @@ public sealed class CompanionControlIntegrationTests
             var beforeCheckpointCrash = await crashBeforeCheckpointPeer;
             Assert.Equal(GameCommandTypes.CaptureOwnedSurfaceCheckpoint, beforeCheckpointCrash.CommandType);
             Assert.Equal("crash-before-checkpoint-1-checkpoint", beforeCheckpointCrash.IdempotencyKey);
-            using var preparingAfterCrash = await WaitForCampaignViewAsync(
+            using var releasedAfterPreparationCrash = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,
                 root => root.GetProperty("assignments").EnumerateArray().Any(item =>
                     item.GetProperty("assignmentId").GetString()
                         == crashBeforeCheckpointAssignmentId["assignment:".Length..]
-                    && item.GetProperty("lifecycle").GetString() == "Preparing"),
+                    && item.GetProperty("lifecycle").GetString() == "Released")
+                    && root.GetProperty("entities").EnumerateArray().Any(item =>
+                        item.GetProperty("entityId").GetString() == crashBeforeCheckpointEntityId
+                        && item.GetProperty("fidelity").GetString() == "Operational"),
                 testTimeout.Token);
 
             using var stopBeforeFallback = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -1253,7 +1271,7 @@ public sealed class CompanionControlIntegrationTests
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(150, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
             var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
-            Assert.Equal(3, fallbackAssignments.Length);
+            Assert.Single(fallbackAssignments);
             var fallbackAssignment = Assert.Single(fallbackAssignments, item =>
                 item.GetProperty("assignmentId").GetString() == fallbackAssignmentId);
             Assert.Equal(150, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
@@ -1262,16 +1280,6 @@ public sealed class CompanionControlIntegrationTests
                 "operational-resolution-from-last-committed-checkpoint",
                 fallbackAssignment.GetProperty("resolution").GetString());
             Assert.Equal(64, fallbackAssignment.GetProperty("lastCheckpointSha256").GetString()!.Length);
-            var mismatchFallback = Assert.Single(fallbackAssignments, item =>
-                item.GetProperty("assignmentId").GetString() == mismatchAssignmentId);
-            Assert.Equal(
-                "operational-resolution-without-worker-checkpoint",
-                mismatchFallback.GetProperty("resolution").GetString());
-            var beforeCheckpointFallback = Assert.Single(fallbackAssignments, item =>
-                item.GetProperty("assignmentId").GetString() == crashBeforeCheckpointAssignmentId);
-            Assert.Equal(
-                "operational-resolution-without-worker-checkpoint",
-                beforeCheckpointFallback.GetProperty("resolution").GetString());
             using var fallbackViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{campaignId}",
                 testTimeout.Token);

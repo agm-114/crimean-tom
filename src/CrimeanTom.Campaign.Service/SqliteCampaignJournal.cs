@@ -997,6 +997,13 @@ public sealed class SqliteCampaignJournal
         CommittedCampaignEvent campaignEvent)
     {
         yield return (campaignEvent.Subject, campaignEvent.NewSubjectRevision);
+        if (campaignEvent.Data is TacticalAssignmentActivatedEvent activation)
+        {
+            yield return (
+                CampaignSubject.Entity(activation.Activation.EntityId),
+                activation.Activation.ExpectedEntityRevision.Next());
+            yield break;
+        }
         if (campaignEvent.Data is not CampaignSimulatedEvent simulation)
         {
             yield break;

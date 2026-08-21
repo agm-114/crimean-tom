@@ -313,6 +313,15 @@ red, amber, and white semantic state. The broad host story proves promotion,
 ceiling enforcement, quiet-island overload demotion, re-promotion, safe
 demotion, transport, crash recovery, and operational fallback together.
 
+Tactical fidelity is now an achieved worker state rather than a scheduler label.
+The scheduler may project Tactical as desired, but leaves canonical fidelity at
+the lower level until a companion materializes the unit and publishes its first
+checkpoint. Handoff creates an Operational `Preparing` reservation; a ready
+response atomically promotes the entity and activates authority in one journal
+event, while rejection, lost queue ownership, or pre-checkpoint failure releases
+the reservation without phantom Tactical state. The remaining scheduler work is
+to queue and activate these handoffs for complete interaction islands.
+
 Next, carry these decisions through live Sea Power materialization/quiesce,
 extend coupling to weapon/guidance/host relationships, persist and hysteretically
 recover scheduler state, measure capacity/tempo under stress, and calibrate the

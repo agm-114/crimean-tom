@@ -242,16 +242,6 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                     "fidelity-ceiling",
                     "The entity's simulation domain cannot be assigned to a Sea Power tactical worker.");
             }
-            if (entity.Fidelity != FidelityState.Tactical)
-            {
-                state = await CommitAsync(state, Command(
-                    state,
-                    CampaignSubject.Entity(entityId),
-                    entity.Revision,
-                    new ChangeFidelityCommand(entityId, FidelityState.Tactical),
-                    $"{request.IdempotencyKey}-fidelity"), cancellationToken);
-                entity = state.Entities[entityId];
-            }
             state = await CommitAsync(state, Command(
                 state,
                 CampaignSubject.Assignment(assignmentId),
@@ -290,6 +280,39 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
                 InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
             };
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task CancelPreparingHandoffAsync(
+        CampaignHandoffRequest request,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+            var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (!state.Assignments.TryGetValue(assignmentId, out var assignment)
+                || assignment.Lifecycle != AssignmentLifecycle.Preparing)
+            {
+                return;
+            }
+            await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Assignment(assignmentId),
+                assignment.Revision,
+                new SetAssignmentLifecycleCommand(
+                    assignmentId,
+                    assignment.AuthorityEpoch,
+                    AssignmentLifecycle.Released,
+                    state.Time),
+                $"cancel-{request.IdempotencyKey}-{reason}"), cancellationToken);
         }
         finally
         {
@@ -454,6 +477,13 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                     {
                         continue;
                     }
+                    if (island.DesiredFidelity == FidelityState.Tactical)
+                    {
+                        // Tactical is an achieved state, not a scheduling wish. The entity
+                        // remains at its canonical lower fidelity until a worker reports a
+                        // successful materialization and checkpoint through ActivateAsync.
+                        continue;
+                    }
                     state = await CommitAsync(state, Command(
                         state,
                         CampaignSubject.Entity(entityId),
@@ -585,10 +615,6 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         AssignmentPrepared prepared,
         CancellationToken cancellationToken)
     {
-        if (!prepared.Ready)
-        {
-            return;
-        }
         var assignmentId = ParseScopedId(prepared.AssignmentId, "assignment:", value => new AssignmentId(value));
         var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
         var assignment = state.Assignments[assignmentId];
@@ -600,15 +626,32 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         {
             return;
         }
+        if (!prepared.Ready)
+        {
+            await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Assignment(assignmentId),
+                assignment.Revision,
+                new SetAssignmentLifecycleCommand(
+                    assignmentId,
+                    assignment.AuthorityEpoch,
+                    AssignmentLifecycle.Released,
+                    state.Time),
+                $"reject-{prepared.AssignmentId}-{prepared.AuthorityEpoch}"), cancellationToken);
+            return;
+        }
+        var entity = state.Entities[assignment.EntityId];
         await CommitAsync(state, Command(
             state,
             CampaignSubject.Assignment(assignmentId),
             assignment.Revision,
-            new SetAssignmentLifecycleCommand(
+            new ActivateTacticalAssignmentCommand(
                 assignmentId,
                 assignment.AuthorityEpoch,
-                AssignmentLifecycle.Active,
-                state.Time),
+                entity.EntityId,
+                entity.Revision,
+                state.Time,
+                "worker-materialized-and-checkpointed"),
             $"activate-{prepared.AssignmentId}-{prepared.AuthorityEpoch}"), cancellationToken);
     }
 

@@ -83,11 +83,17 @@ The shell avoids gradients, blur, rounded cards, and decorative chrome so every
 line, label, and highlight carries operator information.
 
 The static shell contains no campaign data and may load unauthenticated on the
-loopback listener. Every health, diagnostic, bootstrap, and control request
-continues to require the campaign-service bearer token. The operator enters the
-token after load; the client retains it only in JavaScript memory and sends it in
-the `Authorization` header. It is never placed in a query string, cookie,
-`localStorage`, or `sessionStorage`. Closing or reloading the page discards it.
+loopback listener. When the host serves its entry document it issues a random,
+HttpOnly, `SameSite=Strict` session cookie valid only for that service process.
+The browser therefore authenticates health, diagnostics, bootstrap, and control
+requests without exposing or asking the operator to paste the service bearer
+token. CLI and companion clients continue to use the current-user-only token
+file. The monitor credential is neither available to JavaScript nor persisted
+across browser/service sessions, and cross-site requests do not receive it.
+
+Development uses `pnpm campaign:dev`: `dotnet watch` restarts the service while
+Vite supplies frontend HMR at port 5173. Its loopback proxy reads the protected
+service token on the developer's behalf and adds it only to proxied API calls.
 
 The current scheduler projection also shows health and simulation-source
 eligibility, backlog and tactical capacity, fixed-step target tempo, load action,

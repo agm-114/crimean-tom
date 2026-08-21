@@ -630,7 +630,11 @@ single-player prototype.
 - The first dynamic-fidelity vertical slice treats each task force as a minimum
   island, merges opposing groups involved in recent region combat, applies
   player observation/control and simulation-domain ceilings, fences active
-  authority and active interactions, and journals whole-island fidelity changes.
+  authority and active interactions, and journals lower-fidelity island changes.
+  A requested Tactical promotion remains desired-only until a companion reports
+  successful materialization and an initial checkpoint; that response atomically
+  activates authority and promotes the canonical entity. Rejected or interrupted
+  preparation releases without creating phantom Tactical state.
   Health, simulation-source eligibility, tactical capacity, and transport
   backlog drive load shedding; suitable quiet islands demote before the global
   target tempo falls. The fixed step remains 33,333 microseconds.

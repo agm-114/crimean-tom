@@ -69,14 +69,13 @@ app.innerHTML = `
     <aside class="dock dock-left">
       <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN LINK</span><span class="text-[#626262]">AUTH/LOCAL</span></div>
       <div class="grid gap-1 p-2">
-        <label class="metric-label" for="service-token">Bearer token / volatile</label>
-        <input id="service-token" type="password" autocomplete="off" class="command-input w-full" placeholder=".run/campaign-service/service.token" />
-        <label class="metric-label mt-1" for="campaign-id">Campaign identifier</label>
+        <div class="mb-1 flex items-center gap-2 text-[9px]"><span class="status-mark friendly"></span><span>HOST-ISSUED SESSION / HTTPONLY</span></div>
+        <label class="metric-label" for="campaign-id">Campaign identifier</label>
         <div class="flex gap-1"><input id="campaign-id" class="command-input min-w-0 flex-1" placeholder="32 hexadecimal characters" /><button id="new-id" class="command-cell" title="Generate campaign ID">NEW</button></div>
         <div class="mt-1 grid grid-cols-2 gap-1"><button id="connect" class="command-cell command-cell-primary">CONNECT</button><button id="bootstrap" class="command-cell">SEED FULDA</button></div>
       </div>
       <div class="section-rule px-2 py-1">
-        <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">NO CREDENTIAL OR CAMPAIGN DATA RETAINED</div>
+        <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">SESSION CREDENTIAL HELD BY HOST</div>
         <div id="scheduler-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">SCHEDULER / UNAVAILABLE</div>
       </div>
       <div class="window-title flex items-center justify-between px-2"><span>FORCE REGISTER</span><span id="unit-count" class="text-[#e2e2e2]">00 TRACKS</span></div>
@@ -102,7 +101,7 @@ app.innerHTML = `
       <span class="friendly mr-5">□ NATO / FRIENDLY</span>
       <span class="hostile mr-5">△ WARSAW PACT / HOSTILE</span>
       <span class="warning mr-5">◇ OPERATIONAL EFFECT</span>
-      <span class="ml-auto">DISPLAY / WIREFRAME // SOURCE / CAMPAIGN JOURNAL // TOKEN / MEMORY ONLY</span>
+      <span class="ml-auto">DISPLAY / WIREFRAME // SOURCE / CAMPAIGN JOURNAL // AUTH / HOST SESSION</span>
     </footer>
   </div>`;
 
@@ -133,7 +132,7 @@ let pollHandle: number | undefined;
 let selectedEntityId: string | null = null;
 
 function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${byId<HTMLInputElement>("service-token").value.trim()}` };
+  return {};
 }
 
 function mapPosition(latitudeMicrodegrees: number, longitudeMicrodegrees: number, y = 0): Vector3 {
@@ -271,7 +270,8 @@ function selectEntity(entityId: string): void {
     </div>
     <dl class="selection-grid">
       <dt>Domain</dt><dd>${escapeHtml(entity.simulationDomain)}</dd>
-      <dt>Fidelity</dt><dd>${escapeHtml(entity.fidelity)} / ${escapeHtml(entity.maximumFidelity)}</dd>
+      <dt>Fidelity</dt><dd>${escapeHtml(entity.fidelity)} / MAX ${escapeHtml(entity.maximumFidelity)}</dd>
+      <dt>Desired</dt><dd class="${island && island.desiredFidelity !== entity.fidelity ? "warning" : ""}">${escapeHtml(island?.desiredFidelity ?? entity.fidelity)}${island?.desiredFidelity === "Tactical" && entity.fidelity !== "Tactical" ? " // AWAIT WORKER" : ""}</dd>
       <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
       <dt>Lifecycle</dt><dd>${escapeHtml(entity.lifecycle)}</dd>
       <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>

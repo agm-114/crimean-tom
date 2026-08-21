@@ -8,6 +8,7 @@
     "monitor:build": "pnpm --filter @crimean-tom/campaign-monitor build",
     "monitor:dev": "pnpm --filter @crimean-tom/campaign-monitor dev",
     "campaign:server": "pnpm monitor:build && dotnet run --project src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj --configuration Debug",
+    "campaign:dev": "concurrently --kill-others-on-fail --names SERVICE,MONITOR --prefix-colors cyan,green \"dotnet watch --project src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj run --configuration Debug --no-launch-profile\" \"pnpm monitor:dev\"",
     "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 deploy",
     "launch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 launch",
     "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 verify",
@@ -29,5 +30,8 @@
     "decompile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 game",
     "decompile:anchorchain": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 anchorchain",
     "decompile:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/decompile-sea-power.ps1 all-managed"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
   }
 }

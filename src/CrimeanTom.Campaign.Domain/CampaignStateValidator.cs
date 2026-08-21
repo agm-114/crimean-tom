@@ -152,6 +152,11 @@ public static class CampaignStateValidator
             {
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
             }
+            if (assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                && state.Entities[assignment.EntityId].Fidelity != FidelityState.Tactical)
+            {
+                throw Invalid("active-assignment-fidelity", "An active tactical assignment requires tactical entity fidelity.");
+            }
         }
 
         foreach (var (key, activity) in state.ScheduledActivities)

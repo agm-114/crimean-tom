@@ -42,6 +42,7 @@ public static class CampaignKernel
             AdvanceClockCommand value => DecideClock(state, command, value),
             SimulateCampaignCommand value => DecideSimulation(state, command, value, workerCount),
             SetAssignmentLifecycleCommand value => DecideAssignmentLifecycle(state, command, value),
+            ActivateTacticalAssignmentCommand value => DecideTacticalAssignmentActivation(state, command, value),
             ApplyTacticalStateCommand value => DecideTacticalState(state, command, value),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
         };
@@ -90,6 +91,7 @@ public static class CampaignKernel
             ClockAdvancedEvent value => state with { Time = value.Clock.NewTime },
             CampaignSimulatedEvent value => ApplySimulation(state, value),
             AssignmentLifecycleChangedEvent value => ApplyAssignmentLifecycle(state, campaignEvent, value),
+            TacticalAssignmentActivatedEvent value => ApplyTacticalAssignmentActivation(state, campaignEvent, value),
             TacticalStateAppliedEvent value => ApplyTacticalState(state, campaignEvent, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
         };
@@ -233,9 +235,9 @@ public static class CampaignKernel
         RequireNew(command, state.Assignments.ContainsKey(value.AssignmentId), "assignment-exists");
         var entity = RequireEntity(state, value.EntityId);
         RequireCoalitionOrAdministrator(command, entity.CoalitionId);
-        if (entity.Fidelity != FidelityState.Tactical || value.AuthorityEpoch.Value <= 0)
+        if (entity.MaximumFidelity != FidelityState.Tactical || value.AuthorityEpoch.Value <= 0)
         {
-            throw Violation("invalid-assignment", "Authority requires tactical fidelity and a positive epoch.");
+            throw Violation("invalid-assignment", "Authority preparation requires a tactically representable entity and a positive epoch.");
         }
         if (value.EffectiveAt != command.EffectiveAt)
         {
@@ -351,9 +353,7 @@ public static class CampaignKernel
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active) => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
-            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Released)
-                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
-                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
+            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Released) => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Released)
                 when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
                     + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
@@ -366,6 +366,36 @@ public static class CampaignKernel
         return Decision.Create(
             command.Subject,
             new AssignmentLifecycleChangedEvent(value),
+            assignment.Revision.Next(),
+            value.AssignmentId,
+            value.AuthorityEpoch);
+    }
+
+    private static Decision DecideTacticalAssignmentActivation(
+        CampaignState state,
+        CampaignCommand command,
+        ActivateTacticalAssignmentCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Assignment(value.AssignmentId));
+        var assignment = state.Assignments.TryGetValue(value.AssignmentId, out var found)
+            ? found
+            : throw Violation("assignment-missing", "The tactical assignment does not exist.");
+        RequireRevision(command, assignment.Revision);
+        var entity = RequireEntity(state, value.EntityId);
+        if (assignment.EntityId != value.EntityId
+            || assignment.AuthorityEpoch != value.AuthorityEpoch
+            || assignment.Lifecycle != AssignmentLifecycle.Preparing
+            || value.EffectiveAt != command.EffectiveAt
+            || entity.Revision != value.ExpectedEntityRevision
+            || entity.MaximumFidelity != FidelityState.Tactical
+            || entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+        {
+            throw Violation("assignment-activation-fenced", "The prepared assignment or entity is stale or cannot become tactical.");
+        }
+        CampaignInvariants.RequireText(value.Reason, nameof(value.Reason));
+        return Decision.Create(
+            command.Subject,
+            new TacticalAssignmentActivatedEvent(value),
             assignment.Revision.Next(),
             value.AssignmentId,
             value.AuthorityEpoch);
@@ -478,6 +508,29 @@ public static class CampaignKernel
             Revision = item.NewSubjectRevision,
         };
         return state with { Assignments = state.Assignments.SetItem(assignment.AssignmentId, assignment) };
+    }
+
+    private static CampaignState ApplyTacticalAssignmentActivation(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        TacticalAssignmentActivatedEvent value)
+    {
+        var activation = value.Activation;
+        var assignment = state.Assignments[activation.AssignmentId] with
+        {
+            Lifecycle = AssignmentLifecycle.Active,
+            Revision = item.NewSubjectRevision,
+        };
+        var entity = state.Entities[activation.EntityId] with
+        {
+            Fidelity = FidelityState.Tactical,
+            Revision = activation.ExpectedEntityRevision.Next(),
+        };
+        return state with
+        {
+            Assignments = state.Assignments.SetItem(assignment.AssignmentId, assignment),
+            Entities = state.Entities.SetItem(entity.EntityId, entity),
+        };
     }
 
     private static CampaignState ApplyTacticalState(

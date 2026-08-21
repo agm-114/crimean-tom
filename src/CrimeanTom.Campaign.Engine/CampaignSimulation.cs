@@ -636,7 +636,7 @@ internal static class CampaignSimulation
 
     private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
         state.Assignments.Values.Any(item => item.EntityId == entityId
-            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
+            && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)

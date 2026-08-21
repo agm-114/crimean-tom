@@ -78,16 +78,16 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var parallel = CampaignKernel.Apply(second.State, parallelWorkerEvent);
         Assert.Equal(CampaignCanonicalSerializer.Serialize(simulated), CampaignCanonicalSerializer.Serialize(parallel));
         Assert.Equal(new CampaignTime(30), simulated.Time);
-        Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueKnox].RegionId);
+        Assert.Equal(Ids.Odessa, simulated.Entities[Ids.BlueKnox].RegionId);
         Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueOiler].RegionId);
         Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
-        Assert.True(simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits < 800_000);
-        Assert.True(simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits < 1_000);
+        Assert.Equal(800_000, simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits);
+        Assert.Equal(1_000, simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits < 900_000);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
-        Assert.Equal(3, simulated.Intelligence.Count);
+        Assert.Equal(2, simulated.Intelligence.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
         Assert.True(simulated.Entities[Ids.RedKrivak].Resources[ResourceKind.Munitions].MilliUnits < 700_000);
@@ -104,7 +104,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("02c3e4100ec0b70ecab8917f116c7ccb0d710a92749c1d45620b1d9f10617bcc", longHorizon.Hash);
+        Assert.Equal("2c3ae50e654df1bacb87303a0d9875123947051ddbe9560915d35c12ab2eb4ac", longHorizon.Hash);
         await ProveDurableJournalAsync(longHorizon);
         await ProvePersistenceBoundariesAsync(longHorizon);
         await ProveProcessCrashRecoveryAsync(longHorizon);

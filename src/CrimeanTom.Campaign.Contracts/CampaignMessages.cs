@@ -152,6 +152,7 @@ public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, 
 [JsonDerivedType(typeof(AdvanceClockCommand), "advance-clock/v1")]
 [JsonDerivedType(typeof(SimulateCampaignCommand), "simulate-campaign/v1")]
 [JsonDerivedType(typeof(SetAssignmentLifecycleCommand), "set-assignment-lifecycle/v1")]
+[JsonDerivedType(typeof(ActivateTacticalAssignmentCommand), "activate-tactical-assignment/v1")]
 [JsonDerivedType(typeof(ApplyTacticalStateCommand), "apply-tactical-state/v1")]
 public abstract record CampaignCommandData;
 
@@ -238,6 +239,15 @@ public sealed record SetAssignmentLifecycleCommand(
     CampaignTime EffectiveAt)
     : CampaignCommandData;
 
+public sealed record ActivateTacticalAssignmentCommand(
+    AssignmentId AssignmentId,
+    AuthorityEpoch AuthorityEpoch,
+    EntityId EntityId,
+    EntityRevision ExpectedEntityRevision,
+    CampaignTime EffectiveAt,
+    string Reason)
+    : CampaignCommandData;
+
 public sealed record ApplyTacticalStateCommand(
     AssignmentId AssignmentId,
     AuthorityEpoch AuthorityEpoch,
@@ -276,6 +286,7 @@ public sealed record CampaignCommand(
 [JsonDerivedType(typeof(ClockAdvancedEvent), "clock-advanced/v1")]
 [JsonDerivedType(typeof(CampaignSimulatedEvent), "campaign-simulated/v1")]
 [JsonDerivedType(typeof(AssignmentLifecycleChangedEvent), "assignment-lifecycle-changed/v1")]
+[JsonDerivedType(typeof(TacticalAssignmentActivatedEvent), "tactical-assignment-activated/v1")]
 [JsonDerivedType(typeof(TacticalStateAppliedEvent), "tactical-state-applied/v1")]
 public abstract record CampaignEventData;
 
@@ -358,6 +369,8 @@ public sealed record CampaignSimulatedEvent(
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;
+
+public sealed record TacticalAssignmentActivatedEvent(ActivateTacticalAssignmentCommand Activation) : CampaignEventData;
 
 public sealed record TacticalStateAppliedEvent(ApplyTacticalStateCommand State) : CampaignEventData;
 

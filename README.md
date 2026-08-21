@@ -35,17 +35,25 @@ The Phase 5 operator monitor is served by the campaign service:
 pnpm campaign:server
 ```
 
-Open `http://127.0.0.1:5081/monitor/`, paste the per-run bearer token from
-`.run/campaign-service/service.token`, and either connect to a campaign ID or
-use **Seed Fulda** to create and advance a representative Fulda Gap Gone Hot
-campaign. The static Tailwind/Babylon shell is loopback-readable so it can load
-before authentication; `/health`, campaign data, and all control routes still
-require the bearer token. The page keeps the token in memory only—never in a
-URL, cookie, or browser storage. Its map and inspector also expose task-force
+Open `http://127.0.0.1:5081/monitor/` and either connect to a campaign ID or use
+**Seed Fulda** to create and advance a representative Fulda Gap Gone Hot
+campaign. The loopback host automatically issues the page an HttpOnly,
+same-site, process-lifetime monitor session; the operator never needs to find or
+paste the service bearer token. CLI and companion traffic still use the
+current-user-only token file. Its map and inspector also expose task-force
 interaction islands, current and desired fidelity, client eligibility/backlog,
 load-shedding decisions, and fixed-step target tempo. The theater is rendered as
 a black-and-white wireframe command plot with square force/event registers and
 green, red, amber, and white semantic highlights.
+
+For iteration with backend restart and frontend hot-module replacement, run:
+
+```powershell
+pnpm campaign:dev
+```
+
+The Vite monitor is then available at `http://127.0.0.1:5173/monitor/`; its
+loopback proxy authenticates to the watched campaign service automatically.
 
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main
