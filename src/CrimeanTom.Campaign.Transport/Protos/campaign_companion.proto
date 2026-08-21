@@ -52,6 +52,15 @@ message TacticalMaterializationProfile {
   string loadout_id = 3;
 }
 
+message TacticalCouplingRelationship {
+  string kind = 1;
+  string source_entity_id = 2;
+  string target_entity_id = 3;
+  string evidence_id = 4;
+  string guidance_type = 5;
+  bool unsafe_to_split = 6;
+}
+
 message ServiceWelcome {
   uint32 protocol_version = 1;
   string service_session_id = 2;
@@ -75,6 +84,7 @@ message CompanionHeartbeat {
   string catalog_fingerprint_sha256 = 5;
   string player_taskforce_id = 6;
   repeated TacticalMaterializationProfile materialization_profiles = 7;
+  repeated TacticalCouplingRelationship coupling_relationships = 8;
 }
 
 message ServiceHeartbeat {

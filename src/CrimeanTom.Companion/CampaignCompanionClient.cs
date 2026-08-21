@@ -228,6 +228,7 @@ public sealed class CampaignCompanionClient(
                 try
                 {
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
+                    var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
                     await writeGate.WaitAsync(heartbeatToken);
                     try
                     {
@@ -252,6 +253,7 @@ public sealed class CampaignCompanionClient(
                                             LoadoutId = profile.LoadoutId,
                                         }),
                                 },
+                                CouplingRelationships = { couplingRelationships },
                             },
                         });
                     }
@@ -285,6 +287,100 @@ public sealed class CampaignCompanionClient(
         }
         return JsonSerializer.Deserialize<CapabilitiesPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Game capabilities were empty.");
+    }
+
+    private async Task<IReadOnlyList<TacticalCouplingRelationship>> ReadCouplingRelationshipsAsync(
+        CancellationToken cancellationToken)
+    {
+        var result = await game.SendCommandAsync(
+            GameCommandTypes.GetTacticalCouplingState,
+            "{}",
+            CommandPriorities.Control,
+            cancellationToken);
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"Game coupling state unavailable: {result.ErrorCode}.");
+        }
+        var state = JsonSerializer.Deserialize<TacticalCouplingStatePayload>(result.ResultJson, JsonOptions)
+            ?? throw new InvalidDataException("Game coupling state was empty.");
+        var weapons = state.ActiveWeapons.ToDictionary(item => item.Id, StringComparer.Ordinal);
+        var relationships = new List<TacticalCouplingRelationship>();
+        foreach (var weapon in state.ActiveWeapons
+            .Where(item => item.IsLaunched && !item.IsDestroyed)
+            .OrderBy(item => item.Id, StringComparer.Ordinal))
+        {
+            var participants = new HashSet<string>(StringComparer.Ordinal);
+            ResolveCampaignParticipants(
+                weapon.LaunchPlatformId,
+                weapons,
+                participants,
+                new HashSet<string>(StringComparer.Ordinal));
+            ResolveCampaignParticipants(
+                weapon.IntendedTargetId,
+                weapons,
+                participants,
+                new HashSet<string>(StringComparer.Ordinal));
+            var ordered = participants.OrderBy(item => item, StringComparer.Ordinal).ToArray();
+            if (ordered.Length == 1)
+            {
+                relationships.Add(Relationship(weapon, ordered[0], ordered[0]));
+                continue;
+            }
+            for (var left = 0; left < ordered.Length; left++)
+            {
+                for (var right = left + 1; right < ordered.Length; right++)
+                {
+                    relationships.Add(Relationship(weapon, ordered[left], ordered[right]));
+                }
+            }
+        }
+        return relationships;
+    }
+
+    private static TacticalCouplingRelationship Relationship(
+        WeaponSnapshotPayload weapon,
+        string sourceEntityId,
+        string targetEntityId) => new()
+    {
+        Kind = "active-weapon",
+        SourceEntityId = sourceEntityId,
+        TargetEntityId = targetEntityId,
+        EvidenceId = weapon.Id,
+        GuidanceType = weapon.GuidanceType,
+        UnsafeToSplit = true,
+    };
+
+    private static void ResolveCampaignParticipants(
+        string? objectId,
+        IReadOnlyDictionary<string, WeaponSnapshotPayload> weapons,
+        ISet<string> participants,
+        ISet<string> visitedWeapons)
+    {
+        if (CampaignEntityId(objectId) is { } entityId)
+        {
+            participants.Add(entityId);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(objectId)
+            || !weapons.TryGetValue(objectId, out var weapon)
+            || !visitedWeapons.Add(objectId))
+        {
+            return;
+        }
+        ResolveCampaignParticipants(weapon.LaunchPlatformId, weapons, participants, visitedWeapons);
+        ResolveCampaignParticipants(weapon.IntendedTargetId, weapons, participants, visitedWeapons);
+    }
+
+    private static string? CampaignEntityId(string? stableUnitId)
+    {
+        const string prefix = "campaign-unit:unit:crimean-tom:";
+        if (stableUnitId is null || !stableUnitId.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        return Guid.TryParseExact(stableUnitId[prefix.Length..], "N", out var parsed)
+            ? parsed.ToString("N")
+            : null;
     }
 
     private async Task<AssignmentPreparation> PrepareAssignmentAsync(

@@ -38,7 +38,8 @@ type Assignment = {
 };
 type InteractionIsland = {
   islandId: string; entityIds: string[]; groupIds: string[]; currentFidelity: string;
-  desiredFidelity: string; engaged: boolean; couplingScoreMilliunits: number; reason: string;
+  desiredFidelity: string; engaged: boolean; couplingScoreMilliunits: number;
+  unsafeToSplit: boolean; couplingReasons: string[]; reason: string;
 };
 type Scheduler = {
   health: string; eligibility: string; tacticalEntityCapacity: number; backlogDepth: number;
@@ -300,7 +301,8 @@ function selectEntity(entityId: string): void {
       <dt>Batch</dt><dd>${assignment?.batchId ? `${escapeHtml(assignment.batchId)} / ${assignment.batchSize}` : "SINGLE / NONE"}</dd>
       <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>
       <dt>Scheduler</dt><dd>${escapeHtml(island?.reason ?? "Not evaluated")}</dd>
-      <dt>Coupling</dt><dd>${island?.couplingScoreMilliunits ?? 0} / 1000 ${island?.engaged ? "// ENGAGED" : "// QUIET"}</dd>
+      <dt>Coupling</dt><dd>${island?.couplingScoreMilliunits ?? 0} / 1000 ${island?.engaged ? "// ENGAGED" : "// QUIET"} ${island?.unsafeToSplit ? "// FENCED" : ""}</dd>
+      <dt>Edges</dt><dd>${escapeHtml(island?.couplingReasons.join(" + ") || "NONE")}</dd>
     </dl>`;
 }
 

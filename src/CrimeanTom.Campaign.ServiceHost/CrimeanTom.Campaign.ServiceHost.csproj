@@ -20,7 +20,8 @@
     <ProjectReference Include="..\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
   </ItemGroup>
 
-  <!-- Vite owns this generated tree during development. Watching its chunk churn
-       makes dotnet watch rescan hundreds of static files and can overflow the
-       Windows file watcher. The backend still serves the files normally. -->
+  <!-- Vite owns this generated tree during development. DotNetWatchContentFiles
+       keeps generated chunks out of the watched MSBuild input; Vite also updates
+       production assets in place so Roslyn never observes a delete/recreate storm.
+       The backend still serves the files normally. -->
 </Project>

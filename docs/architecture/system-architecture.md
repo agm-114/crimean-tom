@@ -305,6 +305,13 @@ Connected components above a policy threshold form interaction islands. The
 scheduler applies hysteresis so islands do not repeatedly merge and split at a
 distance boundary.
 
+The implemented active-weapon slice publishes launch-platform/target/guidance
+relationships in companion heartbeats. Hard relationships union their
+canonical endpoints into one scheduler component and mark it unsafe to split.
+The cache tolerates one missing sample to avoid a transient heartbeat gap
+tearing down a fence. Untargeted weapons use a platform self-edge so a lone
+campaign unit cannot demote while it still owns in-flight ordnance.
+
 Merge protocol:
 
 1. Fence new cross-island authoritative actions at merge tick `T`.

@@ -76,6 +76,8 @@ public sealed class CampaignCompanionSession
     private string _catalogFingerprintSha256;
     private string _playerTaskforceId;
     private TacticalMaterializationProfile[] _materializationProfiles;
+    private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
+        new(StringComparer.Ordinal);
 
     public CampaignCompanionSession(CompanionHello hello)
     {
@@ -126,6 +128,7 @@ public sealed class CampaignCompanionSession
                     _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
                     _materializationProfiles = frame.Heartbeat.MaterializationProfiles
                         .Select(item => item.Clone()).ToArray();
+                    ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                 }
             }
         }
@@ -152,11 +155,58 @@ public sealed class CampaignCompanionSession
                 _materializationProfiles.Select(profile => new CampaignMaterializationProfile(
                     profile.UnitTypeId,
                     profile.VariantId,
-                    profile.LoadoutId)).ToArray());
+                    profile.LoadoutId)).ToArray(),
+                _couplingRelationships.Values
+                    .OrderBy(item => item.Key, StringComparer.Ordinal)
+                    .Select(item => new CampaignCouplingRelationship(
+                        item.Relationship.Kind,
+                        item.Relationship.SourceEntityId,
+                        item.Relationship.TargetEntityId,
+                        item.Relationship.EvidenceId,
+                        item.Relationship.GuidanceType,
+                        item.Relationship.UnsafeToSplit,
+                        item.MissingSamples)).ToArray());
         }
     }
 
+    private void ObserveCouplingRelationships(
+        IEnumerable<TacticalCouplingRelationship> observed)
+    {
+        var next = observed
+            .Where(item => !string.IsNullOrWhiteSpace(item.Kind)
+                && !string.IsNullOrWhiteSpace(item.SourceEntityId)
+                && !string.IsNullOrWhiteSpace(item.TargetEntityId))
+            .Take(4_096)
+            .Select(item => new ObservedCouplingRelationship(
+                CouplingKey(item),
+                item.Clone(),
+                0))
+            .ToDictionary(item => item.Key, StringComparer.Ordinal);
+        foreach (var prior in _couplingRelationships.Values)
+        {
+            if (next.ContainsKey(prior.Key) || prior.MissingSamples >= 1)
+            {
+                continue;
+            }
+            next[prior.Key] = prior with { MissingSamples = prior.MissingSamples + 1 };
+        }
+        _couplingRelationships = next;
+    }
+
+    private static string CouplingKey(TacticalCouplingRelationship item) => string.Join('\n',
+        item.Kind,
+        item.SourceEntityId,
+        item.TargetEntityId,
+        item.EvidenceId,
+        item.GuidanceType,
+        item.UnsafeToSplit);
+
     public void Complete(string reason) => _outgoing.Writer.TryComplete();
+
+    private sealed record ObservedCouplingRelationship(
+        string Key,
+        TacticalCouplingRelationship Relationship,
+        int MissingSamples);
 }
 
 public sealed record CampaignSessionSnapshot(
@@ -173,9 +223,19 @@ public sealed record CampaignSessionSnapshot(
     string RuntimeFingerprintSha256,
     string CatalogFingerprintSha256,
     string PlayerTaskforceId,
-    IReadOnlyList<CampaignMaterializationProfile> MaterializationProfiles);
+    IReadOnlyList<CampaignMaterializationProfile> MaterializationProfiles,
+    IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships);
 
 public sealed record CampaignMaterializationProfile(
     string UnitTypeId,
     string VariantId,
     string LoadoutId);
+
+public sealed record CampaignCouplingRelationship(
+    string Kind,
+    string SourceEntityId,
+    string TargetEntityId,
+    string EvidenceId,
+    string GuidanceType,
+    bool UnsafeToSplit,
+    int MissingSamples);

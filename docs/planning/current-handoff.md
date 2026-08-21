@@ -381,10 +381,22 @@ restarting the companion. A fresh post-transition 4x campaign,
 Active/Tactical Knox assignments and zero recovery debt. Its current monitor is
 `http://127.0.0.1:5081/monitor/?campaign=739f13a58fde41ff9563bae754213672`.
 
-Next, extend coupling to weapon/guidance/host relationships, measure live
-tactical capacity/tempo, and calibrate the operational resolver against tactical
-observation batches. Keep tactical projection and campaign commit separate: Sea
-Power remains a fenced client of the external authoritative kernel.
+Active weapon/guidance coupling now crosses the full live path. The bridge
+captures a compact active-weapon graph, the companion converts campaign-stable
+platform/target IDs into unsafe heartbeat relationships, and the service keeps
+one-missed-sample hysteresis before unioning those edges into scheduler islands.
+Fresh 4x Fulda campaign `d42468bb4c984e50bacecfd6f8f4cb57`
+reached commit 188 with one campaign Knox held Active/Tactical by an untargeted
+RGM-84C self-edge while three quiet Knox islands drained to Operational. The
+hosted monitor visibly reports `active-coupling-fence`,
+`ENGAGED // FENCED`, and `active-weapon:ActiveRadarHoming` at
+`http://127.0.0.1:5081/monitor/?campaign=d42468bb4c984e50bacecfd6f8f4cb57`.
+
+Next, extend coupling to sensor/host/plotting/physical relationships, implement
+hysteretic split and reserve-aware migration, measure live tactical combat
+tempo, and calibrate the operational resolver against tactical observation
+batches. Keep tactical projection and campaign commit separate: Sea Power
+remains a fenced client of the external authoritative kernel.
 
 Campaign diagnostics and the monitor now expose process-local service uptime,
 managed/working-set memory, recovery latency, advance latency and quanta rate,

@@ -77,6 +77,7 @@ public static class GameCommandTypes
     public const string GetCapabilities = "get-capabilities";
     public const string GetSceneState = "get-scene-state";
     public const string GetWorldSnapshot = "get-world-snapshot";
+    public const string GetTacticalCouplingState = "get-tactical-coupling-state";
     public const string GetUnitCatalogPage = "get-unit-catalog-page";
     public const string GetReferenceCatalogPage = "get-reference-catalog-page";
     public const string GetCatalogDiagnostics = "get-catalog-diagnostics";
@@ -108,6 +109,7 @@ public static class GameCommandTypes
         GetCapabilities,
         GetSceneState,
         GetWorldSnapshot,
+        GetTacticalCouplingState,
         GetOwnedSurfaceResourceState,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
@@ -155,6 +157,7 @@ public static class GameCommandTypes
         GetCapabilities,
         GetSceneState,
         GetWorldSnapshot,
+        GetTacticalCouplingState,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,

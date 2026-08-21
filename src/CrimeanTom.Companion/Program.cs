@@ -112,6 +112,13 @@ app.MapGet("/game/world", (GamePipeBroker broker, CancellationToken cancellation
         CommandPriorities.Bulk,
         cancellationToken));
 
+app.MapGet("/game/coupling", (GamePipeBroker broker, CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetTacticalCouplingState,
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapGet("/game/mutations/surface/resources", (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>

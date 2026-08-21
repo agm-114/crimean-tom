@@ -86,6 +86,8 @@ internal static class GameCommandDispatcher
                         initializedMainThreadId,
                         executingThreadId)),
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
+                    GameCommandTypes.GetTacticalCouplingState => Success(
+                        GetTacticalCouplingState()),
                     GameCommandTypes.GetOwnedSurfaceResourceState =>
                         Success(RuntimeOwnedMutationAdapter.CaptureResourceState()),
                     GameCommandTypes.GetUnitCatalogPage => Success(GetUnitCatalogPage(
@@ -310,6 +312,28 @@ internal static class GameCommandDispatcher
         snapshot.MainThreadCaptureDurationMicroseconds =
             captureTimer.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
         return snapshot;
+    }
+
+    private static TacticalCouplingStatePayload GetTacticalCouplingState()
+    {
+        var captureTimer = Stopwatch.StartNew();
+        var activeWeapons = Singleton<ObjectsManager>.InstanceExists()
+            ? Singleton<ObjectsManager>.Instance._listOfAllObjects
+                .OfType<WeaponBase>()
+                .Where(weapon => weapon.isLaunched() && !weapon.IsDestroyed)
+                .Select(CaptureWeapon)
+                .OrderBy(weapon => weapon.GameUniqueId)
+                .ToArray()
+            : [];
+        captureTimer.Stop();
+        return new TacticalCouplingStatePayload
+        {
+            SceneName = SceneManager.GetActiveScene().name ?? string.Empty,
+            CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            MainThreadCaptureDurationMicroseconds =
+                captureTimer.ElapsedTicks * 1_000_000L / Stopwatch.Frequency,
+            ActiveWeapons = activeWeapons,
+        };
     }
 
     private static SpatialDiagnosticsPayload CaptureSpatialDiagnostics(

@@ -54,6 +54,8 @@ public sealed record CampaignInteractionIslandView(
     string DesiredFidelity,
     bool Engaged,
     int CouplingScoreMilliunits,
+    bool UnsafeToSplit,
+    IReadOnlyList<string> CouplingReasons,
     string Reason);
 
 public sealed record CampaignFidelityTransitionView(
@@ -70,7 +72,7 @@ internal static class CampaignFidelityScheduler
 
     public static SchedulerEvaluation Inspect(CampaignState state)
     {
-        var islands = BuildIslands(state).Select(island => new SchedulerIslandPlan(
+        var islands = BuildIslands(state, null).Select(island => new SchedulerIslandPlan(
             island.IslandId,
             island.EntityIds,
             island.GroupIds,
@@ -78,6 +80,8 @@ internal static class CampaignFidelityScheduler
             CurrentFidelity(state, island.EntityIds),
             island.Engaged,
             island.CouplingScoreMilliunits,
+            island.UnsafeToSplit,
+            island.CouplingReasons,
             "current-canonical-state")).ToArray();
         return new SchedulerEvaluation(
             new CampaignSchedulerRequest([], [], SchedulerHealthState.Offline,
@@ -109,7 +113,7 @@ internal static class CampaignFidelityScheduler
         var remainingCapacity = request.TacticalEntityCapacity;
         var plans = new List<SchedulerIslandPlan>();
         var transitions = new List<CampaignFidelityTransitionView>();
-        foreach (var island in BuildIslands(state)
+        foreach (var island in BuildIslands(state, worker)
             .OrderByDescending(item => item.EntityIds.Any(interested.Contains))
             .ThenBy(item => item.IslandId, StringComparer.Ordinal))
         {
@@ -147,6 +151,11 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Tactical;
                 reason = "authority-preparing";
+            }
+            else if (hasActiveAssignment && island.UnsafeToSplit)
+            {
+                desired = FidelityState.Tactical;
+                reason = "active-coupling-fence";
             }
             else if (hasActiveAssignment && workerConnected && loadRequiresFallback)
             {
@@ -227,7 +236,8 @@ internal static class CampaignFidelityScheduler
             }
 
             plans.Add(new SchedulerIslandPlan(island.IslandId, island.EntityIds, island.GroupIds,
-                current, desired, island.Engaged, island.CouplingScoreMilliunits, reason));
+                current, desired, island.Engaged, island.CouplingScoreMilliunits,
+                island.UnsafeToSplit, island.CouplingReasons, reason));
             foreach (var entityId in island.EntityIds.Where(id => state.Entities[id].Fidelity != desired
                 && state.Entities[id].Fidelity != FidelityState.Suspended))
             {
@@ -272,13 +282,25 @@ internal static class CampaignFidelityScheduler
             item.DesiredFidelity.ToString(),
             item.Engaged,
             item.CouplingScoreMilliunits,
+            item.UnsafeToSplit,
+            item.CouplingReasons,
             item.Reason)).ToArray(),
         evaluation.Transitions);
 
-    private static IReadOnlyList<Island> BuildIslands(CampaignState state)
+    private static IReadOnlyList<Island> BuildIslands(
+        CampaignState state,
+        CampaignSessionSnapshot? worker)
     {
+        var entityNodes = state.Entities.Keys.OrderBy(item => item).ToArray();
+        if (entityNodes.Length == 0)
+        {
+            return [];
+        }
+        var entityIndexes = entityNodes
+            .Select((entityId, index) => (entityId, index))
+            .ToDictionary(item => item.entityId, item => item.index);
         var groupNodes = state.Groups.Values.OrderBy(item => item.GroupId).ToArray();
-        var parents = Enumerable.Range(0, groupNodes.Length).ToArray();
+        var parents = Enumerable.Range(0, entityNodes.Length).ToArray();
         int Find(int value) => parents[value] == value ? value : parents[value] = Find(parents[value]);
         void Union(int left, int right)
         {
@@ -286,6 +308,15 @@ internal static class CampaignFidelityScheduler
             right = Find(right);
             if (left == right) return;
             if (left < right) parents[right] = left; else parents[left] = right;
+        }
+
+        foreach (var group in groupNodes)
+        {
+            var first = entityIndexes[group.Members.Min];
+            foreach (var member in group.Members)
+            {
+                Union(first, entityIndexes[member]);
+            }
         }
 
         var recentCombatRegions = state.RecentOperationalOutcomes
@@ -301,40 +332,92 @@ internal static class CampaignFidelityScheduler
                 if (groupNodes[left].CoalitionId == groupNodes[right].CoalitionId) continue;
                 var leftRegions = groupNodes[left].Members.Select(id => state.Entities[id].RegionId).ToHashSet();
                 var rightRegions = groupNodes[right].Members.Select(id => state.Entities[id].RegionId).ToHashSet();
-                if (leftRegions.Intersect(rightRegions).Any(recentCombatRegions.Contains)) Union(left, right);
+                if (leftRegions.Intersect(rightRegions).Any(recentCombatRegions.Contains))
+                {
+                    Union(
+                        entityIndexes[groupNodes[left].Members.Min],
+                        entityIndexes[groupNodes[right].Members.Min]);
+                }
             }
         }
 
-        var islands = groupNodes.Select((group, index) => (group, root: Find(index)))
+        var relationships = new List<ResolvedCouplingRelationship>();
+        if (worker is not null
+            && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal))
+        {
+            foreach (var relationship in worker.CouplingRelationships)
+            {
+                if (!Guid.TryParseExact(relationship.SourceEntityId, "N", out var sourceValue)
+                    || !Guid.TryParseExact(relationship.TargetEntityId, "N", out var targetValue))
+                {
+                    continue;
+                }
+                var source = new EntityId(sourceValue);
+                var target = new EntityId(targetValue);
+                if (!entityIndexes.TryGetValue(source, out var sourceIndex)
+                    || !entityIndexes.TryGetValue(target, out var targetIndex))
+                {
+                    continue;
+                }
+                relationships.Add(new ResolvedCouplingRelationship(source, target, relationship));
+                if (relationship.UnsafeToSplit)
+                {
+                    Union(sourceIndex, targetIndex);
+                }
+            }
+        }
+
+        return entityNodes.Select((entityId, index) => (entityId, root: Find(index)))
             .GroupBy(item => item.root)
-            .Select(items => CreateIsland(state,
-                items.SelectMany(item => item.group.Members).Distinct().OrderBy(id => id).ToArray(),
-                items.Select(item => item.group.GroupId).OrderBy(id => id).ToArray(),
-                recentCombatRegions))
-            .ToList();
-        var grouped = state.Groups.Values.SelectMany(item => item.Members).ToHashSet();
-        islands.AddRange(state.Entities.Keys.Where(id => !grouped.Contains(id))
-            .Select(id => CreateIsland(state, [id], [], recentCombatRegions)));
-        return islands.OrderBy(item => item.IslandId, StringComparer.Ordinal).ToArray();
+            .Select(items =>
+            {
+                var entityIds = items.Select(item => item.entityId).OrderBy(item => item).ToArray();
+                var members = entityIds.ToHashSet();
+                var groupIds = groupNodes
+                    .Where(group => group.Members.Any(members.Contains))
+                    .Select(group => group.GroupId)
+                    .OrderBy(item => item)
+                    .ToArray();
+                var coupling = relationships
+                    .Where(item => members.Contains(item.SourceEntityId)
+                        && members.Contains(item.TargetEntityId))
+                    .ToArray();
+                return CreateIsland(state, entityIds, groupIds, recentCombatRegions, coupling);
+            })
+            .OrderBy(item => item.IslandId, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static Island CreateIsland(
         CampaignState state,
         IReadOnlyList<EntityId> entityIds,
         IReadOnlyList<GroupId> groupIds,
-        IReadOnlySet<RegionId> combatRegions)
+        IReadOnlySet<RegionId> combatRegions,
+        IReadOnlyList<ResolvedCouplingRelationship> relationships)
     {
-        var engaged = entityIds.Any(id => combatRegions.Contains(state.Entities[id].RegionId));
-        var material = string.Join(':', groupIds.Count > 0
-            ? groupIds.Select(id => id.Value.ToString("N"))
-            : entityIds.Select(id => id.Value.ToString("N")));
+        var unsafeToSplit = relationships.Any(item => item.Relationship.UnsafeToSplit);
+        var engaged = unsafeToSplit
+            || entityIds.Any(id => combatRegions.Contains(state.Entities[id].RegionId));
+        var grouped = groupIds.SelectMany(id => state.Groups[id].Members).ToHashSet();
+        var material = string.Join(':', groupIds.Select(id => id.Value.ToString("N"))
+            .Concat(entityIds.Where(id => !grouped.Contains(id))
+                .Select(id => id.Value.ToString("N"))));
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{state.Metadata.CampaignId.Value:N}:island:{material}"));
+        var couplingReasons = relationships
+            .Select(item => string.IsNullOrWhiteSpace(item.Relationship.GuidanceType)
+                ? item.Relationship.Kind
+                : $"{item.Relationship.Kind}:{item.Relationship.GuidanceType}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
         return new Island(
             Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant(),
             entityIds,
             groupIds,
             engaged,
-            engaged ? 1_000 : groupIds.Count > 0 ? 600 : 100);
+            engaged ? 1_000 : groupIds.Count > 0 ? 600 : 100,
+            unsafeToSplit,
+            couplingReasons);
     }
 
     private static FidelityState CurrentFidelity(CampaignState state, IReadOnlyList<EntityId> entityIds) =>
@@ -370,6 +453,8 @@ internal static class CampaignFidelityScheduler
         FidelityState DesiredFidelity,
         bool Engaged,
         int CouplingScoreMilliunits,
+        bool UnsafeToSplit,
+        IReadOnlyList<string> CouplingReasons,
         string Reason);
 
     private sealed record Island(
@@ -377,5 +462,12 @@ internal static class CampaignFidelityScheduler
         IReadOnlyList<EntityId> EntityIds,
         IReadOnlyList<GroupId> GroupIds,
         bool Engaged,
-        int CouplingScoreMilliunits);
+        int CouplingScoreMilliunits,
+        bool UnsafeToSplit,
+        IReadOnlyList<string> CouplingReasons);
+
+    private sealed record ResolvedCouplingRelationship(
+        EntityId SourceEntityId,
+        EntityId TargetEntityId,
+        CampaignCouplingRelationship Relationship);
 }

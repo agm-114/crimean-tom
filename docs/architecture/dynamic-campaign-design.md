@@ -101,9 +101,10 @@ Development uses `pnpm campaign:dev`: `dotnet watch` restarts the service while
 Vite supplies frontend HMR at port 5173. Its loopback proxy reads the protected
 service token on the developer's behalf and adds it only to proxied API calls.
 The backend watcher excludes generated static content and uses the SDK polling
-watcher on Windows. Vite owns that tree; polling also prevents an atomic
-production monitor build from overflowing a recursive directory-notification
-queue while ASP.NET refreshes the hosted copy.
+watcher on Windows. Vite owns that tree and production builds update hashed
+chunks in place instead of deleting and recreating the directory. This avoids
+racing Roslyn's Windows hot-reload workspace while ASP.NET refreshes the hosted
+copy.
 
 The two broad integration projects build into `.run/test-artifacts` through the
 root `pnpm test` command. Their host/companion launch helpers resolve those
@@ -161,6 +162,18 @@ with a strictly higher authority epoch, a zero revision in the new assignment
 namespace, an exact entity/profile/task-force match, and a healthy suspended
 checkpoint. It rebinds and enables the retained vessel atomically, or restores
 the prior suspension on failure.
+
+Each campaign heartbeat also carries a bounded tactical coupling projection.
+The bridge captures active launched weapons on Unity's main thread, including
+their stable launch platform, intended target, and guidance mode. The companion
+maps campaign-owned endpoints back to canonical entity IDs and emits an unsafe
+relationship edge; an untargeted weapon produces a deliberate platform
+self-edge, because that entity is still unsafe to demote while its weapon is in
+flight. The service retains an edge across one missed heartbeat, unions hard
+edges into the interaction-island graph, and fences an already Tactical island
+with `active-coupling-fence` before ordinary interest or load shedding can
+drain it. The monitor exposes the fence and its evidence reason. Sensor, host,
+plotting, and physical-dependency capture remain subsequent coupling adapters.
 
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.

@@ -362,7 +362,12 @@ public sealed class CompanionControlIntegrationTests
 
             var token = (await File.ReadAllTextAsync(tokenPath, testTimeout.Token)).Trim();
             AssertAnonymousPipeAccessDenied(gamePipeName);
-            var gamePeer = RunGamePeerAsync(gamePipeName, probeSavePath, testTimeout.Token);
+            var couplingState = new FakeTacticalCouplingState();
+            var gamePeer = RunGamePeerAsync(
+                gamePipeName,
+                probeSavePath,
+                couplingState,
+                testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
             var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
@@ -594,6 +599,32 @@ public sealed class CompanionControlIntegrationTests
                 Assert.Equal("Tactical", Assert.Single(activeBatchEntities,
                     item => item.GetProperty("entityId").GetString() == entityId)
                     .GetProperty("fidelity").GetString()));
+
+            couplingState.SetActiveWeapon(batchLeadEntityId, batchWingEntityId);
+            await WaitForCampaignCouplingCountAsync(campaignClient, 1, testTimeout.Token);
+            using var coupledInterestLoss = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/schedule",
+                new
+                {
+                    observedEntityIds = Array.Empty<string>(),
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 2,
+                    backlogDepth = 1,
+                },
+                testTimeout.Token);
+            coupledInterestLoss.EnsureSuccessStatusCode();
+            using var coupledView = JsonDocument.Parse(
+                await coupledInterestLoss.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Contains(coupledView.RootElement.GetProperty("islands").EnumerateArray(), item =>
+                item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == batchLeadEntityId)
+                && item.GetProperty("reason").GetString() == "active-coupling-fence"
+                && item.GetProperty("unsafeToSplit").GetBoolean()
+                && item.GetProperty("couplingReasons").EnumerateArray().Any(reason =>
+                    reason.GetString() == "active-weapon:SemiActiveRadarHoming"));
+            couplingState.Clear();
+            await WaitForCampaignCouplingCountAsync(campaignClient, 0, testTimeout.Token);
 
             using var batchInterestLoss = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
@@ -1482,6 +1513,7 @@ public sealed class CompanionControlIntegrationTests
     private static async Task RunGamePeerAsync(
         string pipeName,
         string probeSavePath,
+        FakeTacticalCouplingState couplingState,
         CancellationToken cancellationToken)
     {
         using var pipe = new NamedPipeClientStream(
@@ -1579,6 +1611,7 @@ public sealed class CompanionControlIntegrationTests
                     RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
                     {
                         FingerprintSha256 = new string('a', 64),
+                        CatalogSha256 = "integration-catalog-sha256",
                     },
                 }, JsonOptions),
                 GameCommandTypes.GetSceneState => JsonSerializer.Serialize(new SceneStatePayload
@@ -1595,6 +1628,9 @@ public sealed class CompanionControlIntegrationTests
                     IsMainThread = true,
                 }, JsonOptions),
                 GameCommandTypes.GetWorldSnapshot => JsonSerializer.Serialize(CreateWorldSnapshot(), JsonOptions),
+                GameCommandTypes.GetTacticalCouplingState => JsonSerializer.Serialize(
+                    couplingState.Capture(),
+                    JsonOptions),
                 GameCommandTypes.GetUnitCatalogPage => JsonSerializer.Serialize(
                     CreateUnitCatalogPage(command.PayloadJson),
                     JsonOptions),
@@ -1931,6 +1967,13 @@ public sealed class CompanionControlIntegrationTests
                         CatalogSha256 = "integration-catalog-sha256",
                     },
                 }, JsonOptions),
+                GameCommandTypes.GetTacticalCouplingState => JsonSerializer.Serialize(
+                    new TacticalCouplingStatePayload
+                    {
+                        SceneName = "IntegrationScenario",
+                        CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    },
+                    JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
                     JsonOptions),
@@ -2677,6 +2720,30 @@ public sealed class CompanionControlIntegrationTests
         }
     }
 
+    private static async Task WaitForCampaignCouplingCountAsync(
+        HttpClient client,
+        int expectedCount,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            using var response = await client.GetAsync("/health", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                using var document = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("session", out var session)
+                    && session.ValueKind == JsonValueKind.Object
+                    && session.TryGetProperty("couplingRelationships", out var relationships)
+                    && relationships.GetArrayLength() == expectedCount)
+                {
+                    return;
+                }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
     private static async Task<IReadOnlyList<CompanionFrame>> WaitForInboundFramesAsync(
         string runDirectory,
         int count,
@@ -2712,6 +2779,58 @@ public sealed class CompanionControlIntegrationTests
                     or CompanionFrame.PayloadOneofCase.TacticalEvent)
                 .ToArray()
             : [];
+    }
+
+    private sealed class FakeTacticalCouplingState
+    {
+        private readonly object _gate = new();
+        private string? _sourceEntityId;
+        private string? _targetEntityId;
+
+        public void SetActiveWeapon(string sourceEntityId, string targetEntityId)
+        {
+            lock (_gate)
+            {
+                _sourceEntityId = sourceEntityId;
+                _targetEntityId = targetEntityId;
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_gate)
+            {
+                _sourceEntityId = null;
+                _targetEntityId = null;
+            }
+        }
+
+        public TacticalCouplingStatePayload Capture()
+        {
+            lock (_gate)
+            {
+                return new TacticalCouplingStatePayload
+                {
+                    SceneName = "IntegrationScenario",
+                    CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ActiveWeapons = _sourceEntityId is null || _targetEntityId is null
+                        ? []
+                        :
+                        [
+                            new WeaponSnapshotPayload
+                            {
+                                Id = "weapon:integration-coupling",
+                                LaunchPlatformId = $"campaign-unit:unit:crimean-tom:{_sourceEntityId}",
+                                IntendedTargetId = $"campaign-unit:unit:crimean-tom:{_targetEntityId}",
+                                GuidanceType = "SemiActiveRadarHoming",
+                                FlightStage = "TerminalGuidance",
+                                IsLaunched = true,
+                                IsDestroyed = false,
+                            },
+                        ],
+                };
+            }
+        }
     }
 
     private static async Task<JsonDocument> WaitForCampaignViewAsync(

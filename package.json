@@ -27,6 +27,7 @@
     "game:capabilities": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 capabilities",
     "game:scene": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 scene",
     "game:world": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 world",
+    "game:coupling": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 coupling",
     "game:campaign": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 campaign",
     "game:open-task-force-builder": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 open-task-force-builder",
     "game:control-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 test",

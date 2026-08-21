@@ -19,7 +19,10 @@ export default defineConfig({
   plugins: [tailwindcss()],
   build: {
     outDir: "../../src/CrimeanTom.Campaign.ServiceHost/wwwroot/monitor",
-    emptyOutDir: true,
+    // dotnet watch shares this project tree. Replacing the whole directory can
+    // race Roslyn's hot-reload workspace on Windows, so update hashed chunks in
+    // place and let the generated index select the current assets.
+    emptyOutDir: false,
   },
   server: {
     port: 5173,

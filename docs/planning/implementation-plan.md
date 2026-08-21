@@ -646,8 +646,12 @@ single-player prototype.
 - The live Sea Power vertical gate now promotes a Fulda campaign entity through
   the scheduler, materializes and checkpoints it, drains it after the durable
   two-sample hysteresis, and re-promotes the retained object under a higher
-  authority epoch. This is not yet the full P5 gate: sensor/weapon/host coupling,
-  hysteretic split, client migration/reserve accounting, tactical performance
+  authority epoch. Active weapon/guidance coupling now crosses the live bridge,
+  heartbeat, service island graph, scheduler fence, and monitor. A paused
+  campaign-owned Knox with an active RGM-84C remained Tactical while three
+  otherwise identical islands drained to Operational. This is not yet the full
+  P5 gate: sensor/host/plotting coupling, hysteretic split, client
+  migration/reserve accounting, tactical performance
   targets, and calibration remain. The external-kernel
   large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
   600 entities measures 18.5/s and is explicitly an overloaded envelope. The
@@ -659,6 +663,10 @@ single-player prototype.
   debrief-to-mission transitions were verified under one unchanged companion
   session, eliminating the development-only companion restart that was formerly
   needed after loading a scenario.
+- The coupling heartbeat retains a hard relationship for one missed sample,
+  unions campaign endpoints into the interaction graph, and prevents interest
+  loss or load shedding from splitting/demoting an active-weapon island. The
+  monitor labels the selected island `FENCED` and displays its guidance edge.
 
 ### Objective
 

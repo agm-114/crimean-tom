@@ -116,13 +116,41 @@ debt. The hosted monitor is:
 
 `http://127.0.0.1:5081/monitor/?campaign=739f13a58fde41ff9563bae754213672`
 
+## Active weapon/guidance fence
+
+Fresh 4x campaign `d42468bb4c984e50bacecfd6f8f4cb57` proves the first
+hard runtime coupling edge end to end. Four independent USS Pharris/Knox
+islands reached Active/Tactical at commit 177. Typed experimental automation
+paused the mission and launched an untargeted `usn_rgm-84c` from campaign unit
+`18017b8e1dfd95defd2024f1ce9d6d73`; the bridge captured weapon `541` with
+`ActiveRadarHoming` guidance. The compact coupling capture took 110 microseconds
+with two active weapons in the mission.
+
+The next heartbeat projected one unsafe canonical self-edge for the launching
+platform. On two healthy interest-loss samples, the coupled island reported
+`active-coupling-fence` both times while the other three moved from
+`scheduler-hysteresis-hold` to `authority-quiescing`. At commit 188 the coupled
+Knox remained epoch-1 Active/Tactical and the other three were
+Released/Operational.
+
+Browser verification of the hosted monitor found no Vite error overlay and
+showed service healthy, scheduler stable at two samples, Tactical/Authority
+counts of one, and the selected track fields `ENGAGED // FENCED` plus
+`active-weapon:ActiveRadarHoming`:
+
+`http://127.0.0.1:5081/monitor/?campaign=d42468bb4c984e50bacecfd6f8f4cb57`
+
+The heartbeat cache deliberately retains a hard edge across one missing sample;
+the broad protocol story proves the edge is removed after the second empty
+sample and normal drain hysteresis resumes.
+
 ## Remaining gate
 
 - Measure tactical tick throughput and main-thread costs under active combat;
   the four-island materialize/drain burst baseline is now recorded.
 - Add safe profiles for more naval/air units before claiming mixed-island
   coverage.
-- Extend interaction islands with active weapons, guidance, sensors, hosts, and
-  plotting relationships, then test merge/split hysteresis live.
+- Extend interaction islands with sensors, hosts, plotting, and physical
+  relationships, then test merge/split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.

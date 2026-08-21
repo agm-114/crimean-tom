@@ -552,6 +552,20 @@ public sealed class WorldSnapshotPayload
     public ControlledTickExperimentPayload ControlledTickExperiment { get; set; } = new();
 }
 
+public sealed class TacticalCouplingStatePayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string SceneName { get; set; } = string.Empty;
+
+    public long CapturedAtUnixMilliseconds { get; set; }
+
+    public long MainThreadCaptureDurationMicroseconds { get; set; }
+
+    public WeaponSnapshotPayload[] ActiveWeapons { get; set; }
+        = Array.Empty<WeaponSnapshotPayload>();
+}
+
 public sealed class ControlledTickExperimentRequestPayload
 {
     public int TickCount { get; set; } = 300;
