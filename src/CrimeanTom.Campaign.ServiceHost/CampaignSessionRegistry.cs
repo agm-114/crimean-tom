@@ -164,6 +164,8 @@ public sealed class CampaignCompanionSession
     private int _ownedActiveEntityCount;
     private int _ownedRetainedSuspendedEntityCount;
     private int _ownedRecoveryRequiredEntityCount;
+    private int _tacticalEntityCapacity;
+    private int _tacticalReserveCapacity;
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
@@ -177,6 +179,7 @@ public sealed class CampaignCompanionSession
         _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
         _playerTaskforceId = hello.PlayerTaskforceId;
         _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
+        ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
     }
 
     public CompanionHello Hello { get; }
@@ -226,6 +229,9 @@ public sealed class CampaignCompanionSession
                     _ownedRecoveryRequiredEntityCount = Math.Max(
                         0,
                         frame.Heartbeat.OwnedRecoveryRequiredEntityCount);
+                    ObserveCapacity(
+                        frame.Heartbeat.TacticalEntityCapacity,
+                        frame.Heartbeat.TacticalReserveCapacity);
                     ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                 }
             }
@@ -258,6 +264,8 @@ public sealed class CampaignCompanionSession
                 _ownedActiveEntityCount,
                 _ownedRetainedSuspendedEntityCount,
                 _ownedRecoveryRequiredEntityCount,
+                _tacticalEntityCapacity,
+                _tacticalReserveCapacity,
                 _couplingRelationships.Values
                     .OrderBy(item => item.Key, StringComparer.Ordinal)
                     .Select(item => new CampaignCouplingRelationship(
@@ -295,6 +303,18 @@ public sealed class CampaignCompanionSession
         _couplingRelationships = next;
     }
 
+    private void ObserveCapacity(int capacity, int reserve)
+    {
+        if (capacity is < 1 or > 10_000 || reserve < 0 || reserve > capacity)
+        {
+            _tacticalEntityCapacity = 0;
+            _tacticalReserveCapacity = 0;
+            return;
+        }
+        _tacticalEntityCapacity = capacity;
+        _tacticalReserveCapacity = reserve;
+    }
+
     private static string CouplingKey(TacticalCouplingRelationship item) => string.Join('\n',
         item.Kind,
         item.SourceEntityId,
@@ -330,6 +350,8 @@ public sealed record CampaignSessionSnapshot(
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,
     int OwnedRecoveryRequiredEntityCount,
+    int TacticalEntityCapacity,
+    int TacticalReserveCapacity,
     IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships);
 
 public sealed record CampaignMaterializationProfile(

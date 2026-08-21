@@ -6,4 +6,6 @@ public sealed record CampaignCompanionClientOptions(
     string CampaignId,
     string ClientInstanceId,
     string TokenFile,
-    string StateDirectory);
+    string StateDirectory,
+    int TacticalEntityCapacity,
+    int TacticalReserveCapacity);

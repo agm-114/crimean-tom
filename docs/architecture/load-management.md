@@ -135,16 +135,25 @@ assignment, routes assignments and fences only to that owner, rejects tactical
 events returned by a different worker, and broadcasts committed campaign events
 to every connected worker for catch-up. A backpressured recipient is disconnected
 and must replay from the durable journal; it cannot stall canonical commits or
-another worker. Diagnostics expose all connected worker
-sessions and their live resource envelopes. Worker selection is deterministic
-and load-aware. Scheduler evaluation now aggregates materialized, active,
-retained and recovery-required counts plus coupling graphs across every campaign
-worker. New complete islands select one compatible least-loaded destination,
-preserve any existing island affinity, reserve the whole island against that
-destination before queuing, and use stable client ID as the final tie-breaker.
-The configured tactical budget remains campaign-global and each destination is
-conservatively bounded by its safe capacity. Per-worker health declarations,
-whole-island migration, destination/source overlap accounting, and bounded
+another worker. Diagnostics expose all connected worker sessions and their live
+resource envelopes. Each companion also advertises a configurable tactical
+object ceiling and reserved headroom on hello and every heartbeat. Invalid
+declarations fail closed to zero capacity. The current development defaults are
+four objects with one reserved slot, grounded only in the live
+four-independent-surface probe; they are not a mixed-combat calibration.
+
+Worker selection is deterministic and load-aware. Scheduler evaluation now
+aggregates materialized, active, retained and recovery-required counts plus
+coupling graphs across every campaign worker. New complete islands select one
+compatible destination with local headroom, preserve existing island affinity,
+reserve the whole island against that destination before queuing, and use
+normalized utilization, recovery debt, load, then stable client ID as ordered
+tie-breakers. Admission is bounded by the smaller of the campaign-safe budget
+and `worker capacity - worker reserve`; runtime materialization and live
+assignment ownership both count as occupied, preventing stale heartbeats from
+overbooking a destination. The monitor exposes declared capacity, reserve and
+remaining admission headroom. Per-worker health declarations, temporary
+source/destination migration overlap, whole-island migration, and bounded
 concurrent rebalance remain open work; this foundation must not be read as a
 completed migration controller.
 
@@ -155,8 +164,8 @@ state hash before reconstructing the supported portable surface fields. This
 closes the checkpoint transport/reconstruction plumbing but does not by itself
 make an island migration-safe. Automatic moves remain disabled where fuel,
 stores, damage, sensors, formations, hosted aircraft, or other unsupported state
-would matter, and the coordinator still needs destination overlap budgets,
-quiesce fencing, cooldown, and bounded concurrent migration.
+would matter, and the coordinator still needs temporary migration-overlap
+budgets, quiesce fencing, cooldown, and bounded concurrent migration.
 
 The service automatically creates and queues deterministic, batch-linked
 Preparing assignments for a selected, fully representable island. Manual and
@@ -179,9 +188,9 @@ The latest scheduler envelope is a canonical campaign event and snapshot field,
 so health, eligibility, interest, capacity, backlog, request identity, and the
 stable-sample count survive service restart. An active quiet island requires two
 identical healthy interest-loss samples before quiescing; load shedding and
-explicit drain remain immediate. Longer health history, cooldowns, reserve and
-destination accounting, migration, and tempo events are still target
-architecture rather than implemented claims.
+explicit drain remain immediate. Longer health history, cooldowns,
+source/destination overlap accounting, migration, and tempo events are still
+target architecture rather than implemented claims.
 
 The first reproducible operational baseline on the Ryzen 9 9900X development
 host sustains 35.9 quanta/s for 300 entities and 180 groups, clearing the healthy

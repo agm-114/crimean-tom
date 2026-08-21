@@ -52,6 +52,20 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-companion"));
     Directory.CreateDirectory(campaignStateDirectory);
     var clientInstanceId = LoadOrCreateClientInstanceId(Path.Combine(campaignStateDirectory, "client-instance-id"));
+    var tacticalEntityCapacity = ReadBoundedInteger(
+        builder.Configuration["TacticalEntityCapacity"]
+            ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_TACTICAL_ENTITY_CAPACITY"),
+        defaultValue: 4,
+        minimum: 1,
+        maximum: 10_000,
+        "TacticalEntityCapacity");
+    var tacticalReserveCapacity = ReadBoundedInteger(
+        builder.Configuration["TacticalReserveCapacity"]
+            ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_TACTICAL_RESERVE_CAPACITY"),
+        defaultValue: 1,
+        minimum: 0,
+        maximum: tacticalEntityCapacity,
+        "TacticalReserveCapacity");
     var options = new CampaignCompanionClientOptions(
         RequireCampaignServiceUri(campaignServiceGrpcUrl),
         RequireCampaignServiceUri(campaignServiceHttpUrl),
@@ -60,7 +74,9 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         Path.GetFullPath(builder.Configuration["CampaignServiceTokenFile"]
             ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE")
             ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-service", "service.token")),
-        campaignStateDirectory);
+        campaignStateDirectory,
+        tacticalEntityCapacity,
+        tacticalReserveCapacity);
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new CampaignCompanionStateStore(campaignStateDirectory));
     builder.Services.AddHostedService<CampaignCompanionClient>();
@@ -811,6 +827,25 @@ static IResult? ValidateOwnedRecoveryReleaseRequest(
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     return null;
+}
+
+static int ReadBoundedInteger(
+    string? value,
+    int defaultValue,
+    int minimum,
+    int maximum,
+    string name)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return defaultValue;
+    }
+    if (!int.TryParse(value, out var parsed) || parsed < minimum || parsed > maximum)
+    {
+        throw new InvalidOperationException(
+            $"{name} must be an integer from {minimum} through {maximum}.");
+    }
+    return parsed;
 }
 
 static async Task<string> WaitForStableFileHashAsync(

@@ -195,12 +195,30 @@ internal static class CampaignFidelityScheduler
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
             var workerHasTaskforce = campaignWorkers.Any(worker =>
                 !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId));
-            var workerCanMaterializeIsland = campaignWorkers.Any(worker =>
+            var compatibleWorkers = campaignWorkers.Where(worker =>
                 !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
                 && island.EntityIds.All(id => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
                     state.Entities[id].CatalogUnitId,
-                    StringComparison.Ordinal))));
+                    StringComparison.Ordinal)))).ToArray();
+            var workerCanMaterializeIsland = compatibleWorkers.Length > 0;
+            var workerCanAdmitIsland = compatibleWorkers.Any(worker =>
+            {
+                var assignedCount = state.Assignments.Values
+                    .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
+                        && string.Equals(
+                            assignment.WorkerClientInstanceId,
+                            worker.ClientInstanceId,
+                            StringComparison.Ordinal))
+                    .Select(assignment => assignment.EntityId)
+                    .Distinct()
+                    .Count();
+                var occupied = Math.Max(worker.OwnedMaterializedEntityCount, assignedCount);
+                var destinationSafeCapacity = Math.Min(
+                    safeTacticalCapacity,
+                    Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity));
+                return occupied + island.EntityIds.Count <= destinationSafeCapacity;
+            });
             var workerRequiresEvacuation = request.Health is SchedulerHealthState.Draining
                     or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
                 || request.Eligibility != SimulationSourceEligibility.Eligible;
@@ -295,6 +313,11 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Operational;
                 reason = "worker-materialization-ceiling";
+            }
+            else if (hasInterest && !workerCanAdmitIsland)
+            {
+                desired = FidelityState.Operational;
+                reason = "tactical-destination-capacity-exhausted";
             }
             else if (hasInterest && island.EntityIds.Count <= remainingCapacity)
             {

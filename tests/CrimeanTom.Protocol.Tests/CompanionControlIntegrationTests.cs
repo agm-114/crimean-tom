@@ -428,6 +428,9 @@ public sealed class CompanionControlIntegrationTests
                 root => root.GetProperty("assignments").EnumerateArray().Any(item =>
                     item.GetProperty("lifecycle").GetString() == "Active"),
                 testTimeout.Token);
+            var activeWorker = Assert.Single(activeCampaign.RootElement.GetProperty("workers").EnumerateArray());
+            Assert.Equal(4, activeWorker.GetProperty("tacticalEntityCapacity").GetInt32());
+            Assert.Equal(1, activeWorker.GetProperty("tacticalReserveCapacity").GetInt32());
             var activeAssignment = Assert.Single(activeCampaign.RootElement.GetProperty("assignments").EnumerateArray());
             Assert.Equal("Active", activeAssignment.GetProperty("lifecycle").GetString());
             await WaitForCampaignResourceCountsAsync(

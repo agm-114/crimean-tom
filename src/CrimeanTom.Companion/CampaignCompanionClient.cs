@@ -71,6 +71,8 @@ public sealed class CampaignCompanionClient(
                 CatalogFingerprintSha256 = capabilities.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
                 Capabilities = { capabilities.SupportedMutationCommands },
                 PlayerTaskforceId = capabilities.PlayerTaskforceId,
+                TacticalEntityCapacity = options.TacticalEntityCapacity,
+                TacticalReserveCapacity = options.TacticalReserveCapacity,
                 MaterializationProfiles =
                 {
                     capabilities.OwnedSurfaceMaterializationProfiles.Select(profile =>
@@ -259,6 +261,8 @@ public sealed class CampaignCompanionClient(
                                 OwnedActiveEntityCount = resources.ActiveObjectCount,
                                 OwnedRetainedSuspendedEntityCount = resources.SuspendedRetainedObjectCount,
                                 OwnedRecoveryRequiredEntityCount = resources.RecoveryRequiredCount,
+                                TacticalEntityCapacity = options.TacticalEntityCapacity,
+                                TacticalReserveCapacity = options.TacticalReserveCapacity,
                             },
                         });
                     }

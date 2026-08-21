@@ -356,6 +356,25 @@ unsupported even though canonical damage is preserved externally. It must not
 receive gameplay authority where that mismatch matters. The same restriction
 continues to cover fuel, stores, sensors, formations and hosted aircraft.
 
+## Destination-local admission envelope
+
+The companion protocol now advertises tactical object capacity and reserved
+headroom on both initial hello and recurring heartbeat. The coordinator rejects
+invalid declarations by assigning zero capacity. New complete islands are
+admitted only when their planned destination remains within the smaller of the
+campaign scheduler budget and that worker's declared `capacity - reserve`.
+Occupied space is the larger of the worker's observed materialized count and its
+non-released assignment count, so a lagging resource heartbeat cannot silently
+overbook the process.
+
+The development defaults are capacity four and reserve one. Four is supported
+only by the independent-surface live probe above; reserving one leaves an
+unclaimed slot for catch-up or later migration work. This is an implemented
+admission policy, not evidence that three mixed active-combat entities are safe.
+The existing broad protocol story verifies the default envelope through the
+real companion/service handshake and campaign diagnostic view. The monitor now
+reports aggregate capacity, reserve and free admission headroom.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,
@@ -366,6 +385,7 @@ continues to cover fuel, stores, sensors, formations and hosted aircraft.
   test split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.
-- Add destination reserve/overlap accounting and fenced whole-island quiesce,
+- Add bounded temporary source/destination overlap accounting and fenced
+  whole-island migration,
   then prove this checkpoint reconstruction path between two real tactical
   containers. Do not enable automatic migration for unsupported state families.

@@ -328,10 +328,17 @@ aggregates resource debt and unsafe coupling across every campaign worker, and
 places each new complete island on one compatible least-loaded destination.
 Planned assignments count immediately, so several islands in one scheduling
 call can spread rather than concentrating before the next heartbeat. Existing
-batch ownership is sticky and conflicting live owners fail closed. The final
-tie-breaker is stable client identity rather than connection time. The current
-capacity envelope remains campaign-global; explicit per-worker health and
-migration-overlap budgets are the next admission-control slice.
+batch ownership is sticky and conflicting live owners fail closed. Each worker
+now advertises a configurable tactical object ceiling and reserved headroom on
+hello and heartbeat. Invalid values fail closed. New-island admission uses the
+smaller of the campaign budget and the destination's `capacity - reserve`,
+counts both runtime objects and non-released assignments, and sorts candidates
+by normalized utilization before recovery debt, load and stable identity. The
+development defaults are capacity four and reserve one, based on the live
+independent-Knox probe rather than mixed-combat calibration. The monitor exposes
+aggregate capacity, reserve and free headroom. Explicit per-worker health and
+temporary source/destination migration-overlap budgets remain the next
+admission-control slice.
 
 New assignments now reference the latest durable checkpoint for their entity.
 The companion downloads that blob with campaign authentication and verifies its
@@ -508,11 +515,14 @@ campaign's durable cursor and silently prevents the gRPC session from opening.
 
 Reserve-aware load shedding is now implemented around actual runtime resource
 counts: active, suspended-retained, recovery-required and total materialized
-objects all contribute to the scheduler projection. Capacity pressure selects
-whole quiet islands and preserves fenced/engaged islands; the scheduling
-response retains the original decision reasons even after assignments enter
-Quiescing. Next, expand live tactical combat tempo to mixed active systems,
-exercise campaign-owned sensor/host/refueling edges, and
+objects all contribute to the scheduler projection. Destination-local admission
+also honors each worker's advertised capacity and reserve; the campaign API and
+monitor expose the same envelope. Capacity pressure selects whole quiet islands
+and preserves fenced/engaged islands; the scheduling response retains the
+original decision reasons even after assignments enter Quiescing. Next, add a
+bounded temporary-overlap budget for fenced migration, then expand live tactical
+combat tempo to mixed active systems, exercise campaign-owned
+sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep
 tactical projection and campaign commit separate: Sea Power remains a fenced
 client of the external authoritative kernel.

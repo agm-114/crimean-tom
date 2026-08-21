@@ -1348,6 +1348,8 @@ public sealed class CampaignCoordinator(
         worker.OwnedActiveEntityCount,
         worker.OwnedRetainedSuspendedEntityCount,
         worker.OwnedRecoveryRequiredEntityCount,
+        worker.TacticalEntityCapacity,
+        worker.TacticalReserveCapacity,
         worker.MaterializationProfiles.Count,
         worker.CouplingRelationships.Count);
 
@@ -1385,12 +1387,21 @@ public sealed class CampaignCoordinator(
                     state.Entities[entityId].CatalogUnitId,
                     StringComparison.Ordinal))))
             .Where(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId) + missingEntityCount
-                <= destinationCapacity)
-            .OrderBy(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId))
+                <= DestinationSafeCapacity(worker, destinationCapacity))
+            .OrderBy(worker => checked(
+                plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId) * 1_000_000L)
+                / Math.Max(1, DestinationSafeCapacity(worker, destinationCapacity)))
             .ThenBy(worker => worker.OwnedRecoveryRequiredEntityCount)
+            .ThenBy(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId))
             .ThenBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
             .FirstOrDefault();
     }
+
+    private static int DestinationSafeCapacity(
+        CampaignSessionSnapshot worker,
+        int campaignSafeCapacity) => Math.Min(
+            campaignSafeCapacity,
+            Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity));
 
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
@@ -1420,7 +1431,7 @@ public sealed class CampaignCoordinator(
                 item.Relationship.MissingSamples)));
         var resources = string.Join('|', workers
             .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
-            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount}"));
+            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity}"));
         var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
@@ -1543,6 +1554,8 @@ public sealed record CampaignWorkerView(
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,
     int OwnedRecoveryRequiredEntityCount,
+    int TacticalEntityCapacity,
+    int TacticalReserveCapacity,
     int MaterializationProfileCount,
     int CouplingRelationshipCount);
 
