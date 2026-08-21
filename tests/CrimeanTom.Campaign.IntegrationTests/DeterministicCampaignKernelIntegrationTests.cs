@@ -90,6 +90,15 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(2, simulated.Intelligence.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        var calibration = CampaignCalibration.Evaluate(
+            simulated.RecentOperationalOutcomes,
+            CampaignCalibration.HealthyTicksPerWallSecond,
+            observedFencedIslandCount: 0,
+            demotedFencedIslandCount: 0);
+        Assert.True(calibration.InEnvelope);
+        Assert.Equal(0, calibration.ObservedRangeViolationCount);
+        Assert.True(calibration.ObservedWeaponExpenditureCount > 0);
+        Assert.True(calibration.MaximumRangeRatioMilliunits <= CampaignCalibration.EnvelopeMaximumRangeRatioMilliunits);
         Assert.True(simulated.Entities[Ids.RedKrivak].Resources[ResourceKind.Munitions].MilliUnits < 700_000);
 
         var simulatedProjection = CampaignProjectionBuilder.ForCoalition(simulated, Ids.BlueCoalition);
