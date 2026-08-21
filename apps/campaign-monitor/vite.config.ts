@@ -28,6 +28,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/health": serviceProxy(),
+      "/active-campaign": serviceProxy(),
       "/campaigns": serviceProxy(),
       "/control": serviceProxy(),
       "/content": serviceProxy(),

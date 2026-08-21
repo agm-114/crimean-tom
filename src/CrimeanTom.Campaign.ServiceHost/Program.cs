@@ -82,6 +82,17 @@ app.Use(async (context, next) =>
                 SameSite = SameSiteMode.Strict,
                 Secure = false,
             });
+        var sessions = context.RequestServices.GetRequiredService<CampaignSessionRegistry>();
+        var activeCampaignId = CampaignMonitorRouting.ResolveActiveCampaignId(
+            await journal.ListCampaignsAsync(context.RequestAborted),
+            sessions.Snapshots());
+        var requestedCampaignId = context.Request.Query["campaign"].ToString();
+        if (activeCampaignId is not null
+            && !CampaignMonitorRouting.MatchesActiveCampaign(requestedCampaignId, activeCampaignId))
+        {
+            context.Response.Redirect(CampaignMonitorRouting.MonitorLocation(activeCampaignId));
+            return;
+        }
     }
     await next(context);
 });
@@ -126,6 +137,16 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     sessions = sessions.Snapshots(),
 }));
 app.MapGet("/durability-policy", () => Results.Ok(CampaignDurabilityPolicy.Current));
+app.MapGet("/active-campaign", async (
+    SqliteCampaignJournal store,
+    CampaignSessionRegistry sessions,
+    CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        campaignId = CampaignMonitorRouting.ResolveActiveCampaignId(
+            await store.ListCampaignsAsync(cancellationToken),
+            sessions.Snapshots()),
+    }));
 app.MapGet("/campaigns", async (
     SqliteCampaignJournal store,
     CancellationToken cancellationToken) =>

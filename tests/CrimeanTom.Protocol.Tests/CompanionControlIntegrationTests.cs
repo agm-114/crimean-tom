@@ -374,6 +374,46 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
+            using var activeCampaignResponse = await campaignClient.GetAsync(
+                "/active-campaign",
+                testTimeout.Token);
+            activeCampaignResponse.EnsureSuccessStatusCode();
+            using var activeCampaignDocument = JsonDocument.Parse(
+                await activeCampaignResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                campaignId,
+                activeCampaignDocument.RootElement.GetProperty("campaignId").GetString());
+            using (var monitorRedirectHandler = new HttpClientHandler
+            {
+                UseProxy = false,
+                AllowAutoRedirect = false,
+            })
+            using (var monitorRedirectClient = new HttpClient(monitorRedirectHandler)
+            {
+                BaseAddress = new Uri(campaignHttpUrl),
+                Timeout = TimeSpan.FromSeconds(10),
+            })
+            {
+                var expectedMonitorLocation = $"/monitor/?campaign={campaignId}";
+                using var bareMonitor = await monitorRedirectClient.GetAsync(
+                    "/monitor/",
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Redirect, bareMonitor.StatusCode);
+                Assert.Equal(expectedMonitorLocation, bareMonitor.Headers.Location?.OriginalString);
+                using var staleMonitor = await monitorRedirectClient.GetAsync(
+                    $"/monitor/?campaign={fuldaCampaignId}",
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Redirect, staleMonitor.StatusCode);
+                Assert.Equal(expectedMonitorLocation, staleMonitor.Headers.Location?.OriginalString);
+                using var currentMonitor = await monitorRedirectClient.GetAsync(
+                    expectedMonitorLocation,
+                    testTimeout.Token);
+                currentMonitor.EnsureSuccessStatusCode();
+                Assert.Contains(
+                    "Crimean Tom Campaign Monitor",
+                    await currentMonitor.Content.ReadAsStringAsync(testTimeout.Token),
+                    StringComparison.Ordinal);
+            }
             await ProveConcurrentCampaignSessionsAsync(
                 campaignClient,
                 campaignGrpcUrl,

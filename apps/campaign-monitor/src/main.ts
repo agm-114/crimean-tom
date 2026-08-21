@@ -670,11 +670,16 @@ window.addEventListener("resize", () => engine.resize());
 engine.runRenderLoop(() => scene.render());
 
 const linkedCampaignId = new URLSearchParams(window.location.search).get("campaign") ?? "";
-void loadCampaigns(linkedCampaignId).then(campaigns => {
-  const targetCampaignId = /^[0-9a-f]{32}$/i.test(linkedCampaignId)
-    ? linkedCampaignId
-    : campaigns[0]?.campaignId ?? "";
+void (async () => {
+  const requestedCampaignId = /^[0-9a-f]{32}$/i.test(linkedCampaignId) ? linkedCampaignId : "";
+  const { campaignId: activeCampaignId } = await request<{ campaignId: string | null }>("/active-campaign");
+  const targetCampaignId = requestedCampaignId
+    && activeCampaignId
+    && requestedCampaignId.toLowerCase() === activeCampaignId.toLowerCase()
+    ? activeCampaignId
+    : activeCampaignId ?? "";
+  await loadCampaigns(targetCampaignId);
   if (!targetCampaignId) return;
   byId<HTMLInputElement>("campaign-id").value = targetCampaignId;
-  void connect();
-}).catch(showError);
+  await connect();
+})().catch(showError);
