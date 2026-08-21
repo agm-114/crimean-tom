@@ -16,7 +16,9 @@ namespace SeaPowerRuntimeBridge;
 internal static class GameCommandDispatcher
 {
     private const string ExperimentalProbeSaveFileName = "_CrimeanTomPhase1Probe.sav";
+    private const string ScreenshotFileName = "_CrimeanTomScreenshot.png";
     private static Action? _deferredAction;
+    private static Action? _endOfFrameAction;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -99,6 +101,12 @@ internal static class GameCommandDispatcher
                         GetCatalogDiagnostics(fileFingerprintProvider)),
                     GameCommandTypes.GetCampaignManagementState => Success(
                         GetCampaignManagementState()),
+                    GameCommandTypes.GetUiInspection => Success(GetUiInspection()),
+                    GameCommandTypes.CaptureGameScreenshot => CaptureGameScreenshot(
+                        command.PayloadJson),
+                    GameCommandTypes.FocusCameraOnUnit => FocusCameraOnUnit(command.PayloadJson),
+                    GameCommandTypes.SetTacticalHudPanel => SetTacticalHudPanel(
+                        command.PayloadJson),
                     GameCommandTypes.OpenTaskForceBuilder => OpenTaskForceBuilder(),
                     GameCommandTypes.StartPortOperations => StartPortOperations(),
                     GameCommandTypes.AddMaintenanceDraftUnit => AddMaintenanceDraftUnit(
@@ -168,6 +176,13 @@ internal static class GameCommandDispatcher
     {
         var action = _deferredAction;
         _deferredAction = null;
+        return action;
+    }
+
+    public static Action? TakeEndOfFrameAction()
+    {
+        var action = _endOfFrameAction;
+        _endOfFrameAction = null;
         return action;
     }
 
@@ -2070,6 +2085,237 @@ internal static class GameCommandDispatcher
             BriefingCanContinue = briefingViewModel?.PlayCommand?.CanExecute(null) ?? false,
             GameMainAvailable = Singleton<GameMain>.InstanceExists(),
         };
+    }
+
+    private static UiInspectionPayload GetUiInspection()
+    {
+        var currentWindow = Singleton<MenuSystemViewModel>.InstanceExists()
+            ? Singleton<MenuSystemViewModel>.Instance.CurrentWindow
+            : null;
+        var main = Globals._mainGameViewModel;
+        var selected = Singleton<RenderPosition>.InstanceExists()
+            ? Singleton<RenderPosition>.Instance.getSelectedObject()
+            : null;
+        return new UiInspectionPayload
+        {
+            SceneName = SceneManager.GetActiveScene().name ?? string.Empty,
+            CurrentWindowType = currentWindow?.GetType().Name ?? string.Empty,
+            GameMainAvailable = Singleton<GameMain>.InstanceExists(),
+            MainGameViewAvailable = main is not null,
+            IsPaused = GameTime.IsPaused(),
+            SimulationTimeSeconds = Finite(GameTime.time),
+            TimeCompression = Finite(GameTime.TimeCompression),
+            MapVisible = main?.MapVisible ?? false,
+            HudVisible = MainGameViewModel.GetHudVisible(),
+            FormationManagerVisible = main?.ShowFormationManager ?? false,
+            EventLogAvailable = main?.EventLog is not null,
+            SelectedUnitId = selected is not null && selected.isUnit()
+                ? StableUnitId(selected)
+                : string.Empty,
+            ScreenWidth = Screen.width,
+            ScreenHeight = Screen.height,
+            PlayerTaskforceId = RuntimeOwnedMutationAdapter.GetPlayerTaskforceId(),
+        };
+    }
+
+    private static CommandResponsePayload CaptureGameScreenshot(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<CaptureGameScreenshotRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new CaptureGameScreenshotRequestPayload();
+        var maxWidth = request.MaxWidth < 320 ? 1920 : Math.Min(request.MaxWidth, 3840);
+        var path = RuntimeInstanceConfiguration.Current.GetExperimentalSavePath(ScreenshotFileName);
+        var sceneName = SceneManager.GetActiveScene().name ?? string.Empty;
+        _endOfFrameAction = () => WriteScreenshotPng(path, maxWidth);
+        return Success(new CaptureGameScreenshotResultPayload
+        {
+            Outcome = "scheduled",
+            Postcondition = "screenshot-capture-scheduled",
+            FileName = ScreenshotFileName,
+            FilePath = path,
+            SceneName = sceneName,
+            CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        });
+    }
+
+    private static void WriteScreenshotPng(string path, int maxWidth)
+    {
+        Texture2D? source = null;
+        Texture2D? scaled = null;
+        try
+        {
+            source = ScreenCapture.CaptureScreenshotAsTexture();
+            if (source is null)
+            {
+                UnityEngine.Debug.LogError(
+                    "[Sea Power Runtime Bridge] screenshot capture returned no texture.");
+                return;
+            }
+
+            var texture = source;
+            if (source.width > maxWidth && source.width > 0)
+            {
+                var height = Math.Max(1, source.height * maxWidth / source.width);
+                scaled = ScaleTexture(source, maxWidth, height);
+                texture = scaled;
+            }
+
+            var png = texture.EncodeToPNG();
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+            File.WriteAllBytes(path, png);
+        }
+        catch (Exception exception)
+        {
+            UnityEngine.Debug.LogError(
+                $"[Sea Power Runtime Bridge] screenshot capture failed: {exception}");
+        }
+        finally
+        {
+            if (scaled is not null)
+            {
+                UnityEngine.Object.Destroy(scaled);
+            }
+            if (source is not null)
+            {
+                UnityEngine.Object.Destroy(source);
+            }
+        }
+    }
+
+    private static Texture2D ScaleTexture(Texture2D source, int width, int height)
+    {
+        var render = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+        var previous = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(source, render);
+            RenderTexture.active = render;
+            var scaled = new Texture2D(width, height, TextureFormat.RGB24, false);
+            scaled.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+            scaled.Apply();
+            return scaled;
+        }
+        finally
+        {
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(render);
+        }
+    }
+
+    private static CommandResponsePayload FocusCameraOnUnit(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<FocusCameraOnUnitRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new FocusCameraOnUnitRequestPayload();
+        var requestedId = request.UnitId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(requestedId))
+        {
+            return Failure(
+                ProtocolErrorCodes.InvalidMessage,
+                "A unit ID is required to focus the camera.");
+        }
+        if (!Singleton<RenderPosition>.InstanceExists()
+            || !Singleton<ObjectsManager>.InstanceExists())
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "Camera focus requires a loaded tactical scene with RenderPosition.");
+        }
+
+        var matches = Singleton<ObjectsManager>.Instance._listOfAllObjects
+            .Where(item => item is not null && item.isUnit())
+            .Where(item => string.Equals(StableUnitId(item), requestedId, StringComparison.Ordinal)
+                || string.Equals(UnitId(item.UniqueID), requestedId, StringComparison.Ordinal)
+                || string.Equals($"object:{item.UniqueID}", requestedId, StringComparison.Ordinal))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                $"Unit ID '{requestedId}' resolved to {matches.Length} live objects.");
+        }
+
+        Singleton<RenderPosition>.Instance.switchToObject(matches[0], performSmoothMove: false);
+        var selected = Singleton<RenderPosition>.Instance.getSelectedObject();
+        var selectedId = selected is not null && selected.isUnit()
+            ? StableUnitId(selected)
+            : string.Empty;
+        if (!string.Equals(selectedId, StableUnitId(matches[0]), StringComparison.Ordinal))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPostconditionFailed,
+                "Camera switch ran without selecting the requested unit.");
+        }
+
+        return Success(new UiAutomationActionResultPayload
+        {
+            Action = GameCommandTypes.FocusCameraOnUnit,
+            Outcome = "completed",
+            Postcondition = "camera-focused-on-unit",
+            Scenario = GetScenarioAutomationState(),
+        });
+    }
+
+    private static CommandResponsePayload SetTacticalHudPanel(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<SetTacticalHudPanelRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new SetTacticalHudPanelRequestPayload();
+        var panel = request.Panel?.Trim().ToLowerInvariant() ?? string.Empty;
+        var main = Globals._mainGameViewModel;
+        if (main is null && panel is not "pause-resume")
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "A loaded tactical HUD is required.");
+        }
+
+        string postcondition;
+        switch (panel)
+        {
+            case "map":
+                main!.ToggleMapOpen();
+                postcondition = main.MapVisible ? "tactical-map-visible" : "tactical-map-hidden";
+                break;
+            case "formation":
+                main!.ShowFormationManager = !main.ShowFormationManager;
+                postcondition = main.ShowFormationManager
+                    ? "formation-manager-visible"
+                    : "formation-manager-hidden";
+                break;
+            case "hud":
+                MainGameViewModel.SetHudVisible(!MainGameViewModel.GetHudVisible());
+                postcondition = MainGameViewModel.GetHudVisible() ? "hud-visible" : "hud-hidden";
+                break;
+            case "pause-resume":
+                var currentWindow = Singleton<MenuSystemViewModel>.InstanceExists()
+                    ? Singleton<MenuSystemViewModel>.Instance.CurrentWindow
+                    : null;
+                if (currentWindow is not PauseMenuView pauseView
+                    || pauseView.DataContext is not PauseMenuViewModel pauseModel
+                    || pauseModel.ResumeCommand is null
+                    || !pauseModel.ResumeCommand.CanExecute(null))
+                {
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPreconditionFailed,
+                        "The pause menu is not open with a resumable command.");
+                }
+                pauseModel.ResumeCommand.Execute(null);
+                postcondition = "pause-menu-resume-requested";
+                break;
+            default:
+                return Failure(
+                    ProtocolErrorCodes.InvalidMessage,
+                    "Panel must be map, formation, hud, or pause-resume.");
+        }
+
+        return Success(new UiAutomationActionResultPayload
+        {
+            Action = GameCommandTypes.SetTacticalHudPanel,
+            Outcome = "completed",
+            Postcondition = postcondition,
+            Scenario = GetScenarioAutomationState(),
+        });
     }
 
     private static IEnumerable<Mission> EnumerateMissions(

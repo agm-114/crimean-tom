@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'focus-camera', 'hud-panel', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -92,6 +92,9 @@ param(
     [int]$MutationArmSeconds = 300,
 
     [int]$Quantity = 1,
+
+    [ValidateSet('map', 'formation', 'hud', 'pause-resume')]
+    [string]$Panel = 'map',
 
     [switch]$SkipBuild
 )
@@ -591,6 +594,20 @@ switch ($Action) {
     'sensors' { Show-Json (Invoke-ControlRequest '/game/catalog/references?kind=sensors&offset=0&limit=25') }
     'catalog-files' { Show-Json (Invoke-ControlRequest '/game/catalog/references?kind=files&offset=0&limit=25') }
     'campaign' { Show-Json (Invoke-ControlRequest '/game/campaign') }
+    'ui' { Show-Json (Invoke-ControlRequest '/game/ui') }
+    'screenshot' { Show-Json (Invoke-ControlRequest '/game/screenshot' 'Post') }
+    'focus-camera' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/automation/camera/focus' `
+            'Post' `
+            ([pscustomobject]@{ unitId = $UnitId }))
+    }
+    'hud-panel' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/automation/hud' `
+            'Post' `
+            ([pscustomobject]@{ panel = $Panel }))
+    }
     'start-port-operations' {
         $result = $null
         $lastError = $null
