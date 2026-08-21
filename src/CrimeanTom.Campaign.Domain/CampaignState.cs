@@ -31,6 +31,7 @@ public sealed record EntityState(
     EntityId EntityId,
     string Name,
     string CatalogUnitId,
+    string CatalogLoadoutId,
     CoalitionId CoalitionId,
     RegionId RegionId,
     GeoCoordinate Coordinate,
@@ -45,6 +46,7 @@ public sealed record EntityState(
     int ReadinessMilliUnits,
     int DamageMilliUnits,
     string ClassifiedTruthTag,
+    ImmutableArray<OperationalWeaponCapability> OperationalWeapons,
     EntityRevision Revision);
 
 public sealed record GroupState(
@@ -121,7 +123,8 @@ public sealed record SchedulerPolicyState(
     string RequestHash,
     int StableSampleCount,
     CampaignTime EffectiveAt,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    int TacticalReserveCapacity = 0);
 
 public sealed record CampaignState
 {

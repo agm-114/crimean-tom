@@ -46,6 +46,8 @@ $legacyDeployDir = Join-Path $streamingAssets 'CrimeanTom'
 $deployedDll = Join-Path $deployDir 'SeaPower.RuntimeBridge.dll'
 $portOperationsSourceDir = Join-Path $repoRoot 'content\campaigns\crimean-tom-port-operations'
 $portOperationsDeployDir = Join-Path $streamingAssets 'user\campaigns\crimean-tom-port-operations'
+$missionSourceDir = Join-Path $repoRoot 'content\missions'
+$missionDeployDir = Join-Path $streamingAssets 'user\missions\user_missions'
 $builtDir = Join-Path $repoRoot "src\SeaPower.RuntimeBridge\bin\$Configuration"
 $builtDll = Join-Path $builtDir 'SeaPower.RuntimeBridge.dll'
 $playerLog = Join-Path $env:USERPROFILE 'AppData\LocalLow\Triassic Games\Sea Power\Player.log'
@@ -162,6 +164,28 @@ function Deploy-PortOperationsContent {
     Write-Host "Deployed Crimean Tom port-operations campaign to $portOperationsDeployDir"
 }
 
+function Deploy-MissionContent {
+    if (-not (Test-Path -LiteralPath $missionSourceDir -PathType Container)) {
+        throw "Crimean Tom mission source not found at $missionSourceDir."
+    }
+
+    New-Item -ItemType Directory -Path $missionDeployDir -Force | Out-Null
+    $sourceFiles = @(Get-ChildItem -LiteralPath $missionSourceDir -File -Filter '*.ini')
+    if ($sourceFiles.Count -eq 0) {
+        throw "Crimean Tom mission source is empty at $missionSourceDir."
+    }
+
+    foreach ($sourceFile in $sourceFiles) {
+        $deployedFile = Join-Path $missionDeployDir $sourceFile.Name
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $deployedFile -Force
+        if ((Get-HashValue $sourceFile.FullName) -ne (Get-HashValue $deployedFile)) {
+            throw "The deployed mission asset $($sourceFile.Name) does not match its repository source."
+        }
+    }
+
+    Write-Host "Deployed Crimean Tom missions to $missionDeployDir"
+}
+
 function Invoke-Build {
     Assert-RuntimeInstalled
     & $companionControlScript stop
@@ -173,6 +197,7 @@ function Invoke-Build {
         throw "dotnet build failed with exit code $LASTEXITCODE."
     }
     Deploy-PortOperationsContent
+    Deploy-MissionContent
     Assert-DeployedDllMatchesBuild
     Write-Host "Deployed DLL matches the build: $deployedDll"
 }
@@ -193,6 +218,7 @@ function Invoke-Deploy {
     }
 
     Deploy-PortOperationsContent
+    Deploy-MissionContent
 
     Assert-DeployedDllMatchesBuild
     Write-Host "Deployed $builtDll to $deployDir"

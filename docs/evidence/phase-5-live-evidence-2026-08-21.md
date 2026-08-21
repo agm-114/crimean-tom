@@ -32,7 +32,7 @@ no menu coordinate clicks were used.
 Campaign `37772898357347cd9c9c6fd724037d11` is a fresh deterministic Fulda Gap
 bootstrap with 12 regions, 15 entities, and 9 task forces. USS Pharris is a
 singleton GIUK surface picket using the adapter's exact
-`usn_ff_knox_84 / Variant13 / Default` profile. USS Providence belongs to the
+`usn_ff_knox_84 / Variant43 / Default` profile. USS Honolulu belongs to the
 existing North Sea force, preserving both entity and task-force counts while
 preventing an unsupported submarine from making the demo island impossible.
 
@@ -104,7 +104,7 @@ heartbeat. Service session `8a6e6fd197bc4fce9586b9f0145c1f61` remained
 unchanged while typed automation exited tactical play to debrief and loaded Red
 Sea Breakout again. The service projection cleared the player task force at
 debrief, then reacquired `taskforce:Taskforce1` and the
-`usn_ff_knox_84 / Variant13 / Default` profile after mission load without a
+`usn_ff_knox_84 / Variant43 / Default` profile after mission load without a
 companion restart.
 
 After that transition, fresh 4x campaign
@@ -154,7 +154,7 @@ relationships with zero duplicate graph keys. Capture cost was 1,339
 microseconds in that sample.
 
 Fresh 4x Fulda campaign `454e01816c934979a5c6c7b930d43c34`
-materialized four real `usn_ff_knox_84 / Variant13 / Default` hulls and reached
+materialized four real `usn_ff_knox_84 / Variant43 / Default` hulls and reached
 four Active/Tactical assignments at commit 178. Two independently grouped
 campaign hulls were relocated head-on with the armed owned-object seam and run
 for two seconds. Sea Power's native `ObjectCollisionAvoidance.UnitToAvoid`
@@ -173,6 +173,78 @@ two-entity Tactical island with coupling score 1,000, reason
 The same broad protocol story now exercises active-weapon, plotting, and
 physical relationships in one scheduler lifecycle. It remains the only
 protocol integration test; no narrow coupling unit-test family was added.
+
+## Catalog-correct global-war representative campaign
+
+The earlier four-Knox scenes above are tactical-capacity probes, not a plausible
+September 1989 GIUK order of battle. The representative tactical-window mission
+now loads a catalog-valid local slice: USS Pharris FF-1094
+(`usn_ff_knox_84 / Variant43`), USS Honolulu SSN-718
+(`usn_ssn_los_angeles / Variant31`), Soviet Victor III K-244
+(`wp_ssn_victor3 / Variant8`), and an Oscar I
+(`wp_ssgn_oscar1 / Variant1`). Typed scenario automation loaded it without menu
+coordinate clicks; the bridge read back four combat units, three task forces,
+and the expected names, unit IDs and variants before pausing tactical time at
+1.7385 seconds.
+
+The matching final global campaign bootstrap is campaign
+`6af7fef19f574feab7fe586b2141d637`, initially committed with 30 regions, 28
+bases, 54 entities and 29 groups. Browser verification of its immediate
+predecessor selected the same 54-entity content shape,
+showed service healthy, rendered the world plot, and exposed all 54 entities in
+the semantic coalition/formation/unit hierarchy. The order of battle includes
+China, Japan, India, Pakistan, Australia, Iran, Israel and the wider European
+catalog nations. Argentina is modelled as the requested Soviet-support logistics
+partner using clearly labelled cargo-hull substitutions because Sea Power 0.8.2
+contains no Argentine nation prefix.
+
+The monitor's local Natural Earth country topology now draws borders only for
+countries detected in that OOB: friendly outlines are green, hostile outlines
+are red, and neutral-country borders remain absent. A live browser pass showed
+the aligned outlines, 30 regions, 29 groups, 54 units, T+30, 170 events and no
+console warnings or errors. The modern geometry is explicitly adapted into a
+merged USSR outline; unified Germany remains the FRG outline because the dataset
+cannot distinguish East Germany.
+
+The final campaign was advanced through 30 deterministic operational quanta.
+It produced 170 recent operational outcomes across the expanded theater with no
+destroyed entities; maximum damage was 427,078 milliunits and mean damage was
+86,049 milliunits. This makes the monitor a live operational picture rather than
+an inert order-of-battle catalog while keeping every force below destruction.
+
+The live monitor is:
+
+`http://127.0.0.1:5081/monitor/?campaign=6af7fef19f574feab7fe586b2141d637`
+
+## Catalog-derived engagement envelopes and worker container
+
+Campaign `e7ae56ae91be4138abf4af5c03fee6cd` is the schema-v5
+representative pass. Bootstrap committed 32 regions, 31 bases, 60 entities and
+34 groups. The installed Sea Power catalog resolver found 338 operational
+target/range capabilities across 55 entities. Representative snapshots included
+USS Pharris with RGM-84C at 120,380 m, the Victor III with SS-N-16 and torpedoes
+up to 100,008 m, RoCAF F-5E CAS with AGM-65B at 31,484 m, ROKAF F-5E with
+AIM-9P at 14,816 m, and KPAF J-7C with its date-selected 1989 PL-5B at 15,927 m.
+
+Advancing through T+30 produced 97 recent outcomes and nine weapon expenditures.
+The new Korea and Taiwan fronts fired PL-5B, AIM-9P, AGM-65B and 100 mm naval
+gun rounds. Every recorded detail included the rounded great-circle distance and
+the selected catalog maximum. Automated inspection found zero violations; the
+largest ratio was 0.929. Unknown catalog data remains unable to fire rather than
+falling back to a theater-wide guessed range.
+
+Typed UI automation then loaded
+`scenario:missions/user_missions/crimean tom - tactical worker container`.
+The live mission paused at 2.013 seconds with three task-force records, one
+stationary player-controlled Adjutant-class survey anchor, no enemy units, one
+session-surrogate identity, zero campaign identities and no active weapons. The
+mission defines no objectives or victory conditions. Its sole trigger displays
+the external-authority notice and cannot create a campaign outcome. This proves
+the first loadable non-resolving shell for future fenced island materialization.
+
+The live monitor for the schema-v5 campaign is:
+
+`http://127.0.0.1:5081/monitor/?campaign=e7ae56ae91be4138abf4af5c03fee6cd`
 
 ## Remaining gate
 

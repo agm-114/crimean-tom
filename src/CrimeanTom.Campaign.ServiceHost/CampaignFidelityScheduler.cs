@@ -31,12 +31,19 @@ public sealed record CampaignSchedulerRequest(
     SchedulerHealthState Health,
     SimulationSourceEligibility Eligibility,
     int TacticalEntityCapacity,
-    int BacklogDepth);
+    int BacklogDepth,
+    int TacticalReserveCapacity = 0);
 
 public sealed record CampaignSchedulerView(
     string Health,
     string Eligibility,
     int TacticalEntityCapacity,
+    int TacticalReserveCapacity,
+    int OccupiedTacticalEntityCount,
+    int ActiveTacticalEntityCount,
+    int RetainedSuspendedTacticalEntityCount,
+    int RecoveryRequiredTacticalEntityCount,
+    int AvailableTacticalEntityCapacity,
     int BacklogDepth,
     int StableSampleCount,
     int FixedStepMicroseconds,
@@ -85,7 +92,7 @@ internal static class CampaignFidelityScheduler
             "current-canonical-state")).ToArray();
         return new SchedulerEvaluation(
             new CampaignSchedulerRequest([], [], SchedulerHealthState.Offline,
-                SimulationSourceEligibility.Disabled, 0, 0),
+                SimulationSourceEligibility.Disabled, 0, 0, 0),
             0,
             0,
             "scheduler-not-evaluated",
@@ -101,6 +108,8 @@ internal static class CampaignFidelityScheduler
     {
         if (!Enum.IsDefined(request.Health) || !Enum.IsDefined(request.Eligibility)
             || request.TacticalEntityCapacity is < 0 or > 10_000
+            || request.TacticalReserveCapacity is < 0 or > 10_000
+            || request.TacticalReserveCapacity > request.TacticalEntityCapacity
             || request.BacklogDepth is < 0 or > 1_000_000
             || stableSampleCount is < 1 or > 1_000_000)
         {
@@ -110,10 +119,62 @@ internal static class CampaignFidelityScheduler
         var observed = ParseEntities(state, request.ObservedEntityIds, "observed");
         var controlled = ParseEntities(state, request.ControlledEntityIds, "controlled");
         var interested = observed.Concat(controlled).ToHashSet();
-        var remainingCapacity = request.TacticalEntityCapacity;
+        var workerConnected = worker is not null
+            && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
+        var islands = BuildIslands(state, worker).ToArray();
+        var campaignOccupiedEntities = state.Assignments.Values
+            .Where(item => item.Lifecycle is AssignmentLifecycle.Preparing
+                or AssignmentLifecycle.Prepared or AssignmentLifecycle.Active
+                or AssignmentLifecycle.Quiescing)
+            .Select(item => item.EntityId)
+            .Distinct()
+            .ToHashSet();
+        var campaignActiveEntities = state.Assignments.Values
+            .Where(item => item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing)
+            .Select(item => item.EntityId)
+            .Distinct()
+            .ToHashSet();
+        var occupiedTacticalEntityCount = Math.Max(
+            campaignOccupiedEntities.Count,
+            workerConnected ? worker!.OwnedMaterializedEntityCount : 0);
+        var activeTacticalEntityCount = Math.Max(
+            campaignActiveEntities.Count,
+            workerConnected ? worker!.OwnedActiveEntityCount : 0);
+        var retainedSuspendedTacticalEntityCount = workerConnected
+            ? worker!.OwnedRetainedSuspendedEntityCount
+            : 0;
+        var recoveryRequiredTacticalEntityCount = workerConnected
+            ? worker!.OwnedRecoveryRequiredEntityCount
+            : 0;
+        var safeTacticalCapacity = Math.Max(
+            0,
+            request.TacticalEntityCapacity - request.TacticalReserveCapacity);
+        var remainingCapacity = Math.Max(0, safeTacticalCapacity - occupiedTacticalEntityCount);
+        var excessOccupiedCapacity = Math.Max(0, occupiedTacticalEntityCount - safeTacticalCapacity);
+        var capacityVictims = new HashSet<string>(StringComparer.Ordinal);
+        var plannedReleaseCapacity = 0;
+        if (excessOccupiedCapacity > 0)
+        {
+            foreach (var candidate in islands
+                .Where(item => !item.UnsafeToSplit && !item.Engaged
+                    && state.Assignments.Values.Any(assignment =>
+                        item.EntityIds.Contains(assignment.EntityId)
+                        && assignment.Lifecycle == AssignmentLifecycle.Active))
+                .OrderBy(item => item.EntityIds.Any(controlled.Contains) ? 2
+                    : item.EntityIds.Any(observed.Contains) ? 1 : 0)
+                .ThenBy(item => item.IslandId, StringComparer.Ordinal))
+            {
+                capacityVictims.Add(candidate.IslandId);
+                plannedReleaseCapacity += candidate.EntityIds.Count(campaignActiveEntities.Contains);
+                if (plannedReleaseCapacity >= excessOccupiedCapacity)
+                {
+                    break;
+                }
+            }
+        }
         var plans = new List<SchedulerIslandPlan>();
         var transitions = new List<CampaignFidelityTransitionView>();
-        foreach (var island in BuildIslands(state, worker)
+        foreach (var island in islands
             .OrderByDescending(item => item.EntityIds.Any(interested.Contains))
             .ThenBy(item => item.IslandId, StringComparer.Ordinal))
         {
@@ -128,14 +189,15 @@ internal static class CampaignFidelityScheduler
             var hasQuiescingAssignment = islandAssignments.Any(item =>
                 item.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
-            var workerConnected = worker is not null
-                && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
             var workerHasTaskforce = workerConnected && !string.IsNullOrWhiteSpace(worker!.PlayerTaskforceId);
             var workerCanMaterializeIsland = workerConnected && island.EntityIds.All(id =>
                 worker!.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
                     state.Entities[id].CatalogUnitId,
                     StringComparison.Ordinal)));
+            var workerRequiresEvacuation = request.Health is SchedulerHealthState.Draining
+                    or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
+                || request.Eligibility != SimulationSourceEligibility.Eligible;
             var loadRequiresFallback = request.Health is SchedulerHealthState.Overloaded or SchedulerHealthState.Draining
                 or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
                 || request.Eligibility != SimulationSourceEligibility.Eligible
@@ -152,10 +214,25 @@ internal static class CampaignFidelityScheduler
                 desired = FidelityState.Tactical;
                 reason = "authority-preparing";
             }
+            else if (hasActiveAssignment && workerConnected && workerRequiresEvacuation)
+            {
+                desired = FidelityState.Operational;
+                reason = "active-island-worker-evacuation";
+            }
             else if (hasActiveAssignment && island.UnsafeToSplit)
             {
                 desired = FidelityState.Tactical;
                 reason = "active-coupling-fence";
+            }
+            else if (hasActiveAssignment && island.Engaged)
+            {
+                desired = FidelityState.Tactical;
+                reason = "active-interaction-fence";
+            }
+            else if (hasActiveAssignment && capacityVictims.Contains(island.IslandId))
+            {
+                desired = FidelityState.Operational;
+                reason = "tactical-reserve-load-shed";
             }
             else if (hasActiveAssignment && workerConnected && loadRequiresFallback)
             {
@@ -250,24 +327,47 @@ internal static class CampaignFidelityScheduler
             }
         }
 
+        var unresolvedCapacityPressure = excessOccupiedCapacity > plannedReleaseCapacity;
         var tempo = request.Health switch
         {
+            SchedulerHealthState.Healthy when unresolvedCapacityPressure => 20,
             SchedulerHealthState.Healthy when request.BacklogDepth < 96 => 30,
             SchedulerHealthState.Pressured or SchedulerHealthState.Healthy => 20,
             _ => 10,
         };
+        var capacityPressure = excessOccupiedCapacity > 0;
         var action = request.Health == SchedulerHealthState.Healthy && request.BacklogDepth < 96
+            && !capacityPressure
             ? "normal"
             : transitions.Any(item => item.ToFidelity != FidelityState.Tactical.ToString())
                 ? "demote-whole-islands-before-tempo"
-                : "global-tempo-reduced";
-        return new SchedulerEvaluation(request, stableSampleCount, tempo, action, plans, transitions);
+                : unresolvedCapacityPressure
+                    ? "global-tempo-reduced-reserve-fence"
+                    : "global-tempo-reduced";
+        return new SchedulerEvaluation(
+            request,
+            stableSampleCount,
+            tempo,
+            action,
+            plans,
+            transitions,
+            occupiedTacticalEntityCount,
+            activeTacticalEntityCount,
+            retainedSuspendedTacticalEntityCount,
+            recoveryRequiredTacticalEntityCount,
+            Math.Max(0, safeTacticalCapacity - occupiedTacticalEntityCount));
     }
 
     public static CampaignSchedulerView ToView(CampaignState state, SchedulerEvaluation evaluation) => new(
         evaluation.Request.Health.ToString(),
         evaluation.Request.Eligibility.ToString(),
         evaluation.Request.TacticalEntityCapacity,
+        evaluation.Request.TacticalReserveCapacity,
+        evaluation.OccupiedTacticalEntityCount,
+        evaluation.ActiveTacticalEntityCount,
+        evaluation.RetainedSuspendedTacticalEntityCount,
+        evaluation.RecoveryRequiredTacticalEntityCount,
+        evaluation.AvailableTacticalEntityCapacity,
         evaluation.Request.BacklogDepth,
         evaluation.StableSampleCount,
         FixedStepMicroseconds,
@@ -443,7 +543,12 @@ internal static class CampaignFidelityScheduler
         int TargetTicksPerWallSecond,
         string LoadAction,
         IReadOnlyList<SchedulerIslandPlan> Islands,
-        IReadOnlyList<CampaignFidelityTransitionView> Transitions);
+        IReadOnlyList<CampaignFidelityTransitionView> Transitions,
+        int OccupiedTacticalEntityCount = 0,
+        int ActiveTacticalEntityCount = 0,
+        int RetainedSuspendedTacticalEntityCount = 0,
+        int RecoveryRequiredTacticalEntityCount = 0,
+        int AvailableTacticalEntityCapacity = 0);
 
     internal sealed record SchedulerIslandPlan(
         string IslandId,

@@ -76,6 +76,10 @@ public sealed class CampaignCompanionSession
     private string _catalogFingerprintSha256;
     private string _playerTaskforceId;
     private TacticalMaterializationProfile[] _materializationProfiles;
+    private int _ownedMaterializedEntityCount;
+    private int _ownedActiveEntityCount;
+    private int _ownedRetainedSuspendedEntityCount;
+    private int _ownedRecoveryRequiredEntityCount;
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
@@ -128,6 +132,16 @@ public sealed class CampaignCompanionSession
                     _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
                     _materializationProfiles = frame.Heartbeat.MaterializationProfiles
                         .Select(item => item.Clone()).ToArray();
+                    _ownedActiveEntityCount = Math.Max(0, frame.Heartbeat.OwnedActiveEntityCount);
+                    _ownedRetainedSuspendedEntityCount = Math.Max(
+                        0,
+                        frame.Heartbeat.OwnedRetainedSuspendedEntityCount);
+                    _ownedMaterializedEntityCount = Math.Max(
+                        Math.Max(0, frame.Heartbeat.OwnedMaterializedEntityCount),
+                        _ownedActiveEntityCount + _ownedRetainedSuspendedEntityCount);
+                    _ownedRecoveryRequiredEntityCount = Math.Max(
+                        0,
+                        frame.Heartbeat.OwnedRecoveryRequiredEntityCount);
                     ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                 }
             }
@@ -156,6 +170,10 @@ public sealed class CampaignCompanionSession
                     profile.UnitTypeId,
                     profile.VariantId,
                     profile.LoadoutId)).ToArray(),
+                _ownedMaterializedEntityCount,
+                _ownedActiveEntityCount,
+                _ownedRetainedSuspendedEntityCount,
+                _ownedRecoveryRequiredEntityCount,
                 _couplingRelationships.Values
                     .OrderBy(item => item.Key, StringComparer.Ordinal)
                     .Select(item => new CampaignCouplingRelationship(
@@ -224,6 +242,10 @@ public sealed record CampaignSessionSnapshot(
     string CatalogFingerprintSha256,
     string PlayerTaskforceId,
     IReadOnlyList<CampaignMaterializationProfile> MaterializationProfiles,
+    int OwnedMaterializedEntityCount,
+    int OwnedActiveEntityCount,
+    int OwnedRetainedSuspendedEntityCount,
+    int OwnedRecoveryRequiredEntityCount,
     IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships);
 
 public sealed record CampaignMaterializationProfile(

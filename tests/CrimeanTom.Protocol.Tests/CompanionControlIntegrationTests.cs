@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
@@ -153,8 +154,8 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaBootstrap = JsonDocument.Parse(
                 await fuldaBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
-            Assert.Equal(12, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
-            Assert.Equal(30, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(32, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
+            Assert.Equal(120, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
             Assert.Equal(4, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
             var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
             using var fuldaViewResponse = await campaignClient.GetAsync(
@@ -164,7 +165,7 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaView = JsonDocument.Parse(
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
-            Assert.Equal(30, fuldaEntities.Length);
+            Assert.Equal(120, fuldaEntities.Length);
             var tacticalDemoGroup = Assert.Single(
                 fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
                 item => item.GetProperty("memberEntityIds").EnumerateArray()
@@ -370,6 +371,13 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
+            await WaitForCampaignResourceCountsAsync(
+                campaignClient,
+                materialized: 0,
+                active: 0,
+                retainedSuspended: 0,
+                recoveryRequired: 0,
+                cancellationToken: testTimeout.Token);
             var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
             using var scheduledAssignment = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
@@ -412,6 +420,13 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             var activeAssignment = Assert.Single(activeCampaign.RootElement.GetProperty("assignments").EnumerateArray());
             Assert.Equal("Active", activeAssignment.GetProperty("lifecycle").GetString());
+            await WaitForCampaignResourceCountsAsync(
+                campaignClient,
+                materialized: 1,
+                active: 1,
+                retainedSuspended: 0,
+                recoveryRequired: 0,
+                cancellationToken: testTimeout.Token);
             var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             var primaryBeforeAdvance = Assert.Single(activeEntities,
                 item => item.GetProperty("entityId").GetString() == primaryEntityId);
@@ -566,6 +581,13 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(800_000, releasedPrimary.GetProperty("fuelMilliunits").GetInt64());
             Assert.Equal(300_000, releasedPrimary.GetProperty("storesMilliunits").GetInt64());
             Assert.Equal(250_000, releasedPrimary.GetProperty("damageMilliunits").GetInt32());
+            await WaitForCampaignResourceCountsAsync(
+                campaignClient,
+                materialized: 1,
+                active: 0,
+                retainedSuspended: 1,
+                recoveryRequired: 0,
+                cancellationToken: testTimeout.Token);
 
             using var batchPromotion = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
@@ -575,7 +597,7 @@ public sealed class CompanionControlIntegrationTests
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
-                    tacticalEntityCapacity = 2,
+                    tacticalEntityCapacity = 3,
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
@@ -594,6 +616,13 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(2, activeBatchAssignments.Length);
             Assert.Single(activeBatchAssignments.Select(item => item.GetProperty("batchId").GetString()).Distinct());
             Assert.All(activeBatchAssignments, item => Assert.Equal(2, item.GetProperty("batchSize").GetInt32()));
+            await WaitForCampaignResourceCountsAsync(
+                campaignClient,
+                materialized: 3,
+                active: 2,
+                retainedSuspended: 1,
+                recoveryRequired: 0,
+                cancellationToken: testTimeout.Token);
             var activeBatchEntities = activeBatchView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             Assert.All(new[] { batchLeadEntityId, batchWingEntityId }, entityId =>
                 Assert.Equal("Tactical", Assert.Single(activeBatchEntities,
@@ -620,8 +649,8 @@ public sealed class CompanionControlIntegrationTests
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
-                    tacticalEntityCapacity = 2,
-                    backlogDepth = 1,
+                    tacticalEntityCapacity = 3,
+                    backlogDepth = 0,
                 },
                 testTimeout.Token);
             coupledInterestLoss.EnsureSuccessStatusCode();
@@ -648,7 +677,7 @@ public sealed class CompanionControlIntegrationTests
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
-                    tacticalEntityCapacity = 2,
+                    tacticalEntityCapacity = 3,
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
@@ -675,11 +704,25 @@ public sealed class CompanionControlIntegrationTests
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
-                    tacticalEntityCapacity = 2,
+                    tacticalEntityCapacity = 4,
+                    tacticalReserveCapacity = 2,
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
             confirmedBatchInterestLoss.EnsureSuccessStatusCode();
+            using var reserveLoadShed = JsonDocument.Parse(
+                await confirmedBatchInterestLoss.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(4, reserveLoadShed.RootElement.GetProperty("tacticalEntityCapacity").GetInt32());
+            Assert.Equal(2, reserveLoadShed.RootElement.GetProperty("tacticalReserveCapacity").GetInt32());
+            Assert.Equal(3, reserveLoadShed.RootElement.GetProperty("occupiedTacticalEntityCount").GetInt32());
+            Assert.Equal(2, reserveLoadShed.RootElement.GetProperty("activeTacticalEntityCount").GetInt32());
+            Assert.Equal(1, reserveLoadShed.RootElement.GetProperty("retainedSuspendedTacticalEntityCount").GetInt32());
+            Assert.Equal(0, reserveLoadShed.RootElement.GetProperty("availableTacticalEntityCapacity").GetInt32());
+            Assert.Equal("demote-whole-islands-before-tempo",
+                reserveLoadShed.RootElement.GetProperty("loadAction").GetString());
+            Assert.Contains(reserveLoadShed.RootElement.GetProperty("islands").EnumerateArray(), item =>
+                item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == batchLeadEntityId)
+                && item.GetProperty("reason").GetString() == "tactical-reserve-load-shed");
             using var releasedBatchView = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,
@@ -707,7 +750,7 @@ public sealed class CompanionControlIntegrationTests
                     requiredRuntimeFingerprintSha256 = new string('a', 64),
                     requiredCatalogFingerprintSha256 = "deliberately-wrong-catalog",
                     unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant13",
+                    variantId = "Variant43",
                     loadoutId = "Default",
                     taskforceId = "taskforce:Blue",
                 },
@@ -749,7 +792,7 @@ public sealed class CompanionControlIntegrationTests
                     requiredRuntimeFingerprintSha256 = new string('a', 64),
                     requiredCatalogFingerprintSha256 = string.Empty,
                     unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant13",
+                    variantId = "Variant43",
                     loadoutId = "Default",
                     taskforceId = "taskforce:Blue",
                 },
@@ -1027,7 +1070,7 @@ public sealed class CompanionControlIntegrationTests
                     },
                     EntityId = "unit:crimean-tom:integration-knox-1",
                     UnitTypeId = "usn_ff_knox_84",
-                    VariantId = "Variant13",
+                    VariantId = "Variant43",
                     LoadoutId = "Default",
                     TaskforceId = "taskforce:Blue",
                     Latitude = 12.25,
@@ -1052,7 +1095,7 @@ public sealed class CompanionControlIntegrationTests
                 token,
                 "/game/mutations/surface/resources",
                 testTimeout.Token);
-            Assert.Equal(1, ownedResources.RootElement.GetProperty("activeObjectCount").GetInt32());
+            Assert.Equal(2, ownedResources.RootElement.GetProperty("activeObjectCount").GetInt32());
             Assert.False(
                 ownedResources.RootElement.GetProperty("memoryReclamationSupported").GetBoolean());
 
@@ -1291,7 +1334,7 @@ public sealed class CompanionControlIntegrationTests
                     requiredRuntimeFingerprintSha256 = new string('a', 64),
                     requiredCatalogFingerprintSha256 = string.Empty,
                     unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant13",
+                    variantId = "Variant43",
                     loadoutId = "Default",
                     taskforceId = "taskforce:Blue",
                 },
@@ -1380,7 +1423,7 @@ public sealed class CompanionControlIntegrationTests
                     requiredRuntimeFingerprintSha256 = new string('a', 64),
                     requiredCatalogFingerprintSha256 = string.Empty,
                     unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant13",
+                    variantId = "Variant43",
                     loadoutId = "Default",
                     taskforceId = "taskforce:Blue",
                 },
@@ -1563,6 +1606,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
+        var ownedResources = new FakeOwnedSurfaceResourceState();
         while (true)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
@@ -1587,6 +1631,7 @@ public sealed class CompanionControlIntegrationTests
                     "[File]\nSaveFile=true\n[Taskforce1Weapon1]\nType=integration_weapon\n",
                     cancellationToken);
             }
+            ownedResources.Observe(command);
 
             var resultJson = command.MessageType switch
             {
@@ -1618,7 +1663,7 @@ public sealed class CompanionControlIntegrationTests
                         new OwnedSurfaceMaterializationProfilePayload
                         {
                             UnitTypeId = "usn_ff_knox_84",
-                            VariantId = "Variant13",
+                            VariantId = "Variant43",
                             LoadoutId = "Default",
                         },
                     ],
@@ -1771,7 +1816,7 @@ public sealed class CompanionControlIntegrationTests
                             GameUniqueId = 44,
                             EntityId = "unit:crimean-tom:integration-knox-1",
                             UnitTypeId = "usn_ff_knox_84",
-                            VariantId = "Variant13",
+                            VariantId = "Variant43",
                             LoadoutId = "Default",
                             TaskforceId = "taskforce:Blue",
                             Latitude = 12.25,
@@ -1794,27 +1839,7 @@ public sealed class CompanionControlIntegrationTests
                     CreateRestoreLifecycleResult(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
-                    new OwnedSurfaceResourceStatePayload
-                    {
-                        OwnedRecordCount = 1,
-                        ActiveObjectCount = 1,
-                        RetainedConstructedObjectCount = 1,
-                        MemoryReclamationSupported = false,
-                        SchedulerPolicy =
-                            "active-and-suspended-retained-objects-consume-materialized-capacity",
-                        Entities =
-                        [
-                            new OwnedSurfaceResourceEntryPayload
-                            {
-                                EntityId = "unit:crimean-tom:integration-knox-1",
-                                AssignmentId = "assignment:integration-surface",
-                                AuthorityEpoch = 7,
-                                Revision = 1,
-                                LifecycleState = "active",
-                                GameUniqueId = 44,
-                            },
-                        ],
-                    },
+                    ownedResources.Capture(),
                     JsonOptions),
                 GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery => JsonSerializer.Serialize(
                     new OwnedSurfaceRecoveryReleaseResultPayload
@@ -1971,7 +1996,7 @@ public sealed class CompanionControlIntegrationTests
                         new OwnedSurfaceMaterializationProfilePayload
                         {
                             UnitTypeId = "usn_ff_knox_84",
-                            VariantId = "Variant13",
+                            VariantId = "Variant43",
                             LoadoutId = "Default",
                         },
                     ],
@@ -1986,6 +2011,14 @@ public sealed class CompanionControlIntegrationTests
                     {
                         SceneName = "IntegrationScenario",
                         CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    },
+                    JsonOptions),
+                GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
+                    new OwnedSurfaceResourceStatePayload
+                    {
+                        MemoryReclamationSupported = false,
+                        SchedulerPolicy =
+                            "active-and-suspended-retained-objects-consume-materialized-capacity",
                     },
                     JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
@@ -2102,7 +2135,7 @@ public sealed class CompanionControlIntegrationTests
         GameUniqueId = 44,
         EntityId = "unit:crimean-tom:integration-knox-1",
         UnitTypeId = "usn_ff_knox_84",
-        VariantId = "Variant13",
+        VariantId = "Variant43",
         LoadoutId = "Default",
         TaskforceId = "taskforce:Blue",
         Latitude = 12.26,
@@ -2303,7 +2336,7 @@ public sealed class CompanionControlIntegrationTests
                         UnitFolder = "vessels",
                         UnitType = "usn_ff_knox_84",
                         Category = "Ship",
-                        VariantReference = "Variant13",
+                        VariantReference = "Variant43",
                         DisplayName = "USS Integration",
                         Nation = "us",
                         SelectedLoadoutVariant = "Default",
@@ -2704,7 +2737,7 @@ public sealed class CompanionControlIntegrationTests
         var client = new HttpClient(new HttpClientHandler { UseProxy = false })
         {
             BaseAddress = new Uri(baseUrl),
-            Timeout = TimeSpan.FromSeconds(8),
+            Timeout = TimeSpan.FromSeconds(30),
         };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
@@ -2758,25 +2791,70 @@ public sealed class CompanionControlIntegrationTests
         }
     }
 
+    private static async Task WaitForCampaignResourceCountsAsync(
+        HttpClient client,
+        int materialized,
+        int active,
+        int retainedSuspended,
+        int recoveryRequired,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            using var response = await client.GetAsync("/health", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                using var document = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("session", out var session)
+                    && session.ValueKind == JsonValueKind.Object
+                    && session.GetProperty("ownedMaterializedEntityCount").GetInt32() == materialized
+                    && session.GetProperty("ownedActiveEntityCount").GetInt32() == active
+                    && session.GetProperty("ownedRetainedSuspendedEntityCount").GetInt32() == retainedSuspended
+                    && session.GetProperty("ownedRecoveryRequiredEntityCount").GetInt32() == recoveryRequired)
+                {
+                    return;
+                }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
     private static async Task<IReadOnlyList<CompanionFrame>> WaitForInboundFramesAsync(
         string runDirectory,
         int count,
         CancellationToken cancellationToken,
-        Func<CompanionFrame, bool>? required = null)
+        Func<CompanionFrame, bool>? required = null,
+        [CallerLineNumber] int callerLine = 0)
     {
         var spool = Path.Combine(runDirectory, "inbound-spool");
-        while (true)
+        IReadOnlyList<CompanionFrame> authorityFrames = [];
+        try
         {
-            if (Directory.Exists(spool))
+            while (true)
             {
-                var authorityFrames = ReadInboundAuthorityFrames(runDirectory);
-                if (authorityFrames.Count >= count
-                    && (required is null || authorityFrames.Any(required)))
+                if (Directory.Exists(spool))
                 {
-                    return authorityFrames;
+                    authorityFrames = ReadInboundAuthorityFrames(runDirectory);
+                    if (authorityFrames.Count >= count
+                        && (required is null || authorityFrames.Any(required)))
+                    {
+                        return authorityFrames;
+                    }
                 }
+                await Task.Delay(25, cancellationToken);
             }
-            await Task.Delay(25, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            var observed = string.Join(", ", authorityFrames
+                .GroupBy(frame => frame.PayloadCase)
+                .OrderBy(group => group.Key)
+                .Select(group => $"{group.Key}={group.Count()}"));
+            throw new TimeoutException(
+                $"Inbound-frame wait from test line {callerLine} expected count >= {count}"
+                + $" and required match={required is not null}; observed {authorityFrames.Count}"
+                + $" authority frames ({observed}).");
         }
     }
 
@@ -2793,6 +2871,98 @@ public sealed class CompanionControlIntegrationTests
                     or CompanionFrame.PayloadOneofCase.TacticalEvent)
                 .ToArray()
             : [];
+    }
+
+    private sealed class FakeOwnedSurfaceResourceState
+    {
+        private readonly Dictionary<string, FakeOwnedSurfaceResource> _entities =
+            new(StringComparer.Ordinal);
+
+        public void Observe(WireEnvelope command)
+        {
+            switch (command.MessageType)
+            {
+                case GameCommandTypes.MaterializeOwnedSurfaceUnit:
+                {
+                    var request = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    _entities[request.EntityId] = new FakeOwnedSurfaceResource(
+                        request.Context.AssignmentId,
+                        request.Context.AuthorityEpoch,
+                        1,
+                        IsSuspended: false);
+                    break;
+                }
+                case GameCommandTypes.SetOwnedSurfaceSuspension:
+                {
+                    var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    _entities[request.EntityId] = new FakeOwnedSurfaceResource(
+                        request.Context.AssignmentId,
+                        request.Context.AuthorityEpoch,
+                        request.Context.ExpectedRevision + 1,
+                        request.IsSuspended);
+                    break;
+                }
+                case GameCommandTypes.RestoreOwnedSurfaceCheckpoint:
+                {
+                    var request = JsonSerializer.Deserialize<RestoreOwnedSurfaceCheckpointRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    _entities[request.EntityId] = new FakeOwnedSurfaceResource(
+                        request.Context.AssignmentId,
+                        request.Context.AuthorityEpoch,
+                        request.Context.ExpectedRevision + 1,
+                        IsSuspended: false);
+                    break;
+                }
+                case GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery:
+                {
+                    var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    _entities.Remove(request.EntityId);
+                    break;
+                }
+            }
+        }
+
+        public OwnedSurfaceResourceStatePayload Capture()
+        {
+            var entries = _entities
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select((pair, index) => new OwnedSurfaceResourceEntryPayload
+                {
+                    EntityId = pair.Key,
+                    AssignmentId = pair.Value.AssignmentId,
+                    AuthorityEpoch = pair.Value.AuthorityEpoch,
+                    Revision = pair.Value.Revision,
+                    LifecycleState = pair.Value.IsSuspended ? "suspended-retained" : "active",
+                    GameUniqueId = 44 + index,
+                })
+                .ToArray();
+            var active = entries.Count(item => item.LifecycleState == "active");
+            var suspended = entries.Length - active;
+            return new OwnedSurfaceResourceStatePayload
+            {
+                OwnedRecordCount = entries.Length,
+                ActiveObjectCount = active,
+                SuspendedRetainedObjectCount = suspended,
+                RetainedConstructedObjectCount = entries.Length,
+                MemoryReclamationSupported = false,
+                SchedulerPolicy =
+                    "active-and-suspended-retained-objects-consume-materialized-capacity",
+                Entities = entries,
+            };
+        }
+
+        private sealed record FakeOwnedSurfaceResource(
+            string AssignmentId,
+            long AuthorityEpoch,
+            long Revision,
+            bool IsSuspended);
     }
 
     private sealed class FakeTacticalCouplingState

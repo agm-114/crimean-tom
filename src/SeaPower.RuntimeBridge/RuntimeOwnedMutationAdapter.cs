@@ -15,7 +15,7 @@ internal static class RuntimeOwnedMutationAdapter
     public const string FaultInjectionConfirmation = "inject-owned-mutation-failure";
 
     internal const string SupportedUnitType = "usn_ff_knox_84";
-    internal const string SupportedVariant = "Variant13";
+    internal const string SupportedVariant = "Variant43";
     internal const string SupportedLoadout = "Default";
 
     internal static string GetPlayerTaskforceId()

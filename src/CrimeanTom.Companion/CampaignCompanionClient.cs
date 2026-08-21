@@ -229,6 +229,7 @@ public sealed class CampaignCompanionClient(
                 {
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
                     var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
+                    var resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
                     await writeGate.WaitAsync(heartbeatToken);
                     try
                     {
@@ -254,6 +255,10 @@ public sealed class CampaignCompanionClient(
                                         }),
                                 },
                                 CouplingRelationships = { couplingRelationships },
+                                OwnedMaterializedEntityCount = resources.RetainedConstructedObjectCount,
+                                OwnedActiveEntityCount = resources.ActiveObjectCount,
+                                OwnedRetainedSuspendedEntityCount = resources.SuspendedRetainedObjectCount,
+                                OwnedRecoveryRequiredEntityCount = resources.RecoveryRequiredCount,
                             },
                         });
                     }
@@ -374,6 +379,22 @@ public sealed class CampaignCompanionClient(
             .ThenBy(item => item.EvidenceId, StringComparer.Ordinal)
             .Take(4_096)
             .ToArray();
+    }
+
+    private async Task<OwnedSurfaceResourceStatePayload> ReadOwnedSurfaceResourcesAsync(
+        CancellationToken cancellationToken)
+    {
+        var result = await game.SendCommandAsync(
+            GameCommandTypes.GetOwnedSurfaceResourceState,
+            "{}",
+            CommandPriorities.Control,
+            cancellationToken);
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"Game owned-resource state unavailable: {result.ErrorCode}.");
+        }
+        return JsonSerializer.Deserialize<OwnedSurfaceResourceStatePayload>(result.ResultJson, JsonOptions)
+            ?? throw new InvalidDataException("Game owned-resource state was empty.");
     }
 
     private static TacticalCouplingRelationship Relationship(

@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 4;
-    public const int AlgorithmVersion = 4;
+    public const int Version = 5;
+    public const int AlgorithmVersion = 5;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -93,6 +93,11 @@ public enum ContactClassification
     Logistics,
     LandFormation,
 }
+
+public sealed record OperationalWeaponCapability(
+    string AmmunitionId,
+    ContactClassification TargetClassification,
+    DistanceMeters MaximumRange);
 
 public enum OperationalOutcomeKind
 {
@@ -186,7 +191,9 @@ public sealed record RegisterEntityCommand(
     IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
     string ClassifiedTruthTag,
     SimulationDomain SimulationDomain = SimulationDomain.Maritime,
-    FidelityState MaximumFidelity = FidelityState.Tactical)
+    FidelityState MaximumFidelity = FidelityState.Tactical,
+    string CatalogLoadoutId = "Default",
+    IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons = null)
     : CampaignCommandData;
 
 public sealed record FormGroupCommand(GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members)
@@ -292,7 +299,8 @@ public sealed record UpdateSchedulerPolicyCommand(
     int BacklogDepth,
     string RequestHash,
     int StableSampleCount,
-    CampaignTime EffectiveAt)
+    CampaignTime EffectiveAt,
+    int TacticalReserveCapacity = 0)
     : CampaignCommandData;
 
 public sealed record ApplyTacticalStateCommand(

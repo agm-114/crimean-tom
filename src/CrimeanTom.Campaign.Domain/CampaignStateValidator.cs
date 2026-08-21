@@ -52,9 +52,20 @@ public static class CampaignStateValidator
             CampaignInvariants.RequireId(entity.CoalitionId);
             CampaignInvariants.RequireText(entity.Name, nameof(entity.Name));
             CampaignInvariants.RequireText(entity.CatalogUnitId, nameof(entity.CatalogUnitId));
+            CampaignInvariants.RequireText(entity.CatalogLoadoutId, nameof(entity.CatalogLoadoutId));
             CampaignInvariants.RequireText(entity.ClassifiedTruthTag, nameof(entity.ClassifiedTruthTag));
             ValidateCoordinate(entity.Coordinate);
             ValidateResources(entity.Resources);
+            foreach (var weapon in entity.OperationalWeapons)
+            {
+                CampaignInvariants.RequireText(weapon.AmmunitionId, nameof(weapon.AmmunitionId));
+                if (!Enum.IsDefined(weapon.TargetClassification)
+                    || weapon.TargetClassification is ContactClassification.Unknown or ContactClassification.Logistics
+                    || weapon.MaximumRange.Value <= 0)
+                {
+                    throw Invalid("entity-operational-weapon", "An entity operational weapon capability is invalid.");
+                }
+            }
             _ = HeadingMilliDegrees.FromMilliDegrees(entity.Heading.Value);
             if (entity.Telegraph is < -1 or > 5
                 || entity.ReadinessMilliUnits is < 0 or > 1_000
@@ -178,6 +189,8 @@ public static class CampaignStateValidator
                 || policy.Revision.Value <= 0 || policy.Revision.Value > state.CampaignRevision.Value
                 || policy.EffectiveAt.Quanta < 0 || policy.EffectiveAt.Quanta > state.Time.Quanta
                 || policy.TacticalEntityCapacity is < 0 or > 10_000
+                || policy.TacticalReserveCapacity is < 0 or > 10_000
+                || policy.TacticalReserveCapacity > policy.TacticalEntityCapacity
                 || policy.BacklogDepth is < 0 or > 1_000_000
                 || policy.StableSampleCount is < 1 or > 1_000_000
                 || policy.RequestHash.Length != 64 || policy.RequestHash.Any(character => !Uri.IsHexDigit(character))

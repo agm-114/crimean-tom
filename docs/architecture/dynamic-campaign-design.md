@@ -42,14 +42,27 @@ and most validation belong in the companion or service.
 
 ## Fulda Gap proving campaign
 
-The representative Phase 5 campaign is **Fulda Gap Gone Hot**, a deterministic
-1989 Central Front and North Atlantic reinforcement crisis. It is intentionally
-one continuous campaign rather than a sequence of generated scenarios. The
-initial graph spans the United States East Coast, Atlantic convoy route, GIUK
-Gap, Norwegian and Barents Seas, North Sea, German Bight, BALTAP and Baltic,
-NORTHAG, and the Fulda corridor. Its opening forces include NATO and Warsaw Pact
-surface groups, submarines, convoy and replenishment ships, coastal missile
-forces, and two army-level land formations.
+The representative Phase 5 campaign is **Fulda Gap Gone Hot — Global War**, a
+deterministic alternate-1989 conflict anchored on the Central Front but fought
+across the world ocean. It is intentionally one continuous campaign rather than
+a sequence of generated scenarios. The 32-region opening graph spans the US
+East Coast and Atlantic reinforcement route; GIUK, Norway, the Barents, North
+Sea, BALTAP and Fulda; the South Atlantic and Patagonia; the Mediterranean,
+Levant, Red Sea, Gulf and Indian Ocean; and the South China Sea, Taiwan, Korea,
+Japan, Okhotsk,
+North Pacific, South Pacific and Australian approaches.
+
+The 60-entity opening order of battle uses catalog IDs present in the installed
+Sea Power 0.8.2 content for the United States, Soviet/Warsaw Pact, UK, Canada,
+West Germany, France, Spain, Portugal, Norway, Israel, Iran, Libya, India,
+Pakistan, China, Taiwan, North Korea, South Korea, Japan, Australia and Vietnam.
+Argentina is an explicit
+alternate-history Soviet logistics partner. Because the current catalog has no
+Argentine nation prefix, its operational sealift uses available civilian and
+Soviet cargo hulls and is labelled as a substitution. Nearby late-Cold-War
+catalog units may be used where the game does not contain an exact September
+1989 hull; these are scenario substitutions, not claims about historical
+deployment.
 
 Sea Power is authoritative only where it is a credible tactical resolver. Naval
 and air interactions around convoy protection, reinforcement, sea control, and
@@ -61,22 +74,48 @@ cannot be materialized into Sea Power or masquerade as a tactically simulated
 land battle. The monitor must display this boundary explicitly.
 
 `POST /control/campaigns/{campaignId}/bootstrap/fulda-gap` creates the fixed
-12-region, 15-entity opening state and returns its committed head and canonical
+32-region, 60-entity opening state and returns its committed head and canonical
 hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
 and uses stable campaign-derived IDs so the same campaign ID and content version
 reproduce the same world.
 
-The opening GIUK force keeps USS Pharris as a singleton surface picket that the
-current Knox adapter can materialize safely. USS Providence supports the
-existing North Sea group. This preserves the 15-entity/9-task-force load shape
-while giving the representative campaign one complete, currently representable
-interaction island; unsupported mixed groups continue to fail closed.
+The opening GIUK force keeps USS Pharris as a singleton surface picket using the
+catalog-correct `usn_ff_knox_84 / Variant43 / Default` profile that the current
+adapter can materialize safely. USS Honolulu is a separate singleton submarine
+patrol until live detection, formation, weapon or physical relationships couple
+it to another force. The shipped tactical-window mission represents that later
+local event with Pharris and Honolulu against a Victor III and Oscar I. It does
+not materialize the other 56 campaign entities into the Unity scene; they remain
+under operational authority until their own interaction islands need tactical
+resolution. Unsupported mixed groups continue to fail closed.
+
+Operational firing envelopes are not theater-wide constants. At bootstrap the
+service reads each unit's selected Sea Power loadout, magazines and hardpoints,
+resolves date-based 1989 ammunition, and snapshots each weapon's native target
+class and launch, projectile, or endurance range into canonical campaign state.
+Operational combat can select only a compatible snapshotted weapon whose range
+contains the rounded great-circle separation. Missing or unrecognized catalog
+data fails closed. The only authored exception is the explicitly labelled
+`abstract-corps-fires` envelope for campaign-only land formations, which cannot
+be represented by Sea Power at Tactical fidelity.
+
+The repository also ships **Crimean Tom - Tactical Worker Container**, a
+non-resolving Sea Power mission shell. It has no campaign objectives, victory
+conditions, hostile force, or local combat resolver. A stationary process-local
+survey launch exists only to make Sea Power expose a valid player task force;
+it has no campaign identity and never enters the service journal. The bridge
+materializes fenced campaign interaction islands into this paused shell while
+the external service continues to own time, objectives, force state, and durable
+outcomes. This replaces engagement-specific scenarios as the intended worker
+boundary; authored tactical-window missions remain useful demonstrations and
+compatibility fixtures.
 
 ### Operator monitor
 
 The campaign service hosts a Tailwind CSS and Babylon.js monitor at `/monitor/`.
 It renders a Natural Earth 110m world coastline and latitude/longitude grid,
-then overlays the region graph, bases, unit domains and fidelity, active
+then overlays aligned national borders, the region graph, bases, unit domains
+and fidelity, active
 operational outcomes, damage, and service/head status in their real geographic
 positions. The same information is represented as semantic HTML: the order of
 battle is a collapsible coalition -> formation -> unit tree, and outcomes remain
@@ -84,6 +123,15 @@ an independently readable register, so the Babylon canvas is not the only way
 to inspect the campaign. Singleton formations are flattened to coalition -> unit
 rows with the formation retained as secondary context; only formations with
 multiple members consume a separate expandable hierarchy level.
+
+National borders are derived locally from the campaign order of battle and
+colored friendly green or hostile red; neutral-country borders are not drawn.
+The checked-in `world-atlas` geometry is modern rather than a literal 1989
+political layer. The monitor therefore merges the fifteen modern successor
+polygons into one USSR outline and treats unified Germany as the friendly FRG;
+Peenemunde can identify the GDR in the OOB matcher, but modern geometry cannot
+draw a separate East German border. This limitation is explicit rather than
+silently presenting modern boundaries as exact Cold War history.
 
 The visual language is a dense Cold War command plot, not a general-purpose
 dashboard. A dominant black wireframe plotting volume shows the theater graph,

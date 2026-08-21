@@ -85,6 +85,10 @@ message CompanionHeartbeat {
   string player_taskforce_id = 6;
   repeated TacticalMaterializationProfile materialization_profiles = 7;
   repeated TacticalCouplingRelationship coupling_relationships = 8;
+  int32 owned_materialized_entity_count = 9;
+  int32 owned_active_entity_count = 10;
+  int32 owned_retained_suspended_entity_count = 11;
+  int32 owned_recovery_required_entity_count = 12;
 }
 
 message ServiceHeartbeat {

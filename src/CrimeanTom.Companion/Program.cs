@@ -661,7 +661,7 @@ static IResult? ValidateSurfaceMutationRequest(
         || request.EntityId.Length > 128
         || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
         || !string.Equals(request.UnitTypeId, "usn_ff_knox_84", StringComparison.Ordinal)
-        || !string.Equals(request.VariantId, "Variant13", StringComparison.Ordinal)
+        || !string.Equals(request.VariantId, "Variant43", StringComparison.Ordinal)
         || !string.Equals(request.LoadoutId, "Default", StringComparison.Ordinal)
         || string.IsNullOrWhiteSpace(request.TaskforceId)
         || !double.IsFinite(request.Latitude)

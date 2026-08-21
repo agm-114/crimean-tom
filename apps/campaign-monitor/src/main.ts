@@ -11,7 +11,9 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { mesh as topologyMesh } from "topojson-client";
+import worldCountries from "world-atlas/countries-110m.json";
 import worldLand from "world-atlas/land-110m.json";
+import { countriesRepresentedInOrderOfBattle, type AlignedCountry, type Alignment } from "./alignedCountries";
 import "./style.css";
 
 type Region = { regionId: string; name: string; neighborRegionIds: string[] };
@@ -20,10 +22,14 @@ type Base = {
   latitudeMicrodegrees: number; longitudeMicrodegrees: number; resources: Record<string, number>;
 };
 type Entity = {
-  entityId: string; name: string; catalogUnitId: string; coalitionId: string; fidelity: string;
+  entityId: string; name: string; catalogUnitId: string; catalogLoadoutId: string;
+  operationalWeapons: OperationalWeapon[]; coalitionId: string; fidelity: string;
   simulationDomain: string; maximumFidelity: string; regionId: string;
   latitudeMicrodegrees: number; longitudeMicrodegrees: number; fuelMilliunits: number;
   storesMilliunits: number; damageMilliunits: number; lifecycle: string;
+};
+type OperationalWeapon = {
+  ammunitionId: string; targetClassification: string; maximumRangeMeters: number;
 };
 type Group = {
   groupId: string; name: string; coalitionId: string; memberEntityIds: string[];
@@ -44,7 +50,10 @@ type InteractionIsland = {
   unsafeToSplit: boolean; couplingReasons: string[]; reason: string;
 };
 type Scheduler = {
-  health: string; eligibility: string; tacticalEntityCapacity: number; backlogDepth: number;
+  health: string; eligibility: string; tacticalEntityCapacity: number; tacticalReserveCapacity: number;
+  occupiedTacticalEntityCount: number; activeTacticalEntityCount: number;
+  retainedSuspendedTacticalEntityCount: number; recoveryRequiredTacticalEntityCount: number;
+  availableTacticalEntityCapacity: number; backlogDepth: number;
   stableSampleCount: number;
   fixedStepMicroseconds: number; targetTicksPerWallSecond: number; effectiveAtQuanta: number;
   loadAction: string; islands: InteractionIsland[];
@@ -85,7 +94,7 @@ app.innerHTML = `
       </div>
     </header>
 
-    <div class="map-annotation map-annotation-left">PLOT / WORLD THEATER // GRID 15° // NATURAL EARTH 110M</div>
+    <div class="map-annotation map-annotation-left">PLOT / WORLD THEATER // GRID 15° // NATURAL EARTH 110M // ALIGNED BORDERS</div>
     <div class="map-annotation map-annotation-right">DRAG ORBIT // WHEEL RANGE // SELECT TRACK</div>
 
     <aside class="dock dock-left">
@@ -132,6 +141,7 @@ app.innerHTML = `
     <footer class="command-footer flex items-center px-2 text-[8px] tracking-[0.07em] text-[#626262]">
       <span class="friendly mr-5">□ NATO / FRIENDLY</span>
       <span class="hostile mr-5">△ WARSAW PACT / HOSTILE</span>
+      <span class="mr-5">─ ALIGNED NATIONAL BORDER</span>
       <span class="warning mr-5">◇ OPERATIONAL EFFECT</span>
       <span class="ml-auto">DISPLAY / WIREFRAME // SOURCE / CAMPAIGN JOURNAL // AUTH / HOST SESSION</span>
     </footer>
@@ -159,6 +169,7 @@ const plotGrid = MeshBuilder.CreateLineSystem("plot-grid", { lines: gridLines },
 plotGrid.color = new Color3(0.16, 0.16, 0.16);
 plotGrid.alpha = 0.34;
 const worldTopology = worldLand as unknown as Parameters<typeof topologyMesh>[0];
+const countryTopology = worldCountries as unknown as Parameters<typeof topologyMesh>[0];
 const worldCoastline = topologyMesh(worldTopology, worldTopology.objects.land);
 const coastlineLines = worldCoastline.coordinates.flatMap(coordinates => splitDateLine(coordinates)
   .filter(segment => segment.length > 1)
@@ -166,6 +177,7 @@ const coastlineLines = worldCoastline.coordinates.flatMap(coordinates => splitDa
 const coastline = MeshBuilder.CreateLineSystem("world-coastline", { lines: coastlineLines }, scene);
 coastline.color = new Color3(0.56, 0.56, 0.56);
 coastline.alpha = 0.72;
+coastline.isPickable = false;
 const plotBorder = MeshBuilder.CreateLines("plot-border", {
   points: [
     worldPosition(-180, -85), worldPosition(-180, 85), worldPosition(180, 85),
@@ -177,6 +189,8 @@ plotBorder.alpha = 0.65;
 
 let campaign: Campaign | null = null;
 let dynamicMeshes: Mesh[] = [];
+let alignedBorderMeshes: Mesh[] = [];
+let alignedBorderSignature = "";
 let pollHandle: number | undefined;
 let selectedEntityId: string | null = null;
 const expandedNodes = new Set<string>();
@@ -204,6 +218,58 @@ function splitDateLine(coordinates: number[][]): number[][][] {
 
 function mapPosition(latitudeMicrodegrees: number, longitudeMicrodegrees: number, y = 0): Vector3 {
   return worldPosition(longitudeMicrodegrees / 1_000_000, latitudeMicrodegrees / 1_000_000, y);
+}
+
+const friendlyBorderColor = new Color3(0.21, 0.91, 0.54);
+const hostileBorderColor = new Color3(1, 0.25, 0.32);
+
+function lineSystemFromCoordinates(name: string, coordinates: number[][][], y: number, color: Color3, alpha: number): Mesh | null {
+  const lines = coordinates.flatMap(line => splitDateLine(line)
+    .filter(segment => segment.length > 1)
+    .map(segment => segment.map(([longitude, latitude]) => worldPosition(longitude, latitude, y))));
+  if (!lines.length) return null;
+  const mesh = MeshBuilder.CreateLineSystem(name, { lines }, scene);
+  mesh.color = color;
+  mesh.alpha = alpha;
+  mesh.isPickable = false;
+  return mesh;
+}
+
+function countryBorderMesh(countries: AlignedCountry[], mergeInterior: boolean) {
+  const ids = new Set(countries.flatMap(country => country.isoNumericIds));
+  const mergeIds = new Set(countries.filter(country => country.mergeInterior).flatMap(country => country.isoNumericIds));
+  if (!ids.size) return { coordinates: [] as number[][][] };
+  return topologyMesh(countryTopology, countryTopology.objects.countries, (left, right) => {
+    const leftId = String("id" in left ? left.id ?? "" : "");
+    const rightId = String("id" in right ? right.id ?? "" : "");
+    const leftAligned = ids.has(leftId);
+    const rightAligned = ids.has(rightId);
+    if (!leftAligned && !rightAligned) return false;
+    if (mergeInterior && left !== right && mergeIds.has(leftId) && mergeIds.has(rightId)) return false;
+    return leftAligned || rightAligned;
+  });
+}
+
+function renderAlignedBorders(data: Campaign): void {
+  const represented = countriesRepresentedInOrderOfBattle(data);
+  const signature = represented.map(country => country.key).sort().join(",");
+  if (signature === alignedBorderSignature) return;
+  alignedBorderSignature = signature;
+  alignedBorderMeshes.forEach(mesh => mesh.dispose(false, true));
+  alignedBorderMeshes = [];
+  const drawable = represented.filter(country => country.isoNumericIds.length);
+  (["friendly", "hostile"] as const).forEach((alignment: Alignment, index) => {
+    const countries = drawable.filter(country => country.alignment === alignment);
+    const border = countryBorderMesh(countries, alignment === "hostile");
+    const mesh = lineSystemFromCoordinates(
+      `aligned-borders-${alignment}`,
+      border.coordinates,
+      0.05 + index * 0.008,
+      alignment === "friendly" ? friendlyBorderColor : hostileBorderColor,
+      0.32,
+    );
+    if (mesh) alignedBorderMeshes.push(mesh);
+  });
 }
 
 function material(name: string, color: Color3, emissive = 0.55): StandardMaterial {
@@ -234,6 +300,7 @@ function clearDynamicMap(): void {
 
 function renderMap(data: Campaign): void {
   clearDynamicMap();
+  renderAlignedBorders(data);
   const palette = coalitionPalette(data);
   const entityById = new Map(data.entities.map(item => [item.entityId, item]));
   const regionPositions = new Map<string, Vector3>();
@@ -430,6 +497,10 @@ function selectEntity(entityId: string): void {
     .filter(item => item.entityId === entityId)
     .sort((left, right) => right.authorityEpoch - left.authorityEpoch)[0];
   const damage = (entity.damageMilliunits / 10_000).toFixed(1);
+  const operationalWeapons = entity.operationalWeapons ?? [];
+  const weaponIds = [...new Set(operationalWeapons.map(item => item.ammunitionId))];
+  const maximumWeaponRange = operationalWeapons.reduce(
+    (maximum, weapon) => Math.max(maximum, weapon.maximumRangeMeters), 0);
   byId("selection").innerHTML = `
     <div class="border-b border-[#3b3b3b] bg-[#e2e2e2] px-2 py-1 text-[10px] text-black">
       <div class="truncate">${escapeHtml(entity.name.toUpperCase())}</div>
@@ -437,6 +508,9 @@ function selectEntity(entityId: string): void {
     </div>
     <dl class="selection-grid">
       <dt>Domain</dt><dd>${escapeHtml(entity.simulationDomain)}</dd>
+      <dt>Catalog</dt><dd>${escapeHtml(entity.catalogUnitId)} / ${escapeHtml(entity.catalogLoadoutId)}</dd>
+      <dt>Weapons</dt><dd>${weaponIds.length ? escapeHtml(weaponIds.join(" + ")) : "NONE / FAIL CLOSED"}</dd>
+      <dt>Envelope</dt><dd>${maximumWeaponRange ? `${(maximumWeaponRange / 1_000).toFixed(1)} KM MAX / CATALOG` : "NO OPERATIONAL FIRE"}</dd>
       <dt>Fidelity</dt><dd>${escapeHtml(entity.fidelity)} / MAX ${escapeHtml(entity.maximumFidelity)}</dd>
       <dt>Desired</dt><dd class="${island && island.desiredFidelity !== entity.fidelity ? "warning" : ""}">${escapeHtml(island?.desiredFidelity ?? entity.fidelity)}${island?.desiredFidelity === "Tactical" && entity.fidelity !== "Tactical" ? " // AWAIT WORKER" : ""}</dd>
       <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
@@ -463,7 +537,7 @@ function renderPanels(data: Campaign): void {
   byId("simulation-rate").textContent = data.performance.advance.lastWorkUnitsPerSecondMilliunits > 0
     ? `${(data.performance.advance.lastWorkUnitsPerSecondMilliunits / 1_000).toFixed(0)}/s`
     : "—";
-  byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // STABLE ${data.scheduler.stableSampleCount} // ${data.scheduler.loadAction}`;
+  byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // LOAD ${data.scheduler.occupiedTacticalEntityCount}/${data.scheduler.tacticalEntityCapacity} // ACTIVE ${data.scheduler.activeTacticalEntityCount} // HELD ${data.scheduler.retainedSuspendedTacticalEntityCount} // RESERVE ${data.scheduler.tacticalReserveCapacity} // FREE ${data.scheduler.availableTacticalEntityCapacity} // ${data.scheduler.loadAction}`;
   byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   renderOrderOfBattle(data);

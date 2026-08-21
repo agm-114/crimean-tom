@@ -606,15 +606,21 @@ single-player prototype.
 
 ### Current implementation slice
 
-- Schema v4 records each entity's simulation domain and maximum fidelity, plus
-  contact uncertainty and recent operational outcomes.
+- Schema v5 records each entity's simulation domain, maximum fidelity, selected
+  catalog loadout and operational weapon capabilities, plus contact uncertainty
+  and recent operational outcomes.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
-- The deterministic Fulda Gap Gone Hot proving campaign supplies the large,
-  representative theater used while implementing the remaining Phase 5 engine,
-  scheduler, monitor, and live-game flows. Central Front land formations remain
-  Operational abstractions; naval and air interactions provide the tactical
-  promotion surface.
+- The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
+  the large representative theater used while implementing the remaining Phase
+  5 engine, scheduler, monitor, and live-game flows. Its 32 regions, 31 bases,
+  60 opening entities and 34 groups cover the Central Front, Atlantic, South
+  Atlantic, Middle East, Indian Ocean and Asia-Pacific. Central Front land
+  formations remain Operational abstractions; naval and air interactions
+  provide the tactical promotion surface. Catalog-backed forces cover the major
+  shipped national fleets, while Argentina's requested Soviet support is a
+  clearly labelled alternate-history logistics substitution because the game
+  has no Argentine nation prefix.
 - The monitor is part of the Phase 5 exit artifact, not a separate authority. It
   now exposes the campaign graph, bases, units, task forces, domains, fidelity,
   damage, recent interactions, health, journal head, scheduler health and
@@ -627,10 +633,18 @@ single-player prototype.
   organized coalition -> formation -> unit rather than as a flat track list.
   Singleton formations are flattened to avoid redundant hierarchy rows.
 - The unattended resolver now performs deterministic region-level detection,
-  uncertainty degradation, weapons expenditure, damage, destruction, and
-  whole-task-force withdrawal. Coalition projections receive opaque track IDs
-  instead of hostile canonical entity IDs. These mechanics are functional but
-  remain uncalibrated until compared with measured Sea Power batches.
+  uncertainty degradation, damage, destruction, and whole-task-force
+  withdrawal. Weapon employment is additionally fenced by the actor's exact
+  loadout-derived Sea Power ammunition target class and native range snapshot;
+  missing catalog data fails closed. Coalition projections receive opaque track
+  IDs instead of hostile canonical entity IDs. These mechanics are functional
+  but remain uncalibrated until compared with measured Sea Power batches.
+- The first non-resolving tactical worker container now loads live with one
+  process-local anchor, no hostile force, and no campaign objective or victory
+  trigger. Typed bridge automation selects it and reports a paused mission,
+  valid player task force, one session-surrogate object and zero campaign-owned
+  objects. It is the clean shell for future fenced island materialization, not
+  a scenario that can independently settle an engagement.
 - The first dynamic-fidelity vertical slice treats each task force as a minimum
   island, merges opposing groups involved in recent region combat, applies
   player observation/control and simulation-domain ceilings, fences active
@@ -639,9 +653,12 @@ single-player prototype.
   successful materialization and an initial checkpoint; that response atomically
   activates authority and promotes the canonical entity. Rejected or interrupted
   preparation releases without creating phantom Tactical state.
-  Health, simulation-source eligibility, tactical capacity, and transport
-  backlog drive load shedding; suitable quiet islands demote before the global
-  target tempo falls. The scheduler input and stable-sample count are journaled
+  Health, simulation-source eligibility, tactical capacity, retained runtime
+  resources, reserve capacity, and transport backlog drive load shedding;
+  suitable quiet whole islands demote before the global target tempo falls.
+  Active, suspended-retained, recovery-required and total materialized resource
+  counts are projected from the tactical worker. The scheduler input and
+  stable-sample count are journaled
   and snapshot-recoverable. Active quiet islands require two matching healthy
   interest-loss samples before quiescing, while load shedding remains immediate.
   Process-local diagnostics now measure recovery, advancement, and scheduling
@@ -657,8 +674,9 @@ single-player prototype.
   Operational; two independent campaign Knox groups joined one unsafe Tactical
   island while Sea Power actively avoided their collision. The schema-v2 bridge
   also captures sensor, host, formation, temporary-refueling, and stable
-  plotting relationships. This is not yet the full P5 gate: hysteretic split,
-  client migration/reserve accounting, tactical performance
+  plotting relationships. Reserve-aware whole-island load shedding now includes
+  retained and recovery-required runtime objects. This is not yet the full P5
+  gate: tactical performance
   targets, and calibration remain. The external-kernel
   large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
   600 entities measures 18.5/s and is explicitly an overloaded envelope. The

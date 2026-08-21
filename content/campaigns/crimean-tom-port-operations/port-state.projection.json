@@ -14,7 +14,7 @@
       "unitType": "usn_ff_knox_84",
       "rosterSection": "AllowedVessels",
       "nation": "us",
-      "variants": ["Variant13", "Variant16", "Variant20", "Variant22", "Variant36"],
+      "variants": ["Variant13", "Variant16", "Variant20", "Variant22", "Variant36", "Variant43"],
       "maximumQuantity": 1,
       "pointCost": 120,
       "repairState": "light-damage-repairable",

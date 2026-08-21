@@ -52,7 +52,7 @@ public static class CampaignCanonicalSerializer
                 ReadResources(item.Resources), new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.BaseId, item => item),
             Entities = document.Entities.Select(item => new EntityState(
-                ParseId(item.Id, value => new EntityId(value)), item.Name, item.CatalogUnitId,
+                ParseId(item.Id, value => new EntityId(value)), item.Name, item.CatalogUnitId, item.CatalogLoadoutId,
                 ParseId(item.CoalitionId, value => new CoalitionId(value)),
                 ParseId(item.RegionId, value => new RegionId(value)),
                 new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
@@ -61,7 +61,12 @@ public static class CampaignCanonicalSerializer
                 ParseEnum<SimulationDomain>(item.SimulationDomain), ParseEnum<FidelityState>(item.MaximumFidelity),
                 ReadResources(item.Resources), HeadingMilliDegrees.FromMilliDegrees(item.HeadingMilliDegrees), item.Telegraph,
                 item.ReadinessMilliUnits, item.DamageMilliUnits,
-                item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
+                item.ClassifiedTruthTag,
+                item.OperationalWeapons.Select(weapon => new OperationalWeaponCapability(
+                    weapon.AmmunitionId,
+                    ParseEnum<ContactClassification>(weapon.TargetClassification),
+                    DistanceMeters.FromMeters(weapon.MaximumRangeMeters))).ToImmutableArray(),
+                new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.EntityId, item => item),
             Groups = document.Groups.Select(item => new GroupState(
                 ParseId(item.Id, value => new GroupId(value)), item.Name,
@@ -111,7 +116,8 @@ public static class CampaignCanonicalSerializer
                 document.SchedulerPolicy.RequestHash,
                 document.SchedulerPolicy.StableSampleCount,
                 new CampaignTime(document.SchedulerPolicy.EffectiveAt),
-                new EntityRevision(document.SchedulerPolicy.Revision)),
+                new EntityRevision(document.SchedulerPolicy.Revision),
+                document.SchedulerPolicy.TacticalReserveCapacity),
             ScheduledActivities = document.ScheduledActivities.Select(item => new ScheduledActivityState(
                 ParseId(item.Id, value => new ScheduledActivityId(value)),
                 ParseEnum<CampaignActivityKind>(item.Kind),
@@ -207,6 +213,7 @@ public static class CampaignCanonicalSerializer
             writer.WriteString("id", item.EntityId.ToString());
             writer.WriteString("name", item.Name);
             writer.WriteString("catalogUnitId", item.CatalogUnitId);
+            writer.WriteString("catalogLoadoutId", item.CatalogLoadoutId);
             writer.WriteString("coalitionId", item.CoalitionId.ToString());
             writer.WriteString("regionId", item.RegionId.ToString());
             WriteCoordinate(writer, item.Coordinate);
@@ -228,6 +235,16 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("readinessMilliUnits", item.ReadinessMilliUnits);
             writer.WriteNumber("damageMilliUnits", item.DamageMilliUnits);
             writer.WriteString("classifiedTruthTag", item.ClassifiedTruthTag);
+            writer.WriteStartArray("operationalWeapons");
+            foreach (var weapon in item.OperationalWeapons)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("ammunitionId", weapon.AmmunitionId);
+                writer.WriteNumber("targetClassification", (int)weapon.TargetClassification);
+                writer.WriteNumber("maximumRangeMeters", weapon.MaximumRange.Value);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -405,6 +422,10 @@ public static class CampaignCanonicalSerializer
         writer.WriteString("health", policy.Health);
         writer.WriteString("eligibility", policy.Eligibility);
         writer.WriteNumber("tacticalEntityCapacity", policy.TacticalEntityCapacity);
+        if (policy.TacticalReserveCapacity != 0)
+        {
+            writer.WriteNumber("tacticalReserveCapacity", policy.TacticalReserveCapacity);
+        }
         writer.WriteNumber("backlogDepth", policy.BacklogDepth);
         writer.WriteString("requestHash", policy.RequestHash);
         writer.WriteNumber("stableSampleCount", policy.StableSampleCount);
@@ -538,6 +559,7 @@ public static class CampaignCanonicalSerializer
         public required string Id { get; init; }
         public required string Name { get; init; }
         public required string CatalogUnitId { get; init; }
+        public required string CatalogLoadoutId { get; init; }
         public required string CoalitionId { get; init; }
         public required string RegionId { get; init; }
         public required int LatitudeMicrodegrees { get; init; }
@@ -553,7 +575,15 @@ public static class CampaignCanonicalSerializer
         public required int ReadinessMilliUnits { get; init; }
         public required int DamageMilliUnits { get; init; }
         public required string ClassifiedTruthTag { get; init; }
+        public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
         public required long Revision { get; init; }
+    }
+
+    private sealed class OperationalWeaponDocument
+    {
+        public required string AmmunitionId { get; init; }
+        public required int TargetClassification { get; init; }
+        public required long MaximumRangeMeters { get; init; }
     }
 
     private sealed class GroupDocument
@@ -622,6 +652,7 @@ public static class CampaignCanonicalSerializer
         public required string Health { get; init; }
         public required string Eligibility { get; init; }
         public required int TacticalEntityCapacity { get; init; }
+        public int TacticalReserveCapacity { get; init; }
         public required int BacklogDepth { get; init; }
         public required string RequestHash { get; init; }
         public required int StableSampleCount { get; init; }

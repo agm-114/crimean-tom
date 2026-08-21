@@ -14,6 +14,7 @@ internal static class CampaignSimulation
     private const long FuelPerMovement = 25_000;
     private const long StoresPerActivity = 5_000;
     private const long RepairPerActivity = 50_000;
+    private const long MeanEarthRadiusMeters = 6_371_000;
 
     public static CampaignSimulatedEvent Resolve(CampaignState state, CampaignTime target, int workerCount)
     {
@@ -321,14 +322,19 @@ internal static class CampaignSimulation
                 var targets = participants
                     .Select(item => entities[item.EntityId])
                     .Where(item => item.CoalitionId != actor.CoalitionId && CanBeAttacked(state, item))
-                    .OrderBy(item => item.EntityId)
+                    .Select(item => SelectOperationalWeapon(actor, item))
+                    .Where(item => item is not null)
+                    .Select(item => item!.Value)
+                    .OrderBy(item => item.Entity.EntityId)
                     .ToArray();
                 if (targets.Length == 0)
                 {
                     continue;
                 }
 
-                var target = targets[KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, "engagement-target") % targets.Length];
+                var selected = targets[
+                    KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, "engagement-target") % targets.Length];
+                var target = selected.Entity;
                 var available = Get(actor.Resources, ResourceKind.Munitions);
                 var expenditure = Math.Min(available, actor.SimulationDomain == SimulationDomain.LandAbstract ? 15_000 : 30_000);
                 if (expenditure <= 0)
@@ -343,7 +349,9 @@ internal static class CampaignSimulation
                 };
                 entities = entities.SetItem(actor.EntityId, actor);
                 outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.WeaponExpenditure, region,
-                    actor.EntityId, target.EntityId, expenditure, 0, "Operational weapons employment"));
+                    actor.EntityId, target.EntityId, expenditure, 0,
+                    $"{selected.Weapon.AmmunitionId} employment at {selected.DistanceMeters} m "
+                    + $"(catalog max {selected.Weapon.MaximumRange.Value} m)"));
 
                 var hitChance = Math.Clamp(250 + actor.ReadinessMilliUnits / 2
                     - target.ReadinessMilliUnits / 8
@@ -573,8 +581,45 @@ internal static class CampaignSimulation
 
     private static bool CanAttack(CampaignState state, EntityState entity) =>
         IsOperational(state, entity)
-        && entity.SimulationDomain != SimulationDomain.Logistics
+        && entity.OperationalWeapons.Length > 0
         && Get(entity.Resources, ResourceKind.Munitions) > 0;
+
+    private static (EntityState Entity, OperationalWeaponCapability Weapon, long DistanceMeters)?
+        SelectOperationalWeapon(EntityState actor, EntityState target)
+    {
+        var distanceMeters = RoundedGreatCircleDistanceMeters(actor.Coordinate, target.Coordinate);
+        var classification = Classify(target);
+        var weapon = actor.OperationalWeapons
+            .Where(item => OperationalWeaponTargets(item.TargetClassification, classification))
+            .Where(item => distanceMeters <= item.MaximumRange.Value)
+            .OrderBy(item => item.MaximumRange.Value)
+            .ThenBy(item => item.AmmunitionId, StringComparer.Ordinal)
+            .FirstOrDefault();
+        return weapon is null ? null : (target, weapon, distanceMeters);
+    }
+
+    private static bool OperationalWeaponTargets(
+        ContactClassification weaponTarget,
+        ContactClassification target) =>
+        weaponTarget == target
+        || weaponTarget == ContactClassification.Surface && target == ContactClassification.Logistics;
+
+    private static long RoundedGreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
+    {
+        const double microdegreesPerDegree = 1_000_000d;
+        var originLatitude = origin.LatitudeMicrodegrees / microdegreesPerDegree * (Math.PI / 180d);
+        var originLongitude = origin.LongitudeMicrodegrees / microdegreesPerDegree * (Math.PI / 180d);
+        var destinationLatitude = destination.LatitudeMicrodegrees / microdegreesPerDegree * (Math.PI / 180d);
+        var destinationLongitude = destination.LongitudeMicrodegrees / microdegreesPerDegree * (Math.PI / 180d);
+        var latitudeDelta = destinationLatitude - originLatitude;
+        var longitudeDelta = destinationLongitude - originLongitude;
+        var chord = Math.Pow(Math.Sin(latitudeDelta / 2d), 2d)
+            + Math.Cos(originLatitude) * Math.Cos(destinationLatitude)
+            * Math.Pow(Math.Sin(longitudeDelta / 2d), 2d);
+        chord = Math.Clamp(chord, 0d, 1d);
+        var angularDistance = 2d * Math.Atan2(Math.Sqrt(chord), Math.Sqrt(1d - chord));
+        return (long)Math.Round(MeanEarthRadiusMeters * angularDistance, MidpointRounding.AwayFromZero);
+    }
 
     private static bool CanBeAttacked(CampaignState state, EntityState entity) =>
         entity.Lifecycle is not (EntityLifecycle.Destroyed or EntityLifecycle.Retired)

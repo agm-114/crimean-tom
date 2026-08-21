@@ -148,9 +148,20 @@ public static class CampaignKernel
         CampaignInvariants.RequireId(value.CoalitionId);
         CampaignInvariants.RequireText(value.Name, nameof(value.Name));
         CampaignInvariants.RequireText(value.CatalogUnitId, nameof(value.CatalogUnitId));
+        CampaignInvariants.RequireText(value.CatalogLoadoutId, nameof(value.CatalogLoadoutId));
         CampaignInvariants.RequireText(value.ClassifiedTruthTag, nameof(value.ClassifiedTruthTag));
         ValidateCoordinate(value.Coordinate);
         ValidateResources(value.Resources);
+        foreach (var weapon in value.OperationalWeapons ?? [])
+        {
+            CampaignInvariants.RequireText(weapon.AmmunitionId, nameof(weapon.AmmunitionId));
+            if (!Enum.IsDefined(weapon.TargetClassification)
+                || weapon.TargetClassification is ContactClassification.Unknown or ContactClassification.Logistics
+                || weapon.MaximumRange.Value <= 0)
+            {
+                throw Violation("invalid-operational-weapon", "Operational weapon capabilities require a target class and a positive catalog range.");
+            }
+        }
         if (!Enum.IsDefined(value.SimulationDomain)
             || !Enum.IsDefined(value.MaximumFidelity)
             || value.MaximumFidelity == FidelityState.Suspended
@@ -513,6 +524,8 @@ public static class CampaignKernel
             || value.Health is not ("Healthy" or "Pressured" or "Overloaded" or "Draining" or "Quarantined" or "Offline")
             || value.Eligibility is not ("Eligible" or "DrainOnly" or "Disabled" or "Quarantined")
             || value.TacticalEntityCapacity is < 0 or > 10_000
+            || value.TacticalReserveCapacity is < 0 or > 10_000
+            || value.TacticalReserveCapacity > value.TacticalEntityCapacity
             || value.BacklogDepth is < 0 or > 1_000_000
             || value.StableSampleCount is < 1 or > 1_000_000
             || value.RequestHash.Length != 64 || value.RequestHash.Any(character => !Uri.IsHexDigit(character))
@@ -585,11 +598,17 @@ public static class CampaignKernel
     private static CampaignState ApplyEntity(CampaignState state, CommittedCampaignEvent item, EntityRegisteredEvent value)
     {
         var data = value.Entity;
-        var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CoalitionId, data.RegionId,
+        var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CatalogLoadoutId,
+            data.CoalitionId, data.RegionId,
             data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.SimulationDomain,
             data.MaximumFidelity, data.Resources.ToImmutableSortedDictionary(),
             HeadingMilliDegrees.FromMilliDegrees(0), Telegraph: 0,
-            ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag, item.NewSubjectRevision);
+            ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag,
+            (data.OperationalWeapons ?? [])
+                .OrderBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
+                .ThenBy(weapon => weapon.TargetClassification)
+                .ToImmutableArray(),
+            item.NewSubjectRevision);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
 
@@ -724,7 +743,8 @@ public static class CampaignKernel
                 policy.RequestHash,
                 policy.StableSampleCount,
                 policy.EffectiveAt,
-                item.NewSubjectRevision),
+                item.NewSubjectRevision,
+                policy.TacticalReserveCapacity),
         };
     }
 

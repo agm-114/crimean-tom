@@ -295,7 +295,7 @@ checkpoint with a maximum 120-quanta rollback. Exact UI/audio/visual emission
 timestamps remain unavailable from Sea Power and are reported as unavailable,
 not inferred as a display delay.
 
-Phase 5 is active on schema v4. The deterministic Fulda Gap Gone Hot proving
+Phase 5 is active on schema v5. The deterministic Fulda Gap Gone Hot proving
 campaign has 12 connected regions and 15 opening entities across the Central
 Front, North Atlantic, GIUK, Norwegian Sea, North Sea, and Baltic. Land armies
 are explicitly `LandAbstract`, capped at Operational fidelity, and rejected by
@@ -404,12 +404,44 @@ their independent groups into one unsafe two-unit Tactical island with
 `physical-dependency:collision-avoidance` and `active-coupling-fence`. The raw
 mixed mission graph captured 132 stable relationships in 3,059 microseconds.
 
+The representative scenario is now catalog-audited rather than the earlier 4x
+Knox capacity tableau. Typed scenario automation loads and pauses USS Pharris
+FF-1094 (`Variant43`) and USS Honolulu SSN-718 against a Victor III and Oscar I
+in the GIUK window. The global operational bootstrap spans 32 regions, 31 bases,
+60 entities and 34 groups across the Central Front, Atlantic, South Atlantic,
+Middle East, Indian Ocean and Asia-Pacific. Taiwan and Korea extend the eastern
+theater with RoCAF/ROCN, ROKAF and KPAF forces. It uses shipped catalog IDs for
+21 directly represented national forces; Argentina is an explicitly labelled
+alternate-history Soviet logistics partner using cargo-hull substitutions. The
+current live campaign is `e7ae56ae91be4138abf4af5c03fee6cd` at
+`http://127.0.0.1:5081/monitor/?campaign=e7ae56ae91be4138abf4af5c03fee6cd`.
+
+Schema v5 snapshots each entity's selected catalog loadout and operational
+weapon capabilities. Bootstrap resolves installed Sea Power hardpoints,
+magazines, date-based 1989 ammunition, target classes, and native ranges;
+unresolved data cannot fire. The current live campaign resolved 338 target/range
+capabilities across 55 armed entities. Its first 30 quanta produced nine weapon
+expenditures, including the new Korea and Taiwan fronts, with zero range
+violations and a maximum shot-to-catalog-range ratio of 0.929.
+
+The first tactical worker container is also live. Typed scenario automation
+loaded `scenario:missions/user_missions/crimean tom - tactical worker container`
+without menu clicks. It paused at 2.013 simulation seconds with a valid player
+task force, one stationary process-local Adjutant-class anchor, zero campaign
+identities, no hostile units, and no local campaign-resolution path. This is the
+intended empty shell for fenced interaction-island materialization.
+
 The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
 campaign's durable cursor and silently prevents the gRPC session from opening.
 
-Next, implement hysteretic split and reserve-aware migration, measure live
-tactical combat tempo, exercise campaign-owned sensor/host/refueling edges, and
+Reserve-aware load shedding is now implemented around actual runtime resource
+counts: active, suspended-retained, recovery-required and total materialized
+objects all contribute to the scheduler projection. Capacity pressure selects
+whole quiet islands and preserves fenced/engaged islands; the scheduling
+response retains the original decision reasons even after assignments enter
+Quiescing. Next, measure live tactical combat tempo, exercise campaign-owned
+sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep
 tactical projection and campaign commit separate: Sea Power remains a fenced
 client of the external authoritative kernel.

@@ -104,7 +104,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("2c3ae50e654df1bacb87303a0d9875123947051ddbe9560915d35c12ab2eb4ac", longHorizon.Hash);
+        Assert.Equal("32e3bd19091a56a12b9abd723447e7a8ad75cea66c1c96bbc4be0e910905c781", longHorizon.Hash);
         await ProveDurableJournalAsync(longHorizon);
         await ProvePersistenceBoundariesAsync(longHorizon);
         await ProveProcessCrashRecoveryAsync(longHorizon);
@@ -147,7 +147,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 Ids.BlueTruth)), commands, events);
         state = Commit(state, Command(7, CampaignSubject.Entity(Ids.BlueOiler), EntityRevision.None,
             new RegisterEntityCommand(Ids.BlueOiler, "USNS Neosho", "usn_neosho", Ids.BlueCoalition, Ids.Odessa,
-                GeoCoordinate.FromMicrodegrees(44_090_000, 30_180_000), Ids.BlueBase, EntityLifecycle.Deployed,
+                GeoCoordinate.FromMicrodegrees(44_090_000, 30_500_000), Ids.BlueBase, EntityLifecycle.Deployed,
                 FidelityState.Strategic,
                 Resources(reverseCollectionInputs, (ResourceKind.Stores, 1_200_000), (ResourceKind.Fuel, 8_000_000)),
                 "BLUE-LOGISTICS-EXACT")), commands, events);
@@ -156,7 +156,14 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), Ids.RedBase, EntityLifecycle.Deployed,
                 FidelityState.Operational,
                 Resources(reverseCollectionInputs, (ResourceKind.Munitions, 700_000), (ResourceKind.Fuel, 750_000)),
-                Ids.RedTruth)), commands, events);
+                Ids.RedTruth,
+                OperationalWeapons:
+                [
+                    new OperationalWeaponCapability(
+                        "synthetic-catalog-anti-surface-missile",
+                        ContactClassification.Surface,
+                        DistanceMeters.FromMeters(300_000)),
+                ])), commands, events);
 
         var members = reverseCollectionInputs
             ? new[] { Ids.BlueOiler, Ids.BlueKnox }
@@ -209,8 +216,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(4, CampaignSchema.Version);
-        Assert.Equal(4, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(5, CampaignSchema.Version);
+        Assert.Equal(5, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

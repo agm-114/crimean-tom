@@ -190,7 +190,9 @@ public sealed class CampaignCoordinator(
                         FuldaResources(baseSupply: false),
                         $"FULDA-89:{entity.CoalitionId}:{entity.Key}",
                         entity.SimulationDomain,
-                        entity.MaximumFidelity),
+                        entity.MaximumFidelity,
+                        entity.CatalogLoadoutId,
+                        entity.OperationalWeapons),
                     $"fulda-entity-{entity.Key}"), cancellationToken);
             }
 
@@ -406,6 +408,11 @@ public sealed class CampaignCoordinator(
                 item.EntityId.ToString(),
                 item.Name,
                 item.CatalogUnitId,
+                item.CatalogLoadoutId,
+                item.OperationalWeapons.Select(weapon => new CampaignOperationalWeaponView(
+                    weapon.AmmunitionId,
+                    weapon.TargetClassification.ToString(),
+                    weapon.MaximumRange.Value)).ToArray(),
                 item.CoalitionId.ToString(),
                 item.Fidelity.ToString(),
                 item.SimulationDomain.ToString(),
@@ -465,7 +472,7 @@ public sealed class CampaignCoordinator(
                 .Distinct().OrderBy(id => id).ToArray();
             var controlled = (request.ControlledEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
-            var requestHash = SchedulerRequestHash(request, observed, controlled);
+            var requestHash = SchedulerRequestHash(request, observed, controlled, worker);
             var stableSampleCount = state.SchedulerPolicy?.RequestHash == requestHash
                 ? Math.Min(state.SchedulerPolicy.StableSampleCount + 1, 1_000_000)
                 : 1;
@@ -483,7 +490,8 @@ public sealed class CampaignCoordinator(
                     request.BacklogDepth,
                     requestHash,
                     stableSampleCount,
-                    state.Time),
+                    state.Time,
+                    request.TacticalReserveCapacity),
                 $"scheduler-policy-{state.CampaignRevision.Value + 1}-{requestHash}-{stableSampleCount}"), cancellationToken);
             foreach (var island in evaluation.Islands.OrderBy(item => item.IslandId, StringComparer.Ordinal))
             {
@@ -648,6 +656,7 @@ public sealed class CampaignCoordinator(
             var applied = CampaignFidelityScheduler.Evaluate(state, request, worker, stableSampleCount) with
             {
                 LoadAction = evaluation.LoadAction,
+                Islands = evaluation.Islands,
                 Transitions = evaluation.Transitions,
             };
             var view = CampaignFidelityScheduler.ToView(state, applied);
@@ -1237,16 +1246,36 @@ public sealed class CampaignCoordinator(
         Enum.Parse<SchedulerHealthState>(policy.Health),
         Enum.Parse<SimulationSourceEligibility>(policy.Eligibility),
         policy.TacticalEntityCapacity,
-        policy.BacklogDepth);
+        policy.BacklogDepth,
+        policy.TacticalReserveCapacity);
 
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
         IReadOnlyList<EntityId> observedEntityIds,
-        IReadOnlyList<EntityId> controlledEntityIds)
+        IReadOnlyList<EntityId> controlledEntityIds,
+        CampaignSessionSnapshot? worker)
     {
         var observed = string.Join(',', observedEntityIds.Select(id => id.ToString()));
         var controlled = string.Join(',', controlledEntityIds.Select(id => id.ToString()));
-        var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|backlog={request.BacklogDepth}";
+        var coupling = worker is null
+            ? string.Empty
+            : string.Join('|', worker.CouplingRelationships
+                .Where(item => item.UnsafeToSplit)
+                .OrderBy(item => item.Kind, StringComparer.Ordinal)
+                .ThenBy(item => item.SourceEntityId, StringComparer.Ordinal)
+                .ThenBy(item => item.TargetEntityId, StringComparer.Ordinal)
+                .ThenBy(item => item.EvidenceId, StringComparer.Ordinal)
+                .Select(item => string.Join(':',
+                    item.Kind,
+                    item.SourceEntityId,
+                    item.TargetEntityId,
+                    item.EvidenceId,
+                    item.GuidanceType,
+                    item.MissingSamples)));
+        var resources = worker is null
+            ? string.Empty
+            : $"{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount}";
+        var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
 
@@ -1389,6 +1418,8 @@ public sealed record CampaignEntityView(
     string EntityId,
     string Name,
     string CatalogUnitId,
+    string CatalogLoadoutId,
+    IReadOnlyList<CampaignOperationalWeaponView> OperationalWeapons,
     string CoalitionId,
     string Fidelity,
     string SimulationDomain,
@@ -1403,6 +1434,11 @@ public sealed record CampaignEntityView(
     int DamageMilliunits,
     string Lifecycle,
     long Revision);
+
+public sealed record CampaignOperationalWeaponView(
+    string AmmunitionId,
+    string TargetClassification,
+    long MaximumRangeMeters);
 
 public sealed record CampaignAssignmentView(
     string AssignmentId,
