@@ -20,6 +20,11 @@ public sealed class CampaignCompanionClient(
     : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan MaterializationReadinessPollInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaterializationReadinessTimeout = TimeSpan.FromMinutes(2);
+
+    private string? _armedMutationSessionId;
+    private long _armedMutationExpiresAtUnixMilliseconds;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -168,7 +173,7 @@ public sealed class CampaignCompanionClient(
                             break;
                         }
                     case ServiceFrame.PayloadOneofCase.ActivationGrant:
-                        await ApplyActivationGrantAsync(frame.ActivationGrant, cancellationToken);
+                        await ApplyActivationGrantAsync(frame.ActivationGrant, token, cancellationToken);
                         await SendAcknowledgementAsync(frame.Sequence, stateStore.ReadCursor());
                         break;
                     case ServiceFrame.PayloadOneofCase.Acknowledgement:
@@ -860,6 +865,7 @@ public sealed class CampaignCompanionClient(
 
     private async Task ApplyActivationGrantAsync(
         ActivationGrant grant,
+        string serviceToken,
         CancellationToken cancellationToken)
     {
         var assignment = stateStore.ReadAssignment(grant.AssignmentId);
@@ -886,46 +892,294 @@ public sealed class CampaignCompanionClient(
             throw new InvalidDataException("Activation grant is not backed by a committed tactical-island migration.");
         }
 
-        if (!stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
+        if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
-            var expectedGameRevision = stateStore.ReadGameRevision(grant.AssignmentId);
-            if (await TryConvergeActivationFromObservedMaterializationAsync(
+            return;
+        }
+
+        await EnsureMissionSceneMaterializationReadyAsync(cancellationToken);
+        var capabilities = await ReadCapabilitiesAsync(cancellationToken);
+        if (!MatchesRequirement(
+                assignment.RequiredRuntimeFingerprintSha256,
+                capabilities.RuntimeFingerprint.FingerprintSha256)
+            || !MatchesRequirement(
+                assignment.RequiredCatalogFingerprintSha256,
+                capabilities.RuntimeFingerprint.CatalogSha256))
+        {
+            throw new InvalidOperationException(
+                "Activation recovery requires the current runtime fingerprint and catalog profile.");
+        }
+
+        await EnsureOwnedMutationsArmedAsync(capabilities, cancellationToken);
+
+        var expectedGameRevision = stateStore.ReadGameRevision(grant.AssignmentId);
+        if (await TryConvergeActivationFromObservedMaterializationAsync(
                 grant,
                 assignment,
                 expectedGameRevision,
                 cancellationToken))
+        {
+            return;
+        }
+
+        var resources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+        var ownedRecord = resources.Entities.FirstOrDefault(item =>
+            string.Equals(item.EntityId, assignment.EntityId, StringComparison.Ordinal));
+        if (ownedRecord is not null)
+        {
+            if (!string.Equals(ownedRecord.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+                || ownedRecord.AuthorityEpoch != grant.AuthorityEpoch)
             {
+                throw new InvalidDataException(
+                    "Activation recovery found a conflicting owned surface record for the destination entity.");
+            }
+
+            if (string.Equals(ownedRecord.LifecycleState, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                if (ownedRecord.Revision < expectedGameRevision)
+                {
+                    throw new InvalidDataException(
+                        "Activation recovery found an active owned record below the durable expected revision.");
+                }
+
+                await stateStore.SaveGameRevisionAsync(
+                    grant.AssignmentId,
+                    ownedRecord.Revision,
+                    cancellationToken);
+                await stateStore.SaveActivationGrantAsync(
+                    grant.AssignmentId,
+                    grant.AuthorityEpoch,
+                    grant.MigrationCommitPosition,
+                    cancellationToken);
                 return;
             }
 
-            var activationIdempotencyKey = ResolveActivationIdempotencyKey(
-                grant,
-                assignment);
-            var payload = OwnedMutationContracts.BuildSetOwnedSurfaceSuspensionRequest(
-                Context(
-                    assignment.AssignmentId,
-                    grant.AuthorityEpoch,
-                    expectedGameRevision,
-                    activationIdempotencyKey),
-                assignment.EntityId,
-                isSuspended: false);
-            OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(payload.Context, payload.EntityId);
-            var result = await RequireGameCommandAsync(
-                GameCommandTypes.SetOwnedSurfaceSuspension,
-                JsonSerializer.Serialize(payload, JsonOptions),
-                cancellationToken);
+            if (!string.Equals(ownedRecord.LifecycleState, "suspended-retained", StringComparison.OrdinalIgnoreCase)
+                || ownedRecord.RecoveryRequired)
+            {
+                throw new InvalidDataException(
+                    "Activation recovery requires an exact suspended retained owned record or an empty runtime.");
+            }
 
-            var enabled = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
-                result.ResultJson,
-                JsonOptions) ?? throw new InvalidDataException("Activation unsuspend result was empty.");
-            ValidateActivationUnsuspendResult(enabled, grant, assignment);
+            if (ownedRecord.Revision != expectedGameRevision)
+            {
+                throw new InvalidDataException(
+                    "Activation recovery found a suspended owned record with a stale durable revision.");
+            }
+
+            var enabled = await ActivateSuspendedOwnedRecordAsync(
+                grant,
+                assignment,
+                expectedGameRevision,
+                cancellationToken);
             await stateStore.SaveGameRevisionAsync(grant.AssignmentId, enabled.Revision, cancellationToken);
             await stateStore.SaveActivationGrantAsync(
                 grant.AssignmentId,
                 grant.AuthorityEpoch,
                 grant.MigrationCommitPosition,
                 cancellationToken);
+            return;
         }
+
+        var restagedRevision = await RestageActivationCheckpointAsync(
+            grant,
+            assignment,
+            expectedGameRevision,
+            serviceToken,
+            cancellationToken);
+        var activated = await ActivateSuspendedOwnedRecordAsync(
+            grant,
+            assignment,
+            restagedRevision,
+            cancellationToken);
+        await stateStore.SaveGameRevisionAsync(grant.AssignmentId, activated.Revision, cancellationToken);
+        await stateStore.SaveActivationGrantAsync(
+            grant.AssignmentId,
+            grant.AuthorityEpoch,
+            grant.MigrationCommitPosition,
+            cancellationToken);
+    }
+
+    private async Task EnsureMissionSceneMaterializationReadyAsync(CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + MaterializationReadinessTimeout;
+        while (true)
+        {
+            var result = await game.SendCommandAsync(
+                GameCommandTypes.GetSceneState,
+                "{}",
+                CommandPriorities.Control,
+                cancellationToken);
+            if (!result.Success)
+            {
+                throw new InvalidOperationException(
+                    $"Mission scene readiness is unavailable: {result.ErrorCode}: {result.ErrorMessage}");
+            }
+
+            var scene = JsonSerializer.Deserialize<SceneStatePayload>(result.ResultJson, JsonOptions)
+                ?? throw new InvalidDataException("Mission scene readiness state was empty.");
+            if (scene.SceneLoaded
+                && scene.GameMainAvailable
+                && scene.ObjectsManagerAvailable
+                && scene.TaskforceManagerAvailable)
+            {
+                return;
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new InvalidOperationException(
+                    "Mission scene is not materialization-ready for committed migration activation recovery.");
+            }
+
+            await Task.Delay(MaterializationReadinessPollInterval, cancellationToken);
+        }
+    }
+
+    private async Task EnsureOwnedMutationsArmedAsync(
+        CapabilitiesPayload capabilities,
+        CancellationToken cancellationToken)
+    {
+        var sessionId = CurrentGameSessionId();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (string.Equals(_armedMutationSessionId, sessionId, StringComparison.Ordinal)
+            && _armedMutationExpiresAtUnixMilliseconds > now)
+        {
+            return;
+        }
+
+        await RequireGameCommandAsync(
+            GameCommandTypes.SetExperimentalPauseState,
+            JsonSerializer.Serialize(new ExperimentalPauseRequestPayload { IsPaused = true }, JsonOptions),
+            cancellationToken);
+        var armResult = await RequireGameCommandAsync(
+            GameCommandTypes.ArmOwnedMutationMode,
+            JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
+            {
+                SessionId = sessionId,
+                RuntimeFingerprintSha256 = capabilities.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
+                Confirmation = "enable-owned-mutations",
+                DurationSeconds = 300,
+            }, JsonOptions),
+            cancellationToken);
+        var armed = JsonSerializer.Deserialize<ArmOwnedMutationModeResultPayload>(
+            armResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Owned mutation arming result was empty.");
+        if (!string.Equals(armed.SessionId, sessionId, StringComparison.Ordinal)
+            || armed.ExpiresAtUnixMilliseconds is not long expiresAtUnixMilliseconds)
+        {
+            throw new InvalidDataException("Owned mutation arming did not bind to the current game session.");
+        }
+
+        _armedMutationSessionId = sessionId;
+        _armedMutationExpiresAtUnixMilliseconds = expiresAtUnixMilliseconds;
+    }
+
+    private async Task<long> RestageActivationCheckpointAsync(
+        ActivationGrant grant,
+        TacticalAssignment assignment,
+        long expectedGameRevision,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        var stagingIdempotencyKey = ResolveStagingIdempotencyKey(grant, assignment);
+        var sourceCheckpoint = await DownloadCheckpointAsync(
+            grant.StagedCheckpointSha256,
+            $"/content/{grant.StagedCheckpointSha256}",
+            serviceToken,
+            cancellationToken)
+            ?? throw new InvalidDataException("The committed migration checkpoint content is missing.");
+        var stagingContext = Context(
+            assignment.AssignmentId,
+            grant.AuthorityEpoch,
+            expectedGameRevision,
+            stagingIdempotencyKey);
+        OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(stagingContext, assignment.EntityId);
+        var stagedResult = await RequireGameCommandAsync(
+            GameCommandTypes.StageOwnedSurfaceCheckpoint,
+            JsonSerializer.Serialize(new StageOwnedSurfaceCheckpointRequestPayload
+            {
+                Context = stagingContext,
+                EntityId = assignment.EntityId,
+                SourceCheckpoint = sourceCheckpoint,
+            }, JsonOptions),
+            cancellationToken);
+        var staged = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+            stagedResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Activation recovery checkpoint staging result was empty.");
+        if (!staged.Unit.IsDisabled)
+        {
+            var resuspendContext = Context(
+                assignment.AssignmentId,
+                grant.AuthorityEpoch,
+                staged.Revision,
+                $"{stagingIdempotencyKey}-keep-suspended");
+            OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(
+                resuspendContext,
+                assignment.EntityId);
+            var resuspend = await RequireGameCommandAsync(
+                GameCommandTypes.SetOwnedSurfaceSuspension,
+                JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
+                {
+                    Context = resuspendContext,
+                    EntityId = assignment.EntityId,
+                    IsSuspended = true,
+                }, JsonOptions),
+                cancellationToken);
+            staged = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                resuspend.ResultJson,
+                JsonOptions) ?? throw new InvalidDataException("Activation recovery post-stage suspension result was empty.");
+        }
+
+        if (!string.Equals(staged.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+            || staged.AuthorityEpoch != grant.AuthorityEpoch
+            || !string.Equals(staged.Unit.EntityId, assignment.EntityId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Activation recovery staging result does not match the granted assignment identity.");
+        }
+
+        await stateStore.SaveGameRevisionAsync(
+            grant.AssignmentId,
+            staged.Revision,
+            cancellationToken);
+        await stateStore.SaveStagedCheckpointAsync(
+            grant.AssignmentId,
+            grant.AuthorityEpoch,
+            grant.StagedCheckpointSha256,
+            cancellationToken);
+        await stateStore.SaveStagedIdempotencyKeyAsync(
+            grant.AssignmentId,
+            grant.AuthorityEpoch,
+            stagingIdempotencyKey,
+            cancellationToken);
+        return staged.Revision;
+    }
+
+    private async Task<OwnedSurfaceLifecycleResultPayload> ActivateSuspendedOwnedRecordAsync(
+        ActivationGrant grant,
+        TacticalAssignment assignment,
+        long expectedGameRevision,
+        CancellationToken cancellationToken)
+    {
+        var activationIdempotencyKey = ResolveActivationIdempotencyKey(grant, assignment);
+        var payload = OwnedMutationContracts.BuildSetOwnedSurfaceSuspensionRequest(
+            Context(
+                assignment.AssignmentId,
+                grant.AuthorityEpoch,
+                expectedGameRevision,
+                activationIdempotencyKey),
+            assignment.EntityId,
+            isSuspended: false);
+        OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(payload.Context, payload.EntityId);
+        var result = await RequireGameCommandAsync(
+            GameCommandTypes.SetOwnedSurfaceSuspension,
+            JsonSerializer.Serialize(payload, JsonOptions),
+            cancellationToken);
+        var enabled = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+            result.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Activation unsuspend result was empty.");
+        ValidateActivationUnsuspendResult(enabled, grant, assignment);
+        return enabled;
     }
 
     private async Task<bool> TryConvergeActivationFromObservedMaterializationAsync(
@@ -996,6 +1250,27 @@ public sealed class CampaignCompanionClient(
 
         throw new InvalidDataException(
             "Activation grant idempotency could not be resolved from the grant or durable staging state.");
+    }
+
+    private string ResolveStagingIdempotencyKey(ActivationGrant grant, TacticalAssignment assignment)
+    {
+        var stagedIdempotency = stateStore.TryReadStagedIdempotencyKey(
+            grant.AssignmentId,
+            grant.AuthorityEpoch);
+        if (!string.IsNullOrWhiteSpace(stagedIdempotency))
+        {
+            return stagedIdempotency;
+        }
+
+        if (!string.IsNullOrWhiteSpace(grant.IdempotencyKey))
+        {
+            return OwnedMutationContracts.ResolveStagingIdempotencyKey(
+                grant.IdempotencyKey,
+                assignment.EntityId);
+        }
+
+        throw new InvalidDataException(
+            "Activation recovery staging idempotency could not be resolved from the grant or durable staging state.");
     }
 
     private async Task<GameCommandResult> RequireGameCommandAsync(

@@ -85,6 +85,67 @@ public static class OwnedMutationContracts
         return resolved;
     }
 
+    public static string ResolveStagingIdempotencyKey(string migrationOrActivateKey, string entityId)
+    {
+        if (string.IsNullOrWhiteSpace(migrationOrActivateKey))
+        {
+            throw new InvalidDataException("A migration or activation idempotency key is required.");
+        }
+
+        var canonicalEntityId = CanonicalEntityId(entityId);
+        if (string.IsNullOrWhiteSpace(canonicalEntityId))
+        {
+            throw new InvalidDataException("A canonical entity identifier is required.");
+        }
+
+        var stageSuffix = $"-{canonicalEntityId}-stage";
+        var activateSuffix = $"-{canonicalEntityId}-activate";
+        if (migrationOrActivateKey.EndsWith(stageSuffix, StringComparison.Ordinal))
+        {
+            if (!IsValidIdempotencyKey(migrationOrActivateKey))
+            {
+                throw new InvalidDataException(
+                    $"The resolved staging idempotency key exceeds {MaximumScopedIdentifierLength} characters.");
+            }
+
+            return migrationOrActivateKey;
+        }
+
+        if (migrationOrActivateKey.EndsWith(activateSuffix, StringComparison.Ordinal))
+        {
+            var resolvedFromActivate = migrationOrActivateKey[..^activateSuffix.Length] + stageSuffix;
+            if (!IsValidIdempotencyKey(resolvedFromActivate))
+            {
+                throw new InvalidDataException(
+                    $"The resolved staging idempotency key exceeds {MaximumScopedIdentifierLength} characters.");
+            }
+
+            return resolvedFromActivate;
+        }
+
+        var legacyStageActivateSuffix = $"{stageSuffix}{activateSuffix}";
+        if (migrationOrActivateKey.EndsWith(legacyStageActivateSuffix, StringComparison.Ordinal))
+        {
+            var normalized = migrationOrActivateKey[..^legacyStageActivateSuffix.Length] + stageSuffix;
+            if (!IsValidIdempotencyKey(normalized))
+            {
+                throw new InvalidDataException(
+                    $"The resolved staging idempotency key exceeds {MaximumScopedIdentifierLength} characters.");
+            }
+
+            return normalized;
+        }
+
+        var resolved = $"{migrationOrActivateKey}{stageSuffix}";
+        if (!IsValidIdempotencyKey(resolved))
+        {
+            throw new InvalidDataException(
+                $"The resolved staging idempotency key exceeds {MaximumScopedIdentifierLength} characters.");
+        }
+
+        return resolved;
+    }
+
     public static void ValidateOwnedLifecycleIdentifiers(
         OwnedMutationContextPayload? context,
         string entityId)

@@ -624,6 +624,28 @@ function Invoke-MigrationRecoveryVerification(
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     $lastObservation = $null
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $healthResponse = Invoke-CampaignApiRaw Get $CampaignHttpUrl $Headers '/health'
+        if ($healthResponse.StatusCode -ge 400) {
+            throw "Campaign health failed during recovery verification ($($healthResponse.StatusCode))."
+        }
+        $health = $healthResponse.Content | ConvertFrom-Json
+        $connectedClientIds = @($health.sessions | ForEach-Object { [string]$_.clientInstanceId })
+        if ($Workers.Source.ClientInstanceId -notin $connectedClientIds `
+            -or $Workers.Destination.ClientInstanceId -notin $connectedClientIds) {
+            Start-Sleep -Seconds 2
+            continue
+        }
+
+        $sourceResources = Get-WorkerSurfaceResources $Workers.Source
+        $scopedSourceAssignmentId = Format-ScopedAssignmentId $RecoveryContext.releasedSourceAssignmentId
+        $sourceActiveReleased = @($sourceResources.entities | Where-Object {
+            $_.assignmentId -eq $scopedSourceAssignmentId `
+                -and $_.lifecycleState -eq 'active'
+        })
+        if ($sourceActiveReleased.Count -gt 0) {
+            throw 'Recovery verification found an active owned surface record on the released source worker.'
+        }
+
         $view = Get-CampaignView $CampaignHttpUrl $Headers $CampaignId
         $destinationPrimary = @($view.assignments | Where-Object {
             $_.assignmentId -eq $RecoveryContext.destinationPrimaryAssignmentId `

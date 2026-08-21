@@ -12,6 +12,8 @@ using System.Text.Json;
 using CrimeanTom.Campaign.Transport.V1;
 using CrimeanTom.Protocol;
 
+using Google.Protobuf;
+
 using Grpc.Core;
 using Grpc.Net.Client;
 
@@ -1718,6 +1720,8 @@ public sealed class CompanionControlIntegrationTests
                 primaryEntityId,
                 mismatchEntityId,
                 campaignServiceRunDirectory,
+                runDirectory,
+                scriptPath,
                 async cancellationToken =>
                 {
                     campaignService!.Kill(entireProcessTree: true);
@@ -1756,6 +1760,23 @@ public sealed class CompanionControlIntegrationTests
             Assert.True(stop.ExitCode == 0, stop.FormatFailure("stop"));
             Assert.False(File.Exists(pidPath));
             Assert.False(File.Exists(tokenPath));
+            var destinationPidPath = Path.Combine(runDirectory, "destination-worker", "companion.pid");
+            if (File.Exists(destinationPidPath)
+                && int.TryParse((await File.ReadAllTextAsync(destinationPidPath, cleanupTimeout.Token)).Trim(), out var destinationPid))
+            {
+                try
+                {
+                    var destinationProcess = Process.GetProcessById(destinationPid);
+                    if (!destinationProcess.HasExited)
+                    {
+                        destinationProcess.Kill(entireProcessTree: true);
+                        await destinationProcess.WaitForExitAsync(cleanupTimeout.Token);
+                    }
+                }
+                catch
+                {
+                }
+            }
             Directory.Delete(runDirectory, recursive: true);
         }
     }
@@ -1810,10 +1831,42 @@ public sealed class CompanionControlIntegrationTests
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentThread();
 
+    private static Task RunGamePeerAsync(
+        string pipeName,
+        string probeSavePath,
+        FakeTacticalCouplingState couplingState,
+        CancellationToken cancellationToken) =>
+        RunGamePeerAsync(
+            pipeName,
+            probeSavePath,
+            couplingState,
+            ownedResources: null,
+            runtimeFingerprintSha256: new string('a', 64),
+            catalogFingerprintSha256: "integration-catalog-sha256",
+            cancellationToken);
+
     private static async Task RunGamePeerAsync(
         string pipeName,
         string probeSavePath,
         FakeTacticalCouplingState couplingState,
+        FakeOwnedSurfaceResourceState? ownedResources,
+        CancellationToken cancellationToken) =>
+        await RunGamePeerAsync(
+            pipeName,
+            probeSavePath,
+            couplingState,
+            ownedResources,
+            new string('a', 64),
+            "integration-catalog-sha256",
+            cancellationToken);
+
+    private static async Task RunGamePeerAsync(
+        string pipeName,
+        string probeSavePath,
+        FakeTacticalCouplingState couplingState,
+        FakeOwnedSurfaceResourceState? ownedResources,
+        string runtimeFingerprintSha256,
+        string catalogFingerprintSha256,
         CancellationToken cancellationToken)
     {
         using var pipe = new NamedPipeClientStream(
@@ -1849,7 +1902,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        var ownedResources = new FakeOwnedSurfaceResourceState();
+        ownedResources ??= new FakeOwnedSurfaceResourceState();
         while (true)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
@@ -1876,13 +1929,28 @@ public sealed class CompanionControlIntegrationTests
             }
             if (command.MessageType != GameCommandTypes.SetOwnedSurfaceSuspension)
             {
-                ownedResources.Observe(command);
+                ownedResources.Observe(command, handshake.SessionId!);
             }
 
             CommandResponsePayload? suspensionFailure = null;
             if (command.MessageType == GameCommandTypes.SetOwnedSurfaceSuspension)
             {
-                suspensionFailure = ownedResources.TryObserveSuspension(command.PayloadJson);
+                suspensionFailure = ownedResources.TryObserveSuspension(
+                    command.PayloadJson,
+                    handshake.SessionId!);
+            }
+
+            var mutationFailure = ownedResources.TryRequireArmed(
+                handshake.SessionId!,
+                command.MessageType);
+            if (mutationFailure is not null && command.MessageType != GameCommandTypes.SetOwnedSurfaceSuspension)
+            {
+                suspensionFailure = mutationFailure;
+            }
+
+            if (command.MessageType == GameCommandTypes.ArmOwnedMutationMode)
+            {
+                ownedResources.Arm(handshake.SessionId!);
             }
 
             var resultJson = command.MessageType switch
@@ -1921,8 +1989,8 @@ public sealed class CompanionControlIntegrationTests
                     ],
                     RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
                     {
-                        FingerprintSha256 = new string('a', 64),
-                        CatalogSha256 = "integration-catalog-sha256",
+                        FingerprintSha256 = runtimeFingerprintSha256,
+                        CatalogSha256 = catalogFingerprintSha256,
                     },
                 }, JsonOptions),
                 GameCommandTypes.GetSceneState => JsonSerializer.Serialize(new SceneStatePayload
@@ -2483,6 +2551,9 @@ public sealed class CompanionControlIntegrationTests
         var request = JsonSerializer.Deserialize<StageOwnedSurfaceCheckpointRequestPayload>(
             payloadJson,
             JsonOptions)!;
+        var unit = CreateOwnedSurfaceState(disabled: true);
+        unit.EntityId = request.EntityId;
+        unit.StableUnitId = $"campaign-unit:{request.EntityId}";
         return new OwnedSurfaceLifecycleResultPayload
         {
             Outcome = "migration-checkpoint-staged",
@@ -2493,7 +2564,7 @@ public sealed class CompanionControlIntegrationTests
             IdempotencyKey = request.Context.IdempotencyKey,
             SourceCheckpointId = request.SourceCheckpoint.CheckpointId,
             SourceCheckpointSha256 = request.SourceCheckpoint.CheckpointSha256,
-            Unit = CreateOwnedSurfaceState(disabled: true),
+            Unit = unit,
         };
     }
 
@@ -3622,6 +3693,8 @@ public sealed class CompanionControlIntegrationTests
         string primaryEntityId,
         string cooldownProbeEntityId,
         string serviceRunDirectory,
+        string runDirectory,
+        string scriptPath,
         Func<CancellationToken, Task> restartCampaignService,
         CancellationToken cancellationToken)
     {
@@ -3914,6 +3987,189 @@ public sealed class CompanionControlIntegrationTests
         var originalCommitPosition = grant.ActivationGrant.MigrationCommitPosition;
         var originalHash = grant.ActivationGrant.StagedCheckpointSha256;
 
+        await call.RequestStream.CompleteAsync();
+        call.Dispose();
+        await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
+
+        var destinationRunDirectory = Path.Combine(runDirectory, "destination-worker");
+        var destinationPipeName = $"CrimeanTom.Tests.Destination.{Guid.NewGuid():N}";
+        var destinationControlUrl = $"http://127.0.0.1:{GetUnusedLoopbackPort()}";
+        var destinationStateDirectory = Path.Combine(destinationRunDirectory, "campaign-companion");
+        var destinationProbeSavePath = Path.Combine(destinationRunDirectory, "_DestinationProbe.sav");
+        var destinationPidPath = Path.Combine(destinationRunDirectory, "companion.pid");
+        var destinationTokenPath = Path.Combine(destinationRunDirectory, "control.token");
+        var destinationOwnedResources = new FakeOwnedSurfaceResourceState();
+        var destinationStaged = new FinalCheckpointStaged
+        {
+            AssignmentId = staging.StageFinalCheckpoint.DestinationAssignmentId,
+            EntityId = staging.StageFinalCheckpoint.EntityId,
+            AuthorityEpoch = staging.StageFinalCheckpoint.DestinationAuthorityEpoch,
+            RealizedRevision = 3,
+            StagedCheckpointSha256 = staging.StageFinalCheckpoint.CheckpointSha256,
+            Ready = true,
+            IdempotencyKey = staging.StageFinalCheckpoint.IdempotencyKey,
+        };
+        await SeedDestinationActivationRecoveryStateAsync(
+            Path.Combine(runDirectory, "campaign-companion"),
+            destinationStateDirectory,
+            destinationClientId,
+            queued.Assignment,
+            destinationStaged,
+            originalCommitPosition,
+            cancellationToken);
+        var destinationGamePeer = RunGamePeerAsync(
+            destinationPipeName,
+            destinationProbeSavePath,
+            new FakeTacticalCouplingState(),
+            destinationOwnedResources,
+            new string('d', 64),
+            new string('e', 64),
+            cancellationToken);
+        _ = destinationGamePeer.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+        var destinationStart = await RunControlScriptAsync(
+            scriptPath,
+            "start",
+            destinationRunDirectory,
+            destinationControlUrl,
+            destinationPipeName,
+            skipBuild: true,
+            cancellationToken,
+            new Dictionary<string, string>
+            {
+                ["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = campaignGrpcUrl,
+                ["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = campaignHttpUrl,
+                ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
+                ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
+                ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+            });
+        Assert.True(destinationStart.ExitCode == 0, destinationStart.FormatFailure("destination-start"));
+        var destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+        await WaitForOwnedSurfaceLifecycleAsync(
+            destinationControlUrl,
+            destinationToken,
+            grant.ActivationGrant.AssignmentId,
+            queued.Assignment.EntityId,
+            grant.ActivationGrant.AuthorityEpoch,
+            "active",
+            cancellationToken);
+        await WaitForActivationGrantFileAsync(
+            destinationStateDirectory,
+            grant.ActivationGrant.AssignmentId,
+            grant.ActivationGrant.AuthorityEpoch,
+            cancellationToken);
+
+        using var stopDestination = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var stoppedDestination = await RunControlScriptAsync(
+            scriptPath,
+            "stop",
+            destinationRunDirectory,
+            destinationControlUrl,
+            destinationPipeName,
+            skipBuild: true,
+            stopDestination.Token);
+        Assert.True(stoppedDestination.ExitCode == 0, stoppedDestination.FormatFailure("destination-stop"));
+        await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
+
+        destinationOwnedResources.ResetRuntime();
+        var destinationReplayPeer = RunGamePeerAsync(
+            destinationPipeName,
+            destinationProbeSavePath,
+            new FakeTacticalCouplingState(),
+            destinationOwnedResources,
+            new string('d', 64),
+            new string('e', 64),
+            cancellationToken);
+        _ = destinationReplayPeer.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+        var destinationRestart = await RunControlScriptAsync(
+            scriptPath,
+            "start",
+            destinationRunDirectory,
+            destinationControlUrl,
+            destinationPipeName,
+            skipBuild: true,
+            cancellationToken,
+            new Dictionary<string, string>
+            {
+                ["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = campaignGrpcUrl,
+                ["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = campaignHttpUrl,
+                ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
+                ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
+                ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+            });
+        Assert.True(destinationRestart.ExitCode == 0, destinationRestart.FormatFailure("destination-restart"));
+        destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+        using var replayResources = await GetAuthorizedJsonAsync(
+            new HttpClient(new HttpClientHandler { UseProxy = false })
+            {
+                BaseAddress = new Uri(destinationControlUrl),
+                Timeout = TimeSpan.FromSeconds(10),
+            },
+            destinationToken,
+            "/game/mutations/surface/resources",
+            cancellationToken);
+        Assert.Equal(0, replayResources.RootElement.GetProperty("ownedRecordCount").GetInt32());
+
+        using var stopDestinationAfterReplay = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var stoppedDestinationAfterReplay = await RunControlScriptAsync(
+            scriptPath,
+            "stop",
+            destinationRunDirectory,
+            destinationControlUrl,
+            destinationPipeName,
+            skipBuild: true,
+            stopDestinationAfterReplay.Token);
+        Assert.True(
+            stoppedDestinationAfterReplay.ExitCode == 0,
+            stoppedDestinationAfterReplay.FormatFailure("destination-stop-after-replay"));
+
+        using var resumedManualChannel = GrpcChannel.ForAddress(campaignGrpcUrl, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+        });
+        var resumedManualTransport = new CampaignCompanionTransport.CampaignCompanionTransportClient(resumedManualChannel);
+        using var resumedManualCall = resumedManualTransport.Connect(
+            new Metadata { { "authorization", $"Bearer {campaignToken}" } },
+            cancellationToken: cancellationToken);
+        await resumedManualCall.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 1,
+            Hello = new CompanionHello
+            {
+                ProtocolVersion = 1,
+                ClientInstanceId = destinationClientId,
+                GameSessionId = "shadow-migration-worker",
+                CampaignId = campaignId,
+                ReconnectCommitPosition = 0,
+                RuntimeFingerprintSha256 = new string('d', 64),
+                CatalogFingerprintSha256 = new string('e', 64),
+                PlayerTaskforceId = "taskforce:Blue",
+                TacticalEntityCapacity = 2,
+                TacticalReserveCapacity = 1,
+                MaterializationProfiles =
+                {
+                    new TacticalMaterializationProfile
+                    {
+                        UnitTypeId = "usn_ff_knox_84",
+                        VariantId = "Variant43",
+                        LoadoutId = "Default",
+                    },
+                },
+            },
+        });
+        Assert.True(await resumedManualCall.ResponseStream.MoveNext(cancellationToken));
+        Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, resumedManualCall.ResponseStream.Current.PayloadCase);
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+
         using var repeated = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/migrate-tactical-island",
             new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-1" },
@@ -3948,8 +4204,8 @@ public sealed class CompanionControlIntegrationTests
         using var laterAdvanceBody = JsonDocument.Parse(await laterAdvance.Content.ReadAsStringAsync(cancellationToken));
         Assert.True(laterAdvanceBody.RootElement.GetProperty("commitPosition").GetInt64() > originalCommitPosition);
 
-        await call.RequestStream.CompleteAsync();
-        call.Dispose();
+        await resumedManualCall.RequestStream.CompleteAsync();
+        resumedManualCall.Dispose();
         await restartCampaignService(cancellationToken);
         await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
 
@@ -4429,6 +4685,8 @@ public sealed class CompanionControlIntegrationTests
         Assert.False(OwnedMutationContracts.IsValidIdempotencyKey(legacyOversized));
         var normalizedLegacy = OwnedMutationContracts.ResolveActivationIdempotencyKey(legacyOversized, entityId);
         Assert.Equal(expectedActivateKey, normalizedLegacy);
+        var stagingKey = OwnedMutationContracts.ResolveStagingIdempotencyKey(expectedActivateKey, entityId);
+        Assert.Equal(stageKey, stagingKey);
 
         var invalid = new SetOwnedSurfaceSuspensionRequestPayload
         {
@@ -4448,14 +4706,203 @@ public sealed class CompanionControlIntegrationTests
         Assert.Contains("idempotency", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static async Task SeedDestinationActivationRecoveryStateAsync(
+        string sourceCompanionStateDirectory,
+        string destinationCompanionStateDirectory,
+        string destinationClientId,
+        TacticalAssignment shadowAssignment,
+        FinalCheckpointStaged staged,
+        long migrationCommitPosition,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(Path.Combine(destinationCompanionStateDirectory, "assignments"));
+        var sourceEventsDirectory = Path.Combine(sourceCompanionStateDirectory, "committed-events");
+        var destinationEventsDirectory = Path.Combine(destinationCompanionStateDirectory, "committed-events");
+        if (Directory.Exists(sourceEventsDirectory))
+        {
+            Directory.CreateDirectory(destinationEventsDirectory);
+            foreach (var eventPath in Directory.EnumerateFiles(sourceEventsDirectory, "*.json"))
+            {
+                var destinationPath = Path.Combine(destinationEventsDirectory, Path.GetFileName(eventPath));
+                File.Copy(eventPath, destinationPath, overwrite: true);
+            }
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(destinationCompanionStateDirectory, "client-instance-id"),
+            destinationClientId,
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(destinationCompanionStateDirectory, "cursor"),
+            migrationCommitPosition.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            cancellationToken);
+        var assignmentSafeKey = SafeCompanionStateKey(shadowAssignment.AssignmentId);
+        await File.WriteAllBytesAsync(
+            Path.Combine(destinationCompanionStateDirectory, "assignments", $"{assignmentSafeKey}.assignment"),
+            shadowAssignment.ToByteArray(),
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(
+                destinationCompanionStateDirectory,
+                "assignments",
+                $"{assignmentSafeKey}.revision"),
+            staged.RealizedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(
+                destinationCompanionStateDirectory,
+                "assignments",
+                $"{assignmentSafeKey}.{shadowAssignment.AuthorityEpoch}.staged-checkpoint"),
+            staged.StagedCheckpointSha256,
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(
+                destinationCompanionStateDirectory,
+                "assignments",
+                $"{assignmentSafeKey}.{shadowAssignment.AuthorityEpoch}.staged-idempotency"),
+            staged.IdempotencyKey,
+            cancellationToken);
+
+        var outboundDirectory = Path.Combine(destinationCompanionStateDirectory, "outbound");
+        Directory.CreateDirectory(outboundDirectory);
+        var outboundFrame = new CompanionFrame { FinalCheckpointStaged = staged };
+        outboundFrame.Sequence = 0;
+        var outboundKey = $"staged-{assignmentSafeKey}-{shadowAssignment.AuthorityEpoch}";
+        await File.WriteAllBytesAsync(
+            Path.Combine(outboundDirectory, $"{outboundKey}.frame"),
+            outboundFrame.ToByteArray(),
+            cancellationToken);
+    }
+
+    private static string SafeCompanionStateKey(string key) =>
+        string.Concat(key.Select(character =>
+            char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '_'));
+
+    private static async Task WaitForOwnedSurfaceLifecycleAsync(
+        string controlUrl,
+        string token,
+        string assignmentId,
+        string entityId,
+        long authorityEpoch,
+        string lifecycleState,
+        CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            BaseAddress = new Uri(controlUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+        while (true)
+        {
+            using var response = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/mutations/surface/resources",
+                cancellationToken);
+            if (response.RootElement.GetProperty("entities").EnumerateArray().Any(item =>
+                    item.GetProperty("assignmentId").GetString() == assignmentId
+                    && item.GetProperty("entityId").GetString() == entityId
+                    && item.GetProperty("authorityEpoch").GetInt64() == authorityEpoch
+                    && string.Equals(
+                        item.GetProperty("lifecycleState").GetString(),
+                        lifecycleState,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task WaitForActivationGrantFileAsync(
+        string companionStateDirectory,
+        string assignmentId,
+        long authorityEpoch,
+        CancellationToken cancellationToken)
+    {
+        var grantPath = Path.Combine(
+            companionStateDirectory,
+            "assignments",
+            $"{SafeCompanionStateKey(assignmentId)}.{authorityEpoch}.activation-grant");
+        while (true)
+        {
+            if (File.Exists(grantPath))
+            {
+                return;
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
     private sealed class FakeOwnedSurfaceResourceState
     {
         private readonly Dictionary<string, FakeOwnedSurfaceResource> _entities =
             new(StringComparer.Ordinal);
         private bool _lastSuspensionWasIdempotentReplay;
+        private string? _armedSessionId;
 
-        public CommandResponsePayload? TryObserveSuspension(string payloadJson)
+        public void ResetRuntime()
         {
+            _entities.Clear();
+            _armedSessionId = null;
+            _lastSuspensionWasIdempotentReplay = false;
+        }
+
+        public void Arm(string sessionId) => _armedSessionId = sessionId;
+
+        public bool IsArmedFor(string sessionId) =>
+            !string.IsNullOrWhiteSpace(_armedSessionId)
+            && string.Equals(_armedSessionId, sessionId, StringComparison.Ordinal);
+
+        public CommandResponsePayload? TryRequireArmed(string sessionId, string commandType)
+        {
+            if (commandType is GameCommandTypes.ArmOwnedMutationMode
+                or GameCommandTypes.GetOwnedSurfaceResourceState
+                or GameCommandTypes.GetSceneState
+                or GameCommandTypes.GetCapabilities
+                or GameCommandTypes.SetExperimentalPauseState
+                or GameCommandTypes.GetTacticalCouplingState
+                or GameCommandTypes.GetWorldSnapshot)
+            {
+                return null;
+            }
+
+            if (IsMutationCommand(commandType) && !IsArmedFor(sessionId))
+            {
+                return new CommandResponsePayload
+                {
+                    Success = false,
+                    ErrorCode = ProtocolErrorCodes.MutationDisabled,
+                    ErrorMessage = "Owned mutations are not armed for the current pipe session.",
+                };
+            }
+
+            return null;
+        }
+
+        private static bool IsMutationCommand(string commandType) =>
+            commandType is GameCommandTypes.MaterializeOwnedSurfaceUnit
+                or GameCommandTypes.CaptureOwnedSurfaceCheckpoint
+                or GameCommandTypes.UpdateOwnedSurfaceUnit
+                or GameCommandTypes.SetOwnedSurfaceSuspension
+                or GameCommandTypes.RestoreOwnedSurfaceCheckpoint
+                or GameCommandTypes.StageOwnedSurfaceCheckpoint
+                or GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery;
+
+        public CommandResponsePayload? TryObserveSuspension(string payloadJson, string sessionId)
+        {
+            if (!IsArmedFor(sessionId))
+            {
+                return new CommandResponsePayload
+                {
+                    Success = false,
+                    ErrorCode = ProtocolErrorCodes.MutationDisabled,
+                    ErrorMessage = "Owned mutations are not armed for the current pipe session.",
+                };
+            }
+
             var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
                 payloadJson,
                 JsonOptions)!;
@@ -4541,8 +4988,13 @@ public sealed class CompanionControlIntegrationTests
             };
         }
 
-        public void Observe(WireEnvelope command)
+        public void Observe(WireEnvelope command, string sessionId)
         {
+            if (TryRequireArmed(sessionId, command.MessageType) is not null)
+            {
+                return;
+            }
+
             switch (command.MessageType)
             {
                 case GameCommandTypes.MaterializeOwnedSurfaceUnit:
