@@ -42,6 +42,14 @@ message CompanionHello {
   string runtime_fingerprint_sha256 = 6;
   string catalog_fingerprint_sha256 = 7;
   repeated string capabilities = 8;
+  string player_taskforce_id = 9;
+  repeated TacticalMaterializationProfile materialization_profiles = 10;
+}
+
+message TacticalMaterializationProfile {
+  string unit_type_id = 1;
+  string variant_id = 2;
+  string loadout_id = 3;
 }
 
 message ServiceWelcome {

@@ -87,7 +87,10 @@ internal static class CampaignFidelityScheduler
             []);
     }
 
-    public static SchedulerEvaluation Evaluate(CampaignState state, CampaignSchedulerRequest request)
+    public static SchedulerEvaluation Evaluate(
+        CampaignState state,
+        CampaignSchedulerRequest request,
+        CampaignSessionSnapshot? worker)
     {
         if (!Enum.IsDefined(request.Health) || !Enum.IsDefined(request.Eligibility)
             || request.TacticalEntityCapacity is < 0 or > 10_000
@@ -111,6 +114,14 @@ internal static class CampaignFidelityScheduler
             var hasActiveAssignment = state.Assignments.Values.Any(item => island.EntityIds.Contains(item.EntityId)
                 && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
+            var workerConnected = worker is not null
+                && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
+            var workerHasTaskforce = workerConnected && !string.IsNullOrWhiteSpace(worker!.PlayerTaskforceId);
+            var workerCanMaterializeIsland = workerConnected && island.EntityIds.All(id =>
+                worker!.MaterializationProfiles.Any(profile => string.Equals(
+                    profile.UnitTypeId,
+                    state.Entities[id].CatalogUnitId,
+                    StringComparison.Ordinal)));
             FidelityState desired;
             string reason;
             if (hasActiveAssignment)
@@ -146,6 +157,21 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Operational;
                 reason = "simulation-domain-ceiling";
+            }
+            else if (hasInterest && !workerConnected)
+            {
+                desired = FidelityState.Operational;
+                reason = "tactical-worker-offline";
+            }
+            else if (hasInterest && !workerHasTaskforce)
+            {
+                desired = FidelityState.Operational;
+                reason = "player-taskforce-unavailable";
+            }
+            else if (hasInterest && !workerCanMaterializeIsland)
+            {
+                desired = FidelityState.Operational;
+                reason = "worker-materialization-ceiling";
             }
             else if (hasInterest)
             {

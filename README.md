@@ -54,6 +54,8 @@ pnpm campaign:dev
 
 The Vite monitor is then available at `http://127.0.0.1:5173/monitor/`; its
 loopback proxy authenticates to the watched campaign service automatically.
+Vite owns frontend file watching; the backend watcher excludes its generated
+bundle so production monitor rebuilds do not trigger a backend rescan storm.
 
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main

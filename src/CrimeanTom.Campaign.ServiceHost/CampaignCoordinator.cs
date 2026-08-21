@@ -392,8 +392,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     public async Task<CampaignDiagnosticView> ViewAsync(CampaignId campaignId, CancellationToken cancellationToken)
     {
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        var worker = sessions.Snapshot();
         var scheduler = _schedulerRequests.TryGetValue(campaignId, out var schedulerRequest)
-            ? CampaignFidelityScheduler.Evaluate(recovery.State, schedulerRequest)
+            ? CampaignFidelityScheduler.Evaluate(recovery.State, schedulerRequest, worker)
             : CampaignFidelityScheduler.Inspect(recovery.State);
         return new CampaignDiagnosticView(
             recovery.State.Metadata.CampaignId.ToString(),
@@ -467,7 +468,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         try
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            var evaluation = CampaignFidelityScheduler.Evaluate(state, request);
+            var worker = sessions.Snapshot();
+            var evaluation = CampaignFidelityScheduler.Evaluate(state, request, worker);
             foreach (var island in evaluation.Islands.OrderBy(item => item.IslandId, StringComparer.Ordinal))
             {
                 foreach (var entityId in island.EntityIds.OrderBy(item => item))
@@ -493,7 +495,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 }
             }
             _schedulerRequests[campaignId] = request;
-            var applied = CampaignFidelityScheduler.Evaluate(state, request) with
+            var applied = CampaignFidelityScheduler.Evaluate(state, request, worker) with
             {
                 LoadAction = evaluation.LoadAction,
                 Transitions = evaluation.Transitions,

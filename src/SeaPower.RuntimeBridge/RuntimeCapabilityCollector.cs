@@ -161,6 +161,16 @@ internal static class RuntimeCapabilityCollector
             SupportedMutationCommands = mutatingCommandsEnabled
                 ? GameCommandTypes.MutationCommands
                 : [],
+            OwnedSurfaceMaterializationProfiles =
+            [
+                new OwnedSurfaceMaterializationProfilePayload
+                {
+                    UnitTypeId = RuntimeOwnedMutationAdapter.SupportedUnitType,
+                    VariantId = RuntimeOwnedMutationAdapter.SupportedVariant,
+                    LoadoutId = RuntimeOwnedMutationAdapter.SupportedLoadout,
+                },
+            ],
+            PlayerTaskforceId = RuntimeOwnedMutationAdapter.GetPlayerTaskforceId(),
             MutationModeExpiresAtUnixMilliseconds =
                 RuntimeOwnedMutationAdapter.ExpiresAtUnixMilliseconds,
             CommandCancellationSupported = true,

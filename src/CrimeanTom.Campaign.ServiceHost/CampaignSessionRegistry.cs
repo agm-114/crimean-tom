@@ -116,7 +116,14 @@ public sealed class CampaignCompanionSession
         Interlocked.Read(ref _nextServiceSequence),
         Interlocked.Read(ref _lastAcknowledgedSequence),
         Interlocked.Read(ref _lastAppliedCommitPosition),
-        Interlocked.Read(ref _receivedFrames));
+        Interlocked.Read(ref _receivedFrames),
+        Hello.RuntimeFingerprintSha256,
+        Hello.CatalogFingerprintSha256,
+        Hello.PlayerTaskforceId,
+        Hello.MaterializationProfiles.Select(profile => new CampaignMaterializationProfile(
+            profile.UnitTypeId,
+            profile.VariantId,
+            profile.LoadoutId)).ToArray());
 
     public void Complete(string reason) => _outgoing.Writer.TryComplete();
 }
@@ -131,4 +138,13 @@ public sealed record CampaignSessionSnapshot(
     long LastServiceSequence,
     long LastAcknowledgedSequence,
     long LastAppliedCommitPosition,
-    long ReceivedFrameCount);
+    long ReceivedFrameCount,
+    string RuntimeFingerprintSha256,
+    string CatalogFingerprintSha256,
+    string PlayerTaskforceId,
+    IReadOnlyList<CampaignMaterializationProfile> MaterializationProfiles);
+
+public sealed record CampaignMaterializationProfile(
+    string UnitTypeId,
+    string VariantId,
+    string LoadoutId);

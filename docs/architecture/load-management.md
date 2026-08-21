@@ -121,6 +121,13 @@ authority and active-interaction fences win over that fallback. Every actual
 entity transition is a normal revisioned, idempotent campaign command with its
 scheduler reason in the durable event.
 
+The connected companion now publishes its player task-force ID and exact
+materialization profiles with its runtime and catalog fingerprints. Tactical
+selection is rejected for the whole island when the worker is absent, the
+loaded mission has no player task force, or any member lacks a supported
+profile. This prevents a surface-only adapter from silently promoting mixed
+surface/submarine or otherwise unsupported task forces.
+
 The request envelope is retained only for the running service's diagnostic view;
 the resulting entity fidelity is durable. Persisted health history, hysteresis,
 cooldowns, reserve and destination accounting, migration, and tempo events are

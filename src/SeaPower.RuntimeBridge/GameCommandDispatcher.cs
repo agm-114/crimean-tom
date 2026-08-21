@@ -289,6 +289,7 @@ internal static class GameCommandDispatcher
                     Side = taskforce.Side.ToString(),
                     Nation = taskforce.Nation ?? string.Empty,
                     IsAiControlled = taskforce.IsAIControlled,
+                    IsPlayerControlled = ReferenceEquals(taskforce, Globals._playerTaskforce),
                     UnitIds = taskforce._taskforceUnits
                         .Where(unit => unit is not null && unit.isUnit())
                         .Select(StableUnitId)

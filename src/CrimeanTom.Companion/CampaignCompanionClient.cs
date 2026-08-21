@@ -70,6 +70,17 @@ public sealed class CampaignCompanionClient(
                 RuntimeFingerprintSha256 = capabilities.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
                 CatalogFingerprintSha256 = capabilities.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
                 Capabilities = { capabilities.SupportedMutationCommands },
+                PlayerTaskforceId = capabilities.PlayerTaskforceId,
+                MaterializationProfiles =
+                {
+                    capabilities.OwnedSurfaceMaterializationProfiles.Select(profile =>
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = profile.UnitTypeId,
+                            VariantId = profile.VariantId,
+                            LoadoutId = profile.LoadoutId,
+                        }),
+                },
             },
         });
 

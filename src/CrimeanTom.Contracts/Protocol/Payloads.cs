@@ -90,6 +90,11 @@ public sealed class CapabilitiesPayload
 
     public string[] SupportedMutationCommands { get; set; } = Array.Empty<string>();
 
+    public OwnedSurfaceMaterializationProfilePayload[] OwnedSurfaceMaterializationProfiles { get; set; }
+        = Array.Empty<OwnedSurfaceMaterializationProfilePayload>();
+
+    public string PlayerTaskforceId { get; set; } = string.Empty;
+
     public long? MutationModeExpiresAtUnixMilliseconds { get; set; }
 
     public bool CommandCancellationSupported { get; set; }
@@ -99,6 +104,15 @@ public sealed class CapabilitiesPayload
     public string ExecutionThreadGuardSelfTest { get; set; } = "pending";
 
     public RuntimeCapabilityFingerprintPayload RuntimeFingerprint { get; set; } = new();
+}
+
+public sealed class OwnedSurfaceMaterializationProfilePayload
+{
+    public string UnitTypeId { get; set; } = string.Empty;
+
+    public string VariantId { get; set; } = string.Empty;
+
+    public string LoadoutId { get; set; } = string.Empty;
 }
 
 public sealed class ArmOwnedMutationModeRequestPayload
@@ -740,6 +754,8 @@ public sealed class TaskforceSnapshotPayload
     public string Nation { get; set; } = string.Empty;
 
     public bool IsAiControlled { get; set; }
+
+    public bool IsPlayerControlled { get; set; }
 
     public string[] UnitIds { get; set; } = Array.Empty<string>();
 }

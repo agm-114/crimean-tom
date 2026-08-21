@@ -322,6 +322,14 @@ event, while rejection, lost queue ownership, or pre-checkpoint failure releases
 the reservation without phantom Tactical state. The remaining scheduler work is
 to queue and activate these handoffs for complete interaction islands.
 
+The handshake now reports the loaded player task-force ID plus exact supported
+materialization profiles. Scheduler projection gates Tactical selection on a
+connected matching campaign worker and full-island representability, reporting
+`tactical-worker-offline`, `player-taskforce-unavailable`, or
+`worker-materialization-ceiling` instead of requesting impossible handoffs. The
+current Knox-only surface adapter therefore cannot misrepresent a mixed naval
+island as fully tactical.
+
 Next, carry these decisions through live Sea Power materialization/quiesce,
 extend coupling to weapon/guidance/host relationships, persist and hysteretically
 recover scheduler state, measure capacity/tempo under stress, and calibrate the

@@ -14,9 +14,38 @@ internal static class RuntimeOwnedMutationAdapter
     public const string Confirmation = "enable-owned-mutations";
     public const string FaultInjectionConfirmation = "inject-owned-mutation-failure";
 
-    private const string SupportedUnitType = "usn_ff_knox_84";
-    private const string SupportedVariant = "Variant13";
-    private const string SupportedLoadout = "Default";
+    internal const string SupportedUnitType = "usn_ff_knox_84";
+    internal const string SupportedVariant = "Variant13";
+    internal const string SupportedLoadout = "Default";
+
+    internal static string GetPlayerTaskforceId()
+    {
+        if (Globals._playerTaskforce is null || !Singleton<TaskforceManager>.InstanceExists())
+        {
+            return string.Empty;
+        }
+
+        var taskforces = Singleton<TaskforceManager>.Instance._taskForces
+            .Where(taskforce => taskforce is not null)
+            .ToArray();
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < taskforces.Length; index++)
+        {
+            var taskforce = taskforces[index];
+            var identityName = string.IsNullOrWhiteSpace(taskforce._nameInMissionFile)
+                ? $"{taskforce.Side.ToString().ToLowerInvariant()}-{index + 1}"
+                : taskforce._nameInMissionFile.Trim();
+            var baseId = $"taskforce:{identityName}";
+            occurrences.TryGetValue(baseId, out var occurrence);
+            occurrence++;
+            occurrences[baseId] = occurrence;
+            if (ReferenceEquals(taskforce, Globals._playerTaskforce))
+            {
+                return occurrence == 1 ? baseId : $"{baseId}#{occurrence}";
+            }
+        }
+        return string.Empty;
+    }
     private const int MaximumArmDurationSeconds = 600;
     private const double PositionToleranceDegrees = 0.000000001d;
     private const double HeadingToleranceDegrees = 0.001d;

@@ -207,8 +207,14 @@ public sealed class CompanionControlIntegrationTests
             using var promoted = JsonDocument.Parse(
                 await promoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var promotionTransitions = promoted.RootElement.GetProperty("transitions").EnumerateArray().ToArray();
-            Assert.Contains(promotionTransitions, item => item.GetProperty("entityId").GetString() == tacticalDemoEntityId
+            Assert.DoesNotContain(promotionTransitions, item =>
+                item.GetProperty("entityId").GetString() == tacticalDemoEntityId
                 && item.GetProperty("toFidelity").GetString() == "Tactical");
+            Assert.Contains(
+                promoted.RootElement.GetProperty("islands").EnumerateArray(),
+                item => item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == tacticalDemoEntityId)
+                    && item.GetProperty("desiredFidelity").GetString() == "Operational"
+                    && item.GetProperty("reason").GetString() == "tactical-worker-offline");
             using var pendingPromotionViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{fuldaCampaignId}",
                 testTimeout.Token);
