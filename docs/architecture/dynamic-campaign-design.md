@@ -94,8 +94,10 @@ across browser/service sessions, and cross-site requests do not receive it.
 Development uses `pnpm campaign:dev`: `dotnet watch` restarts the service while
 Vite supplies frontend HMR at port 5173. Its loopback proxy reads the protected
 service token on the developer's behalf and adds it only to proxied API calls.
-The backend watcher excludes generated static content; Vite owns that tree, so
-a production monitor build cannot overflow the backend file watcher.
+The backend watcher excludes generated static content and uses the SDK polling
+watcher on Windows. Vite owns that tree; polling also prevents an atomic
+production monitor build from overflowing a recursive directory-notification
+queue while ASP.NET refreshes the hosted copy.
 
 The current scheduler projection also shows health and simulation-source
 eligibility, backlog and tactical capacity, fixed-step target tempo, load action,
