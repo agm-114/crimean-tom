@@ -872,6 +872,43 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
+        if (stateStore.HasSupersededActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
+        {
+            return;
+        }
+
+        if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
+        {
+            return;
+        }
+
+        var liveAssignment = await TryResolveLiveCampaignAssignmentAsync(
+            grant,
+            serviceToken,
+            cancellationToken);
+        if (liveAssignment is null
+            || !string.Equals(liveAssignment.Role, "Primary", StringComparison.Ordinal)
+            || !string.Equals(liveAssignment.Lifecycle, "Active", StringComparison.Ordinal)
+            || liveAssignment.AuthorityEpoch != grant.AuthorityEpoch)
+        {
+            var reason = liveAssignment is null
+                ? "campaign-assignment-missing"
+                : liveAssignment.Lifecycle is "Released"
+                    ? "campaign-assignment-released"
+                    : "campaign-assignment-not-active-primary";
+            await stateStore.SaveSupersededActivationGrantAsync(
+                grant.AssignmentId,
+                grant.AuthorityEpoch,
+                reason,
+                cancellationToken);
+            logger.LogInformation(
+                "Activation grant for assignment {AssignmentId} epoch {AuthorityEpoch} was superseded ({Reason}).",
+                grant.AssignmentId,
+                grant.AuthorityEpoch,
+                reason);
+            return;
+        }
+
         var assignment = stateStore.ReadAssignment(grant.AssignmentId);
         if (assignment.Role != AssignmentRole.Shadow
             || assignment.AuthorityEpoch != grant.AuthorityEpoch
@@ -894,11 +931,6 @@ public sealed class CampaignCompanionClient(
             grant.AuthorityEpoch))
         {
             throw new InvalidDataException("Activation grant is not backed by a committed tactical-island migration.");
-        }
-
-        if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
-        {
-            return;
         }
 
         await EnsureMissionSceneMaterializationReadyAsync(cancellationToken);
@@ -1289,6 +1321,51 @@ public sealed class CampaignCompanionClient(
         }
         return result;
     }
+
+    private async Task<CampaignAssignmentView?> TryResolveLiveCampaignAssignmentAsync(
+        ActivationGrant grant,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient { BaseAddress = options.HttpUri };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.GetAsync($"/campaigns/{options.CampaignId}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var grantAssignmentId = NormalizeScopedAssignmentId(grant.AssignmentId);
+        foreach (var item in document.RootElement.GetProperty("assignments").EnumerateArray())
+        {
+            var assignmentId = item.GetProperty("assignmentId").GetString() ?? string.Empty;
+            if (!string.Equals(assignmentId, grantAssignmentId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return new CampaignAssignmentView(
+                assignmentId,
+                item.GetProperty("role").GetString() ?? string.Empty,
+                item.GetProperty("lifecycle").GetString() ?? string.Empty,
+                item.GetProperty("authorityEpoch").GetInt64(),
+                item.TryGetProperty("workerClientInstanceId", out var worker)
+                    ? worker.GetString() ?? string.Empty
+                    : string.Empty);
+        }
+
+        return null;
+    }
+
+    private static string NormalizeScopedAssignmentId(string assignmentId) =>
+        assignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+            ? assignmentId["assignment:".Length..]
+            : assignmentId;
+
+    private sealed record CampaignAssignmentView(
+        string AssignmentId,
+        string Role,
+        string Lifecycle,
+        long AuthorityEpoch,
+        string WorkerClientInstanceId);
 
     private async Task UploadCheckpointAsync(
         string sha256,
