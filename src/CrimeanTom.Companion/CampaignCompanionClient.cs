@@ -66,6 +66,11 @@ public sealed class CampaignCompanionClient(
         ulong nextSequence = 1;
         var pending = new ConcurrentDictionary<ulong, string>();
         var capabilities = await ReadCapabilitiesAsync(cancellationToken);
+        var helloHealth = CompanionWorkerHealthClassifier.Classify(
+            capabilities,
+            new OwnedSurfaceResourceStatePayload(),
+            options.TacticalEntityCapacity,
+            options.TacticalReserveCapacity);
         await call.RequestStream.WriteAsync(new CompanionFrame
         {
             Sequence = nextSequence,
@@ -82,6 +87,8 @@ public sealed class CampaignCompanionClient(
                 PlayerTaskforceId = capabilities.PlayerTaskforceId,
                 TacticalEntityCapacity = options.TacticalEntityCapacity,
                 TacticalReserveCapacity = options.TacticalReserveCapacity,
+                Health = helloHealth.Health,
+                Eligibility = helloHealth.Eligibility,
                 MaterializationProfiles =
                 {
                     capabilities.OwnedSurfaceMaterializationProfiles.Select(profile =>
@@ -256,6 +263,11 @@ public sealed class CampaignCompanionClient(
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
                     var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
                     var resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
+                    var workerHealth = CompanionWorkerHealthClassifier.Classify(
+                        current,
+                        resources,
+                        options.TacticalEntityCapacity,
+                        options.TacticalReserveCapacity);
                     await writeGate.WaitAsync(heartbeatToken);
                     try
                     {
@@ -287,6 +299,8 @@ public sealed class CampaignCompanionClient(
                                 OwnedRecoveryRequiredEntityCount = resources.RecoveryRequiredCount,
                                 TacticalEntityCapacity = options.TacticalEntityCapacity,
                                 TacticalReserveCapacity = options.TacticalReserveCapacity,
+                                Health = workerHealth.Health,
+                                Eligibility = workerHealth.Eligibility,
                             },
                         });
                     }

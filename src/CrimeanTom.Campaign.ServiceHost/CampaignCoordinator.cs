@@ -2624,6 +2624,8 @@ public sealed class CampaignCoordinator(
             worker.OwnedRecoveryRequiredEntityCount,
             worker.TacticalEntityCapacity,
             worker.TacticalReserveCapacity,
+            worker.Health,
+            worker.Eligibility,
             admission.OccupiedTacticalEntityCount,
             admission.PromotionHeadroom,
             admission.MigrationOverlapHeadroom,
@@ -2659,7 +2661,8 @@ public sealed class CampaignCoordinator(
                 worker.ClientInstanceId,
                 existingOwners[0],
                 StringComparison.Ordinal))
-            .Where(worker => !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+            .Where(worker => CampaignWorkerHealth.CanReceiveNewAssignments(worker)
+                && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
                 && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
                     state.Entities[entityId].CatalogUnitId,
@@ -2693,6 +2696,7 @@ public sealed class CampaignCoordinator(
         if (string.IsNullOrWhiteSpace(preferredWorker.PlayerTaskforceId)
             || preferredWorker.TacticalEntityCapacity <= 0
             || preferredWorker.OwnedRecoveryRequiredEntityCount > 0
+            || CampaignWorkerHealth.MustEvacuate(preferredWorker)
             || !islandEntityIds.All(entityId => preferredWorker.MaterializationProfiles.Any(profile => string.Equals(
                 profile.UnitTypeId,
                 state.Entities[entityId].CatalogUnitId,
@@ -2775,6 +2779,7 @@ public sealed class CampaignCoordinator(
                 "Shadow preparation requires a distinct connected destination worker.");
         }
         if (string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+            || !CampaignWorkerHealth.CanReceiveShadow(worker)
             || worker.TacticalEntityCapacity <= 0
             || worker.OwnedRecoveryRequiredEntityCount > 0
             || !islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
@@ -2833,6 +2838,7 @@ public sealed class CampaignCoordinator(
         }
 
         var eligible = compatible
+            .Where(CampaignWorkerHealth.CanReceiveShadow)
             .Where(worker => worker.TacticalEntityCapacity > 0
                 && worker.OwnedRecoveryRequiredEntityCount == 0)
             .Select(worker => new
@@ -2978,7 +2984,7 @@ public sealed class CampaignCoordinator(
                 item.Relationship.MissingSamples)));
         var resources = string.Join('|', workers
             .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
-            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity}"));
+            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity},{worker.Health},{worker.Eligibility}"));
         var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
@@ -3156,6 +3162,8 @@ public sealed record CampaignWorkerView(
     int OwnedRecoveryRequiredEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    string Health,
+    string Eligibility,
     int OccupiedTacticalEntityCount,
     int PromotionHeadroom,
     int MigrationOverlapHeadroom,

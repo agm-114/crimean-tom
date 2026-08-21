@@ -52,6 +52,7 @@ type Worker = {
   ownedMaterializedEntityCount: number; ownedActiveEntityCount: number;
   ownedRetainedSuspendedEntityCount: number; ownedRecoveryRequiredEntityCount: number;
   tacticalEntityCapacity: number; tacticalReserveCapacity: number;
+  health: string; eligibility: string;
   occupiedTacticalEntityCount: number; promotionHeadroom: number; migrationOverlapHeadroom: number;
   materializationProfileCount: number; couplingRelationshipCount: number;
 };
@@ -563,7 +564,7 @@ function renderPanels(data: Campaign): void {
   const workerStatus = `WORKERS / ${data.workers.length} // LOAD ${workerOccupied}/${workerCapacity} // ACTIVE ${workerActive} // RESERVE ${workerReserve} // PROMO ${workerPromotionHeadroom} // MIG ${workerMigrationHeadroom} // RECOVERY ${workerRecovery}`;
   byId("worker-status").textContent = workerStatus;
   byId("worker-status").title = data.workers.length
-    ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.playerTaskforceId || "NO TASKFORCE"}:O${worker.occupiedTacticalEntityCount}/${worker.tacticalEntityCapacity}:R${worker.tacticalReserveCapacity}:P${worker.promotionHeadroom}:M${worker.migrationOverlapHeadroom}`).join(" + ")}`
+    ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.health}/${worker.eligibility}:${worker.playerTaskforceId || "NO TASKFORCE"}:O${worker.occupiedTacticalEntityCount}/${worker.tacticalEntityCapacity}:R${worker.tacticalReserveCapacity}:P${worker.promotionHeadroom}:M${worker.migrationOverlapHeadroom}`).join(" + ")}`
     : workerStatus;
   byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;

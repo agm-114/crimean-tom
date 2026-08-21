@@ -196,7 +196,8 @@ internal static class CampaignFidelityScheduler
             var workerHasTaskforce = campaignWorkers.Any(worker =>
                 !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId));
             var compatibleWorkers = campaignWorkers.Where(worker =>
-                !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+                CampaignWorkerHealth.CanReceiveNewAssignments(worker)
+                && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
                 && island.EntityIds.All(id => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
                     state.Entities[id].CatalogUnitId,
@@ -205,13 +206,26 @@ internal static class CampaignFidelityScheduler
             var workerCanAdmitIsland = compatibleWorkers.Any(worker =>
                 CampaignWorkerAdmissionPolicy.Calculate(state, worker, safeTacticalCapacity)
                     .CanAdmitPromotion(island.EntityIds.Count));
+            var owningWorkers = islandAssignments
+                .Select(item => item.WorkerClientInstanceId)
+                .Where(owner => !string.IsNullOrWhiteSpace(owner))
+                .Distinct(StringComparer.Ordinal)
+                .Select(owner => campaignWorkers.FirstOrDefault(worker => string.Equals(
+                    worker.ClientInstanceId,
+                    owner,
+                    StringComparison.Ordinal)))
+                .Where(worker => worker is not null)
+                .Cast<CampaignSessionSnapshot>()
+                .ToArray();
             var workerRequiresEvacuation = request.Health is SchedulerHealthState.Draining
                     or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
-                || request.Eligibility != SimulationSourceEligibility.Eligible;
+                || request.Eligibility != SimulationSourceEligibility.Eligible
+                || owningWorkers.Any(CampaignWorkerHealth.MustEvacuate);
             var loadRequiresFallback = request.Health is SchedulerHealthState.Overloaded or SchedulerHealthState.Draining
                 or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
                 || request.Eligibility != SimulationSourceEligibility.Eligible
-                || request.BacklogDepth >= 192;
+                || request.BacklogDepth >= 192
+                || owningWorkers.Any(CampaignWorkerHealth.MustLoadShed);
             FidelityState desired;
             string reason;
             if (hasQuiescingAssignment)

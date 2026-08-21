@@ -49,6 +49,8 @@ message CompanionHello {
   repeated TacticalMaterializationProfile materialization_profiles = 10;
   int32 tactical_entity_capacity = 11;
   int32 tactical_reserve_capacity = 12;
+  string health = 13;
+  string eligibility = 14;
 }
 
 message TacticalMaterializationProfile {
@@ -96,6 +98,8 @@ message CompanionHeartbeat {
   int32 owned_recovery_required_entity_count = 12;
   int32 tactical_entity_capacity = 13;
   int32 tactical_reserve_capacity = 14;
+  string health = 15;
+  string eligibility = 16;
 }
 
 message ServiceHeartbeat {
