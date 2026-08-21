@@ -59,6 +59,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(monitorSession);
 builder.Services.AddSingleton(journal);
+builder.Services.AddSingleton(new CampaignHostPaths(runDirectory, Path.Combine(runDirectory, "backups")));
 builder.Services.AddSingleton<CampaignSessionRegistry>();
 builder.Services.AddSingleton<CampaignPlayerSessionRegistry>();
 builder.Services.AddSingleton<CampaignPlayerCommandSequencer>();
@@ -396,10 +397,80 @@ app.MapPost("/control/campaigns/{campaignId}/advance/{target:long}", async (
     long target,
     CampaignCoordinator coordinator,
     CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.AdvanceAsync(
+            new CampaignId(parsed), new CampaignTime(target), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/campaigns/{campaignId}/drain", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.DrainAsync(new CampaignId(parsed), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/campaigns/{campaignId}/pause", (
+    string campaignId,
+    CampaignCoordinator coordinator) =>
     Guid.TryParseExact(campaignId, "N", out var parsed)
-        ? Results.Ok(await coordinator.AdvanceAsync(
-            new CampaignId(parsed), new CampaignTime(target), cancellationToken))
+        ? Results.Ok(coordinator.Pause(new CampaignId(parsed)))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/resume", (
+    string campaignId,
+    CampaignCoordinator coordinator) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(coordinator.Resume(new CampaignId(parsed)))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/backups", async (
+    CampaignBackupRequest request,
+    SqliteCampaignJournal store,
+    CampaignHostPaths paths,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await CampaignBackupHttp.CreateAsync(store, paths, request, cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapGet("/control/backups", (CampaignHostPaths paths) => Results.Ok(CampaignBackupHttp.List(paths)));
+app.MapPost("/control/restores", async (
+    CampaignRestoreRequest request,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await CampaignBackupHttp.RestoreAsync(request, cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/campaigns/{campaignId}/schedule", async (
     string campaignId,
     CampaignSchedulerRequest request,
