@@ -145,10 +145,13 @@ hold Tactical fidelity in Quiesced state until one event releases and demotes
 the entire island. A disconnected active worker remains fenced Tactical until
 reconnect or bounded expiry fallback; the service does not invent a checkpoint.
 
-The request envelope is retained only for the running service's diagnostic view;
-the resulting entity fidelity is durable. Persisted health history, hysteresis,
-cooldowns, reserve and destination accounting, migration, and tempo events are
-still target architecture rather than implemented claims.
+The latest scheduler envelope is a canonical campaign event and snapshot field,
+so health, eligibility, interest, capacity, backlog, request identity, and the
+stable-sample count survive service restart. An active quiet island requires two
+identical healthy interest-loss samples before quiescing; load shedding and
+explicit drain remain immediate. Longer health history, cooldowns, reserve and
+destination accounting, migration, and tempo events are still target
+architecture rather than implemented claims.
 
 ### Avoiding cascade failure
 

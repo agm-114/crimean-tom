@@ -42,6 +42,7 @@ type InteractionIsland = {
 };
 type Scheduler = {
   health: string; eligibility: string; tacticalEntityCapacity: number; backlogDepth: number;
+  stableSampleCount: number;
   fixedStepMicroseconds: number; targetTicksPerWallSecond: number; effectiveAtQuanta: number;
   loadAction: string; islands: InteractionIsland[];
 };
@@ -300,7 +301,7 @@ function renderPanels(data: Campaign): void {
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
   byId("authority-count").textContent = data.assignments.filter(item => item.lifecycle !== "Released").length.toString();
   byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
-  byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // ${data.scheduler.loadAction}`;
+  byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // STABLE ${data.scheduler.stableSampleCount} // ${data.scheduler.loadAction}`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   const groups = new Map(data.groups.flatMap(group => group.memberEntityIds.map(id => [id, group.name])));
   byId("unit-list").innerHTML = data.entities.map(entity => `

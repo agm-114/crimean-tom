@@ -99,6 +99,19 @@ public static class CampaignCanonicalSerializer
                 new CampaignTime(item.EffectiveAt), ParseEnum<AssignmentLifecycle>(item.Lifecycle),
                 new EntityRevision(item.Revision), item.BatchId, item.BatchSize))
                 .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
+            SchedulerPolicy = document.SchedulerPolicy is null ? null : new SchedulerPolicyState(
+                document.SchedulerPolicy.ObservedEntityIds
+                    .Select(value => ParseId(value, id => new EntityId(id))).ToImmutableSortedSet(),
+                document.SchedulerPolicy.ControlledEntityIds
+                    .Select(value => ParseId(value, id => new EntityId(id))).ToImmutableSortedSet(),
+                document.SchedulerPolicy.Health,
+                document.SchedulerPolicy.Eligibility,
+                document.SchedulerPolicy.TacticalEntityCapacity,
+                document.SchedulerPolicy.BacklogDepth,
+                document.SchedulerPolicy.RequestHash,
+                document.SchedulerPolicy.StableSampleCount,
+                new CampaignTime(document.SchedulerPolicy.EffectiveAt),
+                new EntityRevision(document.SchedulerPolicy.Revision)),
             ScheduledActivities = document.ScheduledActivities.Select(item => new ScheduledActivityState(
                 ParseId(item.Id, value => new ScheduledActivityId(value)),
                 ParseEnum<CampaignActivityKind>(item.Kind),
@@ -141,6 +154,7 @@ public static class CampaignCanonicalSerializer
         WriteIntelligence(writer, state);
         WriteWeather(writer, state);
         WriteAssignments(writer, state);
+        WriteSchedulerPolicy(writer, state);
         WriteScheduledActivities(writer, state);
         WriteOperationalOutcomes(writer, state);
         writer.WriteEndObject();
@@ -369,6 +383,36 @@ public static class CampaignCanonicalSerializer
         writer.WriteEndArray();
     }
 
+    private static void WriteSchedulerPolicy(Utf8JsonWriter writer, CampaignState state)
+    {
+        if (state.SchedulerPolicy is not { } policy)
+        {
+            return;
+        }
+        writer.WriteStartObject("schedulerPolicy");
+        writer.WriteStartArray("observedEntityIds");
+        foreach (var entityId in policy.ObservedEntityIds)
+        {
+            writer.WriteStringValue(entityId.ToString());
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("controlledEntityIds");
+        foreach (var entityId in policy.ControlledEntityIds)
+        {
+            writer.WriteStringValue(entityId.ToString());
+        }
+        writer.WriteEndArray();
+        writer.WriteString("health", policy.Health);
+        writer.WriteString("eligibility", policy.Eligibility);
+        writer.WriteNumber("tacticalEntityCapacity", policy.TacticalEntityCapacity);
+        writer.WriteNumber("backlogDepth", policy.BacklogDepth);
+        writer.WriteString("requestHash", policy.RequestHash);
+        writer.WriteNumber("stableSampleCount", policy.StableSampleCount);
+        writer.WriteNumber("effectiveAt", policy.EffectiveAt.Quanta);
+        writer.WriteNumber("revision", policy.Revision.Value);
+        writer.WriteEndObject();
+    }
+
     private static void WriteScheduledActivities(Utf8JsonWriter writer, CampaignState state)
     {
         writer.WriteStartArray("scheduledActivities");
@@ -464,6 +508,7 @@ public static class CampaignCanonicalSerializer
         public required IntelligenceDocument[] Intelligence { get; init; }
         public required WeatherDocument[] Weather { get; init; }
         public required AssignmentDocument[] Assignments { get; init; }
+        public SchedulerPolicyDocument? SchedulerPolicy { get; init; }
         public required ScheduledActivityDocument[] ScheduledActivities { get; init; }
         public required OperationalOutcomeDocument[] RecentOperationalOutcomes { get; init; }
     }
@@ -568,6 +613,20 @@ public static class CampaignCanonicalSerializer
         public required long Revision { get; init; }
         public string BatchId { get; init; } = string.Empty;
         public int BatchSize { get; init; } = 1;
+    }
+
+    private sealed class SchedulerPolicyDocument
+    {
+        public required string[] ObservedEntityIds { get; init; }
+        public required string[] ControlledEntityIds { get; init; }
+        public required string Health { get; init; }
+        public required string Eligibility { get; init; }
+        public required int TacticalEntityCapacity { get; init; }
+        public required int BacklogDepth { get; init; }
+        public required string RequestHash { get; init; }
+        public required int StableSampleCount { get; init; }
+        public required long EffectiveAt { get; init; }
+        public required long Revision { get; init; }
     }
 
     private sealed class ResourceDocument

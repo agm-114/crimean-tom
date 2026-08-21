@@ -168,6 +168,25 @@ public static class CampaignStateValidator
             }
         }
 
+        if (state.SchedulerPolicy is { } policy)
+        {
+            CampaignInvariants.RequireText(policy.Health, nameof(policy.Health));
+            CampaignInvariants.RequireText(policy.Eligibility, nameof(policy.Eligibility));
+            CampaignInvariants.RequireText(policy.RequestHash, nameof(policy.RequestHash));
+            if (policy.Health is not ("Healthy" or "Pressured" or "Overloaded" or "Draining" or "Quarantined" or "Offline")
+                || policy.Eligibility is not ("Eligible" or "DrainOnly" or "Disabled" or "Quarantined")
+                || policy.Revision.Value <= 0 || policy.Revision.Value > state.CampaignRevision.Value
+                || policy.EffectiveAt.Quanta < 0 || policy.EffectiveAt.Quanta > state.Time.Quanta
+                || policy.TacticalEntityCapacity is < 0 or > 10_000
+                || policy.BacklogDepth is < 0 or > 1_000_000
+                || policy.StableSampleCount is < 1 or > 1_000_000
+                || policy.RequestHash.Length != 64 || policy.RequestHash.Any(character => !Uri.IsHexDigit(character))
+                || policy.ObservedEntityIds.Concat(policy.ControlledEntityIds).Any(id => !state.Entities.ContainsKey(id)))
+            {
+                throw Invalid("scheduler-policy", "The persisted scheduler policy is invalid or references missing entities.");
+            }
+        }
+
         foreach (var (key, activity) in state.ScheduledActivities)
         {
             if (key != activity.ActivityId || activity.Revision.Value <= 0
@@ -224,4 +243,5 @@ public static class CampaignStateValidator
     }
 
     private static InvalidDataException Invalid(string code, string message) => new($"{code}: {message}");
+
 }

@@ -111,6 +111,18 @@ public sealed record AssignmentState(
     string BatchId = "",
     int BatchSize = 1);
 
+public sealed record SchedulerPolicyState(
+    ImmutableSortedSet<EntityId> ObservedEntityIds,
+    ImmutableSortedSet<EntityId> ControlledEntityIds,
+    string Health,
+    string Eligibility,
+    int TacticalEntityCapacity,
+    int BacklogDepth,
+    string RequestHash,
+    int StableSampleCount,
+    CampaignTime EffectiveAt,
+    EntityRevision Revision);
+
 public sealed record CampaignState
 {
     public required CampaignMetadata Metadata { get; init; }
@@ -125,6 +137,7 @@ public sealed record CampaignState
     public ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate> Intelligence { get; init; } = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty;
     public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
     public ImmutableSortedDictionary<AssignmentId, AssignmentState> Assignments { get; init; } = ImmutableSortedDictionary<AssignmentId, AssignmentState>.Empty;
+    public SchedulerPolicyState? SchedulerPolicy { get; init; }
     public ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> ScheduledActivities { get; init; } = ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState>.Empty;
     public ImmutableArray<OperationalOutcome> RecentOperationalOutcomes { get; init; } = [];
 

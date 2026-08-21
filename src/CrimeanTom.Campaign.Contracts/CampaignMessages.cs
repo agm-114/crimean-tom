@@ -157,6 +157,7 @@ public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, 
 [JsonDerivedType(typeof(ActivateTacticalAssignmentCommand), "activate-tactical-assignment/v1")]
 [JsonDerivedType(typeof(ActivateTacticalIslandCommand), "activate-tactical-island/v1")]
 [JsonDerivedType(typeof(ReleaseTacticalIslandCommand), "release-tactical-island/v1")]
+[JsonDerivedType(typeof(UpdateSchedulerPolicyCommand), "update-scheduler-policy/v1")]
 [JsonDerivedType(typeof(ApplyTacticalStateCommand), "apply-tactical-state/v1")]
 public abstract record CampaignCommandData;
 
@@ -282,6 +283,18 @@ public sealed record ReleaseTacticalIslandCommand(
     string Reason)
     : CampaignCommandData;
 
+public sealed record UpdateSchedulerPolicyCommand(
+    IReadOnlyList<EntityId> ObservedEntityIds,
+    IReadOnlyList<EntityId> ControlledEntityIds,
+    string Health,
+    string Eligibility,
+    int TacticalEntityCapacity,
+    int BacklogDepth,
+    string RequestHash,
+    int StableSampleCount,
+    CampaignTime EffectiveAt)
+    : CampaignCommandData;
+
 public sealed record ApplyTacticalStateCommand(
     AssignmentId AssignmentId,
     AuthorityEpoch AuthorityEpoch,
@@ -323,6 +336,7 @@ public sealed record CampaignCommand(
 [JsonDerivedType(typeof(TacticalAssignmentActivatedEvent), "tactical-assignment-activated/v1")]
 [JsonDerivedType(typeof(TacticalIslandActivatedEvent), "tactical-island-activated/v1")]
 [JsonDerivedType(typeof(TacticalIslandReleasedEvent), "tactical-island-released/v1")]
+[JsonDerivedType(typeof(SchedulerPolicyUpdatedEvent), "scheduler-policy-updated/v1")]
 [JsonDerivedType(typeof(TacticalStateAppliedEvent), "tactical-state-applied/v1")]
 public abstract record CampaignEventData;
 
@@ -411,6 +425,8 @@ public sealed record TacticalAssignmentActivatedEvent(ActivateTacticalAssignment
 public sealed record TacticalIslandActivatedEvent(ActivateTacticalIslandCommand Activation) : CampaignEventData;
 
 public sealed record TacticalIslandReleasedEvent(ReleaseTacticalIslandCommand Release) : CampaignEventData;
+
+public sealed record SchedulerPolicyUpdatedEvent(UpdateSchedulerPolicyCommand Policy) : CampaignEventData;
 
 public sealed record TacticalStateAppliedEvent(ApplyTacticalStateCommand State) : CampaignEventData;
 

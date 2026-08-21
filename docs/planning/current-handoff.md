@@ -3,7 +3,7 @@
 ## Repository state
 
 This handoff records the state through 21 August 2026. Phases 0 through 4 are
-complete and Phase 5 is next. Durable campaign authority, unattended simulation,
+complete and Phase 5 is active. Durable campaign authority, unattended simulation,
 and the first canonical tactical handoff loop now run
 outside Unity. The
 game-independent kernel can now validate typed commands, produce and apply
@@ -345,10 +345,18 @@ one event releases every assignment and restores Operational fidelity across
 the batch. Direct handoff/quiesce endpoints remain explicit operator/debug
 seams.
 
+The latest scheduler request is now a canonical event and snapshot field rather
+than a process-local diagnostic cache. Health, eligibility, interest, capacity,
+backlog, request hash, and stable-sample count survive a service restart. A
+healthy active island receives one durable hysteresis hold after player interest
+disappears and drains on the second matching sample; explicit drain and overload
+still act immediately. The broad protocol story proves both restart recovery and
+the two-sample whole-batch drain.
+
 Next, carry these decisions through live Sea Power materialization/quiesce,
-extend coupling to weapon/guidance/host relationships, persist and hysteretically
-recover scheduler state, measure capacity/tempo under stress, and calibrate the
-operational resolver against tactical observation batches. Keep tactical
+extend coupling to weapon/guidance/host relationships, measure capacity/tempo
+under stress, and calibrate the operational resolver against tactical
+observation batches. Keep tactical
 projection and campaign commit separate: Sea Power remains a fenced client of
 the external authoritative kernel.
 

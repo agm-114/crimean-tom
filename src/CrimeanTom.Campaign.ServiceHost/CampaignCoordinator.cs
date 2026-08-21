@@ -20,7 +20,6 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     private static readonly PlayerId ServicePlayer = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000002"));
     private readonly ConcurrentDictionary<CampaignId, CampaignWriterLease> _leases = new();
-    private readonly ConcurrentDictionary<CampaignId, CampaignSchedulerRequest> _schedulerRequests = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<CampaignBootstrapResult> BootstrapAsync(
@@ -363,8 +362,12 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     {
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
         var worker = sessions.Snapshot();
-        var scheduler = _schedulerRequests.TryGetValue(campaignId, out var schedulerRequest)
-            ? CampaignFidelityScheduler.Evaluate(recovery.State, schedulerRequest, worker)
+        var scheduler = recovery.State.SchedulerPolicy is { } policy
+            ? CampaignFidelityScheduler.Evaluate(
+                recovery.State,
+                SchedulerRequest(policy),
+                worker,
+                policy.StableSampleCount)
             : CampaignFidelityScheduler.Inspect(recovery.State);
         return new CampaignDiagnosticView(
             recovery.State.Metadata.CampaignId.ToString(),
@@ -441,7 +444,30 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
             var worker = sessions.Snapshot();
-            var evaluation = CampaignFidelityScheduler.Evaluate(state, request, worker);
+            var observed = (request.ObservedEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
+                .Distinct().OrderBy(id => id).ToArray();
+            var controlled = (request.ControlledEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
+                .Distinct().OrderBy(id => id).ToArray();
+            var requestHash = SchedulerRequestHash(request, observed, controlled);
+            var stableSampleCount = state.SchedulerPolicy?.RequestHash == requestHash
+                ? Math.Min(state.SchedulerPolicy.StableSampleCount + 1, 1_000_000)
+                : 1;
+            var evaluation = CampaignFidelityScheduler.Evaluate(state, request, worker, stableSampleCount);
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Campaign(campaignId),
+                state.CampaignRevision,
+                new UpdateSchedulerPolicyCommand(
+                    observed,
+                    controlled,
+                    request.Health.ToString(),
+                    request.Eligibility.ToString(),
+                    request.TacticalEntityCapacity,
+                    request.BacklogDepth,
+                    requestHash,
+                    stableSampleCount,
+                    state.Time),
+                $"scheduler-policy-{state.CampaignRevision.Value + 1}-{requestHash}-{stableSampleCount}"), cancellationToken);
             foreach (var island in evaluation.Islands.OrderBy(item => item.IslandId, StringComparer.Ordinal))
             {
                 foreach (var entityId in island.EntityIds.OrderBy(item => item))
@@ -496,7 +522,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                         ? string.Empty
                         : liveAssignments.Select(item => item.BatchId)
                             .FirstOrDefault(item => !string.IsNullOrEmpty(item))
-                            ?? $"island:{island.IslandId}:{liveAssignments.Length + 1}";
+                            ?? $"island:{island.IslandId}:{state.Assignments.Values.Count(item => island.EntityIds.Contains(item.EntityId)) + 1}";
                     foreach (var entityId in island.EntityIds.OrderBy(item => item))
                     {
                         if (liveAssignments.Any(item => item.EntityId == entityId))
@@ -602,8 +628,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                     }
                 }
             }
-            _schedulerRequests[campaignId] = request;
-            var applied = CampaignFidelityScheduler.Evaluate(state, request, worker) with
+            var applied = CampaignFidelityScheduler.Evaluate(state, request, worker, stableSampleCount) with
             {
                 LoadAction = evaluation.LoadAction,
                 Transitions = evaluation.Transitions,
@@ -1181,6 +1206,25 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{campaignId:N}:{purpose}"));
         return new Guid(hash.AsSpan(0, 16));
+    }
+
+    private static CampaignSchedulerRequest SchedulerRequest(SchedulerPolicyState policy) => new(
+        policy.ObservedEntityIds.Select(id => id.ToString()).ToArray(),
+        policy.ControlledEntityIds.Select(id => id.ToString()).ToArray(),
+        Enum.Parse<SchedulerHealthState>(policy.Health),
+        Enum.Parse<SimulationSourceEligibility>(policy.Eligibility),
+        policy.TacticalEntityCapacity,
+        policy.BacklogDepth);
+
+    private static string SchedulerRequestHash(
+        CampaignSchedulerRequest request,
+        IReadOnlyList<EntityId> observedEntityIds,
+        IReadOnlyList<EntityId> controlledEntityIds)
+    {
+        var observed = string.Join(',', observedEntityIds.Select(id => id.ToString()));
+        var controlled = string.Join(',', controlledEntityIds.Select(id => id.ToString()));
+        var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|backlog={request.BacklogDepth}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
 
     private static IReadOnlyDictionary<ResourceKind, ResourceAmount> FuldaResources(bool baseSupply) =>

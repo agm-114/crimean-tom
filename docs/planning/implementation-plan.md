@@ -637,10 +637,13 @@ single-player prototype.
   preparation releases without creating phantom Tactical state.
   Health, simulation-source eligibility, tactical capacity, and transport
   backlog drive load shedding; suitable quiet islands demote before the global
-  target tempo falls. The fixed step remains 33,333 microseconds.
+  target tempo falls. The scheduler input and stable-sample count are journaled
+  and snapshot-recoverable. Active quiet islands require two matching healthy
+  interest-loss samples before quiescing, while load shedding remains immediate.
+  The fixed step remains 33,333 microseconds.
 - This is not yet the P5 gate: sensor/weapon/host coupling, hysteretic split,
-  durable scheduler-input recovery, client migration/reserve accounting, live
-  Sea Power materialization, performance targets, and calibration remain.
+  client migration/reserve accounting, live Sea Power materialization,
+  performance targets, and calibration remain.
 
 ### Objective
 

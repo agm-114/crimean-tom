@@ -38,6 +38,7 @@ public sealed record CampaignSchedulerView(
     string Eligibility,
     int TacticalEntityCapacity,
     int BacklogDepth,
+    int StableSampleCount,
     int FixedStepMicroseconds,
     int TargetTicksPerWallSecond,
     long EffectiveAtQuanta,
@@ -82,6 +83,7 @@ internal static class CampaignFidelityScheduler
             new CampaignSchedulerRequest([], [], SchedulerHealthState.Offline,
                 SimulationSourceEligibility.Disabled, 0, 0),
             0,
+            0,
             "scheduler-not-evaluated",
             islands,
             []);
@@ -90,11 +92,13 @@ internal static class CampaignFidelityScheduler
     public static SchedulerEvaluation Evaluate(
         CampaignState state,
         CampaignSchedulerRequest request,
-        CampaignSessionSnapshot? worker)
+        CampaignSessionSnapshot? worker,
+        int stableSampleCount)
     {
         if (!Enum.IsDefined(request.Health) || !Enum.IsDefined(request.Eligibility)
             || request.TacticalEntityCapacity is < 0 or > 10_000
-            || request.BacklogDepth is < 0 or > 1_000_000)
+            || request.BacklogDepth is < 0 or > 1_000_000
+            || stableSampleCount is < 1 or > 1_000_000)
         {
             throw new CampaignStoreConflict("invalid-scheduler-input", "Scheduler health, eligibility, capacity, or backlog is invalid.");
         }
@@ -144,13 +148,21 @@ internal static class CampaignFidelityScheduler
                 desired = FidelityState.Tactical;
                 reason = "authority-preparing";
             }
-            else if (hasActiveAssignment && workerConnected
-                && (loadRequiresFallback || (!hasInterest && !island.Engaged)))
+            else if (hasActiveAssignment && workerConnected && loadRequiresFallback)
             {
                 desired = FidelityState.Operational;
-                reason = loadRequiresFallback
-                    ? "active-island-load-shed"
-                    : "active-island-outside-player-interest";
+                reason = "active-island-load-shed";
+            }
+            else if (hasActiveAssignment && workerConnected && !hasInterest && !island.Engaged
+                && stableSampleCount >= 2)
+            {
+                desired = FidelityState.Operational;
+                reason = "active-island-outside-player-interest";
+            }
+            else if (hasActiveAssignment && workerConnected && !hasInterest && !island.Engaged)
+            {
+                desired = FidelityState.Tactical;
+                reason = "scheduler-hysteresis-hold";
             }
             else if (hasActiveAssignment)
             {
@@ -239,7 +251,7 @@ internal static class CampaignFidelityScheduler
             : transitions.Any(item => item.ToFidelity != FidelityState.Tactical.ToString())
                 ? "demote-whole-islands-before-tempo"
                 : "global-tempo-reduced";
-        return new SchedulerEvaluation(request, tempo, action, plans, transitions);
+        return new SchedulerEvaluation(request, stableSampleCount, tempo, action, plans, transitions);
     }
 
     public static CampaignSchedulerView ToView(CampaignState state, SchedulerEvaluation evaluation) => new(
@@ -247,9 +259,10 @@ internal static class CampaignFidelityScheduler
         evaluation.Request.Eligibility.ToString(),
         evaluation.Request.TacticalEntityCapacity,
         evaluation.Request.BacklogDepth,
+        evaluation.StableSampleCount,
         FixedStepMicroseconds,
         evaluation.TargetTicksPerWallSecond,
-        state.Time.Quanta,
+        state.SchedulerPolicy?.EffectiveAt.Quanta ?? state.Time.Quanta,
         evaluation.LoadAction,
         evaluation.Islands.Select(item => new CampaignInteractionIslandView(
             item.IslandId,
@@ -343,6 +356,7 @@ internal static class CampaignFidelityScheduler
 
     internal sealed record SchedulerEvaluation(
         CampaignSchedulerRequest Request,
+        int StableSampleCount,
         int TargetTicksPerWallSecond,
         string LoadAction,
         IReadOnlyList<SchedulerIslandPlan> Islands,

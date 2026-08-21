@@ -492,6 +492,15 @@ public sealed class CompanionControlIntegrationTests
                 firstCampaignSession,
                 testTimeout.Token);
             Assert.NotEqual(firstCampaignSession, secondCampaignSession);
+            using var recoveredSchedulerResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            recoveredSchedulerResponse.EnsureSuccessStatusCode();
+            using var recoveredScheduler = JsonDocument.Parse(
+                await recoveredSchedulerResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("Healthy", recoveredScheduler.RootElement.GetProperty("scheduler").GetProperty("health").GetString());
+            Assert.Equal("Eligible", recoveredScheduler.RootElement.GetProperty("scheduler").GetProperty("eligibility").GetString());
+            Assert.Equal(1, recoveredScheduler.RootElement.GetProperty("scheduler").GetProperty("stableSampleCount").GetInt32());
 
             using var queuedQuiesce = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
@@ -575,19 +584,46 @@ public sealed class CompanionControlIntegrationTests
                     item => item.GetProperty("entityId").GetString() == entityId)
                     .GetProperty("fidelity").GetString()));
 
-            using var batchDrain = await campaignClient.PostAsJsonAsync(
+            using var batchInterestLoss = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
                 new
                 {
-                    observedEntityIds = new[] { batchLeadEntityId },
+                    observedEntityIds = Array.Empty<string>(),
                     controlledEntityIds = Array.Empty<string>(),
-                    health = "Draining",
-                    eligibility = "DrainOnly",
+                    health = "Healthy",
+                    eligibility = "Eligible",
                     tacticalEntityCapacity = 2,
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
-            batchDrain.EnsureSuccessStatusCode();
+            batchInterestLoss.EnsureSuccessStatusCode();
+            using var heldBatch = JsonDocument.Parse(
+                await batchInterestLoss.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(1, heldBatch.RootElement.GetProperty("stableSampleCount").GetInt32());
+            Assert.Contains(heldBatch.RootElement.GetProperty("islands").EnumerateArray(), item =>
+                item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == batchLeadEntityId)
+                && item.GetProperty("reason").GetString() == "scheduler-hysteresis-hold");
+            using var heldBatchView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Count(item =>
+                    item.GetProperty("batchId").GetString() is { Length: > 0 }
+                    && item.GetProperty("lifecycle").GetString() == "Active") == 2,
+                testTimeout.Token);
+
+            using var confirmedBatchInterestLoss = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/schedule",
+                new
+                {
+                    observedEntityIds = Array.Empty<string>(),
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 2,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            confirmedBatchInterestLoss.EnsureSuccessStatusCode();
             using var releasedBatchView = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,

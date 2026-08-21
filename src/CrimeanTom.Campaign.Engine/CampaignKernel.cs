@@ -45,6 +45,7 @@ public static class CampaignKernel
             ActivateTacticalAssignmentCommand value => DecideTacticalAssignmentActivation(state, command, value),
             ActivateTacticalIslandCommand value => DecideTacticalIslandActivation(state, command, value),
             ReleaseTacticalIslandCommand value => DecideTacticalIslandRelease(state, command, value),
+            UpdateSchedulerPolicyCommand value => DecideSchedulerPolicy(state, command, value),
             ApplyTacticalStateCommand value => DecideTacticalState(state, command, value),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
         };
@@ -96,6 +97,7 @@ public static class CampaignKernel
             TacticalAssignmentActivatedEvent value => ApplyTacticalAssignmentActivation(state, campaignEvent, value),
             TacticalIslandActivatedEvent value => ApplyTacticalIslandActivation(state, campaignEvent, value),
             TacticalIslandReleasedEvent value => ApplyTacticalIslandRelease(state, campaignEvent, value),
+            SchedulerPolicyUpdatedEvent value => ApplySchedulerPolicy(state, campaignEvent, value),
             TacticalStateAppliedEvent value => ApplyTacticalState(state, campaignEvent, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
         };
@@ -497,6 +499,35 @@ public static class CampaignKernel
             state.CampaignRevision.Next());
     }
 
+    private static Decision DecideSchedulerPolicy(
+        CampaignState state,
+        CampaignCommand command,
+        UpdateSchedulerPolicyCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Campaign(state.Metadata.CampaignId));
+        RequireRevision(command, state.CampaignRevision);
+        CampaignInvariants.RequireText(value.Health, nameof(value.Health));
+        CampaignInvariants.RequireText(value.Eligibility, nameof(value.Eligibility));
+        CampaignInvariants.RequireText(value.RequestHash, nameof(value.RequestHash));
+        if (value.EffectiveAt != command.EffectiveAt
+            || value.Health is not ("Healthy" or "Pressured" or "Overloaded" or "Draining" or "Quarantined" or "Offline")
+            || value.Eligibility is not ("Eligible" or "DrainOnly" or "Disabled" or "Quarantined")
+            || value.TacticalEntityCapacity is < 0 or > 10_000
+            || value.BacklogDepth is < 0 or > 1_000_000
+            || value.StableSampleCount is < 1 or > 1_000_000
+            || value.RequestHash.Length != 64 || value.RequestHash.Any(character => !Uri.IsHexDigit(character))
+            || value.ObservedEntityIds.Distinct().Count() != value.ObservedEntityIds.Count
+            || value.ControlledEntityIds.Distinct().Count() != value.ControlledEntityIds.Count
+            || value.ObservedEntityIds.Concat(value.ControlledEntityIds).Any(id => !state.Entities.ContainsKey(id)))
+        {
+            throw Violation("invalid-scheduler-policy", "The scheduler policy envelope is invalid or references missing entities.");
+        }
+        return Decision.Create(
+            command.Subject,
+            new SchedulerPolicyUpdatedEvent(value),
+            state.CampaignRevision.Next());
+    }
+
     private static Decision DecideTacticalState(
         CampaignState state,
         CampaignCommand command,
@@ -673,6 +704,28 @@ public static class CampaignKernel
             });
         }
         return state with { Assignments = assignments, Entities = entities };
+    }
+
+    private static CampaignState ApplySchedulerPolicy(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        SchedulerPolicyUpdatedEvent value)
+    {
+        var policy = value.Policy;
+        return state with
+        {
+            SchedulerPolicy = new SchedulerPolicyState(
+                policy.ObservedEntityIds.ToImmutableSortedSet(),
+                policy.ControlledEntityIds.ToImmutableSortedSet(),
+                policy.Health,
+                policy.Eligibility,
+                policy.TacticalEntityCapacity,
+                policy.BacklogDepth,
+                policy.RequestHash,
+                policy.StableSampleCount,
+                policy.EffectiveAt,
+                item.NewSubjectRevision),
+        };
     }
 
     private static CampaignState ApplyTacticalState(
