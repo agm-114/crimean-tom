@@ -221,12 +221,16 @@ pnpm worker:migration-proof -- `
   -DestinationWorkerId worker-b
 ```
 
-Read-only preflight stops with exit `2` when migration is unsafe. Add `-Execute`
-only after preflight passes. Use `-AllowGhostRelease` to release a disconnected legacy
-Primary (`advance` + `resolve-expired`). Use `-AllowSourcePreparation` to pin Primary
+Read-only preflight stops with exit `2` when migration is unsafe. A successful
+`-AllowGhostRelease`-only repair step exits `0` with refreshed blockers (typically
+`source-preparation-required` after Operational demotion) instead of retaining
+stale pre-repair blockers or exiting `1`. Add `-Execute` only after preflight
+passes. Use `-AllowGhostRelease` to release a disconnected legacy Primary
+(`advance` + `resolve-expired`). Use `-AllowSourcePreparation` to pin Primary
 handoff onto the requested source worker via `POST /control/campaigns/{id}/prepare-source`
-(server-side admission, capacity, and ownership checks). Scheduler promotion remains a
-separate, nondeterministic `-AllowSchedulerPromotion` legacy step. `-AllowRepair` is a convenience alias for
+from an Operational interaction island with no live Primary; the server promotes
+back to Tactical after materialization. Scheduler promotion remains a separate,
+nondeterministic `-AllowSchedulerPromotion` legacy step. `-AllowRepair` is a convenience alias for
 `-AllowGhostRelease` plus `-AllowSourcePreparation` only; it never enables scheduler promotion. Migration execution passes `preferredDestinationClientInstanceId`
 to `prepare-shadow` for pinned Shadow placement.
 See `docs/evidence/phase-5-migration-proof-2026-08-21.md`.

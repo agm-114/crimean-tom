@@ -1623,6 +1623,13 @@ public sealed class CompanionControlIntegrationTests
                 sessionBeforeCompanionRestart,
                 testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            await ProveOperationalIslandPinnedSourcePreparationAfterGhostReleaseAsync(
+                campaignClient,
+                campaignHttpUrl,
+                campaignId,
+                fallbackEntityId,
+                campaignServiceRunDirectory,
+                testTimeout.Token);
             const string cooldownProbeAssignmentId = "assignment:50000000000000000000000000000001";
             using (var cooldownProbeHandoff = await campaignClient.PostAsJsonAsync(
                 "/control/handoffs",
@@ -3021,6 +3028,109 @@ public sealed class CompanionControlIntegrationTests
         string CheckpointSha256,
         long CheckpointLength);
 
+    private static async Task ProveOperationalIslandPinnedSourcePreparationAfterGhostReleaseAsync(
+        HttpClient campaignClient,
+        string campaignHttpUrl,
+        string campaignId,
+        string canonicalEntityId,
+        string serviceRunDirectory,
+        CancellationToken cancellationToken)
+    {
+        var gameEntityId = $"unit:crimean-tom:{canonicalEntityId}";
+        using var operationalView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        operationalView.EnsureSuccessStatusCode();
+        using var operationalBody = JsonDocument.Parse(
+            await operationalView.Content.ReadAsStringAsync(cancellationToken));
+        var entity = Assert.Single(
+            operationalBody.RootElement.GetProperty("entities").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == canonicalEntityId);
+        Assert.Equal("Operational", entity.GetProperty("fidelity").GetString());
+        Assert.DoesNotContain(
+            operationalBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == canonicalEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() != "Released");
+
+        var sourceClientId = Assert.Single(
+                operationalBody.RootElement.GetProperty("workers").EnumerateArray())
+            .GetProperty("clientInstanceId").GetString()!;
+
+        using var handoff = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId,
+                preferredWorkerClientInstanceId = sourceClientId,
+                idempotencyKey = "operational-ghost-release-source-prep",
+            },
+            cancellationToken);
+        Assert.True(
+            handoff.IsSuccessStatusCode,
+            await handoff.Content.ReadAsStringAsync(cancellationToken));
+        using var handoffBody = JsonDocument.Parse(await handoff.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "source-handoff-queued",
+            handoffBody.RootElement.GetProperty("phase").GetString());
+
+        using var activeView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == canonicalEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active"
+                && item.GetProperty("workerClientInstanceId").GetString() == sourceClientId)
+                && root.GetProperty("entities").EnumerateArray().Any(item =>
+                    item.GetProperty("entityId").GetString() == canonicalEntityId
+                    && item.GetProperty("fidelity").GetString() == "Tactical"),
+            cancellationToken);
+        var activeAssignmentId = Assert.Single(
+            activeView.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == canonicalEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active")
+            .GetProperty("assignmentId").GetString()!;
+        var scopedAssignmentId = $"assignment:{activeAssignmentId}";
+
+        await WaitForInboundFramesAsync(
+            serviceRunDirectory,
+            count: 1,
+            cancellationToken,
+            required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                && item.AssignmentPrepared.AssignmentId == scopedAssignmentId
+                && item.AssignmentPrepared.Ready);
+        var prepared = ReadInboundAuthorityFrames(serviceRunDirectory)
+            .Last(item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                && item.AssignmentPrepared.AssignmentId == scopedAssignmentId
+                && item.AssignmentPrepared.Ready)
+            .AssignmentPrepared;
+        Assert.Equal(gameEntityId, prepared.EntityId);
+        Assert.Contains(
+            ReadInboundAuthorityFrames(serviceRunDirectory),
+            item => item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished
+                && item.CheckpointPublished.AssignmentId == scopedAssignmentId);
+
+        using var alreadyActive = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId,
+                preferredWorkerClientInstanceId = sourceClientId,
+                idempotencyKey = "operational-ghost-release-source-prep-idempotent",
+            },
+            cancellationToken);
+        Assert.True(
+            alreadyActive.IsSuccessStatusCode,
+            await alreadyActive.Content.ReadAsStringAsync(cancellationToken));
+        using var alreadyActiveBody = JsonDocument.Parse(
+            await alreadyActive.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "source-already-active",
+            alreadyActiveBody.RootElement.GetProperty("phase").GetString());
+    }
+
     private static async Task<PinnedSourceWorkerPreparationProof> ProvePinnedSourceWorkerPreparationAsync(
         HttpClient campaignClient,
         string campaignHttpUrl,
@@ -3108,6 +3218,12 @@ public sealed class CompanionControlIntegrationTests
             activeView.RootElement.GetProperty("assignments").EnumerateArray(),
             item => item.GetProperty("assignmentId").GetString() == assignmentId["assignment:".Length..]
                 && item.GetProperty("lifecycle").GetString() == "Active");
+        Assert.Equal(
+            "Tactical",
+            Assert.Single(
+                activeView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId)
+                .GetProperty("fidelity").GetString());
 
         using var alreadyActive = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/prepare-source",

@@ -139,25 +139,62 @@ function Test-ConnectedNamedWorkers($Coexistence, $SourceId, $DestinationId) {
     }
 }
 
-function Get-MigrationContext($CampaignView, $Workers, [string]$EntityId) {
-    $islandInfo = Find-TacticalMigrationIsland $CampaignView $EntityId
-    if ($null -eq $islandInfo) {
+function Get-IslandAssignmentContext($IslandInfo, $CampaignView) {
+    if ($null -eq $IslandInfo) {
         return $null
     }
-    $primaryAssignments = @(Get-LivePrimaryAssignmentsForIsland $CampaignView $islandInfo.EntityIds)
-    $shadowAssignments = @(Get-LiveShadowAssignmentsForIsland $CampaignView $islandInfo.EntityIds)
+    $primaryAssignments = @(Get-LivePrimaryAssignmentsForIsland $CampaignView $IslandInfo.EntityIds)
+    $shadowAssignments = @(Get-LiveShadowAssignmentsForIsland $CampaignView $IslandInfo.EntityIds)
     return [pscustomobject]@{
-        Island = $islandInfo.Island
-        EntityIds = $islandInfo.EntityIds
-        AnchorEntityId = $islandInfo.AnchorEntityId
+        Island = $IslandInfo.Island
+        EntityIds = $IslandInfo.EntityIds
+        AnchorEntityId = $IslandInfo.AnchorEntityId
         PrimaryAssignments = $primaryAssignments
         ShadowAssignments = $shadowAssignments
     }
 }
 
-function Test-MigrationPreflight($CampaignView, $Workers, $Context) {
+function Get-MigrationContext($CampaignView, $Workers, [string]$EntityId) {
+    $islandInfo = Find-TacticalMigrationIsland $CampaignView $EntityId
+    return Get-IslandAssignmentContext $islandInfo $CampaignView
+}
+
+function Get-RepairContext($CampaignView, $Workers, [string]$EntityId) {
+    $islandInfo = Find-InteractionIsland $CampaignView $EntityId
+    return Get-IslandAssignmentContext $islandInfo $CampaignView
+}
+
+function Test-MigrationPreflight($CampaignView, $Workers, $Context, $InteractionIsland = $null) {
     $blockers = New-Object System.Collections.Generic.List[object]
     if ($null -eq $Context) {
+        if ($null -ne $InteractionIsland) {
+            if ($InteractionIsland.EntityIds.Count -ne 1) {
+                $blockers.Add([ordered]@{
+                    code = 'multi-entity-island-unsupported'
+                    message = 'Cross-worker migration proof supports singleton interaction islands only.'
+                    details = [ordered]@{
+                        islandEntityCount = $InteractionIsland.EntityIds.Count
+                        entityIds = @($InteractionIsland.EntityIds)
+                    }
+                })
+                return $blockers
+            }
+            if ($InteractionIsland.Island.currentFidelity -ne 'Tactical') {
+                $blockers.Add([ordered]@{
+                    code = 'source-preparation-required'
+                    message = 'The interaction island is not Tactical. Run -AllowSourcePreparation to pin Primary materialization on the source worker before migration preflight can pass.'
+                    details = [ordered]@{
+                        anchorEntityId = $InteractionIsland.AnchorEntityId
+                        islandId = [string]$InteractionIsland.Island.islandId
+                        currentFidelity = [string]$InteractionIsland.Island.currentFidelity
+                        livePrimaryAssignmentCount = @(
+                            Get-LivePrimaryAssignmentsForIsland $CampaignView $InteractionIsland.EntityIds
+                        ).Count
+                    }
+                })
+                return $blockers
+            }
+        }
         $blockers.Add([ordered]@{
             code = 'migration-island-missing'
             message = 'No eligible single-entity Tactical island was found for migration.'
@@ -735,7 +772,20 @@ try {
         throw "Campaign binding mismatch: requested '$CampaignId', service returned '$($campaignView.campaignId)'."
     }
 
+    $interactionIsland = if (-not [string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
+        Find-InteractionIsland $campaignView $CanonicalEntityId
+    }
+    else {
+        $null
+    }
     $migrationContext = Get-MigrationContext $campaignView $workers $CanonicalEntityId
+    if ($null -eq $interactionIsland -and $null -ne $migrationContext) {
+        $interactionIsland = [pscustomobject]@{
+            Island = $migrationContext.Island
+            EntityIds = $migrationContext.EntityIds
+            AnchorEntityId = $migrationContext.AnchorEntityId
+        }
+    }
     $shadowPrediction = if ($null -ne $migrationContext) {
         Resolve-ShadowDestinationWorker $campaignView $migrationContext $workers.Source.ClientInstanceId
     }
@@ -745,8 +795,15 @@ try {
     Add-PhaseEvidence 'preflight-initial' @{
         commitPosition = [long]$campaignView.commitPosition
         timeQuanta = [long]$campaignView.timeQuanta
-        anchorEntityId = if ($null -eq $migrationContext) { '' } else { $migrationContext.AnchorEntityId }
-        islandId = if ($null -eq $migrationContext) { '' } else { $migrationContext.Island.islandId }
+        anchorEntityId = if ($null -eq $migrationContext) {
+            if ($null -ne $interactionIsland) { $interactionIsland.AnchorEntityId } else { '' }
+        }
+        else { $migrationContext.AnchorEntityId }
+        islandId = if ($null -eq $migrationContext) {
+            if ($null -ne $interactionIsland) { [string]$interactionIsland.Island.islandId } else { '' }
+        }
+        else { $migrationContext.Island.islandId }
+        islandCurrentFidelity = if ($null -eq $interactionIsland) { '' } else { [string]$interactionIsland.Island.currentFidelity }
         islandEntityCount = if ($null -eq $migrationContext) { 0 } else { $migrationContext.EntityIds.Count }
         predictedShadowDestinationClientInstanceId = if ($null -eq $shadowPrediction) { '' } else { $shadowPrediction.SelectedClientInstanceId }
         shadowDestinationAmbiguous = if ($null -eq $shadowPrediction) { $false } else { [bool]$shadowPrediction.Ambiguous }
@@ -773,15 +830,22 @@ try {
         }
     }
 
-    $preflightBlockers = @(Test-MigrationPreflight $campaignView $workers $migrationContext)
+    $preflightBlockers = @(Test-MigrationPreflight $campaignView $workers $migrationContext $interactionIsland)
     foreach ($blocker in $preflightBlockers) {
         Add-Blocker $blocker.code $blocker.message $blocker.details
     }
 
-    if (($AllowGhostRelease -or $AllowSourcePreparation -or $AllowSchedulerPromotion) -and $preflightBlockers.Count -gt 0) {
+    $repairRequested = [bool]($AllowGhostRelease -or $AllowSourcePreparation -or $AllowSchedulerPromotion)
+    $ghostReleaseOnlyRequested = [bool]($AllowGhostRelease -and -not $AllowSourcePreparation -and -not $AllowSchedulerPromotion)
+    $repairCompleted = $false
+
+    if ($repairRequested -and $preflightBlockers.Count -gt 0) {
         if ([string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
             if ($null -ne $migrationContext) {
                 $CanonicalEntityId = $migrationContext.AnchorEntityId
+            }
+            elseif ($null -ne $interactionIsland) {
+                $CanonicalEntityId = $interactionIsland.AnchorEntityId
             }
             else {
                 $tacticalEntity = @($campaignView.entities | Where-Object {
@@ -793,10 +857,15 @@ try {
             }
         }
         if ([string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
-            throw 'Repair requires -CanonicalEntityId or a Tactical entity in campaign state.'
+            throw 'Repair requires -CanonicalEntityId or a resolvable interaction island in campaign state.'
         }
-        if ($null -eq $migrationContext) {
-            $migrationContext = Get-MigrationContext $campaignView $workers $CanonicalEntityId
+        $interactionIsland = Find-InteractionIsland $campaignView $CanonicalEntityId
+        if ($null -eq $interactionIsland) {
+            throw "Repair could not locate a singleton interaction island for canonical entity '$CanonicalEntityId'."
+        }
+        $repairContext = Get-RepairContext $campaignView $workers $CanonicalEntityId
+        if ($null -eq $repairContext) {
+            throw "Repair could not build assignment context for canonical entity '$CanonicalEntityId'."
         }
 
         $repairSteps = @()
@@ -805,7 +874,7 @@ try {
                 $CampaignHttpUrl `
                 $headers `
                 $CampaignId `
-                $migrationContext `
+                $repairContext `
                 $TimeoutSeconds
             $repairSteps += $ghostRelease.steps
         }
@@ -815,7 +884,7 @@ try {
                 $headers `
                 $CampaignId `
                 $workers `
-                $CanonicalEntityId `
+                $repairContext.AnchorEntityId `
                 $TimeoutSeconds
             $repairSteps += $sourcePreparation
         }
@@ -825,21 +894,34 @@ try {
                 $headers `
                 $CampaignId `
                 $workers `
-                $CanonicalEntityId `
+                $repairContext.AnchorEntityId `
                 $TimeoutSeconds
             $repairSteps += $promotion
         }
         Add-PhaseEvidence 'repair' @{ steps = $repairSteps }
+        $repairCompleted = $true
 
         $campaignView = Get-CampaignView $CampaignHttpUrl $headers $CampaignId
+        $interactionIsland = Find-InteractionIsland $campaignView $CanonicalEntityId
         $migrationContext = Get-MigrationContext $campaignView $workers $CanonicalEntityId
-        $preflightBlockers = @(Test-MigrationPreflight $campaignView $workers $migrationContext)
+        if ($null -eq $interactionIsland -and $null -ne $migrationContext) {
+            $interactionIsland = [pscustomobject]@{
+                Island = $migrationContext.Island
+                EntityIds = $migrationContext.EntityIds
+                AnchorEntityId = $migrationContext.AnchorEntityId
+            }
+        }
+        $preflightBlockers = @(Test-MigrationPreflight $campaignView $workers $migrationContext $interactionIsland)
         $evidence.blockers = @()
         foreach ($blocker in $preflightBlockers) {
             Add-Blocker $blocker.code $blocker.message $blocker.details
         }
         Add-PhaseEvidence 'preflight-after-repair' @{
-            anchorEntityId = if ($null -eq $migrationContext) { '' } else { $migrationContext.AnchorEntityId }
+            anchorEntityId = if ($null -eq $migrationContext) {
+                if ($null -ne $interactionIsland) { $interactionIsland.AnchorEntityId } else { '' }
+            }
+            else { $migrationContext.AnchorEntityId }
+            islandCurrentFidelity = if ($null -eq $interactionIsland) { '' } else { [string]$interactionIsland.Island.currentFidelity }
             primaryAssignments = if ($null -eq $migrationContext) { @() } else {
                 @(@($migrationContext.PrimaryAssignments | ForEach-Object {
                     [ordered]@{
@@ -854,6 +936,14 @@ try {
 
     if ($evidence.blockers.Count -gt 0) {
         $evidence.succeeded = $false
+        if ($repairCompleted -and $ghostReleaseOnlyRequested) {
+            $evidence.resumable = $true
+            $evidence.repairStepCompleted = 'ghost-release'
+            $evidence | ConvertTo-Json -Depth 12
+            Write-Host 'MIGRATION_PROOF_REPAIR_STEP_COMPLETED: ghost Primary release finished; continue with -AllowSourcePreparation when ready.'
+            Write-EvidenceArtifact $EvidencePath
+            exit 0
+        }
         $evidence | ConvertTo-Json -Depth 12
         Write-Host 'MIGRATION_PROOF_PREFLIGHT_FAILED: live cross-worker migration is not safe to execute.'
         Write-EvidenceArtifact $EvidencePath

@@ -640,20 +640,40 @@ function Get-LiveShadowAssignmentsForIsland($CampaignView, [string[]]$EntityIds)
     })
 }
 
+function Find-InteractionIsland($CampaignView, [string]$CanonicalEntityId) {
+    if ([string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
+        return $null
+    }
+
+    $islands = @($CampaignView.scheduler.islands)
+    $match = @($islands | Where-Object { $_.entityIds -contains $CanonicalEntityId })
+    if ($match.Count -eq 0) {
+        return $null
+    }
+    if ($match.Count -gt 1) {
+        throw "Canonical entity '$CanonicalEntityId' belongs to multiple interaction islands."
+    }
+    if ($match[0].entityIds.Count -ne 1) {
+        throw "Canonical entity '$CanonicalEntityId' is not the sole member of a singleton interaction island."
+    }
+    return [pscustomobject]@{
+        Island = $match[0]
+        EntityIds = @($match[0].entityIds)
+        AnchorEntityId = $CanonicalEntityId
+    }
+}
+
 function Find-TacticalMigrationIsland($CampaignView, [string]$CanonicalEntityId) {
     $islands = @($CampaignView.scheduler.islands)
     if (-not [string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
-        $match = @($islands | Where-Object {
-            $_.entityIds -contains $CanonicalEntityId -and $_.currentFidelity -eq 'Tactical'
-        })
-        if ($match.Count -ne 1) {
-            throw "Canonical entity '$CanonicalEntityId' is not the sole member of exactly one Tactical island."
+        $islandInfo = Find-InteractionIsland $CampaignView $CanonicalEntityId
+        if ($null -eq $islandInfo) {
+            return $null
         }
-        return [pscustomobject]@{
-            Island = $match[0]
-            EntityIds = @($match[0].entityIds)
-            AnchorEntityId = $CanonicalEntityId
+        if ($islandInfo.Island.currentFidelity -ne 'Tactical') {
+            return $null
         }
+        return $islandInfo
     }
 
     $candidates = @($islands | Where-Object {

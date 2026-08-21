@@ -27,12 +27,12 @@ The migration driver reuses the coexistence proof, then fail-closes on:
 
 Optional repair is split and off by default:
 
-- `-AllowGhostRelease` — advance campaign time and `resolve-expired` to release a disconnected legacy Primary only.
-- `-AllowSourcePreparation` — coordinator `prepare-source` with pinned `preferredWorkerClientInstanceId` for the requested `-SourceWorkerId`; waits for Active Primary and exact native materialization on that worker (assignment id, game entity id, `lifecycleState=active`, `authorityEpoch`, and `revision` in `/game/mutations/surface/resources`).
+- `-AllowGhostRelease` — advance campaign time and `resolve-expired` to release a disconnected legacy Primary only. After success the driver recomputes blockers (typically `source-preparation-required` when the island demotes to Operational) and exits `0` as a resumable repair step; it does not retain stale pre-repair blockers or exit `1`.
+- `-AllowSourcePreparation` — coordinator `prepare-source` with pinned `preferredWorkerClientInstanceId` for the requested `-SourceWorkerId`; locates the singleton interaction island even when the entity is Operational with no live Primary; waits for Active Primary and exact native materialization on that worker (assignment id, game entity id, `lifecycleState=active`, `authorityEpoch`, and `revision` in `/game/mutations/surface/resources`). Migration preflight still requires Tactical fidelity plus Active exact source materialization.
 - `-AllowSchedulerPromotion` — legacy scheduler `schedule` promotion attempt; **nondeterministic** because the API cannot pin a worker. Prefer `-AllowSourcePreparation`. Must be passed explicitly; never implied by `-AllowRepair`.
 - `-AllowRepair` — convenience alias for `-AllowGhostRelease` plus `-AllowSourcePreparation` only (deterministic repair sequence).
 
-Execution requires `-Execute`. Without it the driver stops after preflight and returns exit code `0` when ready or `2` when blocked.
+Execution requires `-Execute`. Without it the driver stops after preflight and returns exit code `0` when ready, `0` when a requested ghost-release-only repair step completed (resumable; further repair may still be required), or `2` when blocked for migration.
 
 Evidence JSON omits secrets and may be written with `-EvidencePath`.
 
@@ -65,11 +65,11 @@ Neither named worker reports owned campaign objects (`activeObjectCount = 0`). T
 Recommended repair before `-Execute` (deliberate mutation — not run during this implementation pass):
 
 ```powershell
-# Step 1: bounded ghost release only (releases disconnected legacy Primary assignments)
-pnpm worker:migration-proof -- ...same args... -AllowGhostRelease
+# Step 1: bounded ghost release only (releases disconnected legacy Primary assignments; exit 0 when complete, with `source-preparation-required` if the island demoted to Operational)
+pnpm worker:migration-proof -- ...same args... -AllowGhostRelease -CanonicalEntityId <entity-id>
 
-# Step 2: pinned source preparation on worker-a (deterministic worker affinity)
-pnpm worker:migration-proof -- ...same args... -AllowGhostRelease -AllowSourcePreparation
+# Step 2: pinned source preparation on worker-a (deterministic worker affinity; works from Operational island with no live Primary)
+pnpm worker:migration-proof -- ...same args... -AllowSourcePreparation -CanonicalEntityId <entity-id>
 
 # Legacy fallback only if prepare-source is unavailable:
 pnpm worker:migration-proof -- ...same args... -AllowGhostRelease -AllowSchedulerPromotion
