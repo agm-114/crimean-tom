@@ -619,11 +619,10 @@ admission without starting cooldown, and any successful migration commits a
 campaign-wide cooldown reconstructed from `TacticalIslandMigratedEvent` history
 across service restart. Admission release on failed staging is island-specific so
 unrelated `FinalCheckpointStaged` failures cannot clear another island's lease.
-combat tempo to mixed active systems, exercise campaign-owned
-sensor/host/refueling edges, and
-calibrate the operational resolver against tactical observation batches. Keep
-tactical projection and campaign commit separate: Sea Power remains a fenced
-client of the external authoritative kernel.
+Campaign diagnostics now score operational weapon range, tactical compression,
+and fenced-island demotion against a documented envelope; disagreement is
+visible on the campaign view. Keep tactical projection and campaign commit
+separate: Sea Power remains a fenced client of the external authoritative kernel.
 
 Campaign diagnostics and the monitor now expose process-local service uptime,
 managed/working-set memory, recovery latency, advance latency and quanta rate,
