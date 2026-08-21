@@ -1299,14 +1299,15 @@ public sealed class CampaignCoordinator(
         }
 
         var sourceWorkers = sources.Select(item => item!.WorkerClientInstanceId)
-            .Where(owner => !string.IsNullOrWhiteSpace(owner))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var destinationWorkers = destinations.Select(item => item!.WorkerClientInstanceId)
-            .Where(owner => !string.IsNullOrWhiteSpace(owner))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (sourceWorkers.Length != 1 || destinationWorkers.Length != 1)
+        if (sourceWorkers.Length != 1
+            || destinationWorkers.Length != 1
+            || string.IsNullOrWhiteSpace(sourceWorkers[0])
+            || string.IsNullOrWhiteSpace(destinationWorkers[0]))
         {
             throw new CampaignStoreConflict(
                 "island-worker-affinity-conflict",
@@ -1364,10 +1365,13 @@ public sealed class CampaignCoordinator(
         IReadOnlyList<AssignmentState> livePrimaries,
         CancellationToken cancellationToken)
     {
+        var destinationWorkers = livePrimaries
+            .Select(item => item.WorkerClientInstanceId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         if (livePrimaries.Count != islandEntityIds.Count
-            || livePrimaries.Select(item => item.WorkerClientInstanceId)
-                .Distinct(StringComparer.Ordinal)
-                .Count() != 1)
+            || destinationWorkers.Length != 1
+            || string.IsNullOrWhiteSpace(destinationWorkers[0]))
         {
             return null;
         }
@@ -1413,7 +1417,7 @@ public sealed class CampaignCoordinator(
         }
 
         return new IslandMigrationPlan(
-            livePrimaries[0].WorkerClientInstanceId,
+            destinationWorkers[0],
             true,
             matching.CommitPosition.Value,
             members);
