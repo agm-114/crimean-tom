@@ -639,7 +639,7 @@ single-player prototype.
   durably resend staging frames if the coordinator restarts in that window.
   After the durable migration event, grants reconstruct from that event's
   exact commit position and source checkpoint blobs.
-  Bounded migration orchestration admission and durable post-commit cooldown are
+  Bounded migration orchestration admission and durable campaign-scoped cooldown are
   now enforced around the authenticated migrate path; per-worker health
   declarations and live two-container verification remain open. The
   campaign kernel itself accepts one atomic

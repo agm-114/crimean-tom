@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Service;
@@ -28,44 +26,65 @@ internal sealed record MigrationOrchestrationLease(
 
 internal sealed class CampaignMigrationAdmissionRegistry
 {
-    private readonly ConcurrentDictionary<CampaignId, MigrationOrchestrationLease> _active = new();
+    private readonly object _gate = new();
+    private readonly Dictionary<CampaignId, MigrationOrchestrationLease> _active = new();
 
     public bool TryAcquire(MigrationOrchestrationLease requested)
     {
-        if (_active.TryGetValue(requested.CampaignId, out var sameCampaign))
+        lock (_gate)
         {
-            if (sameCampaign.SourceWorkerClientInstanceId != requested.SourceWorkerClientInstanceId
-                || sameCampaign.DestinationWorkerClientInstanceId != requested.DestinationWorkerClientInstanceId)
+            if (_active.TryGetValue(requested.CampaignId, out var sameCampaign))
             {
-                return false;
+                if (sameCampaign.SourceWorkerClientInstanceId != requested.SourceWorkerClientInstanceId
+                    || sameCampaign.DestinationWorkerClientInstanceId != requested.DestinationWorkerClientInstanceId)
+                {
+                    return false;
+                }
+
+                return string.Equals(sameCampaign.IdempotencyKey, requested.IdempotencyKey, StringComparison.Ordinal);
             }
 
-            return string.Equals(sameCampaign.IdempotencyKey, requested.IdempotencyKey, StringComparison.Ordinal);
-        }
-
-        foreach (var active in _active.Values)
-        {
-            if (SharesWorker(active, requested))
+            foreach (var active in _active.Values)
             {
-                return false;
+                if (SharesWorker(active, requested))
+                {
+                    return false;
+                }
             }
-        }
 
-        return _active.TryAdd(requested.CampaignId, requested);
+            _active[requested.CampaignId] = requested;
+            return true;
+        }
     }
 
-    public bool IsHeld(MigrationOrchestrationLease requested) =>
-        _active.TryGetValue(requested.CampaignId, out var active)
-        && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
-        && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId;
+    public bool IsHeld(MigrationOrchestrationLease requested)
+    {
+        lock (_gate)
+        {
+            return _active.TryGetValue(requested.CampaignId, out var active)
+                && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
+                && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId;
+        }
+    }
 
     public void Release(MigrationOrchestrationLease requested)
     {
-        if (_active.TryGetValue(requested.CampaignId, out var active)
-            && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
-            && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId)
+        lock (_gate)
         {
-            _active.TryRemove(requested.CampaignId, out _);
+            if (_active.TryGetValue(requested.CampaignId, out var active)
+                && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
+                && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId)
+            {
+                _active.Remove(requested.CampaignId);
+            }
+        }
+    }
+
+    public void ReleaseForCampaign(CampaignId campaignId)
+    {
+        lock (_gate)
+        {
+            _active.Remove(campaignId);
         }
     }
 
@@ -88,14 +107,10 @@ internal static class CampaignMigrationCooldown
     public static async Task<CampaignMigrationCooldownStatus?> FindActiveCooldownAsync(
         CampaignState state,
         SqliteCampaignJournal journal,
-        string sourceWorkerClientInstanceId,
-        string destinationWorkerClientInstanceId,
         int cooldownQuanta,
         CancellationToken cancellationToken)
     {
-        if (cooldownQuanta <= 0
-            || string.IsNullOrWhiteSpace(sourceWorkerClientInstanceId)
-            || string.IsNullOrWhiteSpace(destinationWorkerClientInstanceId))
+        if (cooldownQuanta <= 0)
         {
             return null;
         }
@@ -104,68 +119,23 @@ internal static class CampaignMigrationCooldown
             state.Metadata.CampaignId,
             CommitPosition.Origin,
             cancellationToken);
-        foreach (var committed in events
-            .Where(item => item.Data is TacticalIslandMigratedEvent)
-            .OrderByDescending(item => item.CommitPosition.Value))
+        if (events
+                .Where(item => item.Data is TacticalIslandMigratedEvent)
+                .OrderByDescending(item => item.CommitPosition.Value)
+                .FirstOrDefault()?.Data is not TacticalIslandMigratedEvent migrated)
         {
-            if (committed.Data is not TacticalIslandMigratedEvent migrated
-                || !TryResolveWorkerSet(state, migrated, out var sourceWorker, out var destinationWorker)
-                || !string.Equals(sourceWorker, sourceWorkerClientInstanceId, StringComparison.Ordinal)
-                || !string.Equals(destinationWorker, destinationWorkerClientInstanceId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var cooldownEndsAt = migrated.Migration.EffectiveAt.Quanta + cooldownQuanta;
-            if (state.Time.Quanta >= cooldownEndsAt)
-            {
-                return null;
-            }
-
-            return new CampaignMigrationCooldownStatus(
-                migrated.Migration.EffectiveAt.Quanta,
-                cooldownEndsAt,
-                state.Time.Quanta);
+            return null;
         }
 
-        return null;
-    }
-
-    private static bool TryResolveWorkerSet(
-        CampaignState state,
-        TacticalIslandMigratedEvent migrated,
-        out string sourceWorkerClientInstanceId,
-        out string destinationWorkerClientInstanceId)
-    {
-        sourceWorkerClientInstanceId = string.Empty;
-        destinationWorkerClientInstanceId = string.Empty;
-        if (migrated.Migration.Members.Count < 1)
+        var cooldownEndsAt = migrated.Migration.EffectiveAt.Quanta + cooldownQuanta;
+        if (state.Time.Quanta >= cooldownEndsAt)
         {
-            return false;
+            return null;
         }
 
-        var first = migrated.Migration.Members[0];
-        if (!state.Assignments.TryGetValue(first.SourceAssignmentId, out var source)
-            || !state.Assignments.TryGetValue(first.DestinationAssignmentId, out var destination)
-            || string.IsNullOrWhiteSpace(source.WorkerClientInstanceId)
-            || string.IsNullOrWhiteSpace(destination.WorkerClientInstanceId))
-        {
-            return false;
-        }
-
-        sourceWorkerClientInstanceId = source.WorkerClientInstanceId;
-        destinationWorkerClientInstanceId = destination.WorkerClientInstanceId;
-        foreach (var member in migrated.Migration.Members)
-        {
-            if (!state.Assignments.TryGetValue(member.SourceAssignmentId, out var memberSource)
-                || !state.Assignments.TryGetValue(member.DestinationAssignmentId, out var memberDestination)
-                || !string.Equals(memberSource.WorkerClientInstanceId, sourceWorkerClientInstanceId, StringComparison.Ordinal)
-                || !string.Equals(memberDestination.WorkerClientInstanceId, destinationWorkerClientInstanceId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return new CampaignMigrationCooldownStatus(
+            migrated.Migration.EffectiveAt.Quanta,
+            cooldownEndsAt,
+            state.Time.Quanta);
     }
 }

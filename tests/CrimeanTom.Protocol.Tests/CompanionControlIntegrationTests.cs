@@ -1626,6 +1626,46 @@ public sealed class CompanionControlIntegrationTests
                 sessionBeforeCompanionRestart,
                 testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            const string cooldownProbeAssignmentId = "assignment:50000000000000000000000000000001";
+            using (var cooldownProbeHandoff = await campaignClient.PostAsJsonAsync(
+                "/control/handoffs",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = mismatchEntityId,
+                    gameEntityId = "unit:crimean-tom:mismatch-knox",
+                    assignmentId = cooldownProbeAssignmentId,
+                    authorityEpoch = 31,
+                    idempotencyKey = "cooldown-probe-handoff-setup",
+                    requiredRuntimeFingerprintSha256 = new string('a', 64),
+                    requiredCatalogFingerprintSha256 = string.Empty,
+                    unitTypeId = "usn_ff_knox_84",
+                    variantId = "Variant43",
+                    loadoutId = "Default",
+                    taskforceId = "taskforce:Blue",
+                },
+                JsonOptions,
+                testTimeout.Token))
+            {
+                Assert.True(
+                    cooldownProbeHandoff.IsSuccessStatusCode,
+                    await cooldownProbeHandoff.Content.ReadAsStringAsync(testTimeout.Token));
+            }
+            await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 1,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
+                    && item.AssignmentPrepared.AssignmentId == cooldownProbeAssignmentId
+                    && item.AssignmentPrepared.Ready);
+            await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("entityId").GetString() == mismatchEntityId
+                    && item.GetProperty("role").GetString() == "Primary"
+                    && item.GetProperty("lifecycle").GetString() == "Active"),
+                testTimeout.Token);
             await ProveFinalCheckpointMigrationAsync(
                 campaignClient,
                 campaignHttpUrl,
@@ -1633,6 +1673,7 @@ public sealed class CompanionControlIntegrationTests
                 campaignToken,
                 campaignId,
                 primaryEntityId,
+                mismatchEntityId,
                 campaignServiceRunDirectory,
                 async cancellationToken =>
                 {
@@ -3230,6 +3271,7 @@ public sealed class CompanionControlIntegrationTests
         string campaignToken,
         string campaignId,
         string primaryEntityId,
+        string cooldownProbeEntityId,
         string serviceRunDirectory,
         Func<CancellationToken, Task> restartCampaignService,
         CancellationToken cancellationToken)
@@ -3316,6 +3358,7 @@ public sealed class CompanionControlIntegrationTests
         Assert.True(await call.ResponseStream.MoveNext(cancellationToken));
         Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, call.ResponseStream.Current.PayloadCase);
         await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+        ulong destinationSequence = 1;
 
         using var preparedShadow = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/prepare-shadow",
@@ -3330,9 +3373,10 @@ public sealed class CompanionControlIntegrationTests
                 && item.Assignment.Role == AssignmentRole.Shadow,
             cancellationToken);
         Assert.Equal(primaryEntityId, queued.Assignment.CanonicalEntityId);
+        destinationSequence++;
         await call.RequestStream.WriteAsync(new CompanionFrame
         {
-            Sequence = 2,
+            Sequence = destinationSequence,
             AssignmentPrepared = new AssignmentPrepared
             {
                 AssignmentId = queued.Assignment.AssignmentId,
@@ -3389,6 +3433,14 @@ public sealed class CompanionControlIntegrationTests
             item => item.GetProperty("assignmentId").GetString() == sourceAssignment.GetProperty("assignmentId").GetString()
                 && item.GetProperty("lifecycle").GetString() == "Released");
 
+        destinationSequence = await PrepareCooldownProbeIslandForMigrationAsync(
+            campaignClient,
+            call,
+            destinationSequence,
+            campaignId,
+            cooldownProbeEntityId,
+            cancellationToken);
+
         using var migrate = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/migrate-tactical-island",
             new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-1" },
@@ -3432,7 +3484,7 @@ public sealed class CompanionControlIntegrationTests
             cancellationToken);
         Assert.Equal(HttpStatusCode.OK, checkpointDownload.StatusCode);
 
-        ulong nextSequence = 3;
+        ulong nextSequence = destinationSequence + 1;
         await call.RequestStream.WriteAsync(new CompanionFrame
         {
             Sequence = nextSequence,
@@ -3494,6 +3546,13 @@ public sealed class CompanionControlIntegrationTests
             repeatedBody.RootElement.GetProperty("phase").GetString(),
             new[] { "activation-granted", "migration-committed-grants-pending" });
         Assert.Equal(originalCommitPosition, repeatedBody.RootElement.GetProperty("migrationCommitPosition").GetInt64());
+
+        await AssertCampaignMigrationCooldownBlocksSecondIslandAsync(
+            campaignClient,
+            campaignId,
+            cooldownProbeEntityId,
+            "live",
+            cancellationToken);
 
         using var currentViewResponse = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
         currentViewResponse.EnsureSuccessStatusCode();
@@ -3599,9 +3658,133 @@ public sealed class CompanionControlIntegrationTests
             cancellationToken);
         Assert.Equal(originalHash, resentGrant.ActivationGrant.StagedCheckpointSha256);
 
+        await AssertCampaignMigrationCooldownBlocksSecondIslandAsync(
+            campaignClient,
+            campaignId,
+            cooldownProbeEntityId,
+            "restart",
+            cancellationToken);
+
         await recoveredCall.RequestStream.CompleteAsync();
         recoveredCall.Dispose();
         await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
+    }
+
+    private static async Task<ulong> PrepareCooldownProbeIslandForMigrationAsync(
+        HttpClient campaignClient,
+        AsyncDuplexStreamingCall<CompanionFrame, ServiceFrame> destinationCall,
+        ulong destinationSequence,
+        string campaignId,
+        string probeEntityId,
+        CancellationToken cancellationToken)
+    {
+        const string probeGameEntityId = "unit:crimean-tom:mismatch-knox";
+
+        using var prepare = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new { campaignId, canonicalEntityId = probeEntityId, idempotencyKey = "cooldown-probe-shadow-setup" },
+            cancellationToken);
+        Assert.True(
+            prepare.IsSuccessStatusCode,
+            await prepare.Content.ReadAsStringAsync(cancellationToken));
+
+        var shadowQueued = await WaitForServicePayloadAsync(
+            destinationCall,
+            item => item.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
+                && item.Assignment.Role == AssignmentRole.Shadow
+                && item.Assignment.CanonicalEntityId == probeEntityId,
+            cancellationToken);
+        destinationSequence++;
+        await destinationCall.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = destinationSequence,
+            AssignmentPrepared = new AssignmentPrepared
+            {
+                AssignmentId = shadowQueued.Assignment.AssignmentId,
+                EntityId = shadowQueued.Assignment.EntityId,
+                AuthorityEpoch = shadowQueued.Assignment.AuthorityEpoch,
+                RealizedRevision = 1,
+                CanonicalStateSha256 = new string('a', 64),
+                Ready = true,
+            },
+        });
+
+        using var preparedView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == probeEntityId
+                && item.GetProperty("role").GetString() == "Shadow"
+                && item.GetProperty("lifecycle").GetString() == "Prepared"),
+            cancellationToken);
+        var probePrimary = Assert.Single(
+            preparedView.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == probeEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active");
+        using var quiesce = await campaignClient.PostAsJsonAsync(
+            "/control/quiesce",
+            new
+            {
+                campaignId,
+                assignmentId = $"assignment:{probePrimary.GetProperty("assignmentId").GetString()}",
+                gameEntityId = probeGameEntityId,
+                expectedGameRevision = 1,
+                idempotencyKey = "cooldown-probe-quiesce-setup",
+            },
+            JsonOptions,
+            cancellationToken);
+        Assert.True(
+            quiesce.IsSuccessStatusCode,
+            await quiesce.Content.ReadAsStringAsync(cancellationToken));
+        await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == probeEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Quiesced"),
+            cancellationToken);
+
+        return destinationSequence;
+    }
+
+    private static async Task AssertCampaignMigrationCooldownBlocksSecondIslandAsync(
+        HttpClient campaignClient,
+        string campaignId,
+        string probeEntityId,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        using var beforeView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        beforeView.EnsureSuccessStatusCode();
+        using var beforeBody = JsonDocument.Parse(await beforeView.Content.ReadAsStringAsync(cancellationToken));
+        var commitBefore = beforeBody.RootElement.GetProperty("commitPosition").GetInt64();
+
+        using var cooledMigrate = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/migrate-tactical-island",
+            new { campaignId, canonicalEntityId = probeEntityId, idempotencyKey = $"cooldown-probe-migrate-{label}" },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, cooledMigrate.StatusCode);
+        using var cooledBody = JsonDocument.Parse(await cooledMigrate.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "migration-cooldown-active",
+            cooledBody.RootElement.GetProperty("error").GetString());
+
+        using var afterView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        afterView.EnsureSuccessStatusCode();
+        using var afterBody = JsonDocument.Parse(await afterView.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(commitBefore, afterBody.RootElement.GetProperty("commitPosition").GetInt64());
+        Assert.Contains(
+            afterBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == probeEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Quiesced");
+        Assert.Contains(
+            afterBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == probeEntityId
+                && item.GetProperty("role").GetString() == "Shadow"
+                && item.GetProperty("lifecycle").GetString() == "Prepared");
     }
 
     private static async Task<string> WaitForAcceptedMigrationSourceHandoffAsync(

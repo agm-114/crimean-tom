@@ -412,11 +412,12 @@ one-Primary state machine can spend that slot yet.
 ## Migration orchestration admission and cooldown
 
 The broad protocol story now proves bounded migrate-tactical-island orchestration
-admission and durable post-commit cooldown. A second migrate call while staging
-is in flight is rejected with `migration-orchestration-busy` before any authority
-mutation. Cooldown reconstruction from `TacticalIslandMigratedEvent` journal
-history is implemented in the coordinator migrate path; an end-to-end
-`migration-cooldown-active` rejection after a return migration remains to be
-wired into the live two-worker story when reverse migration is automated there.
-Cooldown duration is configurable through `CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA`
-(default 30 quanta).
+admission and durable campaign-scoped post-commit cooldown. A second migrate call
+while staging is in flight is rejected with `migration-orchestration-busy` before
+any authority mutation. After a successful `TacticalIslandMigratedEvent`, a
+later non-idempotent migration for another ready island in the same campaign is
+rejected with `migration-cooldown-active` before staging or authority mutation;
+the rejection survives coordinator restart because cooldown is reconstructed from
+journal history, not a process-local clock. Already-migrated activation-grant
+replay remains allowed. Cooldown duration is configurable through
+`CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA` (default 30 quanta).

@@ -171,12 +171,12 @@ staged hashes live with the coordinator process only before that commit;
 companions durably resend staging frames across a pre-commit restart. After
 commit, grants reconstruct from the journal migration event and durable source
 checkpoints, including after service restart and later head advances. Bounded
-migration orchestration admission and durable post-commit cooldown are now
-enforced around the authenticated migrate-tactical-island path: one in-flight
-orchestration per campaign and per shared source/destination worker, explicit
-`migration-orchestration-busy` rejection before any staging, and cooldown
-reconstructed from `TacticalIslandMigratedEvent` journal history rather than
-process-local clocks. Per-worker health declarations and live two-container
+migration orchestration admission and durable campaign-scoped post-commit cooldown
+are now enforced around the authenticated migrate-tactical-island path: one
+in-flight orchestration per campaign and per shared source/destination worker,
+explicit `migration-orchestration-busy` rejection before any staging, and
+cooldown reconstructed from the latest `TacticalIslandMigratedEvent` in the
+campaign journal rather than process-local clocks. Per-worker health declarations and live two-container
 Sea Power verification remain open. The campaign kernel now has one atomic
 command/event that can migrate a complete singleton or multi-entity island:
 source assignments must be live `Primary`/`Quiesced`, destinations must be

@@ -583,7 +583,7 @@ public sealed class CampaignCoordinator(
                 plan.SourceClientInstanceId,
                 plan.DestinationClientInstanceId,
                 request.IdempotencyKey);
-            await EnsureMigrationCooldownAsync(state, orchestration, cancellationToken);
+            await EnsureMigrationCooldownAsync(state, cancellationToken);
             if (!TryBeginMigrationOrchestration(orchestration))
             {
                 throw CreateMigrationOrchestrationConflict(orchestration);
@@ -1608,18 +1608,40 @@ public sealed class CampaignCoordinator(
                 "assignment-worker-fenced",
                 "The companion client does not own this tactical assignment.");
         }
-        if (!staged.Ready)
-        {
-            return;
-        }
 
-        IslandMigrationPlan plan;
+        IslandMigrationPlan? plan = null;
         try
         {
             plan = await RequireMigrationPlanAsync(state, assignment.EntityId, cancellationToken);
         }
         catch (CampaignStoreConflict)
         {
+            if (!staged.Ready)
+            {
+                _migrationAdmission.ReleaseForCampaign(campaignId);
+            }
+
+            return;
+        }
+
+        if (plan.AlreadyMigrated)
+        {
+            if (staged.Ready)
+            {
+                _ = QueueActivationGrants(
+                    state,
+                    plan,
+                    staged.IdempotencyKey.Length > 0
+                        ? staged.IdempotencyKey
+                        : $"activate-{assignmentId}-{staged.AuthorityEpoch}");
+            }
+
+            return;
+        }
+
+        if (!staged.Ready)
+        {
+            _migrationAdmission.ReleaseForCampaign(campaignId);
             return;
         }
 
@@ -1627,6 +1649,7 @@ public sealed class CampaignCoordinator(
             ?? throw new CampaignStoreConflict("migration-batch-inconsistent", "Staged assignment is not part of the island plan.");
         if (!string.Equals(staged.StagedCheckpointSha256, member.SourceCheckpoint.Sha256, StringComparison.OrdinalIgnoreCase))
         {
+            _migrationAdmission.ReleaseForCampaign(campaignId);
             throw new CampaignStoreConflict(
                 "checkpoint-hash-mismatch",
                 "The staged checkpoint hash does not match the source final checkpoint.");
@@ -1649,7 +1672,7 @@ public sealed class CampaignCoordinator(
             plan.SourceClientInstanceId,
             plan.DestinationClientInstanceId,
             staged.IdempotencyKey.Length > 0 ? staged.IdempotencyKey : $"migrate-{assignmentId}-{staged.AuthorityEpoch}");
-        await EnsureMigrationCooldownAsync(state, orchestration, cancellationToken);
+        await EnsureMigrationCooldownAsync(state, cancellationToken);
         if (!_migrationAdmission.IsHeld(orchestration) && !TryBeginMigrationOrchestration(orchestration))
         {
             throw CreateMigrationOrchestrationConflict(orchestration);
@@ -1719,14 +1742,11 @@ public sealed class CampaignCoordinator(
 
     private async Task EnsureMigrationCooldownAsync(
         CampaignState state,
-        MigrationOrchestrationLease orchestration,
         CancellationToken cancellationToken)
     {
         var cooldown = await CampaignMigrationCooldown.FindActiveCooldownAsync(
             state,
             journal,
-            orchestration.SourceWorkerClientInstanceId,
-            orchestration.DestinationWorkerClientInstanceId,
             _migrationPolicy.CooldownQuanta,
             cancellationToken);
         if (cooldown is null)
