@@ -129,6 +129,8 @@ internal static class GameCommandDispatcher
                         SetOwnedSurfaceSuspension(command.PayloadJson, command.SessionId),
                     GameCommandTypes.RestoreOwnedSurfaceCheckpoint =>
                         RestoreOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.StageOwnedSurfaceCheckpoint =>
+                        StageOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
                     GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery =>
                         ReleaseDetachedOwnedSurfaceRecovery(
                             command.PayloadJson,
@@ -1583,6 +1585,19 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new RestoreOwnedSurfaceCheckpointRequestPayload();
         var result = RuntimeOwnedMutationAdapter.RestoreCheckpoint(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload StageOwnedSurfaceCheckpoint(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<StageOwnedSurfaceCheckpointRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new StageOwnedSurfaceCheckpointRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.StageCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);

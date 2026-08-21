@@ -234,6 +234,15 @@ public sealed class RestoreOwnedSurfaceCheckpointRequestPayload
     public string FaultInjectionConfirmation { get; set; } = string.Empty;
 }
 
+public sealed class StageOwnedSurfaceCheckpointRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public OwnedSurfaceCheckpointPayload SourceCheckpoint { get; set; } = new();
+    public string FaultInjectionStep { get; set; } = string.Empty;
+    public string FaultInjectionConfirmation { get; set; } = string.Empty;
+}
+
 public sealed class OwnedSurfaceResourceStatePayload
 {
     public int SchemaVersion { get; set; } = 1;

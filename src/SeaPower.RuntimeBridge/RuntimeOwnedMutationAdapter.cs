@@ -1142,6 +1142,130 @@ internal static class RuntimeOwnedMutationAdapter
         }
     }
 
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> StageCheckpoint(
+        StageOwnedSurfaceCheckpointRequestPayload request,
+        string commandSessionId)
+    {
+        var faultError = ValidateFaultInjection(
+            request.FaultInjectionStep,
+            request.FaultInjectionConfirmation,
+            "after-state-apply",
+            "after-readback");
+        if (faultError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                faultError);
+        }
+        var replay = TryLifecycleReplay(
+            GameCommandTypes.StageOwnedSurfaceCheckpoint,
+            request.Context,
+            request,
+            commandSessionId);
+        if (replay is not null)
+        {
+            return replay;
+        }
+        var resolved = ResolveOwned<OwnedSurfaceLifecycleResultPayload>(
+            request.Context,
+            request.EntityId,
+            commandSessionId);
+        if (!resolved.Succeeded)
+        {
+            return resolved.Error!;
+        }
+
+        var record = resolved.Record!;
+        var vessel = record.Vessel!;
+        if (!vessel.Disabled || record.RecoveryRequired)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Migration checkpoint staging requires a healthy suspended destination object.");
+        }
+        var current = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
+        var checkpointError = ValidateImportedCheckpoint(
+            request.SourceCheckpoint,
+            request.Context,
+            request.EntityId,
+            current.UnitTypeId,
+            current.VariantId,
+            current.LoadoutId,
+            current.TaskforceId);
+        if (checkpointError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                checkpointError);
+        }
+
+        var originalCheckpoint = record.Checkpoint;
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            ApplyPortableState(vessel, request.SourceCheckpoint.Unit);
+            InjectFailure(request.FaultInjectionStep, "after-state-apply");
+            var realized = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
+            AssertPortableState(request.SourceCheckpoint.Unit, realized, expectedDisabled: true);
+            InjectFailure(request.FaultInjectionStep, "after-readback");
+            record.Checkpoint = request.SourceCheckpoint;
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                "migration-checkpoint-staged",
+                "owned-surface-unit-remains-suspended-with-verified-migration-checkpoint",
+                request.Context,
+                record,
+                timer);
+            result.SourceCheckpointId = request.SourceCheckpoint.CheckpointId;
+            result.SourceCheckpointSha256 = request.SourceCheckpoint.CheckpointSha256;
+            StoreLifecycleReplay(
+                GameCommandTypes.StageOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            var recovery = "destination-suspension-restored";
+            try
+            {
+                ApplyPortableState(vessel, current);
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+                AssertPortableState(current, Capture(
+                    vessel,
+                    record.TaskforceId,
+                    record.InitialStoresQuantity), expectedDisabled: true);
+                record.Checkpoint = originalCheckpoint;
+            }
+            catch
+            {
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+                recovery = "recoverable-suspended-owned-object";
+            }
+            record.RecoveryRequired = recovery == "recoverable-suspended-owned-object";
+            var injected = exception as InjectedMutationFailureException;
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                injected is null
+                    ? ProtocolErrorCodes.MutationPreconditionFailed
+                    : ProtocolErrorCodes.MutationInjectedFailure,
+                $"operation=stage-checkpoint; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}",
+                injected is null ? null : $"fault:stage-checkpoint:{injected.Step}:{recovery}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
+    }
+
     private static OwnedResolution<T> ResolveOwned<T>(
         OwnedMutationContextPayload? context,
         string entityId,
@@ -1313,6 +1437,29 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return null;
         }
+        return ValidateImportedCheckpoint(
+            checkpoint,
+            request.Context,
+            request.EntityId,
+            request.UnitTypeId,
+            request.VariantId,
+            request.LoadoutId,
+            request.TaskforceId);
+    }
+
+    private static string? ValidateImportedCheckpoint(
+        OwnedSurfaceCheckpointPayload? checkpoint,
+        OwnedMutationContextPayload? context,
+        string entityId,
+        string unitTypeId,
+        string variantId,
+        string loadoutId,
+        string taskforceId)
+    {
+        if (checkpoint is null || context is null)
+        {
+            return "The imported portable checkpoint and destination context are required.";
+        }
         var unit = checkpoint.Unit;
         if (checkpoint.SchemaVersion != 1
             || string.IsNullOrWhiteSpace(checkpoint.CheckpointId)
@@ -1322,22 +1469,22 @@ internal static class RuntimeOwnedMutationAdapter
             || !checkpoint.CheckpointSha256.All(Uri.IsHexDigit)
             || !ValidScopedId(checkpoint.AssignmentId, "assignment:")
             || checkpoint.AuthorityEpoch < 1
-            || checkpoint.AuthorityEpoch >= request.Context.AuthorityEpoch
+            || checkpoint.AuthorityEpoch >= context.AuthorityEpoch
             || checkpoint.Revision < 0
             || string.Equals(
                 checkpoint.AssignmentId,
-                request.Context.AssignmentId,
+                context.AssignmentId,
                 StringComparison.Ordinal))
         {
             return "The imported portable checkpoint identity or predecessor fence is invalid.";
         }
         if (unit is null
-            || !string.Equals(unit.StableUnitId, $"campaign-unit:{request.EntityId}", StringComparison.Ordinal)
-            || !string.Equals(unit.EntityId, request.EntityId, StringComparison.Ordinal)
-            || !string.Equals(unit.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
-            || !string.Equals(unit.VariantId, request.VariantId, StringComparison.Ordinal)
-            || !string.Equals(unit.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
-            || !string.Equals(unit.TaskforceId, request.TaskforceId, StringComparison.Ordinal)
+            || !string.Equals(unit.StableUnitId, $"campaign-unit:{entityId}", StringComparison.Ordinal)
+            || !string.Equals(unit.EntityId, entityId, StringComparison.Ordinal)
+            || !string.Equals(unit.UnitTypeId, unitTypeId, StringComparison.Ordinal)
+            || !string.Equals(unit.VariantId, variantId, StringComparison.Ordinal)
+            || !string.Equals(unit.LoadoutId, loadoutId, StringComparison.Ordinal)
+            || !string.Equals(unit.TaskforceId, taskforceId, StringComparison.Ordinal)
             || unit.Latitude is not double latitude
             || unit.Longitude is not double longitude
             || unit.HeadingDegrees is not double heading

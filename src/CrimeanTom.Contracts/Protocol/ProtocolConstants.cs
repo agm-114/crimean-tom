@@ -99,6 +99,7 @@ public static class GameCommandTypes
     public const string UpdateOwnedSurfaceUnit = "update-owned-surface-unit";
     public const string SetOwnedSurfaceSuspension = "set-owned-surface-suspension";
     public const string RestoreOwnedSurfaceCheckpoint = "restore-owned-surface-checkpoint";
+    public const string StageOwnedSurfaceCheckpoint = "stage-owned-surface-checkpoint";
     public const string GetOwnedSurfaceResourceState = "get-owned-surface-resource-state";
     public const string ReleaseDetachedOwnedSurfaceRecovery =
         "release-detached-owned-surface-recovery";
@@ -148,6 +149,7 @@ public static class GameCommandTypes
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
         RestoreOwnedSurfaceCheckpoint,
+        StageOwnedSurfaceCheckpoint,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
 
@@ -179,6 +181,7 @@ public static class GameCommandTypes
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
         RestoreOwnedSurfaceCheckpoint,
+        StageOwnedSurfaceCheckpoint,
         GetOwnedSurfaceResourceState,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
