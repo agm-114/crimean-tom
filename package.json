@@ -3,8 +3,11 @@
   "private": true,
   "packageManager": "pnpm@10.9.0",
   "scripts": {
-    "test": "dotnet test CrimeanTom.sln --configuration Debug",
-    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 build",
+    "test": "pnpm monitor:build && dotnet test CrimeanTom.sln --configuration Debug",
+    "build": "pnpm monitor:build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 build",
+    "monitor:build": "pnpm --filter @crimean-tom/campaign-monitor build",
+    "monitor:dev": "pnpm --filter @crimean-tom/campaign-monitor dev",
+    "campaign:server": "pnpm monitor:build && dotnet run --project src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj --configuration Debug",
     "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 deploy",
     "launch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 launch",
     "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 verify",

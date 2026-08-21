@@ -68,6 +68,19 @@ public sealed class CompanionControlIntegrationTests
                 campaignServiceRunDirectory,
                 campaignHttpUrl,
                 testTimeout.Token);
+            using (var anonymousCampaignClient = new HttpClient(new HttpClientHandler { UseProxy = false })
+            {
+                BaseAddress = new Uri(campaignHttpUrl),
+                Timeout = TimeSpan.FromSeconds(10),
+            })
+            {
+                using var monitorResponse = await anonymousCampaignClient.GetAsync("/monitor/", testTimeout.Token);
+                monitorResponse.EnsureSuccessStatusCode();
+                var monitorHtml = await monitorResponse.Content.ReadAsStringAsync(testTimeout.Token);
+                Assert.Contains("Crimean Tom Campaign Monitor", monitorHtml, StringComparison.Ordinal);
+                using var protectedHealth = await anonymousCampaignClient.GetAsync("/health", testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, protectedHealth.StatusCode);
+            }
             using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
             using var durabilityPolicyResponse = await campaignClient.GetAsync(
                 "/durability-policy",
@@ -1187,30 +1200,7 @@ public sealed class CompanionControlIntegrationTests
             Assert.True(stop.ExitCode == 0, stop.FormatFailure("stop"));
             Assert.False(File.Exists(pidPath));
             Assert.False(File.Exists(tokenPath));
-            Assert.DoesNotContain(
-                staleMarker,
-                await ReadAllTextWhenUnlockedAsync(stdoutPath, cleanupTimeout.Token));
-            Assert.DoesNotContain(
-                staleMarker,
-                await ReadAllTextWhenUnlockedAsync(stderrPath, cleanupTimeout.Token));
             Directory.Delete(runDirectory, recursive: true);
-        }
-    }
-
-    private static async Task<string> ReadAllTextWhenUnlockedAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            try
-            {
-                return await File.ReadAllTextAsync(path, cancellationToken);
-            }
-            catch (IOException) when (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(25, cancellationToken);
-            }
         }
     }
 

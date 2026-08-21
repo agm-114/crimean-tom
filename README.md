@@ -29,6 +29,20 @@ pnpm status      # show paths, process state, hashes, and current load state
 pnpm inventory:determinism # generate the pinned compiled call-site manifest
 ```
 
+The Phase 5 operator monitor is served by the campaign service:
+
+```powershell
+pnpm campaign:server
+```
+
+Open `http://127.0.0.1:5081/monitor/`, paste the per-run bearer token from
+`.run/campaign-service/service.token`, and either connect to a campaign ID or
+use **Create Fulda** to create and advance a representative Fulda Gap Gone Hot
+campaign. The static Tailwind/Babylon shell is loopback-readable so it can load
+before authentication; `/health`, campaign data, and all control routes still
+require the bearer token. The page keeps the token in memory only—never in a
+URL, cookie, or browser storage.
+
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main
 thread. The first slice is deliberately read-only:

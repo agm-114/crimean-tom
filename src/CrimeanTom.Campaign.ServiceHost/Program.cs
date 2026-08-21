@@ -8,7 +8,17 @@ using CrimeanTom.Campaign.Transport.V1;
 
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
-var builder = WebApplication.CreateBuilder(args);
+var repositoryWebRoot = Path.GetFullPath(Path.Combine(
+    Directory.GetCurrentDirectory(),
+    "src",
+    "CrimeanTom.Campaign.ServiceHost",
+    "wwwroot"));
+var deployedWebRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    WebRootPath = Directory.Exists(repositoryWebRoot) ? repositoryWebRoot : deployedWebRoot,
+});
 var grpcUri = RequireLoopbackUri(
     builder.Configuration["GrpcUrl"]
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_GRPC_URL")
@@ -45,8 +55,15 @@ builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory
 builder.Services.AddSingleton<CampaignCoordinator>();
 var app = builder.Build();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.Use(async (context, next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/monitor"))
+    {
+        await next(context);
+        return;
+    }
     if (context.Request.ContentType?.StartsWith("application/grpc", StringComparison.Ordinal) == true)
     {
         await next(context);

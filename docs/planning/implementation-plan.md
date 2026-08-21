@@ -616,8 +616,10 @@ single-player prototype.
   Operational abstractions; naval and air interactions provide the tactical
   promotion surface.
 - The monitor is part of the Phase 5 exit artifact, not a separate authority. It
-  will expose campaign map state, units, interactions, fidelity reasons, health,
-  load, and transitions from the same authenticated service projections.
+  now exposes the campaign graph, bases, units, task forces, domains, fidelity,
+  damage, recent interactions, health, and journal head from the authenticated
+  diagnostic projection. Scheduler reasons, client load, and transition history
+  will be added with the scheduler slice.
 - The unattended resolver now performs deterministic region-level detection,
   uncertainty degradation, weapons expenditure, damage, destruction, and
   whole-task-force withdrawal. Coalition projections receive opaque track IDs

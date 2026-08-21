@@ -369,9 +369,23 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     {
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
         return new CampaignDiagnosticView(
+            recovery.State.Metadata.CampaignId.ToString(),
+            recovery.State.Metadata.Name,
             recovery.State.Head.Value,
             recovery.State.Time.Quanta,
             recovery.CanonicalHash,
+            recovery.State.Regions.Values.Select(item => new CampaignRegionView(
+                item.RegionId.ToString(),
+                item.Name,
+                item.Neighbors.Select(neighbor => neighbor.ToString()).ToArray())).ToArray(),
+            recovery.State.Bases.Values.Select(item => new CampaignBaseView(
+                item.BaseId.ToString(),
+                item.Name,
+                item.CoalitionId.ToString(),
+                item.RegionId.ToString(),
+                item.Coordinate.LatitudeMicrodegrees,
+                item.Coordinate.LongitudeMicrodegrees,
+                item.Resources.ToDictionary(pair => pair.Key.ToString(), pair => pair.Value.MilliUnits))).ToArray(),
             recovery.State.Entities.Values.Select(item => new CampaignEntityView(
                 item.EntityId.ToString(),
                 item.Name,
@@ -389,6 +403,13 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
                 item.DamageMilliUnits,
                 item.Lifecycle.ToString(),
+                item.Revision.Value)).ToArray(),
+            recovery.State.Groups.Values.Select(item => new CampaignGroupView(
+                item.GroupId.ToString(),
+                item.Name,
+                item.CoalitionId.ToString(),
+                item.Members.Select(member => member.ToString()).ToArray(),
+                item.ActiveOrderId?.ToString(),
                 item.Revision.Value)).ToArray(),
             recovery.State.Assignments.Values.Select(item => new CampaignAssignmentView(
                 item.AssignmentId.ToString(),
@@ -865,12 +886,39 @@ public sealed record FuldaGapBootstrapResult(
 public sealed record CampaignAdvanceResult(long CommitPosition, long TimeQuanta, string CanonicalHash, bool TacticalEntitiesFrozen);
 
 public sealed record CampaignDiagnosticView(
+    string CampaignId,
+    string Name,
     long CommitPosition,
     long TimeQuanta,
     string CanonicalHash,
+    IReadOnlyList<CampaignRegionView> Regions,
+    IReadOnlyList<CampaignBaseView> Bases,
     IReadOnlyList<CampaignEntityView> Entities,
+    IReadOnlyList<CampaignGroupView> Groups,
     IReadOnlyList<CampaignAssignmentView> Assignments,
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes);
+
+public sealed record CampaignRegionView(
+    string RegionId,
+    string Name,
+    IReadOnlyList<string> NeighborRegionIds);
+
+public sealed record CampaignBaseView(
+    string BaseId,
+    string Name,
+    string CoalitionId,
+    string RegionId,
+    int LatitudeMicrodegrees,
+    int LongitudeMicrodegrees,
+    IReadOnlyDictionary<string, long> Resources);
+
+public sealed record CampaignGroupView(
+    string GroupId,
+    string Name,
+    string CoalitionId,
+    IReadOnlyList<string> MemberEntityIds,
+    string? ActiveOrderId,
+    long Revision);
 
 public sealed record CampaignOperationalOutcomeView(
     string OutcomeId,

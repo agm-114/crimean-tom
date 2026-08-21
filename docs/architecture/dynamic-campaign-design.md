@@ -66,6 +66,21 @@ hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
 and uses stable campaign-derived IDs so the same campaign ID and content version
 reproduce the same world.
 
+### Operator monitor
+
+The campaign service hosts a Tailwind CSS and Babylon.js monitor at `/monitor/`.
+It renders the region graph, bases, unit domains and fidelity, task-force
+membership, active operational outcomes, damage, and service/head status. The
+same information is also represented as semantic HTML unit and outcome lists so
+the 3D canvas is not the only way to inspect the campaign.
+
+The static shell contains no campaign data and may load unauthenticated on the
+loopback listener. Every health, diagnostic, bootstrap, and control request
+continues to require the campaign-service bearer token. The operator enters the
+token after load; the client retains it only in JavaScript memory and sends it in
+the `Authorization` header. It is never placed in a query string, cookie,
+`localStorage`, or `sessionStorage`. Closing or reloading the page discards it.
+
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the

@@ -486,3 +486,6 @@ decompiled/
 
 # Local companion process state and logs
 .run/
+
+# Generated campaign monitor bundle (built by pnpm monitor:build)
+src/CrimeanTom.Campaign.ServiceHost/wwwroot/monitor/
