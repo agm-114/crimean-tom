@@ -331,6 +331,31 @@ destination Sea Power process proof. Only position, heading, speed, and
 telegraph are currently applied during reconstruction. Fuel, stores, damage,
 sensors, formations, and hosted aircraft remain explicit unsupported fields.
 
+A live cold-reconstruction proof then used fresh global-war campaign
+`08eed6175b1a4e1abf50004d4e5808c8`. Its 32-region, 60-entity seed advanced to
+T+30 before USS Pharris entered epoch 1 with 146,715 canonical damage. The
+assignment materialized and drained normally; a bug found in that first live
+attempt had allowed the pristine tactical hull to overwrite campaign damage.
+The assignment contract now carries the canonical damage baseline and adds only
+observed tactical damage. The broad protocol story's existing 250,000-damage
+assertion passed after the fix, and the live drain preserved 146,715 exactly.
+
+Sea Power was then fully restarted. The new process reported zero owned records
+before promotion, proving that retained-object reuse was impossible. Epoch 2
+assignment `9f06359e64656f01be9a0812a21de255` carried content reference
+`df7f9f6a97facc9b08b2d888efd3e41c44320b597fee2326500421aa3983f4a7`.
+The companion downloaded it and the bridge constructed game object 126 at
+latitude 62.7, longitude -15, heading 0 and speed 0. Campaign commit 242 showed
+one Active/Tactical object, no retained object, no recovery debt, and unchanged
+canonical damage 146,715.
+
+This is live process-to-process cold checkpoint reconstruction for the supported
+surface subset, not simultaneous two-container migration. The reconstructed
+Unity hull remains pristine (`damageFraction=0`) because damage application is
+unsupported even though canonical damage is preserved externally. It must not
+receive gameplay authority where that mismatch matters. The same restriction
+continues to cover fuel, stores, sensors, formations and hosted aircraft.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,

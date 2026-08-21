@@ -339,9 +339,15 @@ content SHA-256. A destination runtime then validates the checkpoint's own state
 hash, predecessor assignment/epoch fence, and exact entity/profile/task-force
 identity before reconstructing position, heading, speed, and telegraph. The
 solution builds without warnings and both broad integration stories pass. This
-is portable transfer plumbing, not live two-container migration evidence:
+path now has live cold-restart evidence in campaign
+`08eed6175b1a4e1abf50004d4e5808c8`: a fresh Sea Power process began with zero
+owned records and reconstructed epoch-2 Pharris as game object 126 from durable
+checkpoint `df7f9f6a...3983f4a7`, reaching commit 242 with no recovery debt.
+Canonical damage 146,715 survived the lifecycle after a live-found baseline
+overwrite defect was fixed. This is not simultaneous two-container migration:
 fuel, stores, damage, sensors, formations, and hosted aircraft are still
-reported as unsupported and must continue to fence automatic movement.
+reported as unsupported and must continue to fence automatic movement. The
+Unity hull is pristine even while external canonical damage remains 146,715.
 
 Tactical fidelity is now an achieved worker state rather than a scheduler label.
 The scheduler may project Tactical as desired, but leaves canonical fidelity at
@@ -489,6 +495,12 @@ materialized, active and recovery debt, and selected-unit inspection reports
 the owning worker. A browser pass at the schema-v6 deep link rendered the world
 map and hierarchy with no warnings or errors:
 `http://127.0.0.1:5081/monitor/?campaign=ec4fb4931d2a46589092530202af3ad8`.
+
+The current cold-reconstruction campaign and monitor are
+`08eed6175b1a4e1abf50004d4e5808c8` and
+`http://127.0.0.1:5081/monitor/?campaign=08eed6175b1a4e1abf50004d4e5808c8`.
+It is at commit 242 with Pharris epoch 2 Active/Tactical after a full Sea Power
+restart and portable checkpoint import.
 
 The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
