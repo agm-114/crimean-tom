@@ -408,3 +408,15 @@ one-Primary state machine can spend that slot yet.
   migration,
   then prove this checkpoint reconstruction path between two real tactical
   containers. Do not enable automatic migration for unsupported state families.
+
+## Migration orchestration admission and cooldown
+
+The broad protocol story now proves bounded migrate-tactical-island orchestration
+admission and durable post-commit cooldown. A second migrate call while staging
+is in flight is rejected with `migration-orchestration-busy` before any authority
+mutation. Cooldown reconstruction from `TacticalIslandMigratedEvent` journal
+history is implemented in the coordinator migrate path; an end-to-end
+`migration-cooldown-active` rejection after a return migration remains to be
+wired into the live two-worker story when reverse migration is automated there.
+Cooldown duration is configurable through `CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA`
+(default 30 quanta).

@@ -19,6 +19,13 @@ namespace CrimeanTom.Protocol.Tests;
 
 public sealed class CompanionControlIntegrationTests
 {
+    private const string MigrationCooldownEnvironmentValue = "100000";
+    private static readonly IReadOnlyDictionary<string, string> MigrationCooldownEnvironment =
+        new Dictionary<string, string>
+        {
+            ["CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA"] = MigrationCooldownEnvironmentValue,
+        };
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -67,7 +74,8 @@ public sealed class CompanionControlIntegrationTests
                 repositoryRoot,
                 campaignServiceRunDirectory,
                 campaignGrpcUrl,
-                campaignHttpUrl);
+                campaignHttpUrl,
+                MigrationCooldownEnvironment);
             var campaignToken = await WaitForCampaignServiceAsync(
                 campaignServiceRunDirectory,
                 campaignHttpUrl,
@@ -587,7 +595,8 @@ public sealed class CompanionControlIntegrationTests
                 repositoryRoot,
                 campaignServiceRunDirectory,
                 campaignGrpcUrl,
-                campaignHttpUrl);
+                campaignHttpUrl,
+                MigrationCooldownEnvironment);
             await WaitForCampaignServiceAsync(campaignServiceRunDirectory, campaignHttpUrl, testTimeout.Token);
             var secondCampaignSession = await WaitForCampaignSessionAsync(
                 campaignClient,
@@ -1634,7 +1643,8 @@ public sealed class CompanionControlIntegrationTests
                         repositoryRoot,
                         campaignServiceRunDirectory,
                         campaignGrpcUrl,
-                        campaignHttpUrl);
+                        campaignHttpUrl,
+                        MigrationCooldownEnvironment);
                     await WaitForCampaignServiceAsync(
                         campaignServiceRunDirectory,
                         campaignHttpUrl,
@@ -2815,7 +2825,8 @@ public sealed class CompanionControlIntegrationTests
         string repositoryRoot,
         string runDirectory,
         string grpcUrl,
-        string httpUrl)
+        string httpUrl,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var normalHostPath = Path.Combine(
             repositoryRoot,
@@ -2840,6 +2851,13 @@ public sealed class CompanionControlIntegrationTests
         start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                start.Environment[key] = value;
+            }
+        }
         Directory.CreateDirectory(runDirectory);
         var outputPath = Path.Combine(runDirectory, "service.stdout.log");
         var outputGate = new object();
@@ -3381,6 +3399,24 @@ public sealed class CompanionControlIntegrationTests
         using var migrateBody = JsonDocument.Parse(await migrate.Content.ReadAsStringAsync(cancellationToken));
         Assert.Equal("staging-queued", migrateBody.RootElement.GetProperty("phase").GetString());
         Assert.Equal(destinationClientId, migrateBody.RootElement.GetProperty("destinationClientInstanceId").GetString());
+
+        using var concurrentMigrate = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/migrate-tactical-island",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-concurrent" },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, concurrentMigrate.StatusCode);
+        using var concurrentBody = JsonDocument.Parse(await concurrentMigrate.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "migration-orchestration-busy",
+            concurrentBody.RootElement.GetProperty("error").GetString());
+        using var unchangedDuringBusy = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        unchangedDuringBusy.EnsureSuccessStatusCode();
+        using var unchangedDuringBusyBody = JsonDocument.Parse(
+            await unchangedDuringBusy.Content.ReadAsStringAsync(cancellationToken));
+        Assert.DoesNotContain(
+            unchangedDuringBusyBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("workerClientInstanceId").GetString() == destinationClientId);
 
         var staging = await WaitForServicePayloadAsync(
             call,

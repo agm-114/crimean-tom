@@ -212,8 +212,9 @@ now commit one fenced Shadow-to-Primary migration for a complete island. The
 coordinator can prepare that destination against migration-overlap reserve,
 queue Shadow frames without taking over publishing, stage source final
 checkpoints onto the still-suspended destination, and grant unsuspend only
-after the durable island-migration commit. Cooldown, bounded concurrency, and
-real two-container Sea Power verification remain before this is safe as an
+after the durable island-migration commit. Bounded orchestration admission and
+durable post-commit cooldown are now enforced around the coordinator migrate
+path; real two-container Sea Power verification remains before this is safe as an
 automatic live rebalance. The companion reconstructs and suspends queued
 Shadow objects before it reports them prepared, then applies
 `stage-owned-surface-checkpoint` for the source final blob and unsuspends only

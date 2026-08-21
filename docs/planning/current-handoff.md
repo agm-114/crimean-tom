@@ -561,7 +561,11 @@ position, assignment IDs, epochs, and the source assignment's durable
 checkpoint hash/length—not from process-local staging or current journal head.
 This path is proven in the broad protocol story with a
 second gRPC destination worker, not yet with two live Sea Power containers.
-Next add bounded concurrency and cooldown, then expand live tactical
+Bounded migration orchestration admission and durable post-commit cooldown are
+now enforced: overlapping campaign/worker orchestration is rejected before
+staging, failed pre-commit attempts release admission without starting cooldown,
+and successful commits reconstruct cooldown from `TacticalIslandMigratedEvent`
+history across service restart. Next expand live tactical
 combat tempo to mixed active systems, exercise campaign-owned
 sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep

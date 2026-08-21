@@ -639,8 +639,9 @@ single-player prototype.
   durably resend staging frames if the coordinator restarts in that window.
   After the durable migration event, grants reconstruct from that event's
   exact commit position and source checkpoint blobs.
-  Per-worker health declarations, bounded migration concurrency,
-  rebalance cooldown, and live two-container verification remain open. The
+  Bounded migration orchestration admission and durable post-commit cooldown are
+  now enforced around the authenticated migrate path; per-worker health
+  declarations and live two-container verification remain open. The
   campaign kernel itself accepts one atomic
   `migrate-tactical-island` command that promotes a prepared `Shadow`
   destination over a quiesced `Primary` source for a complete island; this is
