@@ -619,7 +619,9 @@ single-player prototype.
   now exposes the campaign graph, bases, units, task forces, domains, fidelity,
   damage, recent interactions, health, journal head, scheduler health and
   eligibility, island coupling, transition reasons, and target tempo from the
-  authenticated diagnostic projection.
+  authenticated diagnostic projection. Its dominant Babylon theater surface is
+  a black wireframe map with wireframe unit/domain glyphs, bounded by square
+  monochrome operator registers and limited semantic color highlights.
 - The unattended resolver now performs deterministic region-level detection,
   uncertainty degradation, weapons expenditure, damage, destruction, and
   whole-task-force withdrawal. Coalition projections receive opaque track IDs

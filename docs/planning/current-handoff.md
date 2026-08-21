@@ -308,7 +308,8 @@ dynamic scheduler builds task-force-minimum islands, merges recent opposing
 combat groups, applies observation/control, domain ceilings, active-authority
 and interaction fences, capacity, client health/eligibility, backlog load
 shedding, and target tempo. The authenticated Tailwind/Babylon monitor explains
-those decisions on the campaign map. The broad host story proves promotion,
+those decisions on a square black-and-white wireframe campaign plot with green,
+red, amber, and white semantic state. The broad host story proves promotion,
 ceiling enforcement, quiet-island overload demotion, re-promotion, safe
 demotion, transport, crash recovery, and operational fallback together.
 

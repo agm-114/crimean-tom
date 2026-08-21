@@ -74,6 +74,14 @@ membership, active operational outcomes, damage, and service/head status. The
 same information is also represented as semantic HTML unit and outcome lists so
 the 3D canvas is not the only way to inspect the campaign.
 
+The visual language is a dense Cold War command plot, not a general-purpose
+dashboard. A dominant black wireframe plotting volume shows the theater graph,
+region nodes, bases, operational effects, and domain-specific wireframe unit
+glyphs. Square black-and-white registers frame the map; friendly green, hostile
+red, warning amber, and a white selection state are the only semantic accents.
+The shell avoids gradients, blur, rounded cards, and decorative chrome so every
+line, label, and highlight carries operator information.
+
 The static shell contains no campaign data and may load unauthenticated on the
 loopback listener. Every health, diagnostic, bootstrap, and control request
 continues to require the campaign-service bearer token. The operator enters the

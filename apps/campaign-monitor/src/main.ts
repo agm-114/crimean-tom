@@ -49,74 +49,88 @@ type Campaign = {
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.innerHTML = `
-  <div class="scanline relative h-screen w-screen overflow-hidden bg-[#071011] text-[#dce8df]">
+  <div class="command-shell">
     <canvas id="campaign-map" class="absolute inset-0 h-full w-full outline-none" aria-label="Interactive three-dimensional campaign map"></canvas>
-    <header class="panel absolute left-4 right-4 top-4 z-10 flex min-h-16 items-center justify-between rounded-xl px-5 py-3">
-      <div class="flex items-center gap-4">
-        <div class="grid h-9 w-9 place-items-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-xs font-bold tracking-[0.2em] text-emerald-300">CT</div>
-        <div><div class="text-[0.65rem] uppercase tracking-[0.22em] text-emerald-300/70">Operational picture</div><h1 id="campaign-title" class="text-lg font-semibold">Campaign monitor</h1></div>
+    <header class="instrument-strip flex items-center justify-between px-3">
+      <div class="flex min-w-0 items-center gap-3">
+        <div class="border border-[#666] px-2 py-1 text-[9px] tracking-[0.16em] text-[#e2e2e2]">CT/OPCOM</div>
+        <div class="min-w-0"><div class="metric-label">Theater command picture // dynamic campaign authority</div><h1 id="campaign-title" class="truncate text-[11px] font-normal uppercase text-[#e2e2e2]">Campaign monitor</h1></div>
       </div>
-      <div class="flex items-center gap-6 text-right">
+      <div class="flex h-full items-center gap-0 text-right">
         <div><div class="metric-label">Campaign time</div><div id="campaign-time" class="metric-value">—</div></div>
-        <div><div class="metric-label">Commit</div><div id="commit-position" class="metric-value">—</div></div>
-        <div class="flex items-center gap-2"><span id="health-dot" class="status-dot bg-amber-400 text-amber-400"></span><span id="health-label" class="text-sm">Disconnected</span></div>
+        <div class="ml-5 border-l border-[#252525] pl-5"><div class="metric-label">Commit</div><div id="commit-position" class="metric-value">—</div></div>
+        <div class="ml-5 flex items-center gap-2 border-l border-[#252525] pl-5"><span id="health-dot" class="status-mark warning"></span><span id="health-label" class="text-[10px] uppercase">Disconnected</span></div>
       </div>
     </header>
 
-    <aside class="panel absolute bottom-4 left-4 top-24 z-10 flex w-[21rem] flex-col rounded-xl p-4">
-      <div class="metric-label mb-2">Authenticated service link</div>
-      <label class="mb-1 text-xs text-[#91aaa1]" for="service-token">Bearer token (memory only)</label>
-      <input id="service-token" type="password" autocomplete="off" class="mb-3 rounded-md border border-[#315047] bg-black/30 px-3 py-2 text-xs outline-none focus:border-emerald-400/60" placeholder="Paste .run/campaign-service/service.token" />
-      <label class="mb-1 text-xs text-[#91aaa1]" for="campaign-id">Campaign ID</label>
-      <div class="mb-3 flex gap-2"><input id="campaign-id" class="min-w-0 flex-1 rounded-md border border-[#315047] bg-black/30 px-3 py-2 font-mono text-xs outline-none focus:border-emerald-400/60" placeholder="32 hex characters" /><button id="new-id" class="rounded-md border border-[#315047] px-3 text-xs hover:bg-white/5" title="Generate campaign ID">New</button></div>
-      <div class="mb-4 grid grid-cols-2 gap-2"><button id="connect" class="rounded-md bg-emerald-400/15 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/35 hover:bg-emerald-400/25">Connect</button><button id="bootstrap" class="rounded-md border border-[#315047] px-3 py-2 text-xs hover:bg-white/5">Create Fulda</button></div>
-      <div id="connection-message" class="mb-1 min-h-5 text-xs text-[#91aaa1]">The visual shell contains no campaign data or stored credential.</div>
-      <div id="scheduler-status" class="mb-4 text-[0.66rem] uppercase tracking-[0.1em] text-[#627c73]">Scheduler unavailable</div>
-      <div class="mb-2 flex items-center justify-between"><span class="metric-label">Units</span><span id="unit-count" class="metric-value text-xs">0</span></div>
-      <div id="unit-list" class="scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto pr-1" role="list" aria-label="Campaign units"></div>
+    <div class="map-annotation map-annotation-left">PLOT / NORTH ATLANTIC—CENTRAL FRONT // GRID 05° // WIRE VOLUME</div>
+    <div class="map-annotation map-annotation-right">DRAG ORBIT // WHEEL RANGE // SELECT TRACK</div>
+
+    <aside class="dock dock-left">
+      <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN LINK</span><span class="text-[#626262]">AUTH/LOCAL</span></div>
+      <div class="grid gap-1 p-2">
+        <label class="metric-label" for="service-token">Bearer token / volatile</label>
+        <input id="service-token" type="password" autocomplete="off" class="command-input w-full" placeholder=".run/campaign-service/service.token" />
+        <label class="metric-label mt-1" for="campaign-id">Campaign identifier</label>
+        <div class="flex gap-1"><input id="campaign-id" class="command-input min-w-0 flex-1" placeholder="32 hexadecimal characters" /><button id="new-id" class="command-cell" title="Generate campaign ID">NEW</button></div>
+        <div class="mt-1 grid grid-cols-2 gap-1"><button id="connect" class="command-cell command-cell-primary">CONNECT</button><button id="bootstrap" class="command-cell">SEED FULDA</button></div>
+      </div>
+      <div class="section-rule px-2 py-1">
+        <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">NO CREDENTIAL OR CAMPAIGN DATA RETAINED</div>
+        <div id="scheduler-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">SCHEDULER / UNAVAILABLE</div>
+      </div>
+      <div class="window-title flex items-center justify-between px-2"><span>FORCE REGISTER</span><span id="unit-count" class="text-[#e2e2e2]">00 TRACKS</span></div>
+      <div class="grid grid-cols-[20px_minmax(0,1fr)_34px] border-b border-[#252525] px-2 py-1 text-[8px] text-[#626262]"><span>IFF</span><span>IDENTITY / FORMATION</span><span>FID</span></div>
+      <div id="unit-list" class="scrollbar min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Campaign units"></div>
     </aside>
 
-    <aside class="panel absolute bottom-4 right-4 top-24 z-10 flex w-[23rem] flex-col rounded-xl p-4">
-      <div id="selection" class="mb-5"><div class="metric-label mb-2">Selection</div><div class="text-sm text-[#91aaa1]">Select a map symbol or unit row.</div></div>
-      <div class="mb-2 flex items-center justify-between"><span class="metric-label">Operational outcomes</span><span id="outcome-count" class="metric-value text-xs">0</span></div>
-      <div id="outcome-list" class="scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" aria-live="polite"></div>
-      <div class="mt-4 grid grid-cols-4 gap-2 border-t border-[#315047]/50 pt-4 text-center">
-        <div><div class="metric-label">Regions</div><div id="region-count" class="metric-value">0</div></div>
-        <div><div class="metric-label">Groups</div><div id="group-count" class="metric-value">0</div></div>
-        <div><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
-        <div><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
+    <aside class="dock dock-right">
+      <div class="window-title flex items-center justify-between px-2"><span>TRACK INSPECTOR</span><span>CANONICAL</span></div>
+      <div id="selection"><div class="px-2 py-3 text-[10px] text-[#626262]">SELECT A WIRE TRACK OR FORCE-REGISTER ROW</div></div>
+      <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>EVENT REGISTER</span><span id="outcome-count" class="text-[#e2e2e2]">00 EVENTS</span></div>
+      <div class="grid grid-cols-[54px_76px_1fr] border-b border-[#252525] px-2 py-1 text-[8px] text-[#626262]"><span>TIME</span><span>TYPE</span><span>REPORT / EFFECT</span></div>
+      <div id="outcome-list" class="scrollbar min-h-0 flex-1 overflow-y-auto" aria-live="polite"></div>
+      <div class="state-bank">
+        <div class="state-cell"><div class="metric-label">Regions</div><div id="region-count" class="metric-value">0</div></div>
+        <div class="state-cell"><div class="metric-label">Groups</div><div id="group-count" class="metric-value">0</div></div>
+        <div class="state-cell"><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
+        <div class="state-cell"><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
       </div>
     </aside>
 
-    <div class="panel absolute bottom-4 left-[23rem] z-10 flex items-center gap-5 rounded-lg px-4 py-2 text-[0.68rem] text-[#91aaa1]">
-      <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-sky-400"></i>NATO</span>
-      <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400"></i>Warsaw Pact</span>
-      <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-amber-300"></i>Operational outcome</span>
-      <span class="text-[#627c73]">Drag to orbit · wheel to zoom · click to inspect</span>
-    </div>
+    <footer class="command-footer flex items-center px-2 text-[8px] tracking-[0.07em] text-[#626262]">
+      <span class="friendly mr-5">□ NATO / FRIENDLY</span>
+      <span class="hostile mr-5">△ WARSAW PACT / HOSTILE</span>
+      <span class="warning mr-5">◇ OPERATIONAL EFFECT</span>
+      <span class="ml-auto">DISPLAY / WIREFRAME // SOURCE / CAMPAIGN JOURNAL // TOKEN / MEMORY ONLY</span>
+    </footer>
   </div>`;
 
 const byId = <T extends HTMLElement>(id: string) => document.querySelector<T>(`#${id}`)!;
 const canvas = byId<HTMLCanvasElement>("campaign-map");
 const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 const scene = new Scene(engine);
-scene.clearColor = new Color4(0.025, 0.06, 0.065, 1);
-const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.82, 52, new Vector3(-8, 0, 2), scene);
+scene.clearColor = new Color4(0.008, 0.008, 0.008, 1);
+const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.88, 54, new Vector3(-8, 0, 2), scene);
 camera.lowerRadiusLimit = 12;
 camera.upperRadiusLimit = 100;
 camera.attachControl(canvas, true);
-new HemisphericLight("light", new Vector3(0.2, 1, -0.3), scene).intensity = 1.2;
+new HemisphericLight("plot-light", new Vector3(0.2, 1, -0.3), scene).intensity = 0.35;
 
-const ground = MeshBuilder.CreateGround("ocean", { width: 120, height: 64 }, scene);
-const groundMaterial = new StandardMaterial("ocean-material", scene);
-groundMaterial.diffuseColor = new Color3(0.025, 0.10, 0.105);
-groundMaterial.specularColor = new Color3(0.03, 0.16, 0.14);
-groundMaterial.alpha = 0.82;
-ground.material = groundMaterial;
+const gridLines: Vector3[][] = [];
+for (let x = -60; x <= 60; x += 5) gridLines.push([new Vector3(x, 0, -32), new Vector3(x, 0, 32)]);
+for (let z = -32; z <= 32; z += 4) gridLines.push([new Vector3(-60, 0, z), new Vector3(60, 0, z)]);
+const plotGrid = MeshBuilder.CreateLineSystem("plot-grid", { lines: gridLines }, scene);
+plotGrid.color = new Color3(0.16, 0.16, 0.16);
+plotGrid.alpha = 0.34;
+const plotFrame = MeshBuilder.CreateBox("plot-frame", { width: 120, height: 0.18, depth: 64 }, scene);
+plotFrame.position.y = -0.08;
+plotFrame.material = material("plot-frame-material", new Color3(0.32, 0.32, 0.32), 0.12);
 
 let campaign: Campaign | null = null;
 let dynamicMeshes: Mesh[] = [];
 let pollHandle: number | undefined;
+let selectedEntityId: string | null = null;
 
 function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${byId<HTMLInputElement>("service-token").value.trim()}` };
@@ -128,17 +142,20 @@ function mapPosition(latitudeMicrodegrees: number, longitudeMicrodegrees: number
   return new Vector3(lon * 0.42, y, (53 - lat) * 0.72);
 }
 
-function material(name: string, color: Color3, emissive = 0.18): StandardMaterial {
+function material(name: string, color: Color3, emissive = 0.55): StandardMaterial {
   const value = new StandardMaterial(name, scene);
-  value.diffuseColor = color;
+  value.diffuseColor = new Color3(0.01, 0.01, 0.01);
   value.emissiveColor = color.scale(emissive);
-  value.specularColor = color.scale(0.35);
+  value.specularColor = Color3.Black();
+  value.disableLighting = true;
+  value.wireframe = true;
+  value.backFaceCulling = false;
   return value;
 }
 
 function coalitionPalette(data: Campaign): Map<string, Color3> {
   const coalitions = [...new Set(data.entities.map(item => item.coalitionId))].sort();
-  return new Map(coalitions.map(id => [id, isNato(data, id) ? new Color3(0.22, 0.66, 0.92) : new Color3(0.96, 0.30, 0.38)]));
+  return new Map(coalitions.map(id => [id, isNato(data, id) ? new Color3(0.21, 0.91, 0.54) : new Color3(1, 0.25, 0.32)]));
 }
 
 function isNato(data: Campaign, coalitionId: string): boolean {
@@ -177,34 +194,49 @@ function renderMap(data: Campaign): void {
       const end = regionPositions.get(neighbor);
       if (!end) continue;
       const line = MeshBuilder.CreateLines(`route-${region.regionId}-${neighbor}`, { points: [start.add(new Vector3(0, 0.025, 0)), end.add(new Vector3(0, 0.025, 0))] }, scene);
-      line.color = new Color3(0.18, 0.37, 0.34);
-      line.alpha = 0.6;
+      line.color = new Color3(0.56, 0.56, 0.56);
+      line.alpha = 0.46;
       dynamicMeshes.push(line);
     }
+    const regionNode = MeshBuilder.CreateBox(`region-${region.regionId}`, { size: 0.34 }, scene);
+    regionNode.position = start.add(new Vector3(0, 0.12, 0));
+    regionNode.material = material(`region-material-${region.regionId}`, new Color3(0.72, 0.72, 0.72), 0.42);
+    dynamicMeshes.push(regionNode);
+    const stem = MeshBuilder.CreateLines(`region-stem-${region.regionId}`, {
+      points: [start, start.add(new Vector3(0, 0.8, 0))],
+    }, scene);
+    stem.color = new Color3(0.34, 0.34, 0.34);
+    stem.alpha = 0.5;
+    dynamicMeshes.push(stem);
   }
 
   for (const base of data.bases) {
-    const marker = MeshBuilder.CreateCylinder(`base-${base.baseId}`, { diameter: 0.55, height: 0.16, tessellation: 6 }, scene);
-    marker.position = mapPosition(base.latitudeMicrodegrees, base.longitudeMicrodegrees, 0.12);
-    marker.material = material(`base-material-${base.baseId}`, palette.get(base.coalitionId) ?? Color3.Gray(), 0.1);
+    const marker = MeshBuilder.CreateBox(`base-${base.baseId}`, { width: 0.52, height: 0.18, depth: 0.52 }, scene);
+    marker.position = mapPosition(base.latitudeMicrodegrees, base.longitudeMicrodegrees, 0.16);
+    marker.material = material(`base-material-${base.baseId}`, palette.get(base.coalitionId) ?? Color3.Gray(), 0.34);
     dynamicMeshes.push(marker);
   }
 
   for (const entity of data.entities) {
-    const marker = entity.simulationDomain === "LandAbstract"
-      ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { size: 0.52 }, scene)
-      : entity.simulationDomain === "Air"
-        ? MeshBuilder.CreatePolyhedron(`entity-${entity.entityId}`, { type: 1, size: 0.38 }, scene)
-        : MeshBuilder.CreateSphere(`entity-${entity.entityId}`, { diameter: entity.simulationDomain === "Logistics" ? 0.62 : 0.46, segments: 10 }, scene);
+    const marker = entity.simulationDomain === "Air"
+      ? MeshBuilder.CreatePolyhedron(`entity-${entity.entityId}`, { type: 0, size: 0.46 }, scene)
+      : entity.simulationDomain === "LandAbstract"
+        ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { size: 0.64 }, scene)
+        : entity.simulationDomain === "Logistics"
+          ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { width: 0.86, height: 0.34, depth: 0.42 }, scene)
+          : MeshBuilder.CreateBox(`entity-${entity.entityId}`, { width: 0.72, height: 0.28, depth: 0.34 }, scene);
     marker.position = mapPosition(entity.latitudeMicrodegrees, entity.longitudeMicrodegrees, 0.35 + (entity.damageMilliunits / 1_000_000) * 0.2);
-    marker.material = material(`entity-material-${entity.entityId}`, palette.get(entity.coalitionId) ?? Color3.Gray());
+    const markerColor = entity.entityId === selectedEntityId
+      ? new Color3(0.96, 0.96, 0.96)
+      : palette.get(entity.coalitionId) ?? Color3.Gray();
+    marker.material = material(`entity-material-${entity.entityId}`, markerColor, entity.entityId === selectedEntityId ? 0.9 : 0.58);
     marker.visibility = entity.lifecycle === "Destroyed" ? 0.28 : 1;
     marker.actionManager = new ActionManager(scene);
     marker.actionManager.registerAction(new ExecuteCodeAction(ActionManager.OnPickTrigger, () => selectEntity(entity.entityId)));
     dynamicMeshes.push(marker);
   }
 
-  for (const outcome of data.recentOperationalOutcomes.filter(item => item.targetEntityId)) {
+  for (const outcome of data.recentOperationalOutcomes.filter(item => item.targetEntityId).slice(-24)) {
     const actor = entityById.get(outcome.actorEntityId);
     const target = entityById.get(outcome.targetEntityId!);
     if (!actor || !target) continue;
@@ -225,48 +257,54 @@ function selectEntity(entityId: string): void {
   if (!campaign) return;
   const entity = campaign.entities.find(item => item.entityId === entityId);
   if (!entity) return;
+  selectedEntityId = entityId;
+  document.querySelectorAll<HTMLElement>("[data-entity]").forEach(item =>
+    item.classList.toggle("register-row-selected", item.dataset.entity === entityId));
+  window.requestAnimationFrame(() => campaign && renderMap(campaign));
   const group = campaign.groups.find(item => item.memberEntityIds.includes(entityId));
   const island = campaign.scheduler.islands.find(item => item.entityIds.includes(entityId));
   const damage = (entity.damageMilliunits / 10_000).toFixed(1);
   byId("selection").innerHTML = `
-    <div class="metric-label mb-2">Selection</div>
-    <div class="mb-1 text-base font-semibold">${escapeHtml(entity.name)}</div>
-    <div class="mb-3 font-mono text-[0.64rem] text-[#627c73]">${escapeHtml(entity.entityId)}</div>
-    <div class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-      <div><div class="metric-label">Domain</div>${escapeHtml(entity.simulationDomain)}</div>
-      <div><div class="metric-label">Fidelity</div>${escapeHtml(entity.fidelity)} / ${escapeHtml(entity.maximumFidelity)}</div>
-      <div><div class="metric-label">Damage</div>${damage}%</div>
-      <div><div class="metric-label">Lifecycle</div>${escapeHtml(entity.lifecycle)}</div>
-      <div class="col-span-2"><div class="metric-label">Task force</div>${escapeHtml(group?.name ?? "Unassigned")}</div>
-      <div class="col-span-2"><div class="metric-label">Scheduler</div>${escapeHtml(island?.reason ?? "Not evaluated")} · ${island?.couplingScoreMilliunits ?? 0}/1000 coupling</div>
-    </div>`;
+    <div class="border-b border-[#3b3b3b] bg-[#e2e2e2] px-2 py-1 text-[10px] text-black">
+      <div class="truncate">${escapeHtml(entity.name.toUpperCase())}</div>
+      <div class="truncate text-[8px] text-[#444]">${escapeHtml(entity.entityId)}</div>
+    </div>
+    <dl class="selection-grid">
+      <dt>Domain</dt><dd>${escapeHtml(entity.simulationDomain)}</dd>
+      <dt>Fidelity</dt><dd>${escapeHtml(entity.fidelity)} / ${escapeHtml(entity.maximumFidelity)}</dd>
+      <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
+      <dt>Lifecycle</dt><dd>${escapeHtml(entity.lifecycle)}</dd>
+      <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>
+      <dt>Scheduler</dt><dd>${escapeHtml(island?.reason ?? "Not evaluated")}</dd>
+      <dt>Coupling</dt><dd>${island?.couplingScoreMilliunits ?? 0} / 1000 ${island?.engaged ? "// ENGAGED" : "// QUIET"}</dd>
+    </dl>`;
 }
 
 function renderPanels(data: Campaign): void {
   byId("campaign-title").textContent = data.name;
   byId("campaign-time").textContent = `T+${data.timeQuanta}`;
   byId("commit-position").textContent = data.commitPosition.toString();
-  byId("unit-count").textContent = data.entities.length.toString();
+  byId("unit-count").textContent = `${data.entities.length.toString().padStart(2, "0")} TRACKS`;
   byId("region-count").textContent = data.regions.length.toString();
   byId("group-count").textContent = data.groups.length.toString();
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
   byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
-  byId("scheduler-status").textContent = `${data.scheduler.health} · ${data.scheduler.eligibility} · ${data.scheduler.loadAction}`;
-  byId("outcome-count").textContent = data.recentOperationalOutcomes.length.toString();
+  byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // ${data.scheduler.loadAction}`;
+  byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   const groups = new Map(data.groups.flatMap(group => group.memberEntityIds.map(id => [id, group.name])));
   byId("unit-list").innerHTML = data.entities.map(entity => `
-    <button data-entity="${entity.entityId}" class="flex w-full items-center gap-3 rounded-md border border-transparent px-2 py-2 text-left hover:border-[#315047] hover:bg-white/[0.025]" role="listitem">
-      <span class="h-2 w-2 shrink-0 rounded-full ${isNato(data, entity.coalitionId) ? "bg-sky-400" : "bg-rose-400"}"></span>
-      <span class="min-w-0 flex-1"><span class="block truncate text-xs">${escapeHtml(entity.name)}</span><span class="block truncate text-[0.62rem] text-[#627c73]">${escapeHtml(groups.get(entity.entityId) ?? entity.simulationDomain)}</span></span>
-      <span class="text-[0.6rem] uppercase text-[#78988d]">${escapeHtml(entity.fidelity.slice(0, 3))}</span>
+    <button data-entity="${entity.entityId}" class="register-row grid w-full grid-cols-[20px_minmax(0,1fr)_34px] items-center px-2 py-[5px] text-left ${entity.entityId === selectedEntityId ? "register-row-selected" : ""}" role="listitem">
+      <span class="affiliation-glyph ${isNato(data, entity.coalitionId) ? "friendly" : "hostile"}">${isNato(data, entity.coalitionId) ? "□" : "△"}</span>
+      <span class="min-w-0"><span class="block truncate text-[10px] uppercase">${escapeHtml(entity.name)}</span><span class="register-dim block truncate text-[8px] uppercase">${escapeHtml(groups.get(entity.entityId) ?? entity.simulationDomain)}</span></span>
+      <span class="register-dim text-right text-[8px] uppercase">${escapeHtml(entity.fidelity.slice(0, 3))}</span>
     </button>`).join("");
   document.querySelectorAll<HTMLElement>("[data-entity]").forEach(item => item.addEventListener("click", () => selectEntity(item.dataset.entity!)));
   byId("outcome-list").innerHTML = [...data.recentOperationalOutcomes].reverse().map(outcome => `
-    <article class="rounded-md border border-[#315047]/50 bg-black/15 px-3 py-2">
-      <div class="mb-1 flex items-center justify-between"><span class="text-xs font-semibold ${outcome.kind === "Damage" || outcome.kind === "Destruction" ? "text-orange-300" : "text-amber-200"}">${escapeHtml(outcome.kind)}</span><time class="font-mono text-[0.6rem] text-[#627c73]">T+${outcome.occurredAtQuanta}</time></div>
-      <div class="text-[0.68rem] leading-relaxed text-[#91aaa1]">${escapeHtml(outcome.detail)}</div>
-      ${(outcome.munitionsExpendedMilliunits || outcome.damageInflictedMilliunits) ? `<div class="mt-1 font-mono text-[0.6rem] text-[#627c73]">${outcome.munitionsExpendedMilliunits ? `EXP ${outcome.munitionsExpendedMilliunits}` : ""} ${outcome.damageInflictedMilliunits ? `DMG ${outcome.damageInflictedMilliunits}` : ""}</div>` : ""}
-    </article>`).join("") || `<div class="text-xs text-[#627c73]">No outcomes in the latest advance window.</div>`;
+    <article class="register-row grid grid-cols-[54px_76px_1fr] px-2 py-[5px] text-[9px]">
+      <time class="register-dim">T+${outcome.occurredAtQuanta}</time>
+      <span class="${outcome.kind === "Damage" || outcome.kind === "Destruction" ? "hostile" : outcome.kind === "Detection" ? "text-[#a8a8a8]" : "warning"}">${escapeHtml(outcome.kind.toUpperCase())}</span>
+      <div class="min-w-0"><div class="truncate text-[#c9c9c9]">${escapeHtml(outcome.detail.toUpperCase())}</div>${(outcome.munitionsExpendedMilliunits || outcome.damageInflictedMilliunits) ? `<div class="register-dim truncate text-[8px]">${outcome.munitionsExpendedMilliunits ? `EXP/${outcome.munitionsExpendedMilliunits}` : ""} ${outcome.damageInflictedMilliunits ? `DMG/${outcome.damageInflictedMilliunits}` : ""}</div>` : ""}</div>
+    </article>`).join("") || `<div class="register-dim px-2 py-3 text-[9px] uppercase">No events in current advance window</div>`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -282,9 +320,9 @@ async function refresh(): Promise<void> {
   campaign = next;
   renderMap(next);
   renderPanels(next);
-  byId("health-dot").className = "status-dot bg-emerald-400 text-emerald-400";
-  byId("health-label").textContent = health.status === "ok" ? "Service healthy" : health.status;
-  byId("connection-message").textContent = `Authenticated · ${next.canonicalHash.slice(0, 16)}…`;
+  byId("health-dot").className = "status-mark friendly";
+  byId("health-label").textContent = health.status === "ok" ? "Service healthy" : health.status.toUpperCase();
+  byId("connection-message").textContent = `AUTHENTICATED // ${next.canonicalHash.slice(0, 16).toUpperCase()}…`;
 }
 
 async function connect(): Promise<void> {
@@ -296,8 +334,8 @@ async function connect(): Promise<void> {
 }
 
 function showError(error: unknown): void {
-  byId("health-dot").className = "status-dot bg-rose-400 text-rose-400";
-  byId("health-label").textContent = "Unavailable";
+  byId("health-dot").className = "status-mark hostile";
+  byId("health-label").textContent = "UNAVAILABLE";
   byId("connection-message").textContent = error instanceof Error ? error.message : String(error);
 }
 
