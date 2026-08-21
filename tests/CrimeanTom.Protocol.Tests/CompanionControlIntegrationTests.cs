@@ -422,6 +422,11 @@ public sealed class CompanionControlIntegrationTests
             advancedViewResponse.EnsureSuccessStatusCode();
             using var advancedView = JsonDocument.Parse(
                 await advancedViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var performance = advancedView.RootElement.GetProperty("performance");
+            Assert.True(performance.GetProperty("recovery").GetProperty("completedCount").GetInt64() >= 1);
+            Assert.True(performance.GetProperty("advance").GetProperty("completedCount").GetInt64() >= 1);
+            Assert.Equal(30, performance.GetProperty("advance").GetProperty("lastWorkUnits").GetInt64());
+            Assert.True(performance.GetProperty("advance").GetProperty("lastWorkUnitsPerSecondMilliunits").GetInt64() > 0);
             var advancedEntities = advancedView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             var primaryAfterAdvance = Assert.Single(advancedEntities,
                 item => item.GetProperty("entityId").GetString() == primaryEntityId);

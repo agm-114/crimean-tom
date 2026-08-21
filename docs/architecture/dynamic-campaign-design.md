@@ -107,6 +107,12 @@ the current observed/controlled entity set and client load envelope, then commit
 required fidelity transitions through the campaign journal before returning the
 applied diagnostic view.
 
+The same campaign diagnostic view includes process-local performance telemetry:
+service uptime and memory, recovery/advance/schedule completion counts and
+durations, completed work units, and last measured throughput. These metrics do
+not enter canonical simulation decisions; they make the service-observed load
+visible and provide the measurement surface for Phase 5 stress calibration.
+
 At companion handshake the game advertises the exact player task-force ID and
 the bounded unit/variant/loadout profiles its runtime adapter can materialize.
 The scheduler requires one connected worker, a player task force, and support

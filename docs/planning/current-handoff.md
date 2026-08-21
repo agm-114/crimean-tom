@@ -360,6 +360,13 @@ observation batches. Keep tactical
 projection and campaign commit separate: Sea Power remains a fenced client of
 the external authoritative kernel.
 
+Campaign diagnostics and the monitor now expose process-local service uptime,
+managed/working-set memory, recovery latency, advance latency and quanta rate,
+and scheduler latency/island rate. The two broad stories remain the only tests;
+the protocol story requires a real 30-quanta advance to populate and validate
+that telemetry. These measurements are operational evidence, not canonical
+inputs.
+
 ## Deferred hardening
 
 - Complete the stronger named-local-account pipe rejection proof when a

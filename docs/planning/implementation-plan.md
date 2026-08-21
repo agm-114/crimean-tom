@@ -640,7 +640,9 @@ single-player prototype.
   target tempo falls. The scheduler input and stable-sample count are journaled
   and snapshot-recoverable. Active quiet islands require two matching healthy
   interest-loss samples before quiescing, while load shedding remains immediate.
-  The fixed step remains 33,333 microseconds.
+  Process-local diagnostics now measure recovery, advancement, and scheduling
+  latency/work throughput plus service memory without feeding wall time into
+  simulation semantics. The fixed step remains 33,333 microseconds.
 - This is not yet the P5 gate: sensor/weapon/host coupling, hysteretic split,
   client migration/reserve accounting, live Sea Power materialization,
   performance targets, and calibration remain.

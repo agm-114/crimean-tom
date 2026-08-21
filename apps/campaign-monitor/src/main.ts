@@ -46,10 +46,21 @@ type Scheduler = {
   fixedStepMicroseconds: number; targetTicksPerWallSecond: number; effectiveAtQuanta: number;
   loadAction: string; islands: InteractionIsland[];
 };
+type OperationTelemetry = {
+  completedCount: number; lastDurationMicroseconds: number; maximumDurationMicroseconds: number;
+  totalDurationMicroseconds: number; lastWorkUnits: number; totalWorkUnits: number;
+  lastWorkUnitsPerSecondMilliunits: number;
+};
+type Performance = {
+  serviceStartedAtUtc: string; serviceUptimeMilliseconds: number; managedMemoryBytes: number;
+  workingSetBytes: number; recovery: OperationTelemetry; advance: OperationTelemetry;
+  schedule: OperationTelemetry;
+};
 type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
   assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
+  performance: Performance;
 };
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -82,6 +93,7 @@ app.innerHTML = `
       <div class="section-rule px-2 py-1">
         <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">SESSION CREDENTIAL HELD BY HOST</div>
         <div id="scheduler-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">SCHEDULER / UNAVAILABLE</div>
+        <div id="performance-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">PERF / UNAVAILABLE</div>
       </div>
       <div class="window-title flex items-center justify-between px-2"><span>FORCE REGISTER</span><span id="unit-count" class="text-[#e2e2e2]">00 TRACKS</span></div>
       <div class="grid grid-cols-[20px_minmax(0,1fr)_34px] border-b border-[#252525] px-2 py-1 text-[8px] text-[#626262]"><span>IFF</span><span>IDENTITY / FORMATION</span><span>FID</span></div>
@@ -100,6 +112,7 @@ app.innerHTML = `
         <div class="state-cell"><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Authority</div><div id="authority-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
+        <div class="state-cell"><div class="metric-label">Sim rate</div><div id="simulation-rate" class="metric-value">—</div></div>
       </div>
     </aside>
 
@@ -301,7 +314,11 @@ function renderPanels(data: Campaign): void {
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
   byId("authority-count").textContent = data.assignments.filter(item => item.lifecycle !== "Released").length.toString();
   byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
+  byId("simulation-rate").textContent = data.performance.advance.lastWorkUnitsPerSecondMilliunits > 0
+    ? `${(data.performance.advance.lastWorkUnitsPerSecondMilliunits / 1_000).toFixed(0)}/s`
+    : "—";
   byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // STABLE ${data.scheduler.stableSampleCount} // ${data.scheduler.loadAction}`;
+  byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   const groups = new Map(data.groups.flatMap(group => group.memberEntityIds.map(id => [id, group.name])));
   byId("unit-list").innerHTML = data.entities.map(entity => `

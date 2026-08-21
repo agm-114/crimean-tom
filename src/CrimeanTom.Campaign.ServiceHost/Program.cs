@@ -60,6 +60,7 @@ builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(monitorSession);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton<CampaignSessionRegistry>();
+builder.Services.AddSingleton<CampaignPerformanceTelemetry>();
 builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory, "inbound-spool")));
 builder.Services.AddSingleton<CampaignCoordinator>();
 var app = builder.Build();

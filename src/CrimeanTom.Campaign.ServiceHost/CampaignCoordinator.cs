@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -13,7 +14,10 @@ using Google.Protobuf;
 
 namespace CrimeanTom.Campaign.ServiceHost;
 
-public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignSessionRegistry sessions)
+public sealed class CampaignCoordinator(
+    SqliteCampaignJournal journal,
+    CampaignSessionRegistry sessions,
+    CampaignPerformanceTelemetry telemetry)
 {
     private static readonly CoordinatorId ServiceCoordinator = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000001"));
@@ -330,10 +334,12 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         CampaignTime target,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var startingTime = state.Time;
             var before = state.Entities.ToDictionary(item => item.Key, item => item.Value);
             state = await CommitAsync(state, Command(
                 state,
@@ -346,6 +352,11 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 .Where(item => item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing)
                 .Select(item => item.EntityId)
                 .All(id => before[id] == state.Entities[id]);
+            telemetry.Record(
+                campaignId,
+                CampaignOperationKind.Advance,
+                stopwatch.Elapsed,
+                state.Time.Quanta - startingTime.Quanta);
             return new CampaignAdvanceResult(
                 state.Head.Value,
                 state.Time.Quanta,
@@ -360,7 +371,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
 
     public async Task<CampaignDiagnosticView> ViewAsync(CampaignId campaignId, CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        telemetry.Record(campaignId, CampaignOperationKind.Recovery, stopwatch.Elapsed);
         var worker = sessions.Snapshot();
         var scheduler = recovery.State.SchedulerPolicy is { } policy
             ? CampaignFidelityScheduler.Evaluate(
@@ -431,7 +444,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.MunitionsExpendedMilliUnits,
                 item.DamageInflictedMilliUnits,
                 item.Detail)).ToArray(),
-            CampaignFidelityScheduler.ToView(recovery.State, scheduler));
+            CampaignFidelityScheduler.ToView(recovery.State, scheduler),
+            telemetry.Snapshot(campaignId));
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -439,6 +453,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         CampaignSchedulerRequest request,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -633,7 +648,13 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 LoadAction = evaluation.LoadAction,
                 Transitions = evaluation.Transitions,
             };
-            return CampaignFidelityScheduler.ToView(state, applied);
+            var view = CampaignFidelityScheduler.ToView(state, applied);
+            telemetry.Record(
+                campaignId,
+                CampaignOperationKind.Schedule,
+                stopwatch.Elapsed,
+                applied.Islands.Count);
+            return view;
         }
         finally
         {
@@ -1325,7 +1346,8 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignGroupView> Groups,
     IReadOnlyList<CampaignAssignmentView> Assignments,
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
-    CampaignSchedulerView Scheduler);
+    CampaignSchedulerView Scheduler,
+    CampaignPerformanceView Performance);
 
 public sealed record CampaignRegionView(
     string RegionId,
