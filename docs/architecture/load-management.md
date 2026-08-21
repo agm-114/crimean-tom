@@ -162,17 +162,26 @@ only, source `Primary` ownership stays put, and the service first commits
 `Shadow`/`Preparing` assignments. The companion materializes each queued Shadow
 from a checkpoint, captures its realized state, suspends the native object, and
 only then reports readiness so the coordinator can commit `Prepared`. Idempotent
-repeats do not create another live Shadow. Per-worker health declarations,
-bounded concurrency, cooldown, final-checkpoint transfer, and the promotion
-controller remain open; this is not a completed live Sea Power migration. The
-campaign kernel now has one atomic
+repeats do not create another live Shadow. Authenticated
+`POST /control/campaigns/{campaignId}/migrate-tactical-island` stages each
+source final checkpoint onto that still-suspended Shadow, waits for matching
+destination readiness, commits the existing atomic `migrate-tactical-island`
+command, and only afterward queues post-commit activation grants. Matching
+staged hashes live with the coordinator process only before that commit;
+companions durably resend staging frames across a pre-commit restart. After
+commit, grants reconstruct from the journal migration event and durable source
+checkpoints, including after service restart and later head advances. Per-worker health declarations, bounded concurrency, cooldown, and live two-container
+Sea Power verification remain open. The campaign kernel now has one atomic
 command/event that can migrate a complete singleton or multi-entity island:
 source assignments must be live `Primary`/`Quiesced`, destinations must be
 non-publishing `Shadow`/`Prepared` with a strictly higher epoch and a different
 worker, and one committed event releases the source while promoting the
 destination to `Primary`/`Active` without changing Tactical fidelity. The
-validator still allows only one live Primary. The coordinator does not schedule
-or claim the end-to-end path yet.
+validator still allows only one live Primary. The coordinator now schedules
+that commit only after every destination member reports a matching staged
+final checkpoint; activation grants are queued after the durable event, never
+before it, and never from Shadow. Bounded concurrent migration and cooldown
+remain open.
 
 Assignment preparation now carries the entity's latest durable checkpoint when
 one exists. The companion authenticates the download and verifies its content
@@ -181,8 +190,9 @@ state hash before reconstructing the supported portable surface fields. This
 closes the checkpoint transport/reconstruction plumbing but does not by itself
 make an island migration-safe. Automatic moves remain disabled where fuel,
 stores, damage, sensors, formations, hosted aircraft, or other unsupported state
-would matter, and the coordinator still needs temporary migration-overlap
-budgets, quiesce fencing, cooldown, and bounded concurrent migration.
+would matter, and the coordinator still needs cooldown and bounded concurrent
+migration. Overlap budgets, quiesce fencing, final-checkpoint staging, and
+post-commit activation grants are now in the coordinator path.
 
 The service automatically creates and queues deterministic, batch-linked
 Preparing assignments for a selected, fully representable island. Manual and
@@ -208,8 +218,9 @@ identical healthy interest-loss samples before quiescing; load shedding and
 explicit drain remain immediate. Longer health history, cooldowns, bounded
 concurrent migration, and tempo events remain open. Coordinator destination
 preparation can now reserve overlap headroom and queue non-publishing Shadows;
-the kernel's atomic Shadow promotion event is still the durable fence for the
-future migration controller.
+final-checkpoint staging, matching destination readiness, the atomic Shadow
+promotion event, and post-commit activation grants are implemented. Bounded
+concurrent migration, cooldown, and live two-container verification remain open.
 
 The first reproducible operational baseline on the Ryzen 9 9900X development
 host sustains 35.9 quanta/s for 300 entities and 180 groups, clearing the healthy

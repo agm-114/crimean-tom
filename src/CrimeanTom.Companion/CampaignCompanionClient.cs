@@ -156,6 +156,21 @@ public sealed class CampaignCompanionClient(
                                 $"event-{proposal.EventId}");
                             break;
                         }
+                    case ServiceFrame.PayloadOneofCase.StageFinalCheckpoint:
+                        {
+                            var staged = await StageFinalCheckpointAsync(
+                                frame.StageFinalCheckpoint,
+                                token,
+                                cancellationToken);
+                            await SendAsync(
+                                new CompanionFrame { FinalCheckpointStaged = staged },
+                                StagedCheckpointSpoolKey(staged));
+                            break;
+                        }
+                    case ServiceFrame.PayloadOneofCase.ActivationGrant:
+                        await ApplyActivationGrantAsync(frame.ActivationGrant, cancellationToken);
+                        await SendAcknowledgementAsync(frame.Sequence, stateStore.ReadCursor());
+                        break;
                     case ServiceFrame.PayloadOneofCase.Acknowledgement:
                         if (pending.TryRemove(frame.Acknowledgement.CompanionSequence, out var key)
                             && frame.Acknowledgement.DurablyAccepted)
@@ -601,6 +616,12 @@ public sealed class CampaignCompanionClient(
         OrderedTacticalCommand command,
         CancellationToken cancellationToken)
     {
+        var assignment = stateStore.ReadAssignment(command.AssignmentId);
+        if (assignment.Role == AssignmentRole.Shadow
+            && !stateStore.HasActivationGrant(command.AssignmentId, command.AuthorityEpoch))
+        {
+            throw new InvalidDataException("A Shadow assignment cannot publish before a post-commit activation grant.");
+        }
         var result = await RequireGameCommandAsync(
             GameCommandTypes.UpdateOwnedSurfaceUnit,
             JsonSerializer.Serialize(new UpdateOwnedSurfaceUnitRequestPayload
@@ -722,6 +743,166 @@ public sealed class CampaignCompanionClient(
             });
     }
 
+    private async Task<FinalCheckpointStaged> StageFinalCheckpointAsync(
+        StageFinalCheckpoint request,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var assignment = stateStore.ReadAssignment(request.DestinationAssignmentId);
+            if (assignment.Role != AssignmentRole.Shadow
+                || assignment.AuthorityEpoch != request.DestinationAuthorityEpoch
+                || !string.Equals(assignment.EntityId, request.EntityId, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Final-checkpoint staging requires the durable Shadow assignment.");
+            }
+            if (stateStore.HasActivationGrant(request.DestinationAssignmentId, request.DestinationAuthorityEpoch))
+            {
+                throw new InvalidDataException("A granted destination cannot restage a pre-commit checkpoint.");
+            }
+
+            var sourceCheckpoint = await DownloadCheckpointAsync(
+                request.CheckpointSha256,
+                request.CheckpointUri,
+                serviceToken,
+                cancellationToken)
+                ?? throw new InvalidDataException("The source final checkpoint reference is missing.");
+            var expectedGameRevision = stateStore.ReadGameRevision(request.DestinationAssignmentId);
+            var stagedResult = await RequireGameCommandAsync(
+                GameCommandTypes.StageOwnedSurfaceCheckpoint,
+                JsonSerializer.Serialize(new StageOwnedSurfaceCheckpointRequestPayload
+                {
+                    Context = Context(
+                        request.DestinationAssignmentId,
+                        request.DestinationAuthorityEpoch,
+                        expectedGameRevision,
+                        request.IdempotencyKey),
+                    EntityId = request.EntityId,
+                    SourceCheckpoint = sourceCheckpoint,
+                }, JsonOptions),
+                cancellationToken);
+            var staged = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                stagedResult.ResultJson,
+                JsonOptions) ?? throw new InvalidDataException("Checkpoint staging result was empty.");
+            if (!staged.Unit.IsDisabled)
+            {
+                var resuspend = await RequireGameCommandAsync(
+                    GameCommandTypes.SetOwnedSurfaceSuspension,
+                    JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
+                    {
+                        Context = Context(
+                            request.DestinationAssignmentId,
+                            request.DestinationAuthorityEpoch,
+                            staged.Revision,
+                            $"{request.IdempotencyKey}-keep-suspended"),
+                        EntityId = request.EntityId,
+                        IsSuspended = true,
+                    }, JsonOptions),
+                    cancellationToken);
+                var suspension = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                    resuspend.ResultJson,
+                    JsonOptions) ?? throw new InvalidDataException("Post-stage suspension result was empty.");
+                staged = suspension;
+            }
+
+            await stateStore.SaveGameRevisionAsync(
+                request.DestinationAssignmentId,
+                staged.Revision,
+                cancellationToken);
+            await stateStore.SaveStagedCheckpointAsync(
+                request.DestinationAssignmentId,
+                request.DestinationAuthorityEpoch,
+                request.CheckpointSha256,
+                cancellationToken);
+            return new FinalCheckpointStaged
+            {
+                AssignmentId = request.DestinationAssignmentId,
+                EntityId = request.EntityId,
+                AuthorityEpoch = request.DestinationAuthorityEpoch,
+                RealizedRevision = staged.Revision,
+                StagedCheckpointSha256 = request.CheckpointSha256,
+                Ready = true,
+                IdempotencyKey = request.IdempotencyKey,
+            };
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Final checkpoint staging failed for assignment {AssignmentId} epoch {AuthorityEpoch}.",
+                request.DestinationAssignmentId,
+                request.DestinationAuthorityEpoch);
+            return new FinalCheckpointStaged
+            {
+                AssignmentId = request.DestinationAssignmentId,
+                EntityId = request.EntityId,
+                AuthorityEpoch = request.DestinationAuthorityEpoch,
+                StagedCheckpointSha256 = request.CheckpointSha256,
+                Ready = false,
+                ErrorCode = "final-checkpoint-staging-failed",
+                ErrorMessage = exception.Message,
+                IdempotencyKey = request.IdempotencyKey,
+            };
+        }
+    }
+
+    private async Task ApplyActivationGrantAsync(
+        ActivationGrant grant,
+        CancellationToken cancellationToken)
+    {
+        var assignment = stateStore.ReadAssignment(grant.AssignmentId);
+        if (assignment.Role != AssignmentRole.Shadow
+            || assignment.AuthorityEpoch != grant.AuthorityEpoch
+            || !string.Equals(assignment.EntityId, grant.EntityId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Activation grant does not match the durable Shadow assignment.");
+        }
+        var stagedHash = stateStore.ReadStagedCheckpoint(grant.AssignmentId, grant.AuthorityEpoch);
+        if (!string.Equals(stagedHash, grant.StagedCheckpointSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Activation grant checkpoint hash does not match the staged destination.");
+        }
+        if (stateStore.ReadCursor() < grant.MigrationCommitPosition)
+        {
+            throw new InvalidDataException("Activation grant arrived before the durable migration commit cursor.");
+        }
+        if (!stateStore.HasCommittedMigration(
+            grant.MigrationCommitPosition,
+            grant.AssignmentId,
+            grant.AuthorityEpoch))
+        {
+            throw new InvalidDataException("Activation grant is not backed by a committed tactical-island migration.");
+        }
+
+        if (!stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
+        {
+            var expectedGameRevision = stateStore.ReadGameRevision(grant.AssignmentId);
+            var result = await RequireGameCommandAsync(
+                GameCommandTypes.SetOwnedSurfaceSuspension,
+                JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
+                {
+                    Context = Context(
+                        grant.AssignmentId,
+                        grant.AuthorityEpoch,
+                        expectedGameRevision,
+                        grant.IdempotencyKey),
+                    EntityId = grant.EntityId,
+                    IsSuspended = false,
+                }, JsonOptions),
+                cancellationToken);
+            var enabled = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                result.ResultJson,
+                JsonOptions) ?? throw new InvalidDataException("Activation unsuspend result was empty.");
+            await stateStore.SaveGameRevisionAsync(grant.AssignmentId, enabled.Revision, cancellationToken);
+            await stateStore.SaveActivationGrantAsync(
+                grant.AssignmentId,
+                grant.AuthorityEpoch,
+                grant.MigrationCommitPosition,
+                cancellationToken);
+        }
+    }
+
     private async Task<GameCommandResult> RequireGameCommandAsync(
         string type,
         string json,
@@ -753,29 +934,40 @@ public sealed class CampaignCompanionClient(
     private async Task<OwnedSurfaceCheckpointPayload?> DownloadCheckpointAsync(
         TacticalAssignment assignment,
         string token,
+        CancellationToken cancellationToken) =>
+        await DownloadCheckpointAsync(
+            assignment.CheckpointSha256,
+            assignment.CheckpointUri,
+            token,
+            cancellationToken);
+
+    private async Task<OwnedSurfaceCheckpointPayload?> DownloadCheckpointAsync(
+        string checkpointSha256,
+        string checkpointUri,
+        string token,
         CancellationToken cancellationToken)
     {
-        var hasHash = !string.IsNullOrWhiteSpace(assignment.CheckpointSha256);
-        var hasUri = !string.IsNullOrWhiteSpace(assignment.CheckpointUri);
+        var hasHash = !string.IsNullOrWhiteSpace(checkpointSha256);
+        var hasUri = !string.IsNullOrWhiteSpace(checkpointUri);
         if (!hasHash && !hasUri)
         {
             return null;
         }
         if (!hasHash || !hasUri
-            || assignment.CheckpointSha256.Length != 64
-            || !assignment.CheckpointSha256.All(Uri.IsHexDigit)
+            || checkpointSha256.Length != 64
+            || !checkpointSha256.All(Uri.IsHexDigit)
             || !string.Equals(
-                assignment.CheckpointUri,
-                $"/content/{assignment.CheckpointSha256}",
+                checkpointUri,
+                $"/content/{checkpointSha256}",
                 StringComparison.Ordinal))
         {
             throw new InvalidDataException("The tactical assignment checkpoint reference is invalid.");
         }
         using var client = new HttpClient { BaseAddress = options.HttpUri };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var content = await client.GetByteArrayAsync(assignment.CheckpointUri, cancellationToken);
+        var content = await client.GetByteArrayAsync(checkpointUri, cancellationToken);
         var actualHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
-        if (!string.Equals(actualHash, assignment.CheckpointSha256, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(actualHash, checkpointSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("The tactical assignment checkpoint content hash is invalid.");
         }
@@ -816,6 +1008,11 @@ public sealed class CampaignCompanionClient(
         $"checkpoint-{DeterministicId(
             checkpoint.AssignmentId,
             $"{checkpoint.AuthorityEpoch}:{checkpoint.EntityRevision}:{checkpoint.CheckpointSha256}")}";
+
+    private static string StagedCheckpointSpoolKey(FinalCheckpointStaged staged) =>
+        $"staged-{DeterministicId(
+            staged.AssignmentId,
+            $"{staged.AuthorityEpoch}:{staged.StagedCheckpointSha256}:{staged.Ready}")}";
 
     private string CurrentGameSessionId() => game.SessionId
         ?? throw new InvalidOperationException("The game session ended during campaign work.");

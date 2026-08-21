@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CrimeanTom.Campaign.Contracts\CrimeanTom.Campaign.Contracts.csproj" />
     <ProjectReference Include="..\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
     <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
   </ItemGroup>

@@ -246,6 +246,27 @@ app.MapPost("/control/campaigns/{campaignId}/prepare-shadow", async (
         return Results.Conflict(new { error = exception.Code, message = exception.Message });
     }
 });
+app.MapPost("/control/campaigns/{campaignId}/migrate-tactical-island", async (
+    string campaignId,
+    CampaignIslandMigrationRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out _))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Accepted(value: await coordinator.MigrateTacticalIslandAsync(
+            request with { CampaignId = campaignId },
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/handoffs/cancel", async (
     CampaignHandoffRequest request,
     CampaignCoordinator coordinator,
@@ -278,9 +299,15 @@ app.MapPost("/control/quiesce", async (
     CampaignSessionRegistry sessions,
     CancellationToken cancellationToken) =>
 {
-    var fence = await coordinator.BeginQuiesceAsync(request, cancellationToken);
-    return sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Fence = fence })
-        ? Results.Accepted(value: fence)
+    var quiesced = await coordinator.BeginQuiesceAsync(request, cancellationToken);
+    var queued = string.IsNullOrWhiteSpace(quiesced.WorkerClientInstanceId)
+        ? sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Fence = quiesced.Fence })
+        : sessions.TryQueueForClient(
+            request.CampaignId,
+            quiesced.WorkerClientInstanceId,
+            new ServiceFrame { Fence = quiesced.Fence });
+    return queued
+        ? Results.Accepted(value: quiesced.Fence)
         : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
 app.MapPost("/control/campaigns/{campaignId}/resolve-expired/{target:long}", async (

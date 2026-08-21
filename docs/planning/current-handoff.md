@@ -542,8 +542,26 @@ distinct connected compatible destination, spends only that worker's
 migration-overlap reserve, commits `Shadow`/`Preparing` assignments, and queues
 them without changing source ownership. The companion materializes, verifies,
 and suspends the destination before its readiness report advances the assignment
-to `Prepared`. The coordinator still does not schedule the final checkpoint or
-`migrate-tactical-island`; next add bounded concurrency and cooldown, then expand live tactical
+to `Prepared`. Authenticated
+`POST /control/campaigns/{campaignId}/migrate-tactical-island` then requires a
+complete island with source `Primary`/`Quiesced` and destination
+`Shadow`/`Prepared`, matching worker affinity, higher destination epochs, exact
+source revisions, and a durable final checkpoint for every member. It queues
+staging only to the destination. After every member reports a matching staged
+checkpoint, the coordinator issues the existing atomic
+`migrate-tactical-island` command and only then queues activation grants.
+Pre-commit activation is rejected; queue failures leave the island recoverable
+rather than split. Matching staged hashes are remembered in the coordinator
+process only until `migrate-tactical-island` commits, which is acceptable
+because companion outbound `StageFinalCheckpoint` frames are durable and
+resent after a pre-commit restart. After the durable
+`TacticalIslandMigratedEvent`, endpoint retry and a destination resend of
+`FinalCheckpointStaged` reconstruct the island from that event's exact commit
+position, assignment IDs, epochs, and the source assignment's durable
+checkpoint hash/length—not from process-local staging or current journal head.
+This path is proven in the broad protocol story with a
+second gRPC destination worker, not yet with two live Sea Power containers.
+Next add bounded concurrency and cooldown, then expand live tactical
 combat tempo to mixed active systems, exercise campaign-owned
 sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep

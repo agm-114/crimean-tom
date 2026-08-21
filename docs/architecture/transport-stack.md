@@ -99,7 +99,8 @@ envelope:
 - unary session negotiation and capability exchange;
 - one bidirectional companion session stream whose client/server frames use
   Protobuf `oneof` variants for commands, event proposals, acknowledgements,
-  leases/fences, cursors, and health;
+  leases/fences, cursors, health, destination final-checkpoint staging, staged
+  readiness, and post-commit activation grants;
 - bounded priority queues before the single stream writer on each side;
 - explicit message IDs, campaign commit positions, assignment epochs,
   idempotency keys, deadlines, and schema versions; and

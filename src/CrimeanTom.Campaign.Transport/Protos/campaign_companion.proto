@@ -16,6 +16,7 @@ message CompanionFrame {
     AssignmentPrepared assignment_prepared = 13;
     TacticalEventProposal tactical_event = 14;
     CheckpointPublished checkpoint_published = 15;
+    FinalCheckpointStaged final_checkpoint_staged = 16;
   }
 }
 
@@ -30,6 +31,8 @@ message ServiceFrame {
     AuthorityFence fence = 15;
     ServiceError error = 16;
     ServiceAcknowledgement acknowledgement = 17;
+    StageFinalCheckpoint stage_final_checkpoint = 18;
+    ActivationGrant activation_grant = 19;
   }
 }
 
@@ -222,6 +225,47 @@ message AuthorityFence {
   int64 expected_entity_revision = 6;
   string idempotency_key = 7;
   bool resolve_expected_revision_from_worker = 8;
+}
+
+message FinalCheckpointStaged {
+  string assignment_id = 1;
+  string entity_id = 2;
+  int64 authority_epoch = 3;
+  int64 realized_revision = 4;
+  string staged_checkpoint_sha256 = 5;
+  bool ready = 6;
+  string error_code = 7;
+  string error_message = 8;
+  string idempotency_key = 9;
+}
+
+message StageFinalCheckpoint {
+  string campaign_id = 1;
+  string destination_assignment_id = 2;
+  string entity_id = 3;
+  int64 destination_authority_epoch = 4;
+  string source_assignment_id = 5;
+  int64 source_authority_epoch = 6;
+  int64 expected_destination_assignment_revision = 7;
+  int64 expected_entity_revision = 8;
+  string checkpoint_sha256 = 9;
+  string checkpoint_uri = 10;
+  int64 checkpoint_length = 11;
+  string idempotency_key = 12;
+  string batch_id = 13;
+  int32 batch_size = 14;
+}
+
+message ActivationGrant {
+  string assignment_id = 1;
+  string entity_id = 2;
+  int64 authority_epoch = 3;
+  int64 expected_entity_revision = 4;
+  string staged_checkpoint_sha256 = 5;
+  int64 migration_commit_position = 6;
+  string idempotency_key = 7;
+  string batch_id = 8;
+  int32 batch_size = 9;
 }
 
 message ServiceError {

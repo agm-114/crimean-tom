@@ -209,12 +209,15 @@ The operator projection lists every worker and its materialized, active,
 retained, recovery-required, profile, and coupling counts. Deterministic
 least-loaded selection is only the placement foundation. The durable kernel can
 now commit one fenced Shadow-to-Primary migration for a complete island. The
-coordinator can prepare that destination against migration-overlap reserve and
-queue Shadow frames without taking over publishing, but live enablement still
-requires final-checkpoint staging, cooldown, bounded concurrency, and
-coordinator-scheduled promotion before it is safe to use in Sea Power. The
-companion already reconstructs and suspends queued Shadow objects before it
-reports them prepared.
+coordinator can prepare that destination against migration-overlap reserve,
+queue Shadow frames without taking over publishing, stage source final
+checkpoints onto the still-suspended destination, and grant unsuspend only
+after the durable island-migration commit. Cooldown, bounded concurrency, and
+real two-container Sea Power verification remain before this is safe as an
+automatic live rebalance. The companion reconstructs and suspends queued
+Shadow objects before it reports them prepared, then applies
+`stage-owned-surface-checkpoint` for the source final blob and unsuspends only
+on a validated activation grant.
 
 A representable interaction island is durably reserved and queued to the
 companion directly by the schedule operation. Singleton assignments activate

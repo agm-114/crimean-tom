@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 
+using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Transport.V1;
+using TransportCommittedCampaignEvent = CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent;
 
 using Google.Protobuf;
 
@@ -23,7 +25,7 @@ public sealed class CampaignCompanionStateStore
     }
 
     public async Task AcceptCommittedEventAsync(
-        CommittedCampaignEvent campaignEvent,
+        TransportCommittedCampaignEvent campaignEvent,
         CancellationToken cancellationToken)
     {
         var content = campaignEvent.EventJson.ToByteArray();
@@ -182,6 +184,112 @@ public sealed class CampaignCompanionStateStore
             _gate.Release();
         }
     }
+
+    public async Task SaveStagedCheckpointAsync(
+        string assignmentId,
+        long authorityEpoch,
+        string checkpointSha256,
+        CancellationToken cancellationToken)
+    {
+        if (checkpointSha256.Length != 64 || checkpointSha256.Any(character => !Uri.IsHexDigit(character)))
+        {
+            throw new InvalidDataException("A staged checkpoint hash is invalid.");
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                StagedCheckpointPath(assignmentId, authorityEpoch),
+                Encoding.UTF8.GetBytes(checkpointSha256.ToLowerInvariant()),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public string ReadStagedCheckpoint(string assignmentId, long authorityEpoch)
+    {
+        var path = StagedCheckpointPath(assignmentId, authorityEpoch);
+        return File.Exists(path)
+            ? File.ReadAllText(path).Trim()
+            : throw new InvalidDataException("The durable staged checkpoint hash is missing.");
+    }
+
+    public async Task SaveActivationGrantAsync(
+        string assignmentId,
+        long authorityEpoch,
+        long migrationCommitPosition,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                ActivationGrantPath(assignmentId, authorityEpoch),
+                Encoding.UTF8.GetBytes(migrationCommitPosition.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public bool HasActivationGrant(string assignmentId, long authorityEpoch) =>
+        File.Exists(ActivationGrantPath(assignmentId, authorityEpoch));
+
+    public bool HasCommittedMigration(long commitPosition, string assignmentId, long authorityEpoch)
+    {
+        var events = Path.Combine(_root, "committed-events");
+        if (!Directory.Exists(events))
+        {
+            return false;
+        }
+        var prefix = $"{commitPosition:D20}-";
+        var match = Directory.EnumerateFiles(events, $"{prefix}*.json")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (match is null)
+        {
+            return false;
+        }
+
+        var committed = CampaignContractJson.DeserializeEvent(File.ReadAllBytes(match));
+        if (committed.CommitPosition.Value != commitPosition
+            || committed.Data is not TacticalIslandMigratedEvent migrated
+            || !TryParseAssignmentId(assignmentId, out var destinationAssignmentId))
+        {
+            return false;
+        }
+
+        return migrated.Migration.Members.Any(member =>
+            member.DestinationAssignmentId == destinationAssignmentId
+            && member.DestinationAuthorityEpoch.Value == authorityEpoch);
+    }
+
+    private static bool TryParseAssignmentId(string assignmentId, out AssignmentId parsed)
+    {
+        parsed = default;
+        var value = assignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+            ? assignmentId["assignment:".Length..]
+            : assignmentId;
+        if (!Guid.TryParseExact(value, "N", out var guid)
+            && !Guid.TryParse(value, out guid))
+        {
+            return false;
+        }
+
+        parsed = new AssignmentId(guid);
+        return true;
+    }
+
+    private string StagedCheckpointPath(string assignmentId, long authorityEpoch) =>
+        Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.staged-checkpoint");
+
+    private string ActivationGrantPath(string assignmentId, long authorityEpoch) =>
+        Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.activation-grant");
 
     private static async Task WriteAtomicallyAsync(
         string destination,

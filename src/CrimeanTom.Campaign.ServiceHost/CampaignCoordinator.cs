@@ -24,6 +24,11 @@ public sealed class CampaignCoordinator(
     private static readonly PlayerId ServicePlayer = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000002"));
     private readonly ConcurrentDictionary<CampaignId, CampaignWriterLease> _leases = new();
+    // Pre-commit staged readiness only. Companion outbound StageFinalCheckpoint
+    // frames are durable and resent, so a coordinator restart before commit
+    // recovers by re-queueing staging. After TacticalIslandMigratedEvent,
+    // grants reconstruct from the journal and durable source checkpoints.
+    private readonly ConcurrentDictionary<string, StagedMigrationCheckpoint> _stagedCheckpoints = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<CampaignBootstrapResult> BootstrapAsync(
@@ -545,6 +550,56 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public async Task<CampaignIslandMigrationResult> MigrateTacticalIslandAsync(
+        CampaignIslandMigrationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+            var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
+            if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                throw new CampaignStoreConflict("invalid-idempotency-key", "Island migration requires an idempotency key.");
+            }
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var plan = await RequireMigrationPlanAsync(state, entityId, cancellationToken);
+            if (plan.AlreadyMigrated)
+            {
+                var grantsQueued = QueueActivationGrants(state, plan, request.IdempotencyKey);
+                return new CampaignIslandMigrationResult(
+                    plan.DestinationClientInstanceId,
+                    plan.MigrationCommitPosition,
+                    grantsQueued ? "activation-granted" : "migration-committed-grants-pending",
+                    plan.Members.Select(item => item.Destination.AssignmentId.ToString()).ToArray());
+            }
+
+            var stagingQueued = QueueStagingFrames(state, plan, request.IdempotencyKey);
+            if (!stagingQueued)
+            {
+                throw new CampaignStoreConflict(
+                    "companion-session-unavailable-or-backpressured",
+                    "The destination session could not accept final-checkpoint staging frames.");
+            }
+
+            if (!AllMembersStaged(plan))
+            {
+                return new CampaignIslandMigrationResult(
+                    plan.DestinationClientInstanceId,
+                    null,
+                    "staging-queued",
+                    plan.Members.Select(item => item.Destination.AssignmentId.ToString()).ToArray());
+            }
+
+            return await CommitMigrationAndGrantAsync(state, plan, request.IdempotencyKey, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task ProcessCompanionFrameAsync(
         CompanionHello hello,
         CompanionFrame frame,
@@ -553,7 +608,8 @@ public sealed class CampaignCoordinator(
         if (frame.PayloadCase is not (
             CompanionFrame.PayloadOneofCase.AssignmentPrepared
             or CompanionFrame.PayloadOneofCase.TacticalEvent
-            or CompanionFrame.PayloadOneofCase.CheckpointPublished))
+            or CompanionFrame.PayloadOneofCase.CheckpointPublished
+            or CompanionFrame.PayloadOneofCase.FinalCheckpointStaged))
         {
             return;
         }
@@ -566,6 +622,7 @@ public sealed class CampaignCoordinator(
             {
                 CompanionFrame.PayloadOneofCase.AssignmentPrepared => frame.AssignmentPrepared.AssignmentId,
                 CompanionFrame.PayloadOneofCase.CheckpointPublished => frame.CheckpointPublished.AssignmentId,
+                CompanionFrame.PayloadOneofCase.FinalCheckpointStaged => frame.FinalCheckpointStaged.AssignmentId,
                 _ => frame.TacticalEvent.AssignmentId,
             };
             var assignmentId = ParseScopedId(
@@ -636,6 +693,14 @@ public sealed class CampaignCoordinator(
                     return;
                 }
                 await ActivateAsync(campaignId, frame.AssignmentPrepared, cancellationToken);
+            }
+            else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.FinalCheckpointStaged)
+            {
+                await AcceptStagedCheckpointAsync(
+                    campaignId,
+                    hello.ClientInstanceId,
+                    frame.FinalCheckpointStaged,
+                    cancellationToken);
             }
             else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished)
             {
@@ -1134,6 +1199,474 @@ public sealed class CampaignCoordinator(
         return null;
     }
 
+    private async Task<CampaignBlobReference?> FindLatestAssignmentCheckpointAsync(
+        CampaignState state,
+        AssignmentId assignmentId,
+        CancellationToken cancellationToken) =>
+        await journal.ReadLatestBlobReferenceAsync(
+            state.Metadata.CampaignId,
+            CampaignBlobPurpose.TacticalCheckpoint,
+            $"assignment:{assignmentId}/",
+            cancellationToken);
+
+    private static bool HasPreparedShadowDestination(
+        CampaignState state,
+        EntityId entityId,
+        string batchId)
+    {
+        var sources = string.IsNullOrEmpty(batchId)
+            ? state.Assignments.Values.Where(item => item.EntityId == entityId
+                && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                && item.Lifecycle != AssignmentLifecycle.Released)
+            : state.Assignments.Values.Where(item =>
+                string.Equals(item.BatchId, batchId, StringComparison.Ordinal)
+                && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                && item.Lifecycle != AssignmentLifecycle.Released);
+        var sourceEntities = sources.Select(item => item.EntityId).Distinct().ToArray();
+        if (sourceEntities.Length == 0)
+        {
+            return false;
+        }
+        return sourceEntities.All(id => state.Assignments.Values.Any(item =>
+            item.EntityId == id
+            && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+            && item.Lifecycle == AssignmentLifecycle.Prepared));
+    }
+
+    private async Task<IslandMigrationPlan> RequireMigrationPlanAsync(
+        CampaignState state,
+        EntityId entityId,
+        CancellationToken cancellationToken)
+    {
+        if (entityId.Value == Guid.Empty)
+        {
+            throw new CampaignStoreConflict("invalid-id", "A canonical identifier is invalid.");
+        }
+        var island = CampaignFidelityScheduler.Inspect(state).Islands
+            .FirstOrDefault(item => item.EntityIds.Contains(entityId))
+            ?? throw new CampaignStoreConflict("migration-island-missing", "The entity does not belong to a tactical interaction island.");
+        var sources = island.EntityIds
+            .Select(id => state.Assignments.Values
+                .Where(item => item.EntityId == id
+                    && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                    && item.Lifecycle != AssignmentLifecycle.Released)
+                .OrderByDescending(item => item.AuthorityEpoch.Value)
+                .ThenByDescending(item => item.AssignmentId.Value)
+                .FirstOrDefault())
+            .ToArray();
+        var destinations = island.EntityIds
+            .Select(id => state.Assignments.Values
+                .Where(item => item.EntityId == id
+                    && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+                    && item.Lifecycle != AssignmentLifecycle.Released)
+                .OrderByDescending(item => item.AuthorityEpoch.Value)
+                .ThenByDescending(item => item.AssignmentId.Value)
+                .FirstOrDefault())
+            .ToArray();
+        if (destinations.All(item => item is null)
+            && sources.All(item => item is { Lifecycle: AssignmentLifecycle.Active }))
+        {
+            var reconstructed = await TryReconstructMigratedPlanAsync(
+                state,
+                island.EntityIds,
+                sources.Cast<AssignmentState>().ToArray(),
+                cancellationToken);
+            if (reconstructed is not null)
+            {
+                return reconstructed;
+            }
+        }
+
+        if (sources.Any(item => item is null) || sources.Length != island.EntityIds.Count)
+        {
+            throw new CampaignStoreConflict(
+                "migration-source-incomplete",
+                "Whole-island migration requires a complete Primary source island.");
+        }
+        if (sources.Any(item => item!.Lifecycle != AssignmentLifecycle.Quiesced))
+        {
+            throw new CampaignStoreConflict(
+                "migration-source-not-quiesced",
+                "Whole-island migration requires every source Primary to be Quiesced.");
+        }
+        if (destinations.Any(item => item is null)
+            || destinations.Any(item => item!.Lifecycle != AssignmentLifecycle.Prepared)
+            || destinations.Length != island.EntityIds.Count)
+        {
+            throw new CampaignStoreConflict(
+                "migration-destination-not-prepared",
+                "Whole-island migration requires a complete Shadow/Prepared destination.");
+        }
+
+        var sourceWorkers = sources.Select(item => item!.WorkerClientInstanceId)
+            .Where(owner => !string.IsNullOrWhiteSpace(owner))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var destinationWorkers = destinations.Select(item => item!.WorkerClientInstanceId)
+            .Where(owner => !string.IsNullOrWhiteSpace(owner))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (sourceWorkers.Length != 1 || destinationWorkers.Length != 1)
+        {
+            throw new CampaignStoreConflict(
+                "island-worker-affinity-conflict",
+                "Source and destination island members must each share one worker affinity.");
+        }
+        if (string.Equals(sourceWorkers[0], destinationWorkers[0], StringComparison.Ordinal))
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-same-worker",
+                "A migration destination must be a different worker than the source.");
+        }
+
+        var sourceBatchIds = sources.Select(item => item!.BatchId).Distinct(StringComparer.Ordinal).ToArray();
+        var destinationBatchIds = destinations.Select(item => item!.BatchId).Distinct(StringComparer.Ordinal).ToArray();
+        var sourceBatchSizes = sources.Select(item => item!.BatchSize).Distinct().ToArray();
+        var destinationBatchSizes = destinations.Select(item => item!.BatchSize).Distinct().ToArray();
+        if (sourceBatchIds.Length != 1
+            || destinationBatchIds.Length != 1
+            || sourceBatchSizes.Length != 1
+            || destinationBatchSizes.Length != 1
+            || sourceBatchSizes[0] != island.EntityIds.Count
+            || destinationBatchSizes[0] != island.EntityIds.Count
+            || (island.EntityIds.Count == 1 && (!string.IsNullOrEmpty(sourceBatchIds[0]) || !string.IsNullOrEmpty(destinationBatchIds[0])))
+            || (island.EntityIds.Count > 1 && (string.IsNullOrEmpty(sourceBatchIds[0])
+                || string.IsNullOrEmpty(destinationBatchIds[0]))))
+        {
+            throw new CampaignStoreConflict(
+                "migration-batch-inconsistent",
+                "Whole-island migration requires consistent source and destination batch membership.");
+        }
+
+        var members = new List<IslandMigrationMemberPlan>();
+        foreach (var source in sources.Select(item => item!).OrderBy(item => item.AssignmentId.Value))
+        {
+            var destination = destinations.First(item => item!.EntityId == source.EntityId)!;
+            if (destination.AuthorityEpoch.Value <= source.AuthorityEpoch.Value)
+            {
+                throw new CampaignStoreConflict(
+                    "island-migration-fenced",
+                    "A destination epoch must be strictly higher than the source epoch.");
+            }
+            var checkpoint = await FindLatestAssignmentCheckpointAsync(state, source.AssignmentId, cancellationToken)
+                ?? throw new CampaignStoreConflict(
+                    "migration-checkpoint-missing",
+                    "Every source member must have a durable final checkpoint before staging.");
+            members.Add(new IslandMigrationMemberPlan(source, destination, checkpoint));
+        }
+
+        return new IslandMigrationPlan(destinationWorkers[0], false, null, members);
+    }
+
+    private async Task<IslandMigrationPlan?> TryReconstructMigratedPlanAsync(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        IReadOnlyList<AssignmentState> livePrimaries,
+        CancellationToken cancellationToken)
+    {
+        if (livePrimaries.Count != islandEntityIds.Count
+            || livePrimaries.Select(item => item.WorkerClientInstanceId)
+                .Distinct(StringComparer.Ordinal)
+                .Count() != 1)
+        {
+            return null;
+        }
+
+        var liveByEntity = livePrimaries.ToDictionary(item => item.EntityId);
+        var events = await journal.ReadEventsAsync(
+            state.Metadata.CampaignId,
+            CommitPosition.Origin,
+            cancellationToken);
+        var matching = events
+            .Where(item => item.Data is TacticalIslandMigratedEvent migrated
+                && MatchesPromotedDestinations(migrated.Migration.Members, liveByEntity))
+            .OrderByDescending(item => item.CommitPosition.Value)
+            .FirstOrDefault();
+        if (matching?.Data is not TacticalIslandMigratedEvent migratedEvent)
+        {
+            return null;
+        }
+
+        var members = new List<IslandMigrationMemberPlan>();
+        foreach (var member in migratedEvent.Migration.Members.OrderBy(item => item.DestinationAssignmentId.Value))
+        {
+            if (!state.Assignments.TryGetValue(member.SourceAssignmentId, out var source)
+                || !state.Assignments.TryGetValue(member.DestinationAssignmentId, out var destination)
+                || source.EntityId != member.EntityId
+                || destination.EntityId != member.EntityId
+                || source.AuthorityEpoch != member.SourceAuthorityEpoch
+                || destination.AuthorityEpoch != member.DestinationAuthorityEpoch
+                || source.Lifecycle != AssignmentLifecycle.Released
+                || destination.Role != CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                || destination.Lifecycle != AssignmentLifecycle.Active)
+            {
+                throw new CampaignStoreConflict(
+                    "island-migration-incomplete",
+                    "A previously migrated island no longer has consistent destination ownership.");
+            }
+
+            var checkpoint = await FindLatestAssignmentCheckpointAsync(state, member.SourceAssignmentId, cancellationToken)
+                ?? throw new CampaignStoreConflict(
+                    "migration-checkpoint-missing",
+                    "Every source member must have a durable final checkpoint before activation grants.");
+            members.Add(new IslandMigrationMemberPlan(source, destination, checkpoint));
+        }
+
+        return new IslandMigrationPlan(
+            livePrimaries[0].WorkerClientInstanceId,
+            true,
+            matching.CommitPosition.Value,
+            members);
+    }
+
+    private static bool MatchesPromotedDestinations(
+        IReadOnlyList<TacticalIslandMigrationMember> members,
+        IReadOnlyDictionary<EntityId, AssignmentState> liveByEntity)
+    {
+        if (members.Count != liveByEntity.Count)
+        {
+            return false;
+        }
+
+        return members.All(member =>
+            liveByEntity.TryGetValue(member.EntityId, out var live)
+            && live.AssignmentId == member.DestinationAssignmentId
+            && live.AuthorityEpoch == member.DestinationAuthorityEpoch);
+    }
+
+    private bool QueueStagingFrames(CampaignState state, IslandMigrationPlan plan, string idempotencyKey)
+    {
+        var queued = true;
+        foreach (var member in plan.Members)
+        {
+            var frame = new ServiceFrame
+            {
+                StageFinalCheckpoint = new StageFinalCheckpoint
+                {
+                    CampaignId = state.Metadata.CampaignId.ToString(),
+                    DestinationAssignmentId = $"assignment:{member.Destination.AssignmentId}",
+                    EntityId = $"unit:crimean-tom:{member.Destination.EntityId}",
+                    DestinationAuthorityEpoch = member.Destination.AuthorityEpoch.Value,
+                    SourceAssignmentId = $"assignment:{member.Source.AssignmentId}",
+                    SourceAuthorityEpoch = member.Source.AuthorityEpoch.Value,
+                    ExpectedDestinationAssignmentRevision = member.Destination.Revision.Value,
+                    ExpectedEntityRevision = state.Entities[member.Source.EntityId].Revision.Value,
+                    CheckpointSha256 = member.SourceCheckpoint.Sha256,
+                    CheckpointUri = $"/content/{member.SourceCheckpoint.Sha256}",
+                    CheckpointLength = member.SourceCheckpoint.Length,
+                    IdempotencyKey = $"{idempotencyKey}-{member.Destination.EntityId}-stage",
+                    BatchId = member.Destination.BatchId,
+                    BatchSize = member.Destination.BatchSize,
+                },
+            };
+            if (!sessions.TryQueueForClient(
+                state.Metadata.CampaignId.ToString(),
+                plan.DestinationClientInstanceId,
+                frame))
+            {
+                queued = false;
+            }
+        }
+        return queued;
+    }
+
+    private bool QueueActivationGrants(CampaignState state, IslandMigrationPlan plan, string idempotencyKey)
+    {
+        var queued = true;
+        if (plan.MigrationCommitPosition is not { } commitPosition)
+        {
+            return false;
+        }
+        foreach (var member in plan.Members)
+        {
+            var hash = member.SourceCheckpoint.Sha256;
+            if (string.IsNullOrWhiteSpace(hash) || member.SourceCheckpoint.Length <= 0)
+            {
+                queued = false;
+                continue;
+            }
+            var frame = new ServiceFrame
+            {
+                ActivationGrant = new ActivationGrant
+                {
+                    AssignmentId = $"assignment:{member.Destination.AssignmentId}",
+                    EntityId = $"unit:crimean-tom:{member.Destination.EntityId}",
+                    AuthorityEpoch = member.Destination.AuthorityEpoch.Value,
+                    ExpectedEntityRevision = state.Entities[member.Destination.EntityId].Revision.Value,
+                    StagedCheckpointSha256 = hash,
+                    MigrationCommitPosition = commitPosition,
+                    IdempotencyKey = $"{idempotencyKey}-{member.Destination.EntityId}-activate",
+                    BatchId = member.Destination.BatchId,
+                    BatchSize = member.Destination.BatchSize,
+                },
+            };
+            if (!sessions.TryQueueForClient(
+                state.Metadata.CampaignId.ToString(),
+                plan.DestinationClientInstanceId,
+                frame))
+            {
+                queued = false;
+            }
+        }
+        return queued;
+    }
+
+    // Process-local only until migrate-tactical-island commits. Companion outbound
+    // staging frames are durable and resent after a pre-commit coordinator restart.
+    private bool AllMembersStaged(IslandMigrationPlan plan) =>
+        plan.Members.All(member =>
+        {
+            var staged = _stagedCheckpoints.GetValueOrDefault(
+                StagedKey(member.Destination.AssignmentId, member.Destination.AuthorityEpoch.Value));
+            return staged is { Ready: true }
+                && string.Equals(staged.CheckpointSha256, member.SourceCheckpoint.Sha256, StringComparison.OrdinalIgnoreCase);
+        });
+
+    private static string StagedKey(AssignmentId assignmentId, long epoch) =>
+        $"{assignmentId}:{epoch}";
+
+    private async Task AcceptStagedCheckpointAsync(
+        CampaignId campaignId,
+        string clientInstanceId,
+        FinalCheckpointStaged staged,
+        CancellationToken cancellationToken)
+    {
+        var assignmentId = ParseScopedId(staged.AssignmentId, "assignment:", value => new AssignmentId(value));
+        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        if (!state.Assignments.TryGetValue(assignmentId, out var assignment))
+        {
+            throw new CampaignStoreConflict("assignment-missing", "A staged assignment does not exist.");
+        }
+        if (assignment.AuthorityEpoch.Value != staged.AuthorityEpoch)
+        {
+            throw new CampaignStoreConflict("assignment-fenced", "Staged assignment epoch is stale.");
+        }
+        if (assignment.Role != CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+            || assignment.Lifecycle != AssignmentLifecycle.Prepared)
+        {
+            if (assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                && assignment.Lifecycle == AssignmentLifecycle.Active)
+            {
+                IslandMigrationPlan migrated;
+                try
+                {
+                    migrated = await RequireMigrationPlanAsync(state, assignment.EntityId, cancellationToken);
+                }
+                catch (CampaignStoreConflict exception) when (
+                    exception.Code is not "island-migration-incomplete"
+                        and not "migration-checkpoint-missing")
+                {
+                    throw new CampaignStoreConflict(
+                        "final-checkpoint-precondition",
+                        "Final-checkpoint staging is only accepted for a Prepared Shadow.");
+                }
+                if (!migrated.AlreadyMigrated)
+                {
+                    throw new CampaignStoreConflict(
+                        "final-checkpoint-precondition",
+                        "Final-checkpoint staging is only accepted for a Prepared Shadow.");
+                }
+                _ = QueueActivationGrants(
+                    state,
+                    migrated,
+                    staged.IdempotencyKey.Length > 0
+                        ? staged.IdempotencyKey
+                        : $"activate-{assignmentId}-{staged.AuthorityEpoch}");
+                return;
+            }
+            throw new CampaignStoreConflict(
+                "final-checkpoint-precondition",
+                "Final-checkpoint staging is only accepted for a Prepared Shadow.");
+        }
+        if (!string.Equals(assignment.WorkerClientInstanceId, clientInstanceId, StringComparison.Ordinal))
+        {
+            throw new CampaignStoreConflict(
+                "assignment-worker-fenced",
+                "The companion client does not own this tactical assignment.");
+        }
+        if (!staged.Ready)
+        {
+            return;
+        }
+
+        IslandMigrationPlan plan;
+        try
+        {
+            plan = await RequireMigrationPlanAsync(state, assignment.EntityId, cancellationToken);
+        }
+        catch (CampaignStoreConflict)
+        {
+            return;
+        }
+
+        var member = plan.Members.FirstOrDefault(item => item.Destination.AssignmentId == assignmentId)
+            ?? throw new CampaignStoreConflict("migration-batch-inconsistent", "Staged assignment is not part of the island plan.");
+        if (!string.Equals(staged.StagedCheckpointSha256, member.SourceCheckpoint.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CampaignStoreConflict(
+                "checkpoint-hash-mismatch",
+                "The staged checkpoint hash does not match the source final checkpoint.");
+        }
+
+        _stagedCheckpoints[StagedKey(assignmentId, staged.AuthorityEpoch)] = new StagedMigrationCheckpoint(
+            assignmentId,
+            staged.AuthorityEpoch,
+            staged.StagedCheckpointSha256,
+            staged.RealizedRevision,
+            true);
+
+        if (!AllMembersStaged(plan))
+        {
+            return;
+        }
+
+        await CommitMigrationAndGrantAsync(
+            state,
+            plan,
+            staged.IdempotencyKey.Length > 0 ? staged.IdempotencyKey : $"migrate-{assignmentId}-{staged.AuthorityEpoch}",
+            cancellationToken);
+    }
+
+    private async Task<CampaignIslandMigrationResult> CommitMigrationAndGrantAsync(
+        CampaignState state,
+        IslandMigrationPlan plan,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var campaignId = state.Metadata.CampaignId;
+        var batchId = plan.Members[0].Destination.BatchId;
+        if (string.IsNullOrEmpty(batchId))
+        {
+            batchId = $"migration:{plan.Members[0].Source.EntityId}";
+        }
+        var commandMembers = plan.Members.Select(member => new TacticalIslandMigrationMember(
+            member.Source.AssignmentId,
+            member.Source.AuthorityEpoch,
+            member.Source.Revision,
+            member.Destination.AssignmentId,
+            member.Destination.AuthorityEpoch,
+            member.Destination.Revision,
+            member.Source.EntityId,
+            state.Entities[member.Source.EntityId].Revision)).ToArray();
+        state = await CommitAsync(state, Command(
+            state,
+            CampaignSubject.Campaign(campaignId),
+            state.CampaignRevision,
+            new MigrateTacticalIslandCommand(
+                batchId,
+                commandMembers,
+                state.Time,
+                "stage-final-checkpoints-and-promote-prepared-shadow"),
+            $"migrate-island-{idempotencyKey}"), cancellationToken);
+        var migrated = await RequireMigrationPlanAsync(state, plan.Members[0].Source.EntityId, cancellationToken);
+        var grantsQueued = QueueActivationGrants(state, migrated, idempotencyKey);
+        return new CampaignIslandMigrationResult(
+            plan.DestinationClientInstanceId,
+            state.Head.Value,
+            grantsQueued ? "activation-granted" : "migration-committed-grants-pending",
+            plan.Members.Select(item => item.Destination.AssignmentId.ToString()).ToArray());
+    }
+
     public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(
         CampaignId campaignId,
         CampaignTime target,
@@ -1419,6 +1952,7 @@ public sealed class CampaignCoordinator(
             && proposal.Kind == TacticalEventKind.Checkpoint)
         {
             assignment = state.Assignments[assignmentId];
+            var holdForMigration = HasPreparedShadowDestination(state, assignment.EntityId, assignment.BatchId);
             if (!string.IsNullOrEmpty(assignment.BatchId))
             {
                 state = await CommitAsync(state, Command(
@@ -1443,6 +1977,10 @@ public sealed class CampaignCoordinator(
                 {
                     return;
                 }
+                if (holdForMigration)
+                {
+                    return;
+                }
                 var members = batch.Select(item => new TacticalIslandReleaseMember(
                     item.AssignmentId,
                     item.AuthorityEpoch,
@@ -1459,6 +1997,20 @@ public sealed class CampaignCoordinator(
                         state.Time,
                         "complete-island-checkpointed-and-suspended"),
                     $"release-island-{assignment.BatchId}"), cancellationToken);
+                return;
+            }
+            if (holdForMigration)
+            {
+                await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Assignment(assignmentId),
+                    assignment.Revision,
+                    new SetAssignmentLifecycleCommand(
+                        assignmentId,
+                        assignment.AuthorityEpoch,
+                        AssignmentLifecycle.Quiesced,
+                        state.Time),
+                    $"quiesced-{proposal.IdempotencyKey}"), cancellationToken);
                 return;
             }
             state = await CommitAsync(state, Command(
@@ -1481,7 +2033,7 @@ public sealed class CampaignCoordinator(
         }
     }
 
-    public async Task<AuthorityFence> BeginQuiesceAsync(
+    public async Task<(AuthorityFence Fence, string WorkerClientInstanceId)> BeginQuiesceAsync(
         CampaignQuiesceRequest request,
         CancellationToken cancellationToken)
     {
@@ -1490,11 +2042,16 @@ public sealed class CampaignCoordinator(
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            return (await BeginQuiesceCoreAsync(
+            var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
+            var worker = state.Assignments.TryGetValue(assignmentId, out var assignment)
+                ? assignment.WorkerClientInstanceId
+                : string.Empty;
+            var quiesced = await BeginQuiesceCoreAsync(
                 state,
                 request,
                 resolveExpectedRevisionFromWorker: false,
-                cancellationToken)).Fence;
+                cancellationToken);
+            return (quiesced.Fence, worker);
         }
         finally
         {
@@ -1949,6 +2506,35 @@ public sealed record CampaignShadowPreparationRequest(
 public sealed record CampaignShadowPreparationResult(
     string DestinationClientInstanceId,
     IReadOnlyList<TacticalAssignment> Assignments);
+
+public sealed record CampaignIslandMigrationRequest(
+    string CampaignId,
+    string CanonicalEntityId,
+    string IdempotencyKey);
+
+public sealed record CampaignIslandMigrationResult(
+    string DestinationClientInstanceId,
+    long? MigrationCommitPosition,
+    string Phase,
+    IReadOnlyList<string> DestinationAssignmentIds);
+
+internal sealed record StagedMigrationCheckpoint(
+    AssignmentId AssignmentId,
+    long AuthorityEpoch,
+    string CheckpointSha256,
+    long RealizedRevision,
+    bool Ready);
+
+internal sealed record IslandMigrationMemberPlan(
+    AssignmentState Source,
+    AssignmentState Destination,
+    CampaignBlobReference SourceCheckpoint);
+
+internal sealed record IslandMigrationPlan(
+    string DestinationClientInstanceId,
+    bool AlreadyMigrated,
+    long? MigrationCommitPosition,
+    IReadOnlyList<IslandMigrationMemberPlan> Members);
 
 public sealed record CampaignQuiesceRequest(
     string CampaignId,

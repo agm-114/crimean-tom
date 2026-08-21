@@ -631,13 +631,21 @@ single-player prototype.
   object before the coordinator commits `Prepared` from its readiness report.
   Source `Primary` ownership is unchanged. Repeated calls reuse the live Shadows
   instead of creating duplicates. Automatic scheduler promotion still uses
-  ordinary headroom. Per-worker health declarations, bounded migration
-  concurrency, rebalance cooldown, and the `migrate-tactical-island` controller
-  remain open. The campaign kernel itself now accepts one atomic
+  ordinary headroom. The coordinator's authenticated
+  `migrate-tactical-island` operation now stages source final checkpoints to the
+  destination only, requires matching staged readiness for the complete island,
+  issues the existing atomic domain command, and queues post-commit activation
+  grants. Staged-hash matching is process-local only before commit; companions
+  durably resend staging frames if the coordinator restarts in that window.
+  After the durable migration event, grants reconstruct from that event's
+  exact commit position and source checkpoint blobs.
+  Per-worker health declarations, bounded migration concurrency,
+  rebalance cooldown, and live two-container verification remain open. The
+  campaign kernel itself accepts one atomic
   `migrate-tactical-island` command that promotes a prepared `Shadow`
   destination over a quiesced `Primary` source for a complete island; this is
-  a durable domain fence plus destination-runtime preparation, not a completed
-  live migration controller.
+  a durable domain fence plus destination-runtime preparation and staged
+  activation framing, not a completed mixed-combat live migration.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
