@@ -534,6 +534,140 @@ function Invoke-SchedulerPromotionAttempt(
     }
 }
 
+function Get-MigrationRecoveryContext($CampaignView, $Workers, [string]$CanonicalEntityId = '') {
+    $destinationClientId = $Workers.Destination.ClientInstanceId
+    $destinationPrimaries = @($CampaignView.assignments | Where-Object {
+        $_.role -eq 'Primary' `
+            -and $_.lifecycle -eq 'Active' `
+            -and $_.workerClientInstanceId -eq $destinationClientId
+    })
+    if ($destinationPrimaries.Count -ne 1) {
+        return $null
+    }
+
+    $destinationPrimary = $destinationPrimaries[0]
+    if (-not [string]::IsNullOrWhiteSpace($CanonicalEntityId) `
+        -and $destinationPrimary.entityId -ne $CanonicalEntityId) {
+        return $null
+    }
+
+    $entity = @($CampaignView.entities | Where-Object {
+        $_.entityId -eq $destinationPrimary.entityId
+    } | Select-Object -First 1)
+    if ($null -eq $entity -or $entity.fidelity -ne 'Tactical') {
+        return $null
+    }
+
+    $sourceClientId = $Workers.Source.ClientInstanceId
+    $destinationAuthorityEpoch = [long]$destinationPrimary.authorityEpoch
+    $releasedCandidates = @($CampaignView.assignments | Where-Object {
+        $_.entityId -eq $destinationPrimary.entityId `
+            -and $_.role -eq 'Primary' `
+            -and $_.lifecycle -eq 'Released' `
+            -and $_.workerClientInstanceId -eq $sourceClientId `
+            -and [long]$_.authorityEpoch -lt $destinationAuthorityEpoch
+    })
+    if ($releasedCandidates.Count -eq 0) {
+        return $null
+    }
+
+    $latestReleasedEpoch = ($releasedCandidates | Measure-Object -Property authorityEpoch -Maximum).Maximum
+    $releasedSources = @($releasedCandidates | Where-Object {
+        [long]$_.authorityEpoch -eq $latestReleasedEpoch
+    })
+    if ($releasedSources.Count -ne 1) {
+        return $null
+    }
+
+    $releasedSource = $releasedSources[0]
+    $sourceGameEntityId = Format-GameEntityId $releasedSource.entityId
+    $sourceMaterialization = Test-WorkerAssignmentMaterialization `
+        $Workers.Source `
+        $releasedSource `
+        $sourceGameEntityId `
+        'active'
+    if ($sourceMaterialization.Proven) {
+        return $null
+    }
+
+    $gameEntityId = Format-GameEntityId $destinationPrimary.entityId
+    $destinationMaterialization = Test-WorkerAssignmentMaterialization `
+        $Workers.Destination `
+        $destinationPrimary `
+        $gameEntityId `
+        'active'
+    if ($destinationMaterialization.Proven) {
+        return $null
+    }
+
+    return [ordered]@{
+        anchorEntityId = [string]$destinationPrimary.entityId
+        migrationCommitPosition = [long]$CampaignView.commitPosition
+        destinationPrimaryAssignmentId = [string]$destinationPrimary.assignmentId
+        destinationPrimaryAuthorityEpoch = [long]$destinationPrimary.authorityEpoch
+        destinationGameEntityId = $gameEntityId
+        destinationLifecycleState = [string]$destinationMaterialization.LifecycleState
+        destinationRevision = [long]$destinationMaterialization.Revision
+        releasedSourceAssignmentId = [string]$releasedSource.assignmentId
+        releasedSourceAuthorityEpoch = [long]$releasedSource.authorityEpoch
+        releasedSourceLifecycleState = [string]$sourceMaterialization.LifecycleState
+    }
+}
+
+function Invoke-MigrationRecoveryVerification(
+    [string]$CampaignHttpUrl,
+    [hashtable]$Headers,
+    [string]$CampaignId,
+    $Workers,
+    $RecoveryContext,
+    [int]$TimeoutSeconds) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastObservation = $null
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $view = Get-CampaignView $CampaignHttpUrl $Headers $CampaignId
+        $destinationPrimary = @($view.assignments | Where-Object {
+            $_.assignmentId -eq $RecoveryContext.destinationPrimaryAssignmentId `
+                -and $_.role -eq 'Primary' `
+                -and $_.lifecycle -eq 'Active' `
+                -and $_.workerClientInstanceId -eq $Workers.Destination.ClientInstanceId
+        } | Select-Object -First 1)
+        if ($destinationPrimary.Count -ne 1) {
+            throw 'Recovery verification lost the destination Primary assignment.'
+        }
+
+        $materialization = Test-WorkerAssignmentMaterialization `
+            $Workers.Destination `
+            $destinationPrimary[0] `
+            $RecoveryContext.destinationGameEntityId `
+            'active'
+        $lastObservation = [ordered]@{
+            commitPosition = [long]$view.commitPosition
+            lifecycleState = [string]$materialization.LifecycleState
+            revision = [long]$materialization.Revision
+            proven = [bool]$materialization.Proven
+            error = [string]$materialization.Error
+        }
+        if ($materialization.Proven) {
+            return [ordered]@{
+                mode = 'activation-recovery'
+                migrationCommitPosition = [long]$RecoveryContext.migrationCommitPosition
+                destinationPrimaryAssignmentId = [string]$RecoveryContext.destinationPrimaryAssignmentId
+                destinationPrimaryAuthorityEpoch = [long]$RecoveryContext.destinationPrimaryAuthorityEpoch
+                destinationSurfaceAssignmentId = [string]$materialization.AssignmentId
+                destinationSurfaceEntityId = [string]$materialization.EntityId
+                destinationSurfaceLifecycleState = [string]$materialization.LifecycleState
+                destinationSurfaceRevision = [long]$materialization.Revision
+                commitPosition = [long]$view.commitPosition
+                observations = @($lastObservation)
+            }
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+    throw "Recovery verification timed out waiting for destination activation materialization. Last observation: $($lastObservation | ConvertTo-Json -Compress)"
+}
+
 function Invoke-MigrationFlow(
     [string]$CampaignHttpUrl,
     [hashtable]$Headers,
@@ -828,6 +962,35 @@ try {
                 }
             }))
         }
+    }
+
+    $recoveryContext = Get-MigrationRecoveryContext $campaignView $workers $CanonicalEntityId
+    if ($null -ne $recoveryContext) {
+        Add-PhaseEvidence 'recovery-detected' $recoveryContext
+        if (-not $Execute) {
+            $evidence.succeeded = $false
+            $evidence.preflightOnly = $true
+            $evidence.recoveryPending = $true
+            $evidence | ConvertTo-Json -Depth 12
+            Write-Host 'MIGRATION_PROOF_RECOVERY_PENDING: campaign migration is committed but destination activation is not materialized. Rebuild/restart the destination companion, then rerun with -Execute for recovery verification.'
+            Write-EvidenceArtifact $EvidencePath
+            exit 0
+        }
+
+        $migrationResult = Invoke-MigrationRecoveryVerification `
+            $CampaignHttpUrl `
+            $headers `
+            $CampaignId `
+            $workers `
+            $recoveryContext `
+            $TimeoutSeconds
+        Add-PhaseEvidence 'recovery' $migrationResult
+        $evidence.succeeded = $true
+        $evidence.recoveryMode = $true
+        $evidence | ConvertTo-Json -Depth 12
+        Write-Host 'MIGRATION_PROOF_RECOVERY_SUCCEEDED: committed migration converged after destination activation materialized.'
+        Write-EvidenceArtifact $EvidencePath
+        exit 0
     }
 
     $preflightBlockers = @(Test-MigrationPreflight $campaignView $workers $migrationContext $interactionIsland)

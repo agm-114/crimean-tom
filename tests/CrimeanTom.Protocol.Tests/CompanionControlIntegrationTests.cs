@@ -1263,6 +1263,45 @@ public sealed class CompanionControlIntegrationTests
                 enabledSurface.RootElement.GetProperty("unit").GetProperty("isDisabled").GetBoolean());
             Assert.Equal(6, enabledSurface.RootElement.GetProperty("revision").GetInt64());
 
+            AssertOwnedMutationRecoveryContracts();
+
+            var invalidSuspension = await PostAuthorizedJsonAllowingFailureAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 6, string.Empty, false),
+                testTimeout.Token);
+            using (invalidSuspension.Body)
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, invalidSuspension.StatusCode);
+                Assert.Equal(
+                    ProtocolErrorCodes.InvalidMessage,
+                    invalidSuspension.Body.RootElement.GetProperty("error").GetString());
+            }
+
+            var staleEnable = await PostAuthorizedJsonAllowingFailureAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 5, "integration-enable-stale-revision", false),
+                testTimeout.Token);
+            using (staleEnable.Body)
+            {
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, staleEnable.StatusCode);
+                Assert.Equal(
+                    ProtocolErrorCodes.StaleRevision,
+                    staleEnable.Body.RootElement.GetProperty("error").GetString());
+            }
+
+            using var idempotentEnable = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/suspension",
+                CreateSuspensionRequestJson(sessionId, 6, "integration-enable-idempotent-replay", false),
+                testTimeout.Token);
+            Assert.True(idempotentEnable.RootElement.GetProperty("idempotentReplay").GetBoolean());
+            Assert.Equal(6, idempotentEnable.RootElement.GetProperty("revision").GetInt64());
+
             using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -1835,7 +1874,16 @@ public sealed class CompanionControlIntegrationTests
                     "[File]\nSaveFile=true\n[Taskforce1Weapon1]\nType=integration_weapon\n",
                     cancellationToken);
             }
-            ownedResources.Observe(command);
+            if (command.MessageType != GameCommandTypes.SetOwnedSurfaceSuspension)
+            {
+                ownedResources.Observe(command);
+            }
+
+            CommandResponsePayload? suspensionFailure = null;
+            if (command.MessageType == GameCommandTypes.SetOwnedSurfaceSuspension)
+            {
+                suspensionFailure = ownedResources.TryObserveSuspension(command.PayloadJson);
+            }
 
             var resultJson = command.MessageType switch
             {
@@ -2037,7 +2085,7 @@ public sealed class CompanionControlIntegrationTests
                     CreateLifecycleResult(command.PayloadJson, "updated", 2, disabled: false),
                     JsonOptions),
                 GameCommandTypes.SetOwnedSurfaceSuspension => JsonSerializer.Serialize(
-                    CreateSuspensionLifecycleResult(command.PayloadJson),
+                    ownedResources.CreateSuspensionLifecycleResult(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.RestoreOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
                     CreateRestoreLifecycleResult(command.PayloadJson),
@@ -2113,11 +2161,14 @@ public sealed class CompanionControlIntegrationTests
                 CorrelationId = command.MessageId,
                 SessionId = handshake.SessionId,
                 MessageType = command.MessageType,
-                PayloadJson = JsonSerializer.Serialize(new CommandResponsePayload
-                {
-                    Success = true,
-                    ResultJson = resultJson,
-                }, JsonOptions),
+                PayloadJson = JsonSerializer.Serialize(
+                    suspensionFailure
+                        ?? new CommandResponsePayload
+                        {
+                            Success = true,
+                            ResultJson = resultJson,
+                        },
+                    JsonOptions),
                 Priority = command.Priority,
             }, cancellationToken);
             if (completesPrimaryPeer)
@@ -2403,26 +2454,6 @@ public sealed class CompanionControlIntegrationTests
             Revision = revision,
             IdempotencyKey = request.Context.IdempotencyKey,
             Unit = CreateOwnedSurfaceState(disabled),
-        };
-    }
-
-    private static OwnedSurfaceLifecycleResultPayload CreateSuspensionLifecycleResult(
-        string payloadJson)
-    {
-        var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
-            payloadJson,
-            JsonOptions)!;
-        return new OwnedSurfaceLifecycleResultPayload
-        {
-            Outcome = request.IsSuspended ? "suspended" : "enabled",
-            Postcondition = request.IsSuspended
-                ? "owned-surface-unit-suspended-outside-active-world"
-                : "owned-surface-unit-enabled-and-read-back",
-            AssignmentId = request.Context.AssignmentId,
-            AuthorityEpoch = request.Context.AuthorityEpoch,
-            Revision = request.Context.ExpectedRevision + 1,
-            IdempotencyKey = request.Context.IdempotencyKey,
-            Unit = CreateOwnedSurfaceState(request.IsSuspended),
         };
     }
 
@@ -2807,6 +2838,23 @@ public sealed class CompanionControlIntegrationTests
             + await response.Content.ReadAsStringAsync(cancellationToken));
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
+    }
+
+    private static async Task<(HttpStatusCode StatusCode, JsonDocument Body)> PostAuthorizedJsonAllowingFailureAsync(
+        HttpClient client,
+        string token,
+        string path,
+        string jsonBody,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation(ProtocolConstants.ControlTokenHeader, token);
+        using var response = await client.SendAsync(request, cancellationToken);
+        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return (response.StatusCode, await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken));
     }
 
     private static async Task<JsonDocument> PostAuthorizedJsonWithBodyAsync(
@@ -3859,6 +3907,10 @@ public sealed class CompanionControlIntegrationTests
             staging.StageFinalCheckpoint.CheckpointSha256,
             grant.ActivationGrant.StagedCheckpointSha256);
         Assert.True(grant.ActivationGrant.MigrationCommitPosition > 0);
+        Assert.True(
+            OwnedMutationContracts.IsValidIdempotencyKey(grant.ActivationGrant.IdempotencyKey),
+            grant.ActivationGrant.IdempotencyKey);
+        AssertOwnedMutationRecoveryContracts();
         var originalCommitPosition = grant.ActivationGrant.MigrationCommitPosition;
         var originalHash = grant.ActivationGrant.StagedCheckpointSha256;
 
@@ -4356,10 +4408,138 @@ public sealed class CompanionControlIntegrationTests
             : [];
     }
 
+    private static void AssertOwnedMutationRecoveryContracts(
+        string? migrationActivateKey = null,
+        string? canonicalEntityId = null)
+    {
+        const string defaultEntityId = "unit:crimean-tom:a2d904987998596a48868b21ca66d3ec";
+        const string defaultStageKey =
+            "live-migration-b5735979a41f4b698d5fac0cc56c4069-migrate-a2d904987998596a48868b21ca66d3ec-stage";
+        var entityId = canonicalEntityId is null
+            ? defaultEntityId
+            : $"unit:crimean-tom:{canonicalEntityId}";
+        var stageKey = defaultStageKey;
+        var expectedActivateKey = migrationActivateKey
+            ?? "live-migration-b5735979a41f4b698d5fac0cc56c4069-migrate-a2d904987998596a48868b21ca66d3ec-activate";
+        var activateKey = OwnedMutationContracts.ResolveActivationIdempotencyKey(stageKey, entityId);
+        Assert.Equal(expectedActivateKey, activateKey);
+        Assert.True(activateKey.Length <= OwnedMutationContracts.MaximumScopedIdentifierLength);
+        var legacyOversized =
+            $"{stageKey}-{OwnedMutationContracts.CanonicalEntityId(entityId)}-activate";
+        Assert.False(OwnedMutationContracts.IsValidIdempotencyKey(legacyOversized));
+        var normalizedLegacy = OwnedMutationContracts.ResolveActivationIdempotencyKey(legacyOversized, entityId);
+        Assert.Equal(expectedActivateKey, normalizedLegacy);
+
+        var invalid = new SetOwnedSurfaceSuspensionRequestPayload
+        {
+            Context = new OwnedMutationContextPayload
+            {
+                SessionId = "session-1",
+                AssignmentId = "assignment:84ab0b5a494098d4b8371d69a01da596",
+                AuthorityEpoch = 4,
+                ExpectedRevision = 3,
+                IdempotencyKey = string.Empty,
+            },
+            EntityId = entityId,
+            IsSuspended = false,
+        };
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(invalid.Context, invalid.EntityId));
+        Assert.Contains("idempotency", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class FakeOwnedSurfaceResourceState
     {
         private readonly Dictionary<string, FakeOwnedSurfaceResource> _entities =
             new(StringComparer.Ordinal);
+        private bool _lastSuspensionWasIdempotentReplay;
+
+        public CommandResponsePayload? TryObserveSuspension(string payloadJson)
+        {
+            var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
+                payloadJson,
+                JsonOptions)!;
+            try
+            {
+                OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(request.Context, request.EntityId);
+            }
+            catch (InvalidDataException exception)
+            {
+                return new CommandResponsePayload
+                {
+                    Success = false,
+                    ErrorCode = ProtocolErrorCodes.MutationPreconditionFailed,
+                    ErrorMessage = exception.Message,
+                };
+            }
+
+            _lastSuspensionWasIdempotentReplay = false;
+            if (!request.IsSuspended
+                && _entities.TryGetValue(request.EntityId, out var existing)
+                && string.Equals(existing.AssignmentId, request.Context.AssignmentId, StringComparison.Ordinal)
+                && existing.AuthorityEpoch == request.Context.AuthorityEpoch)
+            {
+                if (!existing.IsSuspended
+                    && existing.Revision == request.Context.ExpectedRevision)
+                {
+                    _lastSuspensionWasIdempotentReplay = true;
+                    return null;
+                }
+
+                if (existing.Revision != request.Context.ExpectedRevision)
+                {
+                    return new CommandResponsePayload
+                    {
+                        Success = false,
+                        ErrorCode = ProtocolErrorCodes.StaleRevision,
+                        ErrorMessage =
+                            $"Expected entity revision {existing.Revision}, received {request.Context.ExpectedRevision}.",
+                    };
+                }
+            }
+
+            _entities[request.EntityId] = new FakeOwnedSurfaceResource(
+                request.Context.AssignmentId,
+                request.Context.AuthorityEpoch,
+                request.Context.ExpectedRevision + 1,
+                request.IsSuspended);
+            return null;
+        }
+
+        public OwnedSurfaceLifecycleResultPayload CreateSuspensionLifecycleResult(string payloadJson)
+        {
+            var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
+                payloadJson,
+                JsonOptions)!;
+            if (_lastSuspensionWasIdempotentReplay
+                && _entities.TryGetValue(request.EntityId, out var existing))
+            {
+                return new OwnedSurfaceLifecycleResultPayload
+                {
+                    Outcome = "enabled",
+                    Postcondition = "owned-surface-unit-enabled-and-read-back",
+                    AssignmentId = request.Context.AssignmentId,
+                    AuthorityEpoch = request.Context.AuthorityEpoch,
+                    Revision = existing.Revision,
+                    IdempotencyKey = request.Context.IdempotencyKey,
+                    IdempotentReplay = true,
+                    Unit = CreateOwnedSurfaceState(existing.IsSuspended),
+                };
+            }
+
+            return new OwnedSurfaceLifecycleResultPayload
+            {
+                Outcome = request.IsSuspended ? "suspended" : "enabled",
+                Postcondition = request.IsSuspended
+                    ? "owned-surface-unit-suspended-outside-active-world"
+                    : "owned-surface-unit-enabled-and-read-back",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = request.Context.ExpectedRevision + 1,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                Unit = CreateOwnedSurfaceState(request.IsSuspended),
+            };
+        }
 
         public void Observe(WireEnvelope command)
         {
@@ -4375,18 +4555,6 @@ public sealed class CompanionControlIntegrationTests
                         request.Context.AuthorityEpoch,
                         1,
                         IsSuspended: false);
-                    break;
-                }
-                case GameCommandTypes.SetOwnedSurfaceSuspension:
-                {
-                    var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
-                        command.PayloadJson,
-                        JsonOptions)!;
-                    _entities[request.EntityId] = new FakeOwnedSurfaceResource(
-                        request.Context.AssignmentId,
-                        request.Context.AuthorityEpoch,
-                        request.Context.ExpectedRevision + 1,
-                        request.IsSuspended);
                     break;
                 }
                 case GameCommandTypes.RestoreOwnedSurfaceCheckpoint:

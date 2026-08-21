@@ -769,15 +769,17 @@ public sealed class CampaignCompanionClient(
                 cancellationToken)
                 ?? throw new InvalidDataException("The source final checkpoint reference is missing.");
             var expectedGameRevision = stateStore.ReadGameRevision(request.DestinationAssignmentId);
+            var stagingContext = Context(
+                request.DestinationAssignmentId,
+                request.DestinationAuthorityEpoch,
+                expectedGameRevision,
+                request.IdempotencyKey);
+            OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(stagingContext, request.EntityId);
             var stagedResult = await RequireGameCommandAsync(
                 GameCommandTypes.StageOwnedSurfaceCheckpoint,
                 JsonSerializer.Serialize(new StageOwnedSurfaceCheckpointRequestPayload
                 {
-                    Context = Context(
-                        request.DestinationAssignmentId,
-                        request.DestinationAuthorityEpoch,
-                        expectedGameRevision,
-                        request.IdempotencyKey),
+                    Context = stagingContext,
                     EntityId = request.EntityId,
                     SourceCheckpoint = sourceCheckpoint,
                 }, JsonOptions),
@@ -787,15 +789,19 @@ public sealed class CampaignCompanionClient(
                 JsonOptions) ?? throw new InvalidDataException("Checkpoint staging result was empty.");
             if (!staged.Unit.IsDisabled)
             {
+                var resuspendContext = Context(
+                    request.DestinationAssignmentId,
+                    request.DestinationAuthorityEpoch,
+                    staged.Revision,
+                    $"{request.IdempotencyKey}-keep-suspended");
+                OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(
+                    resuspendContext,
+                    request.EntityId);
                 var resuspend = await RequireGameCommandAsync(
                     GameCommandTypes.SetOwnedSurfaceSuspension,
                     JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
                     {
-                        Context = Context(
-                            request.DestinationAssignmentId,
-                            request.DestinationAuthorityEpoch,
-                            staged.Revision,
-                            $"{request.IdempotencyKey}-keep-suspended"),
+                        Context = resuspendContext,
                         EntityId = request.EntityId,
                         IsSuspended = true,
                     }, JsonOptions),
@@ -814,6 +820,11 @@ public sealed class CampaignCompanionClient(
                 request.DestinationAssignmentId,
                 request.DestinationAuthorityEpoch,
                 request.CheckpointSha256,
+                cancellationToken);
+            await stateStore.SaveStagedIdempotencyKeyAsync(
+                request.DestinationAssignmentId,
+                request.DestinationAuthorityEpoch,
+                request.IdempotencyKey,
                 cancellationToken);
             return new FinalCheckpointStaged
             {
@@ -878,22 +889,36 @@ public sealed class CampaignCompanionClient(
         if (!stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
             var expectedGameRevision = stateStore.ReadGameRevision(grant.AssignmentId);
+            if (await TryConvergeActivationFromObservedMaterializationAsync(
+                grant,
+                assignment,
+                expectedGameRevision,
+                cancellationToken))
+            {
+                return;
+            }
+
+            var activationIdempotencyKey = ResolveActivationIdempotencyKey(
+                grant,
+                assignment);
+            var payload = OwnedMutationContracts.BuildSetOwnedSurfaceSuspensionRequest(
+                Context(
+                    assignment.AssignmentId,
+                    grant.AuthorityEpoch,
+                    expectedGameRevision,
+                    activationIdempotencyKey),
+                assignment.EntityId,
+                isSuspended: false);
+            OwnedMutationContracts.ValidateOwnedLifecycleIdentifiers(payload.Context, payload.EntityId);
             var result = await RequireGameCommandAsync(
                 GameCommandTypes.SetOwnedSurfaceSuspension,
-                JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
-                {
-                    Context = Context(
-                        grant.AssignmentId,
-                        grant.AuthorityEpoch,
-                        expectedGameRevision,
-                        grant.IdempotencyKey),
-                    EntityId = grant.EntityId,
-                    IsSuspended = false,
-                }, JsonOptions),
+                JsonSerializer.Serialize(payload, JsonOptions),
                 cancellationToken);
+
             var enabled = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
                 result.ResultJson,
                 JsonOptions) ?? throw new InvalidDataException("Activation unsuspend result was empty.");
+            ValidateActivationUnsuspendResult(enabled, grant, assignment);
             await stateStore.SaveGameRevisionAsync(grant.AssignmentId, enabled.Revision, cancellationToken);
             await stateStore.SaveActivationGrantAsync(
                 grant.AssignmentId,
@@ -901,6 +926,76 @@ public sealed class CampaignCompanionClient(
                 grant.MigrationCommitPosition,
                 cancellationToken);
         }
+    }
+
+    private async Task<bool> TryConvergeActivationFromObservedMaterializationAsync(
+        ActivationGrant grant,
+        TacticalAssignment assignment,
+        long expectedGameRevision,
+        CancellationToken cancellationToken)
+    {
+        var resources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+        var materialized = resources.Entities.FirstOrDefault(item =>
+            string.Equals(item.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+            && string.Equals(item.EntityId, assignment.EntityId, StringComparison.Ordinal)
+            && item.AuthorityEpoch == grant.AuthorityEpoch
+            && item.Revision >= expectedGameRevision
+            && string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase));
+        if (materialized is null)
+        {
+            return false;
+        }
+
+        await stateStore.SaveGameRevisionAsync(grant.AssignmentId, materialized.Revision, cancellationToken);
+        await stateStore.SaveActivationGrantAsync(
+            grant.AssignmentId,
+            grant.AuthorityEpoch,
+            grant.MigrationCommitPosition,
+            cancellationToken);
+        return true;
+    }
+
+    private static void ValidateActivationUnsuspendResult(
+        OwnedSurfaceLifecycleResultPayload enabled,
+        ActivationGrant grant,
+        TacticalAssignment assignment)
+    {
+        if (!string.Equals(enabled.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+            || !string.Equals(enabled.AssignmentId, grant.AssignmentId, StringComparison.Ordinal)
+            || enabled.AuthorityEpoch != grant.AuthorityEpoch
+            || enabled.Revision < 1)
+        {
+            throw new InvalidDataException("Activation unsuspend result does not match the granted assignment identity.");
+        }
+    }
+
+    private string ResolveActivationIdempotencyKey(ActivationGrant grant, TacticalAssignment assignment)
+    {
+        if (!string.IsNullOrWhiteSpace(grant.IdempotencyKey))
+        {
+            try
+            {
+                return OwnedMutationContracts.ResolveActivationIdempotencyKey(
+                    grant.IdempotencyKey,
+                    assignment.EntityId);
+            }
+            catch (InvalidDataException)
+            {
+            }
+        }
+
+        var stagedIdempotency = stateStore.TryReadStagedIdempotencyKey(
+            grant.AssignmentId,
+            grant.AuthorityEpoch);
+        if (!string.IsNullOrWhiteSpace(stagedIdempotency))
+        {
+            return OwnedMutationContracts.ResolveActivationIdempotencyKey(
+                stagedIdempotency,
+                assignment.EntityId);
+        }
+
+        throw new InvalidDataException(
+            "Activation grant idempotency could not be resolved from the grant or durable staging state.");
     }
 
     private async Task<GameCommandResult> RequireGameCommandAsync(

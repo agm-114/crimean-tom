@@ -18,6 +18,7 @@
     <ProjectReference Include="..\CrimeanTom.Campaign.Contracts\CrimeanTom.Campaign.Contracts.csproj" />
     <ProjectReference Include="..\CrimeanTom.Campaign.Service\CrimeanTom.Campaign.Service.csproj" />
     <ProjectReference Include="..\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
+    <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
     <ProjectReference Include="..\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj" />
   </ItemGroup>
 

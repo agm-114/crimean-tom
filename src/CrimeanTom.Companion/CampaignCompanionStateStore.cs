@@ -3,6 +3,7 @@ using System.Text;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Transport.V1;
+using CrimeanTom.Protocol;
 using TransportCommittedCampaignEvent = CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent;
 
 using Google.Protobuf;
@@ -217,6 +218,42 @@ public sealed class CampaignCompanionStateStore
             : throw new InvalidDataException("The durable staged checkpoint hash is missing.");
     }
 
+    public async Task SaveStagedIdempotencyKeyAsync(
+        string assignmentId,
+        long authorityEpoch,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!OwnedMutationContracts.IsValidIdempotencyKey(idempotencyKey))
+        {
+            throw new InvalidDataException("A staged checkpoint idempotency key is invalid.");
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                StagedIdempotencyPath(assignmentId, authorityEpoch),
+                Encoding.UTF8.GetBytes(idempotencyKey),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public string? TryReadStagedIdempotencyKey(string assignmentId, long authorityEpoch)
+    {
+        var path = StagedIdempotencyPath(assignmentId, authorityEpoch);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var value = File.ReadAllText(path).Trim();
+        return OwnedMutationContracts.IsValidIdempotencyKey(value) ? value : null;
+    }
+
     public async Task SaveActivationGrantAsync(
         string assignmentId,
         long authorityEpoch,
@@ -287,6 +324,9 @@ public sealed class CampaignCompanionStateStore
 
     private string StagedCheckpointPath(string assignmentId, long authorityEpoch) =>
         Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.staged-checkpoint");
+
+    private string StagedIdempotencyPath(string assignmentId, long authorityEpoch) =>
+        Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.staged-idempotency");
 
     private string ActivationGrantPath(string assignmentId, long authorityEpoch) =>
         Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.activation-grant");

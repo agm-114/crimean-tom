@@ -9,6 +9,7 @@ using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Engine;
 using CrimeanTom.Campaign.Service;
 using CrimeanTom.Campaign.Transport.V1;
+using CrimeanTom.Protocol;
 
 using Google.Protobuf;
 
@@ -1822,7 +1823,9 @@ public sealed class CampaignCoordinator(
                     ExpectedEntityRevision = state.Entities[member.Destination.EntityId].Revision.Value,
                     StagedCheckpointSha256 = hash,
                     MigrationCommitPosition = commitPosition,
-                    IdempotencyKey = $"{idempotencyKey}-{member.Destination.EntityId}-activate",
+                    IdempotencyKey = OwnedMutationContracts.ResolveActivationIdempotencyKey(
+                        idempotencyKey,
+                        member.Destination.EntityId.ToString()),
                     BatchId = member.Destination.BatchId,
                     BatchSize = member.Destination.BatchSize,
                 },

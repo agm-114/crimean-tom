@@ -81,6 +81,8 @@ Do **not** rely on `-AllowRepair` for scheduler promotion. After repair, verify 
 
 **Cross-worker source→destination final-checkpoint migration is not yet proven on this host.**
 
+**Partial live result (21 Aug 2026, campaign `08eed6175b1a4e1abf50004d4e5808c8`, commit 252):** migration committed with destination Primary Active on worker-b and source Primary Released, but destination activation failed on oversized activation idempotency keys. See `docs/evidence/phase-5-migration-activation-recovery-2026-08-21.md` for recovery steps.
+
 Do not claim two-container island migration until `pnpm worker:migration-proof -Execute` succeeds with post-conditions showing:
 
 - destination Primary Active on the requested destination worker;

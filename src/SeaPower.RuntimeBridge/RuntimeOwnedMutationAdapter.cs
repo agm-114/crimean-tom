@@ -840,11 +840,28 @@ internal static class RuntimeOwnedMutationAdapter
         }
         if (vessel.Disabled == request.IsSuspended)
         {
-            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
-                ProtocolErrorCodes.StaleRevision,
-                request.IsSuspended
-                    ? "The owned surface unit is already suspended."
-                    : "The owned surface unit is already enabled.");
+            if (request.IsSuspended)
+            {
+                return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                    ProtocolErrorCodes.StaleRevision,
+                    "The owned surface unit is already suspended.");
+            }
+
+            var converged = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
+            var convergedResult = LifecycleResult(
+                "enabled",
+                "owned-surface-unit-enabled-and-read-back",
+                request.Context,
+                record,
+                Stopwatch.StartNew());
+            convergedResult.IdempotentReplay = true;
+            convergedResult.Unit = converged;
+            StoreLifecycleReplay(
+                GameCommandTypes.SetOwnedSurfaceSuspension,
+                request.Context,
+                request,
+                convergedResult);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(convergedResult);
         }
         var originalDisabled = vessel.Disabled;
         var timer = Stopwatch.StartNew();
