@@ -550,6 +550,18 @@ path may ignore a second request, BepInEx/AnchorChain may conflict, and Unity
 shared for the same Windows user. Do not claim two-container migration until
 live proof succeeds on this host.
 
+**First live host attempt (21 Aug 2026, commits through `511c8a4`):** `worker-a`
+started its isolated companion, launched a direct `Sea Power.exe` process, and
+Unity initialized before Steamworks.NET shut down with
+`RestartAppIfNecessary returned true` in the worker's isolated `Player.log`.
+Transactional rollback correctly stopped companion PID 53120 and removed worker
+game/metadata/companion PID files; the default game PID 31208 and its companion
+remained healthy. `Wait-ForPluginMarker` had waited the full 120s timeout because
+it did not validate that the recorded game process had exited. **No two-container
+claim** is valid from this attempt. The next experiment is per-process
+`SteamAppId` / `SteamGameId` (default `1286220`) on the worker game launch
+without writing `steam_appid.txt` or mutating install/global environment.
+
 Reserve-aware load shedding is now implemented around actual runtime resource
 counts: active, suspended-retained, recovery-required and total materialized
 objects all contribute to the scheduler projection. Destination-local admission

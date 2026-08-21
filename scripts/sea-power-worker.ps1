@@ -42,6 +42,8 @@ param(
     [ValidateRange(480, 2160)]
     [int]$UnityScreenHeight = 720,
 
+    [int]$SteamAppId = 1286220,
+
     [switch]$SkipBuild
 )
 
@@ -432,6 +434,29 @@ function Assert-NoUnvalidatedBlockingProcesses($Layout) {
     }
 }
 
+function Get-UnityLogTail([string]$LogPath, [int]$TailLines = 20) {
+    if (-not (Test-Path -LiteralPath $LogPath)) { return '' }
+    return (Get-Content -LiteralPath $LogPath -Tail $TailLines -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+}
+
+function Get-SteamworksDirectLaunchClassification([string]$LogTail) {
+    if ([string]::IsNullOrWhiteSpace($LogTail)) { return '' }
+    if ($LogTail.IndexOf('RestartAppIfNecessary', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        return 'Steamworks RestartAppIfNecessary rejected the direct developer launch while the Steam client is running. '
+    }
+    return ''
+}
+
+function Build-RecordedGameProcessFailureMessage($Layout, [string]$Stage) {
+    $tail = Get-UnityLogTail $Layout.UnityLog
+    $classification = Get-SteamworksDirectLaunchClassification $tail
+    $message = "Sea Power exited or failed validation during $Stage for worker '$($Layout.WorkerId)'. $classification Check $($Layout.UnityLog)."
+    if (-not [string]::IsNullOrWhiteSpace($tail)) {
+        $message += [Environment]::NewLine + $tail
+    }
+    return $message
+}
+
 function Invoke-ControlRequest([string]$Url, [string]$TokenPath, [string]$Path) {
     if (-not (Test-Path -LiteralPath $TokenPath)) {
         throw "Companion control token not found at $TokenPath."
@@ -448,7 +473,7 @@ function Wait-ForGameConnection($Layout) {
         $metadata = Read-WorkerMetadata $Layout.MetadataPath
         $gameProcess = Test-ValidatedGameProcess $Layout $metadata
         if ($null -eq $gameProcess) {
-            throw "Sea Power exited or failed validation before connecting to $($Layout.PipeName). Check $($Layout.UnityLog)."
+            throw (Build-RecordedGameProcessFailureMessage $Layout 'companion pipe connection')
         }
 
         try {
@@ -463,16 +488,20 @@ function Wait-ForGameConnection($Layout) {
         Start-Sleep -Milliseconds 500
     }
 
-    $diagnostics = ''
-    if (Test-Path -LiteralPath $Layout.UnityLog) {
-        $diagnostics = (Get-Content -LiteralPath $Layout.UnityLog -Tail 20) -join [Environment]::NewLine
-    }
-    throw "Worker '$($Layout.WorkerId)' did not connect to $($Layout.PipeName) within $TimeoutSeconds seconds. Sea Power may enforce single-instance, or Steam/BepInEx may have blocked a second process. $diagnostics"
+    $diagnostics = Get-UnityLogTail $Layout.UnityLog
+    $classification = Get-SteamworksDirectLaunchClassification $diagnostics
+    throw "Worker '$($Layout.WorkerId)' did not connect to $($Layout.PipeName) within $TimeoutSeconds seconds. $classification Sea Power may enforce single-instance, or Steam/BepInEx may have blocked a second process. $diagnostics"
 }
 
 function Wait-ForPluginMarker($Layout, [datetime]$NotBeforeUtc) {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
+        $metadata = Read-WorkerMetadata $Layout.MetadataPath
+        $gameProcess = Test-ValidatedGameProcess $Layout $metadata
+        if ($null -eq $gameProcess) {
+            throw (Build-RecordedGameProcessFailureMessage $Layout 'runtime bridge plugin load')
+        }
+
         if (Test-Path -LiteralPath $Layout.UnityLog) {
             $logInfo = Get-Item -LiteralPath $Layout.UnityLog
             if ($logInfo.LastWriteTimeUtc -ge $NotBeforeUtc.AddSeconds(-2)) {
@@ -484,7 +513,10 @@ function Wait-ForPluginMarker($Layout, [datetime]$NotBeforeUtc) {
         }
         Start-Sleep -Milliseconds 500
     }
-    throw "Worker '$($Layout.WorkerId)' did not write the runtime bridge health marker to $($Layout.UnityLog)."
+
+    $diagnostics = Get-UnityLogTail $Layout.UnityLog
+    $classification = Get-SteamworksDirectLaunchClassification $diagnostics
+    throw "Worker '$($Layout.WorkerId)' did not write the runtime bridge health marker to $($Layout.UnityLog) within $TimeoutSeconds seconds. $classification $diagnostics"
 }
 
 function Get-UnityLaunchArguments($Layout) {
@@ -513,6 +545,8 @@ function Start-WorkerGameProcess($Layout) {
         CRIMEAN_TOM_INSTANCE_ID = $Layout.InstanceId
         CRIMEAN_TOM_GAME_PIPE_NAME = $Layout.PipeName
         CRIMEAN_TOM_EXPERIMENTAL_SAVE_DIRECTORY = $Layout.ExperimentalSaveDirectory
+        SteamAppId = [string]$SteamAppId
+        SteamGameId = [string]$SteamAppId
     }
 
     $process = [System.Diagnostics.Process]::Start($startInfo)

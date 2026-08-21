@@ -159,11 +159,23 @@ island migration.
 Limitations (fail closed):
 
 - Steam's single-process launch may block a second game; the worker script uses
-  direct `Sea Power.exe` launch as an experimental path only.
+  direct `Sea Power.exe` launch as an experimental path only. Worker game starts
+  set per-process `SteamAppId` and `SteamGameId` (default `1286220`, override
+  with `-SteamAppId`) so Steamworks can recognize a developer launch while the
+  Steam client remains running. The script does not write `steam_appid.txt` or
+  mutate install/global environment variables.
 - Same-user `Application.persistentDataPath`, `PlayerPrefs`, native logs, and
   `last_save` remain shared; per-worker isolation covers Crimean Tom control
   traffic, experimental probe saves, and `-logFile` redirection only.
 - Do not run `pnpm worker:stop` against the default demo worker ID or paths.
+
+**First live host attempt (21 Aug 2026):** `worker-a` companion start succeeded,
+Unity initialized on the isolated direct launch, then Steamworks.NET exited with
+`RestartAppIfNecessary returned true` while the default `pnpm dev` game remained
+healthy. Transactional rollback removed worker PID/metadata files and stopped the
+worker companion; the harness had waited 120s on plugin load because it did not
+detect the early game exit. **No two-container claim** from this run. Per-process
+Steam app context is the next experiment.
 
 After a mission is fully loaded and paused, the pinned experimental logical-tick
 adapter can be exercised without menu input:

@@ -645,8 +645,12 @@ single-player prototype.
   launch scripts (`scripts/sea-power-worker.ps1`, `pnpm worker:start|stop|status`)
   isolate control ports, pipes, run directories, Unity logs, and companion state
   per worker ID. They launch Sea Power directly with per-process environment
-  variables and do not disturb the default `pnpm dev` process. Stop validates
-  executable path, PID, and start metadata before terminating only the recorded
+  variables and do not disturb the default `pnpm dev` process. Worker game starts
+  also set per-process `SteamAppId` and `SteamGameId` (default `1286220`) without
+  writing `steam_appid.txt` or mutating install/global environment. Start waits
+  validate the recorded game PID/metadata during plugin load, not only during pipe
+  connection, and classify Steamworks `RestartAppIfNecessary` log lines when present.
+  Stop validates executable path, PID, and start metadata before terminating only the recorded
   worker game process. `scripts/sea-power-worker-live-proof.ps1` (`pnpm worker:live-proof`)
   admits coexistence only when two workers publish distinct real campaign sessions
   and non-synthetic fingerprints; it rejects synthetic gRPC test probes. Local
