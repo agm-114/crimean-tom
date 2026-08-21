@@ -14,6 +14,8 @@ param(
         else { 'C:\Program Files (x86)\Steam\steamapps\common\Sea Power' }
     ),
 
+    [string]$WorkersRunRoot,
+
     [string[]]$WorkerIds = @('worker-a', 'worker-b')
 )
 
@@ -22,6 +24,12 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $installedGameExecutable = [System.IO.Path]::GetFullPath((Join-Path $SeaPowerDir 'Sea Power.exe'))
+$workersRunRoot = if ([string]::IsNullOrWhiteSpace($WorkersRunRoot)) {
+    Join-Path $repoRoot '.run\workers'
+}
+else {
+    [System.IO.Path]::GetFullPath($WorkersRunRoot)
+}
 $processStartTimeToleranceSeconds = 2
 
 $syntheticGameSessionIds = @(
@@ -32,6 +40,56 @@ $syntheticGameSessionIds = @(
 $syntheticClientInstanceIds = @(
     '20000000000000000000000000000002'
 )
+
+function Ensure-SingleProcess($Process) {
+    if ($null -eq $Process) { return $null }
+    if ($Process -is [System.Diagnostics.Process]) { return $Process }
+    $processes = @($Process)
+    if ($processes.Count -ne 1) { return $null }
+    return $processes[0]
+}
+
+function Resolve-UtcTimestamp($Value) {
+    if ($null -eq $Value) { return $null }
+
+    if ($Value -is [DateTimeOffset]) {
+        return $Value.ToUniversalTime()
+    }
+
+    if ($Value -is [DateTime]) {
+        $utc = $Value
+        if ($utc.Kind -eq [DateTimeKind]::Local) {
+            $utc = $utc.ToUniversalTime()
+        }
+        elseif ($utc.Kind -eq [DateTimeKind]::Unspecified) {
+            $utc = [DateTime]::SpecifyKind($utc, [DateTimeKind]::Utc)
+        }
+        return [DateTimeOffset]::new($utc, [TimeSpan]::Zero)
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+
+    try {
+        return [DateTimeOffset]::Parse(
+            $text.Trim(),
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-UtcTimestampPresent($Value) {
+    return $null -ne (Resolve-UtcTimestamp $Value)
+}
+
+function Format-UtcTimestamp($Value) {
+    $resolved = Resolve-UtcTimestamp $Value
+    if ($null -eq $resolved) { return '' }
+    return $resolved.ToString('o')
+}
 
 function Assert-RestrictedWorkerId([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -113,19 +171,16 @@ function Get-ProcessExecutablePath([int]$ProcessId) {
 
 function Test-ProcessStartTimeMatches(
     $Process,
-    [string]$RecordedStartTimeUtc,
+    $RecordedStartTime,
     [int]$ToleranceSeconds,
     [bool]$RequireRecordedStartTime = $true) {
-    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) {
+    $recordedStart = Resolve-UtcTimestamp $RecordedStartTime
+    if ($null -eq $recordedStart) {
         return -not $RequireRecordedStartTime
     }
-    try {
-        $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
-    }
-    catch {
-        return $false
-    }
-    $actualStart = [DateTimeOffset]$Process.StartTime.ToUniversalTime()
+    $process = Ensure-SingleProcess $Process
+    if ($null -eq $process) { return $false }
+    $actualStart = [DateTimeOffset]::new($process.StartTime.ToUniversalTime(), [TimeSpan]::Zero)
     $deltaForward = ($actualStart - $recordedStart).TotalSeconds
     $deltaBackward = ($recordedStart - $actualStart).TotalSeconds
     return $deltaForward -le $ToleranceSeconds -and $deltaBackward -le $ToleranceSeconds
@@ -135,21 +190,15 @@ function Test-LiveSeaPowerProcess(
     [int]$ProcessId,
     [string]$ExpectedExecutable,
     [string]$ExpectedUnityLog,
-    [string]$RecordedStartTimeUtc) {
+    $RecordedStartTimeUtc) {
     if ($ProcessId -le 0) {
         throw 'Recorded game process ID is missing or invalid.'
     }
-    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) {
+    if (-not (Test-UtcTimestampPresent $RecordedStartTimeUtc)) {
         throw 'Recorded game process start time is missing from worker metadata.'
     }
-    try {
-        [DateTimeOffset]::Parse($RecordedStartTimeUtc)
-    }
-    catch {
-        throw "Recorded game process start time '$RecordedStartTimeUtc' is not a parseable UTC timestamp."
-    }
 
-    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    $process = Ensure-SingleProcess (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
     if ($null -eq $process) {
         throw "Recorded game PID $ProcessId is not running."
     }
@@ -175,7 +224,7 @@ function Test-LiveSeaPowerProcess(
         $RecordedStartTimeUtc `
         $processStartTimeToleranceSeconds `
         $true)) {
-        throw "Recorded game PID $ProcessId start time does not match metadata '$RecordedStartTimeUtc'."
+        throw "Recorded game PID $ProcessId start time does not match metadata '$(Format-UtcTimestamp $RecordedStartTimeUtc)'."
     }
 
     $commandLine = Get-ProcessCommandLine $ProcessId
@@ -191,7 +240,7 @@ function Test-LiveSeaPowerProcess(
 }
 
 function Get-WorkerProofLayout([string]$WorkerId) {
-    $runDir = Join-Path $repoRoot ".run\workers\$WorkerId"
+    $runDir = Join-Path $workersRunRoot $WorkerId
     $metadataPath = Join-Path $runDir 'worker.metadata.json'
     if (-not (Test-Path -LiteralPath $metadataPath)) {
         throw "Worker metadata not found for '$WorkerId' at $metadataPath. Start the worker first."
@@ -204,7 +253,7 @@ function Get-WorkerProofLayout([string]$WorkerId) {
         PipeName = [string]$metadata.pipeName
         InstanceId = [string]$metadata.instanceId
         GameProcessId = [int]$metadata.gameProcessId
-        GameProcessStartTimeUtc = [string]$metadata.gameProcessStartTimeUtc
+        GameProcessStartTimeUtc = $metadata.gameProcessStartTimeUtc
         GameExecutable = [string]$metadata.gameExecutable
         UnityLog = [string]$metadata.unityLog
         CampaignStateDirectory = [string]$metadata.campaignStateDirectory
@@ -243,7 +292,7 @@ function Prove-WorkerRuntime($Layout) {
         InstanceId = $Layout.InstanceId
         GameProcessId = $liveGame.Id
         GameExecutable = $Layout.GameExecutable
-        GameProcessStartTimeUtc = $Layout.GameProcessStartTimeUtc
+        GameProcessStartTimeUtc = Format-UtcTimestamp $Layout.GameProcessStartTimeUtc
         GameSessionId = [string]$health.sessionId
         SessionGeneration = [long]$health.sessionGeneration
         RuntimeFingerprintSha256 = $fingerprint

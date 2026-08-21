@@ -558,9 +558,25 @@ Transactional rollback correctly stopped companion PID 53120 and removed worker
 game/metadata/companion PID files; the default game PID 31208 and its companion
 remained healthy. `Wait-ForPluginMarker` had waited the full 120s timeout because
 it did not validate that the recorded game process had exited. **No two-container
-claim** is valid from this attempt. The next experiment is per-process
-`SteamAppId` / `SteamGameId` (default `1286220`) on the worker game launch
-without writing `steam_appid.txt` or mutating install/global environment.
+claim** is valid from that attempt. Per-process `SteamAppId` / `SteamGameId`
+(default `1286220`) on worker game launch was the next experiment.
+
+**Coexistence proof (21 Aug 2026, campaign `08eed6175b1a4e1abf50004d4e5808c8`):**
+with per-process Steam app context, two named workers are live on the main host:
+
+- `worker-a`: game PID 47840, companion 35088, game session
+  `75189b90542e446482ecdddd7a48dd88`, client `39d074634b5d40d380a1191c33c109da`,
+  campaign session `67d7dec5de9a4557b8c96bb731e30246`
+- `worker-b`: game PID 46160, companion 42392, game session
+  `d1269ddd9d6748faac76d4d05ee3185c`, client `e3b6431ff5d74518ac47469734483ea1`,
+  campaign session `a2a3074e3b7b4a698a87de28bd4e1931`
+
+`pnpm worker:live-proof` with `-WorkersRunRoot` against
+`C:\Users\Varun\repos\crimean-tom\.run\workers` returned
+`LIVE_PROOF_SUCCEEDED`. **Two real runtime+companion workers coexist** with
+distinct campaign sessions on this host. **Cross-worker tactical-island
+migration remains unproven** — do not claim two-container migration until that
+authenticated migrate path is exercised live across these workers.
 
 Reserve-aware load shedding is now implemented around actual runtime resource
 counts: active, suspended-retained, recovery-required and total materialized

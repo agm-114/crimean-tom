@@ -147,6 +147,23 @@ Alternatively pass one quoted comma- or space-separated list:
 pnpm worker:live-proof -- -CampaignId <guid> -WorkerIds "review-a,review-b"
 ```
 
+To verify workers from another repo root or deployment layout, pass `-WorkersRunRoot`:
+
+```powershell
+pnpm worker:live-proof -- -WorkersRunRoot C:\path\to\.run\workers `
+  -CampaignId <guid> `
+  -CampaignHttpUrl http://127.0.0.1:5081 `
+  -CampaignTokenFile C:\path\to\.run\campaign-service\service.token `
+  -WorkerIds worker-a,worker-b
+```
+
+From a worktree, point status at an external run directory per worker:
+
+```powershell
+pnpm worker:status -- -WorkerId worker-a `
+  -RunDirectory C:\path\to\.run\workers\worker-a
+```
+
 Live proof refuses synthetic gRPC test sessions (`container-worker-probe`,
 repeated-digit fingerprints, and similar protocol-test stand-ins). It also
 requires each worker's recorded Sea Power PID to match the installed executable,
@@ -174,8 +191,23 @@ Unity initialized on the isolated direct launch, then Steamworks.NET exited with
 `RestartAppIfNecessary returned true` while the default `pnpm dev` game remained
 healthy. Transactional rollback removed worker PID/metadata files and stopped the
 worker companion; the harness had waited 120s on plugin load because it did not
-detect the early game exit. **No two-container claim** from this run. Per-process
-Steam app context is the next experiment.
+detect the early game exit. **No two-container claim** from that run. Per-process
+Steam app context (`SteamAppId` / `SteamGameId`, default `1286220`) was the next
+experiment.
+
+**Coexistence proof (21 Aug 2026, campaign `08eed6175b1a4e1abf50004d4e5808c8`):**
+with per-process Steam app context, two named workers coexist on the live host:
+
+| Worker | Game PID | Companion PID | Game session | Client instance | Campaign session |
+| --- | --- | --- | --- | --- | --- |
+| `worker-a` | 47840 | 35088 | `75189b90542e446482ecdddd7a48dd88` | `39d074634b5d40d380a1191c33c109da` | `67d7dec5de9a4557b8c96bb731e30246` |
+| `worker-b` | 46160 | 42392 | `d1269ddd9d6748faac76d4d05ee3185c` | `e3b6431ff5d74518ac47469734483ea1` | `a2a3074e3b7b4a698a87de28bd4e1931` |
+
+`pnpm worker:live-proof` with `-WorkersRunRoot` against the main `.run\workers`
+root returned `LIVE_PROOF_SUCCEEDED`. **Coexistence of two real runtime+companion
+workers is proven** on this host. **Cross-worker island migration remains
+unproven** — do not claim two-container migration or automatic rebalance until
+that path is exercised live.
 
 After a mission is fully loaded and paused, the pinned experimental logical-tick
 adapter can be exercised without menu input:

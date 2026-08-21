@@ -58,6 +58,56 @@ $healthMarker = '[Sea Power Runtime Bridge] loaded via AnchorChain'
 $defaultPipeName = 'CrimeanTom.Game.v1'
 $processStartTimeToleranceSeconds = 2
 
+function Ensure-SingleProcess($Process) {
+    if ($null -eq $Process) { return $null }
+    if ($Process -is [System.Diagnostics.Process]) { return $Process }
+    $processes = @($Process)
+    if ($processes.Count -ne 1) { return $null }
+    return $processes[0]
+}
+
+function Resolve-UtcTimestamp($Value) {
+    if ($null -eq $Value) { return $null }
+
+    if ($Value -is [DateTimeOffset]) {
+        return $Value.ToUniversalTime()
+    }
+
+    if ($Value -is [DateTime]) {
+        $utc = $Value
+        if ($utc.Kind -eq [DateTimeKind]::Local) {
+            $utc = $utc.ToUniversalTime()
+        }
+        elseif ($utc.Kind -eq [DateTimeKind]::Unspecified) {
+            $utc = [DateTime]::SpecifyKind($utc, [DateTimeKind]::Utc)
+        }
+        return [DateTimeOffset]::new($utc, [TimeSpan]::Zero)
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+
+    try {
+        return [DateTimeOffset]::Parse(
+            $text.Trim(),
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-UtcTimestampPresent($Value) {
+    return $null -ne (Resolve-UtcTimestamp $Value)
+}
+
+function Format-UtcTimestamp($Value) {
+    $resolved = Resolve-UtcTimestamp $Value
+    if ($null -eq $resolved) { return '' }
+    return $resolved.ToString('o')
+}
+
 function Assert-RestrictedWorkerId([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         throw 'WorkerId is required.'
@@ -292,19 +342,14 @@ function Get-ProcessExecutablePath([int]$ProcessId) {
 
 function Test-ProcessStartTimeMatches(
     $Process,
-    [string]$RecordedStartTimeUtc,
+    $RecordedStartTime,
     [int]$ToleranceSeconds,
     [bool]$RequireRecordedStartTime = $true) {
-    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) {
+    $recordedStart = Resolve-UtcTimestamp $RecordedStartTime
+    if ($null -eq $recordedStart) {
         return -not $RequireRecordedStartTime
     }
-    try {
-        $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
-    }
-    catch {
-        return $false
-    }
-    $actualStart = [DateTimeOffset]$Process.StartTime.ToUniversalTime()
+    $actualStart = [DateTimeOffset]::new($Process.StartTime.ToUniversalTime(), [TimeSpan]::Zero)
     $deltaForward = ($actualStart - $recordedStart).TotalSeconds
     $deltaBackward = ($recordedStart - $actualStart).TotalSeconds
     return $deltaForward -le $ToleranceSeconds -and $deltaBackward -le $ToleranceSeconds
@@ -315,13 +360,14 @@ function Test-GameProcessValidation(
     [string]$ExpectedExecutable,
     [string]$ExpectedUnityLog,
     [int]$ExpectedProcessId,
-    [string]$RecordedStartTimeUtc,
+    $RecordedStartTime,
     [bool]$RequireRecordedStartTime = $true) {
-    if ($null -eq $Process) { return $false }
-    if ($Process.ProcessName -cne 'Sea Power') { return $false }
-    if ($ExpectedProcessId -gt 0 -and $Process.Id -ne $ExpectedProcessId) { return $false }
+    $process = Ensure-SingleProcess $Process
+    if ($null -eq $process) { return $false }
+    if ($process.ProcessName -cne 'Sea Power') { return $false }
+    if ($ExpectedProcessId -gt 0 -and $process.Id -ne $ExpectedProcessId) { return $false }
 
-    $executablePath = Get-ProcessExecutablePath $Process.Id
+    $executablePath = Get-ProcessExecutablePath $process.Id
     if ([string]::IsNullOrWhiteSpace($executablePath)) { return $false }
     $resolvedExecutable = [System.IO.Path]::GetFullPath($executablePath)
     $expectedResolved = [System.IO.Path]::GetFullPath($ExpectedExecutable)
@@ -330,14 +376,14 @@ function Test-GameProcessValidation(
     }
 
     if (-not (Test-ProcessStartTimeMatches `
-        $Process `
-        $RecordedStartTimeUtc `
+        $process `
+        $RecordedStartTime `
         $processStartTimeToleranceSeconds `
         $RequireRecordedStartTime)) {
         return $false
     }
 
-    $commandLine = Get-ProcessCommandLine $Process.Id
+    $commandLine = Get-ProcessCommandLine $process.Id
     if ($commandLine.IndexOf('-logFile', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
         return $false
     }
@@ -354,7 +400,7 @@ function Get-LiveProcessFromPidFile([string]$PidFilePath) {
     $rawPid = (Get-Content -LiteralPath $PidFilePath -Raw).Trim()
     $processId = 0
     if (-not [int]::TryParse($rawPid, [ref]$processId)) { return $null }
-    return Get-Process -Id $processId -ErrorAction SilentlyContinue
+    return Ensure-SingleProcess (Get-Process -Id $processId -ErrorAction SilentlyContinue)
 }
 
 function Remove-StalePidFile([string]$PidFilePath) {
@@ -370,14 +416,8 @@ function Test-ValidatedGameProcess($Layout, $Metadata) {
     if ($null -eq $liveProcess) { return $null }
     if ($null -eq $Metadata) { return $null }
 
-    $recordedStart = [string]$Metadata.gameProcessStartTimeUtc
-    if ([string]::IsNullOrWhiteSpace($recordedStart)) { return $null }
-    try {
-        [DateTimeOffset]::Parse($recordedStart)
-    }
-    catch {
-        return $null
-    }
+    $recordedStart = $Metadata.gameProcessStartTimeUtc
+    if (-not (Test-UtcTimestampPresent $recordedStart)) { return $null }
 
     $expectedProcessId = [int]$Metadata.gameProcessId
     if (-not (Test-GameProcessValidation `
@@ -418,7 +458,7 @@ function Assert-NoUnvalidatedBlockingProcesses($Layout) {
         if ($null -eq $metadata) {
             throw "Refusing to start worker '$($Layout.WorkerId)': game PID file points to live PID $($liveGame.Id), but worker metadata is missing at $($Layout.MetadataPath)."
         }
-        if ([string]::IsNullOrWhiteSpace([string]$metadata.gameProcessStartTimeUtc)) {
+        if (-not (Test-UtcTimestampPresent $metadata.gameProcessStartTimeUtc)) {
             throw "Refusing to start worker '$($Layout.WorkerId)': game PID file points to live PID $($liveGame.Id), but metadata has no recorded UTC start time."
         }
         if ($null -eq (Test-ValidatedGameProcess $Layout $metadata)) {
@@ -725,8 +765,8 @@ function Stop-Worker {
             if ($null -eq $metadata) {
                 throw "Refusing to stop worker '$id': live game PID $candidateProcessId requires worker metadata at $($layout.MetadataPath)."
             }
-            $recordedStart = [string]$metadata.gameProcessStartTimeUtc
-            if ([string]::IsNullOrWhiteSpace($recordedStart)) {
+            $recordedStart = $metadata.gameProcessStartTimeUtc
+            if (-not (Test-UtcTimestampPresent $recordedStart)) {
                 throw "Refusing to stop worker '$id': live game PID $candidateProcessId requires a recorded UTC start time in metadata. Metadata preserved at $($layout.MetadataPath)."
             }
             if (-not (Test-GameProcessValidation `
@@ -759,9 +799,14 @@ function Show-WorkerStatus {
     $layout = Get-WorkerLayout $id
     $metadata = Read-WorkerMetadata $layout.MetadataPath
     $gameProcess = Test-ValidatedGameProcess $layout $metadata
-    $companionStatus = & $companionControlScript status `
-        -ControlUrl $layout.ControlUrl `
-        -RunDirectory $layout.RunDirectory
+    $companionProcess = $null
+    if ($null -ne $metadata -and [int]$metadata.companionProcessId -gt 0) {
+        $companionProcess = Ensure-SingleProcess (
+            Get-Process -Id ([int]$metadata.companionProcessId) -ErrorAction SilentlyContinue)
+    }
+    if ($null -eq $companionProcess) {
+        $companionProcess = Get-LiveProcessFromPidFile $layout.CompanionPidFile
+    }
 
     $health = $null
     $capabilities = $null
@@ -858,6 +903,16 @@ function Show-WorkerStatus {
         UnityLog = $layout.UnityLog
         GameExecutable = $layout.GameExecutable
         GameProcessId = if ($null -ne $gameProcess) { $gameProcess.Id } else { $null }
+        CompanionProcessId = if ($null -ne $companionProcess) {
+            $companionProcess.Id
+        }
+        elseif ($null -ne $metadata) {
+            [int]$metadata.companionProcessId
+        }
+        else {
+            $null
+        }
+        CompanionRunning = $null -ne $companionProcess
         GameConnected = $null -ne $health -and $health.gameConnected
         CompanionHealthy = $null -ne $health
         ConnectionState = if ($null -ne $health) { $health.connectionState } else { '' }
@@ -881,7 +936,6 @@ function Show-WorkerStatus {
             (Get-Content -LiteralPath $layout.UnityLog -Raw -ErrorAction SilentlyContinue).Contains($healthMarker)
         } else { $false }
         StatusError = $healthError
-        CompanionStatus = ($companionStatus | Out-String).Trim()
     } | Format-List
 }
 
