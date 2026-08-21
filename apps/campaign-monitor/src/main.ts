@@ -341,6 +341,8 @@ async function connect(): Promise<void> {
   window.clearInterval(pollHandle);
   try {
     await refresh();
+    const id = byId<HTMLInputElement>("campaign-id").value.trim();
+    window.history.replaceState({}, "", `${window.location.pathname}?campaign=${id}`);
     pollHandle = window.setInterval(() => refresh().catch(showError), 2_000);
   } catch (error) { showError(error); }
 }
@@ -380,3 +382,9 @@ byId("bootstrap").addEventListener("click", createFulda);
 byId("new-id").addEventListener("click", () => { byId<HTMLInputElement>("campaign-id").value = crypto.randomUUID().replaceAll("-", ""); });
 window.addEventListener("resize", () => engine.resize());
 engine.runRenderLoop(() => scene.render());
+
+const linkedCampaignId = new URLSearchParams(window.location.search).get("campaign") ?? "";
+if (/^[0-9a-f]{32}$/i.test(linkedCampaignId)) {
+  byId<HTMLInputElement>("campaign-id").value = linkedCampaignId;
+  void connect();
+}
