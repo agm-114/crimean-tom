@@ -125,6 +125,10 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     session = sessions.Snapshot(),
 }));
 app.MapGet("/durability-policy", () => Results.Ok(CampaignDurabilityPolicy.Current));
+app.MapGet("/campaigns", async (
+    SqliteCampaignJournal store,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await store.ListCampaignsAsync(cancellationToken)));
 app.MapPost("/control/campaigns", async (
     CampaignCreateRequest request,
     SqliteCampaignJournal store,

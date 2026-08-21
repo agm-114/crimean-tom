@@ -24,6 +24,12 @@ public sealed record CampaignRecoveryResult(
     CommitPosition SnapshotPosition,
     string CanonicalHash);
 
+public sealed record CampaignSummary(
+    string CampaignId,
+    string Name,
+    long CommitPosition,
+    string CatalogFingerprint);
+
 public enum CampaignBlobPurpose
 {
     TacticalCheckpoint,

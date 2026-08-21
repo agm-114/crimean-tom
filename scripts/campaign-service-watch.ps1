@@ -1,11 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
-# Watch only the MSBuild-discovered source set. Windows directory notifications
-# can overflow when Vite atomically replaces its generated production chunks
-# beneath the service project, even though those files are excluded by MSBuild.
+# Polling avoids Windows directory notification overflow. Full process restarts
+# are intentionally used instead of Roslyn hot reload: Vite's generated chunks
+# live beneath the service project and can otherwise crash the hot-reload
+# workspace while a hosted monitor build is being replaced.
 $env:DOTNET_USE_POLLING_FILE_WATCHER = '1'
 
 & dotnet watch `
+    --no-hot-reload `
     --project 'src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj' `
     run `
     --configuration Debug `

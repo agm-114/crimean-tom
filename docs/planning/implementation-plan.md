@@ -620,8 +620,12 @@ single-player prototype.
   damage, recent interactions, health, journal head, scheduler health and
   eligibility, island coupling, transition reasons, and target tempo from the
   authenticated diagnostic projection. Its dominant Babylon theater surface is
-  a black wireframe map with wireframe unit/domain glyphs, bounded by square
-  monochrome operator registers and limited semantic color highlights.
+  a Natural Earth world wire map with geographic campaign overlays and
+  wireframe unit/domain glyphs, bounded by square monochrome operator registers
+  and limited semantic color highlights. `GET /campaigns` drives a switchable
+  campaign channel with stable deep links, while the semantic order of battle is
+  organized coalition -> formation -> unit rather than as a flat track list.
+  Singleton formations are flattened to avoid redundant hierarchy rows.
 - The unattended resolver now performs deterministic region-level detection,
   uncertainty degradation, weapons expenditure, damage, destruction, and
   whole-task-force withdrawal. Coalition projections receive opaque track IDs

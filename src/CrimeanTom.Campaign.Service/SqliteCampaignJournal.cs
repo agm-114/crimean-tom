@@ -130,6 +130,29 @@ public sealed class SqliteCampaignJournal
             reader.GetInt32(3), reader.GetInt32(4));
     }
 
+    public async Task<IReadOnlyList<CampaignSummary>> ListCampaignsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT campaign_id, name, head, catalog_fingerprint
+            FROM campaigns
+            ORDER BY head DESC, name COLLATE NOCASE, campaign_id;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var campaigns = new List<CampaignSummary>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            campaigns.Add(new CampaignSummary(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt64(2),
+                reader.GetString(3)));
+        }
+        return campaigns;
+    }
+
     public async Task<CampaignWriterLease> AcquireWriterAsync(
         CampaignId campaignId,
         CoordinatorId coordinatorId,

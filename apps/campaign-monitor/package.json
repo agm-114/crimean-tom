@@ -7,10 +7,14 @@
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {
-    "@babylonjs/core": "^9.22.1"
+    "@babylonjs/core": "^9.22.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/geojson": "^7946.0.16",
+    "@types/topojson-client": "^3.1.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

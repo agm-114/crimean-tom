@@ -75,10 +75,15 @@ interaction island; unsupported mixed groups continue to fail closed.
 ### Operator monitor
 
 The campaign service hosts a Tailwind CSS and Babylon.js monitor at `/monitor/`.
-It renders the region graph, bases, unit domains and fidelity, task-force
-membership, active operational outcomes, damage, and service/head status. The
-same information is also represented as semantic HTML unit and outcome lists so
-the 3D canvas is not the only way to inspect the campaign.
+It renders a Natural Earth 110m world coastline and latitude/longitude grid,
+then overlays the region graph, bases, unit domains and fidelity, active
+operational outcomes, damage, and service/head status in their real geographic
+positions. The same information is represented as semantic HTML: the order of
+battle is a collapsible coalition -> formation -> unit tree, and outcomes remain
+an independently readable register, so the Babylon canvas is not the only way
+to inspect the campaign. Singleton formations are flattened to coalition -> unit
+rows with the formation retained as secondary context; only formations with
+multiple members consume a separate expandable hierarchy level.
 
 The visual language is a dense Cold War command plot, not a general-purpose
 dashboard. A dominant black wireframe plotting volume shows the theater graph,
@@ -87,6 +92,12 @@ glyphs. Square black-and-white registers frame the map; friendly green, hostile
 red, warning amber, and a white selection state are the only semantic accents.
 The shell avoids gradients, blur, rounded cards, and decorative chrome so every
 line, label, and highlight carries operator information.
+
+`GET /campaigns` provides the monitor's campaign directory ordered by journal
+head. The campaign-channel register can switch directly between those entries,
+accept a pasted campaign ID, copy a stable `?campaign=<id>` deep link, or create
+a fresh representative Fulda campaign. Campaign selection is therefore a host
+relationship rather than a manually generated identifier workflow.
 
 The static shell contains no campaign data and may load unauthenticated on the
 loopback listener. When the host serves its entry document it issues a random,
@@ -100,11 +111,12 @@ across browser/service sessions, and cross-site requests do not receive it.
 Development uses `pnpm campaign:dev`: `dotnet watch` restarts the service while
 Vite supplies frontend HMR at port 5173. Its loopback proxy reads the protected
 service token on the developer's behalf and adds it only to proxied API calls.
-The backend watcher excludes generated static content and uses the SDK polling
-watcher on Windows. Vite owns that tree and production builds update hashed
-chunks in place instead of deleting and recreating the directory. This avoids
-racing Roslyn's Windows hot-reload workspace while ASP.NET refreshes the hosted
-copy.
+The backend watcher uses the SDK polling watcher and full process restarts on
+Windows. Roslyn hot reload is deliberately disabled because Vite's generated
+production chunks live under the service project and replacing those files can
+crash Roslyn's hot-reload workspace. Normal frontend iteration remains on Vite
+HMR; production monitor builds can update the hosted copy without killing the
+combined watcher.
 
 The two broad integration projects build into `.run/test-artifacts` through the
 root `pnpm test` command. Their host/companion launch helpers resolve those

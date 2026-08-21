@@ -10,6 +10,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
+import { mesh as topologyMesh } from "topojson-client";
+import worldLand from "world-atlas/land-110m.json";
 import "./style.css";
 
 type Region = { regionId: string; name: string; neighborRegionIds: string[] };
@@ -63,6 +65,9 @@ type Campaign = {
   assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
   performance: Performance;
 };
+type CampaignSummary = {
+  campaignId: string; name: string; commitPosition: number; catalogFingerprint: string;
+};
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.innerHTML = `
@@ -80,25 +85,32 @@ app.innerHTML = `
       </div>
     </header>
 
-    <div class="map-annotation map-annotation-left">PLOT / NORTH ATLANTIC—CENTRAL FRONT // GRID 05° // WIRE VOLUME</div>
+    <div class="map-annotation map-annotation-left">PLOT / WORLD THEATER // GRID 15° // NATURAL EARTH 110M</div>
     <div class="map-annotation map-annotation-right">DRAG ORBIT // WHEEL RANGE // SELECT TRACK</div>
 
     <aside class="dock dock-left">
-      <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN LINK</span><span class="text-[#626262]">AUTH/LOCAL</span></div>
-      <div class="grid gap-1 p-2">
-        <div class="mb-1 flex items-center gap-2 text-[9px]"><span class="status-mark friendly"></span><span>HOST-ISSUED SESSION / HTTPONLY</span></div>
-        <label class="metric-label" for="campaign-id">Campaign identifier</label>
-        <div class="flex gap-1"><input id="campaign-id" class="command-input min-w-0 flex-1" placeholder="32 hexadecimal characters" /><button id="new-id" class="command-cell" title="Generate campaign ID">NEW</button></div>
-        <div class="mt-1 grid grid-cols-2 gap-1"><button id="connect" class="command-cell command-cell-primary">CONNECT</button><button id="bootstrap" class="command-cell">SEED FULDA</button></div>
+      <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN CHANNEL</span><span class="text-[#626262]">HOST / LOCAL</span></div>
+      <div class="campaign-link-panel grid gap-1 p-2">
+        <div class="mb-1 flex items-center gap-2 text-[9px]"><span class="status-mark friendly"></span><span>SESSION ATTACHED / NO TOKEN SETUP</span></div>
+        <label class="metric-label" for="campaign-picker">Available campaigns</label>
+        <select id="campaign-picker" class="command-input campaign-picker" aria-label="Available campaigns">
+          <option value="">DISCOVERING CAMPAIGNS…</option>
+        </select>
+        <div class="campaign-address">
+          <span class="metric-label">Direct link</span>
+          <input id="campaign-id" class="campaign-id" aria-label="Campaign identifier" placeholder="PASTE CAMPAIGN ID" />
+        </div>
+        <div class="grid grid-cols-2 gap-1"><button id="connect" class="command-cell command-cell-primary">OPEN CHANNEL</button><button id="copy-link" class="command-cell">COPY LINK</button></div>
+        <button id="bootstrap" class="command-cell">NEW FULDA GAP / 1989</button>
       </div>
       <div class="section-rule px-2 py-1">
         <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">SESSION CREDENTIAL HELD BY HOST</div>
         <div id="scheduler-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">SCHEDULER / UNAVAILABLE</div>
         <div id="performance-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">PERF / UNAVAILABLE</div>
       </div>
-      <div class="window-title flex items-center justify-between px-2"><span>FORCE REGISTER</span><span id="unit-count" class="text-[#e2e2e2]">00 TRACKS</span></div>
-      <div class="grid grid-cols-[20px_minmax(0,1fr)_34px] border-b border-[#252525] px-2 py-1 text-[8px] text-[#626262]"><span>IFF</span><span>IDENTITY / FORMATION</span><span>FID</span></div>
-      <div id="unit-list" class="scrollbar min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Campaign units"></div>
+      <div class="window-title flex items-center justify-between px-2"><span>ORDER OF BATTLE</span><span id="unit-count" class="text-[#e2e2e2]">00 UNITS</span></div>
+      <div class="tree-columns border-b border-[#252525] px-2 py-1 text-[8px] text-[#626262]"><span>ECHELON / IDENTITY</span><span>FID</span></div>
+      <div id="unit-list" class="scrollbar unit-tree min-h-0 flex-1 overflow-y-auto" role="tree" aria-label="Campaign order of battle"></div>
     </aside>
 
     <aside class="dock dock-right">
@@ -130,35 +142,68 @@ const canvas = byId<HTMLCanvasElement>("campaign-map");
 const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 const scene = new Scene(engine);
 scene.clearColor = new Color4(0.008, 0.008, 0.008, 1);
-const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.88, 54, new Vector3(-8, 0, 2), scene);
-camera.lowerRadiusLimit = 12;
-camera.upperRadiusLimit = 100;
+const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.82, 74, Vector3.Zero(), scene);
+camera.lowerRadiusLimit = 8;
+camera.upperRadiusLimit = 135;
 camera.attachControl(canvas, true);
 new HemisphericLight("plot-light", new Vector3(0.2, 1, -0.3), scene).intensity = 0.35;
 
 const gridLines: Vector3[][] = [];
-for (let x = -60; x <= 60; x += 5) gridLines.push([new Vector3(x, 0, -32), new Vector3(x, 0, 32)]);
-for (let z = -32; z <= 32; z += 4) gridLines.push([new Vector3(-60, 0, z), new Vector3(60, 0, z)]);
+for (let longitude = -180; longitude <= 180; longitude += 15) {
+  gridLines.push([worldPosition(longitude, -85), worldPosition(longitude, 85)]);
+}
+for (let latitude = -75; latitude <= 75; latitude += 15) {
+  gridLines.push([worldPosition(-180, latitude), worldPosition(180, latitude)]);
+}
 const plotGrid = MeshBuilder.CreateLineSystem("plot-grid", { lines: gridLines }, scene);
 plotGrid.color = new Color3(0.16, 0.16, 0.16);
 plotGrid.alpha = 0.34;
-const plotFrame = MeshBuilder.CreateBox("plot-frame", { width: 120, height: 0.18, depth: 64 }, scene);
-plotFrame.position.y = -0.08;
-plotFrame.material = material("plot-frame-material", new Color3(0.32, 0.32, 0.32), 0.12);
+const worldTopology = worldLand as unknown as Parameters<typeof topologyMesh>[0];
+const worldCoastline = topologyMesh(worldTopology, worldTopology.objects.land);
+const coastlineLines = worldCoastline.coordinates.flatMap(coordinates => splitDateLine(coordinates)
+  .filter(segment => segment.length > 1)
+  .map(segment => segment.map(([longitude, latitude]) => worldPosition(longitude, latitude, 0.035))));
+const coastline = MeshBuilder.CreateLineSystem("world-coastline", { lines: coastlineLines }, scene);
+coastline.color = new Color3(0.56, 0.56, 0.56);
+coastline.alpha = 0.72;
+const plotBorder = MeshBuilder.CreateLines("plot-border", {
+  points: [
+    worldPosition(-180, -85), worldPosition(-180, 85), worldPosition(180, 85),
+    worldPosition(180, -85), worldPosition(-180, -85),
+  ],
+}, scene);
+plotBorder.color = new Color3(0.4, 0.4, 0.4);
+plotBorder.alpha = 0.65;
 
 let campaign: Campaign | null = null;
 let dynamicMeshes: Mesh[] = [];
 let pollHandle: number | undefined;
 let selectedEntityId: string | null = null;
+const expandedNodes = new Set<string>();
+let hierarchyInitialized = false;
 
 function authHeaders(): HeadersInit {
   return {};
 }
 
+function worldPosition(longitude: number, latitude: number, y = 0): Vector3 {
+  return new Vector3(longitude / 3, y, latitude / 3);
+}
+
+function splitDateLine(coordinates: number[][]): number[][][] {
+  const segments: number[][][] = [[]];
+  for (const coordinate of coordinates) {
+    const segment = segments.at(-1)!;
+    if (segment.length && Math.abs(segment.at(-1)![0] - coordinate[0]) > 180) {
+      segments.push([]);
+    }
+    segments.at(-1)!.push(coordinate);
+  }
+  return segments;
+}
+
 function mapPosition(latitudeMicrodegrees: number, longitudeMicrodegrees: number, y = 0): Vector3 {
-  const lat = latitudeMicrodegrees / 1_000_000;
-  const lon = longitudeMicrodegrees / 1_000_000;
-  return new Vector3(lon * 0.42, y, (53 - lat) * 0.72);
+  return worldPosition(longitudeMicrodegrees / 1_000_000, latitudeMicrodegrees / 1_000_000, y);
 }
 
 function material(name: string, color: Color3, emissive = 0.55): StandardMaterial {
@@ -272,6 +317,105 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]!);
 }
 
+function affiliationIcon(friendly: boolean, label: string): string {
+  return `<span class="affiliation-glyph ${friendly ? "friendly" : "hostile"}" aria-label="${label}">
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      ${friendly
+        ? `<rect x="3.5" y="3.5" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2" />`
+        : `<path d="M9 2.8 15.2 14.7H2.8Z" fill="none" stroke="currentColor" stroke-width="1.2" />`}
+    </svg>
+  </span>`;
+}
+
+function renderOrderOfBattle(data: Campaign): void {
+  const coalitionIds = [...new Set(data.entities.map(entity => entity.coalitionId))]
+    .sort((left, right) => Number(isNato(data, right)) - Number(isNato(data, left)) || left.localeCompare(right));
+  const rows: string[] = [];
+  if (!hierarchyInitialized) {
+    for (const coalitionId of coalitionIds) {
+      expandedNodes.add(`coalition:${coalitionId}`);
+      for (const group of data.groups.filter(item => item.coalitionId === coalitionId)) {
+        expandedNodes.add(`group:${group.groupId}`);
+      }
+    }
+    hierarchyInitialized = true;
+  }
+
+  for (const coalitionId of coalitionIds) {
+    const friendly = isNato(data, coalitionId);
+    const coalitionKey = `coalition:${coalitionId}`;
+    const coalitionOpen = expandedNodes.has(coalitionKey);
+    const coalitionEntities = data.entities.filter(entity => entity.coalitionId === coalitionId);
+    rows.push(`<button class="tree-branch tree-coalition" data-toggle="${coalitionKey}" role="treeitem" aria-level="1" aria-expanded="${coalitionOpen}">
+      <span class="disclosure ${coalitionOpen ? "disclosure-open" : ""}" aria-hidden="true"></span>
+      ${affiliationIcon(friendly, friendly ? "NATO" : "Warsaw Pact")}
+      <span class="tree-label"><span>${friendly ? "NATO / FRIENDLY" : "WARSAW PACT / HOSTILE"}</span><small>${coalitionEntities.length} UNITS</small></span>
+      <span class="tree-count">${coalitionEntities.filter(entity => entity.fidelity === "Tactical").length.toString().padStart(2, "0")}T</span>
+    </button>`);
+    if (!coalitionOpen) continue;
+
+    const assignedEntityIds = new Set<string>();
+    const groups = data.groups
+      .filter(group => group.coalitionId === coalitionId)
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const group of groups) {
+      const members = group.memberEntityIds
+        .map(entityId => data.entities.find(entity => entity.entityId === entityId))
+        .filter((entity): entity is Entity => !!entity && entity.coalitionId === coalitionId)
+        .sort((left, right) => left.name.localeCompare(right.name));
+      members.forEach(entity => assignedEntityIds.add(entity.entityId));
+      if (members.length === 1) {
+        const entity = members[0];
+        rows.push(`<button data-entity="${entity.entityId}" class="tree-unit register-row ${entity.entityId === selectedEntityId ? "register-row-selected" : ""}" role="treeitem" aria-level="2">
+          <span class="tree-rail" aria-hidden="true"></span>
+          ${affiliationIcon(friendly, friendly ? "Friendly unit" : "Hostile unit")}
+          <span class="tree-label"><span>${escapeHtml(entity.name.toUpperCase())}</span><small>${escapeHtml(group.name.toUpperCase())} / ${escapeHtml(entity.simulationDomain.toUpperCase())}</small></span>
+          <span class="tree-fidelity">${escapeHtml(entity.fidelity.slice(0, 3).toUpperCase())}</span>
+        </button>`);
+        continue;
+      }
+      const groupKey = `group:${group.groupId}`;
+      const groupOpen = expandedNodes.has(groupKey);
+      rows.push(`<button class="tree-branch tree-group" data-toggle="${groupKey}" role="treeitem" aria-level="2" aria-expanded="${groupOpen}">
+        <span class="tree-rail" aria-hidden="true"></span><span class="disclosure ${groupOpen ? "disclosure-open" : ""}" aria-hidden="true"></span>
+        <span class="echelon-glyph" aria-hidden="true"><i></i><i></i></span>
+        <span class="tree-label"><span>${escapeHtml(group.name.toUpperCase())}</span><small>${group.activeOrderId ? "ORDER ACTIVE" : "FORMATION"} / ${members.length} UNITS</small></span>
+        <span class="tree-count">${members.length.toString().padStart(2, "0")}</span>
+      </button>`);
+      if (!groupOpen) continue;
+      for (const entity of members) {
+        rows.push(`<button data-entity="${entity.entityId}" class="tree-unit register-row ${entity.entityId === selectedEntityId ? "register-row-selected" : ""}" role="treeitem" aria-level="3">
+          <span class="tree-rail tree-rail-unit" aria-hidden="true"></span>
+          ${affiliationIcon(friendly, friendly ? "Friendly unit" : "Hostile unit")}
+          <span class="tree-label"><span>${escapeHtml(entity.name.toUpperCase())}</span><small>${escapeHtml(entity.simulationDomain.toUpperCase())} / ${escapeHtml(entity.catalogUnitId.toUpperCase())}</small></span>
+          <span class="tree-fidelity">${escapeHtml(entity.fidelity.slice(0, 3).toUpperCase())}</span>
+        </button>`);
+      }
+    }
+
+    const unassigned = coalitionEntities
+      .filter(entity => !assignedEntityIds.has(entity.entityId))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entity of unassigned) {
+      rows.push(`<button data-entity="${entity.entityId}" class="tree-unit register-row ${entity.entityId === selectedEntityId ? "register-row-selected" : ""}" role="treeitem" aria-level="2">
+        <span class="tree-rail" aria-hidden="true"></span>
+        ${affiliationIcon(friendly, friendly ? "Friendly unit" : "Hostile unit")}
+        <span class="tree-label"><span>${escapeHtml(entity.name.toUpperCase())}</span><small>UNASSIGNED / ${escapeHtml(entity.simulationDomain.toUpperCase())}</small></span>
+        <span class="tree-fidelity">${escapeHtml(entity.fidelity.slice(0, 3).toUpperCase())}</span>
+      </button>`);
+    }
+  }
+
+  byId("unit-list").innerHTML = rows.join("");
+  document.querySelectorAll<HTMLElement>("[data-toggle]").forEach(item => item.addEventListener("click", () => {
+    const key = item.dataset.toggle!;
+    if (expandedNodes.has(key)) expandedNodes.delete(key); else expandedNodes.add(key);
+    renderOrderOfBattle(data);
+  }));
+  document.querySelectorAll<HTMLElement>("[data-entity]").forEach(item =>
+    item.addEventListener("click", () => selectEntity(item.dataset.entity!)));
+}
+
 function selectEntity(entityId: string): void {
   if (!campaign) return;
   const entity = campaign.entities.find(item => item.entityId === entityId);
@@ -310,7 +454,7 @@ function renderPanels(data: Campaign): void {
   byId("campaign-title").textContent = data.name;
   byId("campaign-time").textContent = `T+${data.timeQuanta}`;
   byId("commit-position").textContent = data.commitPosition.toString();
-  byId("unit-count").textContent = `${data.entities.length.toString().padStart(2, "0")} TRACKS`;
+  byId("unit-count").textContent = `${data.entities.length.toString().padStart(2, "0")} UNITS`;
   byId("region-count").textContent = data.regions.length.toString();
   byId("group-count").textContent = data.groups.length.toString();
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
@@ -322,14 +466,7 @@ function renderPanels(data: Campaign): void {
   byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // STABLE ${data.scheduler.stableSampleCount} // ${data.scheduler.loadAction}`;
   byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
-  const groups = new Map(data.groups.flatMap(group => group.memberEntityIds.map(id => [id, group.name])));
-  byId("unit-list").innerHTML = data.entities.map(entity => `
-    <button data-entity="${entity.entityId}" class="register-row grid w-full grid-cols-[20px_minmax(0,1fr)_34px] items-center px-2 py-[5px] text-left ${entity.entityId === selectedEntityId ? "register-row-selected" : ""}" role="listitem">
-      <span class="affiliation-glyph ${isNato(data, entity.coalitionId) ? "friendly" : "hostile"}">${isNato(data, entity.coalitionId) ? "□" : "△"}</span>
-      <span class="min-w-0"><span class="block truncate text-[10px] uppercase">${escapeHtml(entity.name)}</span><span class="register-dim block truncate text-[8px] uppercase">${escapeHtml(groups.get(entity.entityId) ?? entity.simulationDomain)}</span></span>
-      <span class="register-dim text-right text-[8px] uppercase">${escapeHtml(entity.fidelity.slice(0, 3))}</span>
-    </button>`).join("");
-  document.querySelectorAll<HTMLElement>("[data-entity]").forEach(item => item.addEventListener("click", () => selectEntity(item.dataset.entity!)));
+  renderOrderOfBattle(data);
   byId("outcome-list").innerHTML = [...data.recentOperationalOutcomes].reverse().map(outcome => `
     <article class="register-row grid grid-cols-[54px_76px_1fr] px-2 py-[5px] text-[9px]">
       <time class="register-dim">T+${outcome.occurredAtQuanta}</time>
@@ -361,9 +498,34 @@ async function connect(): Promise<void> {
   try {
     await refresh();
     const id = byId<HTMLInputElement>("campaign-id").value.trim();
+    byId<HTMLSelectElement>("campaign-picker").value = id;
     window.history.replaceState({}, "", `${window.location.pathname}?campaign=${id}`);
     pollHandle = window.setInterval(() => refresh().catch(showError), 2_000);
   } catch (error) { showError(error); }
+}
+
+async function loadCampaigns(preferredCampaignId = ""): Promise<CampaignSummary[]> {
+  const campaigns = await request<CampaignSummary[]>("/campaigns");
+  const picker = byId<HTMLSelectElement>("campaign-picker");
+  picker.innerHTML = campaigns.length
+    ? campaigns.map(item => `<option value="${item.campaignId}">${escapeHtml(item.name.toUpperCase())} // C${item.commitPosition} // ${item.campaignId.slice(0, 8).toUpperCase()}</option>`).join("")
+    : `<option value="">NO CAMPAIGNS — CREATE FULDA GAP</option>`;
+  const selectedId = preferredCampaignId || byId<HTMLInputElement>("campaign-id").value.trim() || campaigns[0]?.campaignId || "";
+  if (campaigns.some(item => item.campaignId === selectedId)) picker.value = selectedId;
+  if (/^[0-9a-f]{32}$/i.test(selectedId)) byId<HTMLInputElement>("campaign-id").value = selectedId;
+  return campaigns;
+}
+
+async function copyCampaignLink(): Promise<void> {
+  const id = byId<HTMLInputElement>("campaign-id").value.trim();
+  if (!/^[0-9a-f]{32}$/i.test(id)) {
+    showError(new Error("Open a campaign before copying its link."));
+    return;
+  }
+  const link = new URL(window.location.href);
+  link.searchParams.set("campaign", id);
+  await navigator.clipboard.writeText(link.toString());
+  byId("connection-message").textContent = `LINK COPIED // ${id.slice(0, 8).toUpperCase()}`;
 }
 
 function showError(error: unknown): void {
@@ -373,11 +535,8 @@ function showError(error: unknown): void {
 }
 
 async function createFulda(): Promise<void> {
-  let id = byId<HTMLInputElement>("campaign-id").value.trim();
-  if (!/^[0-9a-f]{32}$/i.test(id)) {
-    id = crypto.randomUUID().replaceAll("-", "");
-    byId<HTMLInputElement>("campaign-id").value = id;
-  }
+  const id = crypto.randomUUID().replaceAll("-", "");
+  byId<HTMLInputElement>("campaign-id").value = id;
   try {
     await request(`/control/campaigns`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -392,18 +551,29 @@ async function createFulda(): Promise<void> {
         eligibility: "Eligible", tacticalEntityCapacity: 4, backlogDepth: 0,
       }),
     });
+    await loadCampaigns(id);
     await connect();
   } catch (error) { showError(error); }
 }
 
 byId("connect").addEventListener("click", connect);
 byId("bootstrap").addEventListener("click", createFulda);
-byId("new-id").addEventListener("click", () => { byId<HTMLInputElement>("campaign-id").value = crypto.randomUUID().replaceAll("-", ""); });
+byId("copy-link").addEventListener("click", () => void copyCampaignLink().catch(showError));
+byId<HTMLSelectElement>("campaign-picker").addEventListener("change", event => {
+  const id = (event.currentTarget as HTMLSelectElement).value;
+  if (!id) return;
+  byId<HTMLInputElement>("campaign-id").value = id;
+  void connect();
+});
 window.addEventListener("resize", () => engine.resize());
 engine.runRenderLoop(() => scene.render());
 
 const linkedCampaignId = new URLSearchParams(window.location.search).get("campaign") ?? "";
-if (/^[0-9a-f]{32}$/i.test(linkedCampaignId)) {
-  byId<HTMLInputElement>("campaign-id").value = linkedCampaignId;
+void loadCampaigns(linkedCampaignId).then(campaigns => {
+  const targetCampaignId = /^[0-9a-f]{32}$/i.test(linkedCampaignId)
+    ? linkedCampaignId
+    : campaigns[0]?.campaignId ?? "";
+  if (!targetCampaignId) return;
+  byId<HTMLInputElement>("campaign-id").value = targetCampaignId;
   void connect();
-}
+}).catch(showError);

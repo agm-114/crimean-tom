@@ -405,6 +405,14 @@ the protocol story requires a real 30-quanta advance to populate and validate
 that telemetry. These measurements are operational evidence, not canonical
 inputs.
 
+The hosted operator monitor now plots the campaign over a Natural Earth 110m
+world wire map, discovers journal campaigns through `GET /campaigns`, provides
+switching/copyable deep links, and presents units as a collapsible NATO/Warsaw
+Pact -> formation -> unit order of battle. Fixed SVG affiliation cells replace
+the cramped text glyph layout. The combined watcher uses polling plus backend
+process restarts (not Roslyn hot reload), preventing hosted monitor asset builds
+from crashing the development session.
+
 The scaled Fulda bootstrap and `pnpm campaign:stress` now exercise 1x–100x force
 packages through the actual HTTP, kernel, SQLite journal, recovery, and telemetry
 path. On the Ryzen 9 9900X host, 20x (300 entities/180 groups) produced 1,866
