@@ -97,6 +97,13 @@ app.MapPost("/control/campaigns/{campaignId}/bootstrap", async (
     Guid.TryParseExact(campaignId, "N", out var parsed)
         ? Results.Ok(await coordinator.BootstrapAsync(new CampaignId(parsed), cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(new CampaignId(parsed), cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
 app.MapGet("/campaigns/{campaignId}", async (
     string campaignId,
     CampaignCoordinator coordinator,

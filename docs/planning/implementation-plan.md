@@ -604,6 +604,20 @@ single-player prototype.
 
 ## Phase 5 - operational simulation and dynamic fidelity
 
+### Current implementation slice
+
+- Schema v3 records each entity's simulation domain and maximum fidelity.
+- The kernel rejects promotions above that ceiling, and tactical handoff fails
+  closed for entities that cannot be represented by Sea Power.
+- The deterministic Fulda Gap Gone Hot proving campaign supplies the large,
+  representative theater used while implementing the remaining Phase 5 engine,
+  scheduler, monitor, and live-game flows. Central Front land formations remain
+  Operational abstractions; naval and air interactions provide the tactical
+  promotion surface.
+- The monitor is part of the Phase 5 exit artifact, not a separate authority. It
+  will expose campaign map state, units, interactions, fidelity reasons, health,
+  load, and transitions from the same authenticated service projections.
+
 ### Objective
 
 Advance unattended engagements credibly and promote/demote fidelity based on

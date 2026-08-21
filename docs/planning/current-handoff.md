@@ -295,9 +295,19 @@ checkpoint with a maximum 120-quanta rollback. Exact UI/audio/visual emission
 timestamps remain unavailable from Sea Power and are reported as unavailable,
 not inferred as a display delay.
 
-Next, begin Phase 5 operational detection, maneuver, engagement, and dynamic
-fidelity scheduling. Keep tactical projection and campaign commit separate:
-Sea Power remains a fenced client of the external authoritative kernel.
+Phase 5 is active. Its first slice adds schema-v3 simulation-domain and
+maximum-fidelity invariants plus the deterministic Fulda Gap Gone Hot proving
+campaign. The campaign has 12 connected regions and 15 opening entities across
+the Central Front, North Atlantic, GIUK, Norwegian Sea, North Sea, and Baltic.
+Land armies are explicitly `LandAbstract`, capped at Operational fidelity, and
+rejected by tactical handoff; Sea Power tactical promotion is reserved for the
+naval and air reinforcement war it can credibly simulate.
+
+Next, implement operational contact uncertainty and combat outcomes, then build
+task-force-minimum interaction islands, dynamic fidelity scheduling, load
+management, and the authenticated Tailwind/Babylon campaign monitor. Keep
+tactical projection and campaign commit separate: Sea Power remains a fenced
+client of the external authoritative kernel.
 
 ## Deferred hardening
 

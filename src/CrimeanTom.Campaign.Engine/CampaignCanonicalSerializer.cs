@@ -58,6 +58,7 @@ public static class CampaignCanonicalSerializer
                 new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
                 item.HomeBaseId is null ? null : ParseId(item.HomeBaseId, value => new BaseId(value)),
                 ParseEnum<EntityLifecycle>(item.Lifecycle), ParseEnum<FidelityState>(item.Fidelity),
+                ParseEnum<SimulationDomain>(item.SimulationDomain), ParseEnum<FidelityState>(item.MaximumFidelity),
                 ReadResources(item.Resources), HeadingMilliDegrees.FromMilliDegrees(item.HeadingMilliDegrees), item.Telegraph,
                 item.ReadinessMilliUnits, item.DamageMilliUnits,
                 item.ClassifiedTruthTag, new EntityRevision(item.Revision)))
@@ -193,6 +194,8 @@ public static class CampaignCanonicalSerializer
             }
             writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("fidelity", (int)item.Fidelity);
+            writer.WriteNumber("simulationDomain", (int)item.SimulationDomain);
+            writer.WriteNumber("maximumFidelity", (int)item.MaximumFidelity);
             WriteResources(writer, item.Resources);
             writer.WriteNumber("headingMilliDegrees", item.Heading.Value);
             writer.WriteNumber("telegraph", item.Telegraph);
@@ -450,6 +453,8 @@ public static class CampaignCanonicalSerializer
         public string? HomeBaseId { get; init; }
         public required int Lifecycle { get; init; }
         public required int Fidelity { get; init; }
+        public required int SimulationDomain { get; init; }
+        public required int MaximumFidelity { get; init; }
         public required ResourceDocument[] Resources { get; init; }
         public required int HeadingMilliDegrees { get; init; }
         public required int Telegraph { get; init; }

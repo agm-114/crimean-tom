@@ -143,6 +143,13 @@ public static class CampaignKernel
         CampaignInvariants.RequireText(value.ClassifiedTruthTag, nameof(value.ClassifiedTruthTag));
         ValidateCoordinate(value.Coordinate);
         ValidateResources(value.Resources);
+        if (!Enum.IsDefined(value.SimulationDomain)
+            || !Enum.IsDefined(value.MaximumFidelity)
+            || value.MaximumFidelity == FidelityState.Suspended
+            || !CanUseFidelity(value.Fidelity, value.MaximumFidelity))
+        {
+            throw Violation("invalid-fidelity-ceiling", "An entity's simulation domain, fidelity, or fidelity ceiling is invalid.");
+        }
         if (value.HomeBaseId is { } homeBaseId
             && (!state.Bases.TryGetValue(homeBaseId, out var homeBase) || homeBase.CoalitionId != value.CoalitionId))
         {
@@ -210,6 +217,10 @@ public static class CampaignKernel
             && value.Fidelity != FidelityState.Operational)
         {
             throw Violation("terminal-entity", "A terminal entity may only return to operational fidelity.");
+        }
+        if (!CanUseFidelity(value.Fidelity, entity.MaximumFidelity))
+        {
+            throw Violation("fidelity-ceiling", "The requested fidelity exceeds the entity's simulation-domain ceiling.");
         }
 
         return Decision.Create(command.Subject, new FidelityChangedEvent(value), entity.Revision.Next());
@@ -412,7 +423,8 @@ public static class CampaignKernel
     {
         var data = value.Entity;
         var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CoalitionId, data.RegionId,
-            data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.Resources.ToImmutableSortedDictionary(),
+            data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.SimulationDomain,
+            data.MaximumFidelity, data.Resources.ToImmutableSortedDictionary(),
             HeadingMilliDegrees.FromMilliDegrees(0), Telegraph: 0,
             ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag, item.NewSubjectRevision);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
@@ -630,6 +642,9 @@ public static class CampaignKernel
             throw Violation("subject-mismatch", "The typed subject does not match the command payload.");
         }
     }
+
+    private static bool CanUseFidelity(FidelityState requested, FidelityState maximum) =>
+        requested == FidelityState.Suspended || requested <= maximum;
 
     private static void RequireNew(CampaignCommand command, bool exists, string code)
     {

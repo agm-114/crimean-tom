@@ -117,6 +117,48 @@ public sealed class CompanionControlIntegrationTests
             var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
             const string gameEntityId = "unit:crimean-tom:transport-knox";
 
+            var fuldaCampaignId = Guid.Parse("10000000-0000-0000-0000-000000000005").ToString("N");
+            using var createdFuldaCampaign = await campaignClient.PostAsJsonAsync(
+                "/control/campaigns",
+                new
+                {
+                    campaignId = fuldaCampaignId,
+                    name = "Fulda Gap Gone Hot",
+                    seed = 19890911,
+                    catalogFingerprint = "fulda-gap-integration-catalog",
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Created, createdFuldaCampaign.StatusCode);
+            using var fuldaBootstrapResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/bootstrap/fulda-gap",
+                content: null,
+                testTimeout.Token);
+            fuldaBootstrapResponse.EnsureSuccessStatusCode();
+            using var fuldaBootstrap = JsonDocument.Parse(
+                await fuldaBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(12, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
+            Assert.Equal(15, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            using var fuldaViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{fuldaCampaignId}",
+                testTimeout.Token);
+            fuldaViewResponse.EnsureSuccessStatusCode();
+            using var fuldaView = JsonDocument.Parse(
+                await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
+            Assert.Equal(15, fuldaEntities.Length);
+            Assert.All(
+                fuldaEntities.Where(item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"),
+                item => Assert.Equal("Operational", item.GetProperty("maximumFidelity").GetString()));
+            using var fuldaAdvanceResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/advance/30",
+                content: null,
+                testTimeout.Token);
+            fuldaAdvanceResponse.EnsureSuccessStatusCode();
+            using var fuldaAdvance = JsonDocument.Parse(
+                await fuldaAdvanceResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(30, fuldaAdvance.RootElement.GetProperty("timeQuanta").GetInt64());
+
             var start = await RunControlScriptAsync(
                 scriptPath,
                 "start",

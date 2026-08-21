@@ -37,6 +37,8 @@ public sealed record EntityState(
     BaseId? HomeBaseId,
     EntityLifecycle Lifecycle,
     FidelityState Fidelity,
+    SimulationDomain SimulationDomain,
+    FidelityState MaximumFidelity,
     ImmutableSortedDictionary<ResourceKind, ResourceAmount> Resources,
     HeadingMilliDegrees Heading,
     int Telegraph,

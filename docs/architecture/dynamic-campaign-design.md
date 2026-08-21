@@ -40,6 +40,32 @@ only protocol handling, stable-ID mapping, state extraction, and carefully
 bounded Unity commands. Networking, persistence, scheduling, reconciliation,
 and most validation belong in the companion or service.
 
+## Fulda Gap proving campaign
+
+The representative Phase 5 campaign is **Fulda Gap Gone Hot**, a deterministic
+1989 Central Front and North Atlantic reinforcement crisis. It is intentionally
+one continuous campaign rather than a sequence of generated scenarios. The
+initial graph spans the United States East Coast, Atlantic convoy route, GIUK
+Gap, Norwegian and Barents Seas, North Sea, German Bight, BALTAP and Baltic,
+NORTHAG, and the Fulda corridor. Its opening forces include NATO and Warsaw Pact
+surface groups, submarines, convoy and replenishment ships, coastal missile
+forces, and two army-level land formations.
+
+Sea Power is authoritative only where it is a credible tactical resolver. Naval
+and air interactions around convoy protection, reinforcement, sea control, and
+the northern flank may promote to Tactical fidelity. Central Front land combat
+is campaign-service abstraction: those formations have `LandAbstract` simulation
+domain and a hard `Operational` maximum-fidelity ceiling. They may affect ports,
+reinforcement demand, objectives, readiness, and the naval campaign, but they
+cannot be materialized into Sea Power or masquerade as a tactically simulated
+land battle. The monitor must display this boundary explicitly.
+
+`POST /control/campaigns/{campaignId}/bootstrap/fulda-gap` creates the fixed
+12-region, 15-entity opening state and returns its committed head and canonical
+hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
+and uses stable campaign-derived IDs so the same campaign ID and content version
+reproduce the same world.
+
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the

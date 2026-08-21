@@ -42,7 +42,10 @@ public static class CampaignStateValidator
         foreach (var (key, entity) in state.Entities)
         {
             if (key != entity.EntityId || entity.Revision.Value <= 0 || !state.Regions.ContainsKey(entity.RegionId)
-                || !Enum.IsDefined(entity.Lifecycle) || !Enum.IsDefined(entity.Fidelity))
+                || !Enum.IsDefined(entity.Lifecycle) || !Enum.IsDefined(entity.Fidelity)
+                || !Enum.IsDefined(entity.SimulationDomain) || !Enum.IsDefined(entity.MaximumFidelity)
+                || entity.MaximumFidelity == FidelityState.Suspended
+                || entity.Fidelity != FidelityState.Suspended && entity.Fidelity > entity.MaximumFidelity)
             {
                 throw Invalid("entity-identity", "An entity key, revision, region, lifecycle, or fidelity is invalid.");
             }

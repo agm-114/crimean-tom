@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 2;
-    public const int AlgorithmVersion = 2;
+    public const int Version = 3;
+    public const int AlgorithmVersion = 3;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -27,6 +27,14 @@ public enum FidelityState
     Operational,
     Tactical,
     Suspended,
+}
+
+public enum SimulationDomain
+{
+    Maritime,
+    Air,
+    Logistics,
+    LandAbstract,
 }
 
 public enum ResourceKind
@@ -150,7 +158,9 @@ public sealed record RegisterEntityCommand(
     EntityLifecycle Lifecycle,
     FidelityState Fidelity,
     IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
-    string ClassifiedTruthTag)
+    string ClassifiedTruthTag,
+    SimulationDomain SimulationDomain = SimulationDomain.Maritime,
+    FidelityState MaximumFidelity = FidelityState.Tactical)
     : CampaignCommandData;
 
 public sealed record FormGroupCommand(GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members)

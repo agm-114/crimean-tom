@@ -107,6 +107,120 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         }
     }
 
+    public async Task<FuldaGapBootstrapResult> BootstrapFuldaGapAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (state.Head != CommitPosition.Origin)
+            {
+                throw new CampaignStoreConflict("campaign-not-empty", "Fulda Gap bootstrap requires an empty campaign.");
+            }
+
+            var seed = FuldaGapCampaignSeed.Create(campaignId);
+            foreach (var region in seed.Regions)
+            {
+                var neighbors = region.NeighborKeys.Select(key => seed.RegionIds[key]).ToArray();
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Region(region.RegionId),
+                    EntityRevision.None,
+                    new RegisterRegionCommand(region.RegionId, region.Name, neighbors),
+                    $"fulda-region-{region.Key}"), cancellationToken);
+            }
+
+            foreach (var campaignBase in seed.Bases)
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Base(campaignBase.BaseId),
+                    EntityRevision.None,
+                    new RegisterBaseCommand(
+                        campaignBase.BaseId,
+                        campaignBase.Name,
+                        campaignBase.CoalitionId,
+                        seed.RegionIds[campaignBase.RegionKey],
+                        campaignBase.Coordinate,
+                        FuldaResources(baseSupply: true)),
+                    $"fulda-base-{campaignBase.Key}"), cancellationToken);
+            }
+
+            foreach (var entity in seed.Entities)
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Entity(entity.EntityId),
+                    EntityRevision.None,
+                    new RegisterEntityCommand(
+                        entity.EntityId,
+                        entity.Name,
+                        entity.CatalogUnitId,
+                        entity.CoalitionId,
+                        seed.RegionIds[entity.RegionKey],
+                        entity.Coordinate,
+                        entity.HomeBaseKey is null ? null : seed.BaseIds[entity.HomeBaseKey],
+                        EntityLifecycle.Deployed,
+                        FidelityState.Operational,
+                        FuldaResources(baseSupply: false),
+                        $"FULDA-89:{entity.CoalitionId}:{entity.Key}",
+                        entity.SimulationDomain,
+                        entity.MaximumFidelity),
+                    $"fulda-entity-{entity.Key}"), cancellationToken);
+            }
+
+            foreach (var group in seed.Groups)
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Group(group.GroupId),
+                    EntityRevision.None,
+                    new FormGroupCommand(group.GroupId, group.Name, group.CoalitionId, group.Members),
+                    $"fulda-group-{group.Key}"), cancellationToken);
+            }
+
+            foreach (var order in seed.Orders)
+            {
+                var group = state.Groups[order.GroupId];
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Group(order.GroupId),
+                    group.Revision,
+                    new IssueOrderCommand(
+                        order.OrderId,
+                        order.GroupId,
+                        order.Kind,
+                        order.DestinationRegionId,
+                        state.Time,
+                        new CampaignTime(720)),
+                    $"fulda-order-{order.OrderId}"), cancellationToken);
+            }
+
+            return new FuldaGapBootstrapResult(
+                campaignId.ToString(),
+                "Fulda Gap Gone Hot — September 1989",
+                seed.BlueCoalitionId.ToString(),
+                seed.RedCoalitionId.ToString(),
+                seed.Regions.Count,
+                seed.Bases.Count,
+                seed.Entities.Count,
+                seed.Groups.Count,
+                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.LandAbstract),
+                seed.RegionIds["fulda"].ToString(),
+                seed.RegionIds["giuk"].ToString(),
+                seed.RegionIds["baltap"].ToString(),
+                seed.EntityIds["pharris"].ToString(),
+                state.Head.Value,
+                CampaignCanonicalSerializer.ComputeHash(state));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<TacticalAssignment> PrepareHandoffAsync(
         CampaignHandoffRequest request,
         CancellationToken cancellationToken)
@@ -121,6 +235,12 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             var entity = state.Entities.TryGetValue(entityId, out var found)
                 ? found
                 : throw new CampaignStoreConflict("entity-missing", "The handoff entity does not exist.");
+            if (entity.MaximumFidelity != FidelityState.Tactical)
+            {
+                throw new CampaignStoreConflict(
+                    "fidelity-ceiling",
+                    "The entity's simulation domain cannot be assigned to a Sea Power tactical worker.");
+            }
             if (entity.Fidelity != FidelityState.Tactical)
             {
                 state = await CommitAsync(state, Command(
@@ -254,7 +374,12 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             recovery.CanonicalHash,
             recovery.State.Entities.Values.Select(item => new CampaignEntityView(
                 item.EntityId.ToString(),
+                item.Name,
+                item.CatalogUnitId,
+                item.CoalitionId.ToString(),
                 item.Fidelity.ToString(),
+                item.SimulationDomain.ToString(),
+                item.MaximumFidelity.ToString(),
                 item.RegionId.ToString(),
                 item.Coordinate.LatitudeMicrodegrees,
                 item.Coordinate.LongitudeMicrodegrees,
@@ -647,6 +772,16 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         return new Guid(hash.AsSpan(0, 16));
     }
 
+    private static IReadOnlyDictionary<ResourceKind, ResourceAmount> FuldaResources(bool baseSupply) =>
+        new Dictionary<ResourceKind, ResourceAmount>
+        {
+            [ResourceKind.Fuel] = ResourceAmount.FromMilliUnits(baseSupply ? 20_000_000 : 1_000_000),
+            [ResourceKind.Stores] = ResourceAmount.FromMilliUnits(baseSupply ? 10_000_000 : 750_000),
+            [ResourceKind.Munitions] = ResourceAmount.FromMilliUnits(baseSupply ? 12_000_000 : 900_000),
+            [ResourceKind.SpareParts] = ResourceAmount.FromMilliUnits(baseSupply ? 5_000_000 : 300_000),
+            [ResourceKind.Personnel] = ResourceAmount.FromMilliUnits(baseSupply ? 8_000_000 : 1_000_000),
+        };
+
     private static T ParseId<T>(string value, Func<Guid, T> factory)
     {
         if (!Guid.TryParseExact(value, "N", out var parsed) || parsed == Guid.Empty)
@@ -700,6 +835,23 @@ public sealed record CampaignBootstrapResult(
     long CommitPosition,
     string CanonicalHash);
 
+public sealed record FuldaGapBootstrapResult(
+    string CampaignId,
+    string Title,
+    string BlueCoalitionId,
+    string RedCoalitionId,
+    int RegionCount,
+    int BaseCount,
+    int EntityCount,
+    int TaskForceCount,
+    int AbstractLandFormationCount,
+    string FuldaRegionId,
+    string GiukRegionId,
+    string BalticApproachesRegionId,
+    string TacticalDemoEntityId,
+    long CommitPosition,
+    string CanonicalHash);
+
 public sealed record CampaignAdvanceResult(long CommitPosition, long TimeQuanta, string CanonicalHash, bool TacticalEntitiesFrozen);
 
 public sealed record CampaignDiagnosticView(
@@ -711,7 +863,12 @@ public sealed record CampaignDiagnosticView(
 
 public sealed record CampaignEntityView(
     string EntityId,
+    string Name,
+    string CatalogUnitId,
+    string CoalitionId,
     string Fidelity,
+    string SimulationDomain,
+    string MaximumFidelity,
     string RegionId,
     int LatitudeMicrodegrees,
     int LongitudeMicrodegrees,
