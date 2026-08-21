@@ -24,15 +24,6 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $installedGameExecutable = [System.IO.Path]::GetFullPath((Join-Path $SeaPowerDir 'Sea Power.exe'))
 $processStartTimeToleranceSeconds = 2
 
-if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
-    if ($env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE) {
-        $CampaignTokenFile = $env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE
-    }
-    else {
-        $CampaignTokenFile = Join-Path $repoRoot '.run\campaign-service\service.token'
-    }
-}
-
 $syntheticGameSessionIds = @(
     'container-worker-probe',
     'shadow-destination-worker',
@@ -42,18 +33,44 @@ $syntheticClientInstanceIds = @(
     '20000000000000000000000000000002'
 )
 
+function Assert-RestrictedWorkerId([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw 'WorkerId is required.'
+    }
+    $trimmed = $Value.Trim()
+    if ($trimmed.Length -gt 64) {
+        throw "WorkerId '$trimmed' must contain at most 64 characters."
+    }
+    foreach ($character in $trimmed.ToCharArray()) {
+        $isValid = (
+            ($character -ge 'A' -and $character -le 'Z') -or
+            ($character -ge 'a' -and $character -le 'z') -or
+            ($character -ge '0' -and $character -le '9') -or
+            ($character -eq '.' -or $character -eq '_' -or $character -eq '-')
+        )
+        if (-not $isValid) {
+            throw "WorkerId '$trimmed' must contain only ASCII letters, digits, '.', '_', or '-'."
+        }
+    }
+    return $trimmed
+}
+
 function Normalize-WorkerIds([string[]]$Ids) {
-    $normalized = @()
-    foreach ($id in $Ids) {
+    $ordered = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    foreach ($id in @($Ids)) {
         if ([string]::IsNullOrWhiteSpace($id)) { continue }
-        foreach ($part in $id.Split(',')) {
-            $trimmed = $part.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $normalized += $trimmed
+        foreach ($part in $id.Split(
+            [char[]]@(',', ' ', "`t", "`r", "`n"),
+            [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            $trimmed = Assert-RestrictedWorkerId $part
+            if (-not $seen.ContainsKey($trimmed)) {
+                $seen[$trimmed] = $true
+                $ordered.Add($trimmed)
             }
         }
     }
-    return @($normalized | Select-Object -Unique)
+    return @($ordered.ToArray())
 }
 
 function Test-SyntheticFingerprint([string]$Value) {
@@ -238,18 +255,31 @@ function Prove-WorkerRuntime($Layout) {
 if ([string]::IsNullOrWhiteSpace($CampaignId)) {
     throw 'CampaignId is required. Pass -CampaignId or set CRIMEAN_TOM_CAMPAIGN_ID.'
 }
+
+$normalizedWorkerIds = @(Normalize-WorkerIds $WorkerIds)
+if ($normalizedWorkerIds.Count -lt 2) {
+    throw 'Live proof requires at least two distinct worker IDs. Pass -WorkerIds review-a -WorkerIds review-b, or one quoted value such as "review-a,review-b".'
+}
+
+$workerLayouts = @()
+foreach ($workerId in $normalizedWorkerIds) {
+    $workerLayouts += Get-WorkerProofLayout $workerId
+}
+
+if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
+    if ($env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE) {
+        $CampaignTokenFile = $env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE
+    }
+    else {
+        $CampaignTokenFile = Join-Path $repoRoot '.run\campaign-service\service.token'
+    }
+}
 if (-not (Test-Path -LiteralPath $CampaignTokenFile)) {
     throw "Campaign token file not found at $CampaignTokenFile."
 }
 
-$normalizedWorkerIds = Normalize-WorkerIds $WorkerIds
-if ($normalizedWorkerIds.Count -lt 2) {
-    throw 'Live proof requires at least two distinct worker IDs. Pass -WorkerIds worker-a,worker-b or separate values.'
-}
-
 $workerProofs = @()
-foreach ($workerId in $normalizedWorkerIds) {
-    $layout = Get-WorkerProofLayout $workerId
+foreach ($layout in $workerLayouts) {
     $workerProofs += Prove-WorkerRuntime $layout
 }
 

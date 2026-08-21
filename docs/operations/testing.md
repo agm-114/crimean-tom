@@ -138,7 +138,13 @@ two workers on the same campaign service receive distinct client instance IDs.
 ```powershell
 pnpm worker:live-proof -- -CampaignId <guid> `
   -CampaignHttpUrl http://127.0.0.1:5081 `
-  -WorkerIds worker-a,worker-b
+  -WorkerIds review-a -WorkerIds review-b
+```
+
+Alternatively pass one quoted comma- or space-separated list:
+
+```powershell
+pnpm worker:live-proof -- -CampaignId <guid> -WorkerIds "review-a,review-b"
 ```
 
 Live proof refuses synthetic gRPC test sessions (`container-worker-probe`,
