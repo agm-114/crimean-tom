@@ -33,6 +33,7 @@ public sealed class CampaignCoordinator(
     private readonly CampaignMigrationPolicyOptions _migrationPolicy = CampaignMigrationPolicyOptions.Load();
     private readonly CampaignMigrationAdmissionRegistry _migrationAdmission = new();
     private readonly CampaignReplicaHashRegistry _replicaHashes = new();
+    private readonly ConcurrentDictionary<CampaignId, byte> _pausedCampaigns = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<CampaignBootstrapResult> BootstrapAsync(
@@ -995,6 +996,12 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            if (_pausedCampaigns.ContainsKey(campaignId))
+            {
+                throw new CampaignStoreConflict(
+                    "campaign-paused",
+                    "Operator pause is in effect; campaign time does not advance until resume.");
+            }
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
             var startingTime = state.Time;
             var before = state.Entities.ToDictionary(item => item.Key, item => item.Value);
@@ -1138,6 +1145,43 @@ public sealed class CampaignCoordinator(
         }
 
         return CampaignCoalitionProjectionHttp.From(recovery.State, coalitionId);
+    }
+
+    public CampaignPauseView Pause(CampaignId campaignId)
+    {
+        _pausedCampaigns[campaignId] = 1;
+        return new CampaignPauseView(campaignId.ToString(), Paused: true);
+    }
+
+    public CampaignPauseView Resume(CampaignId campaignId)
+    {
+        _pausedCampaigns.TryRemove(campaignId, out _);
+        return new CampaignPauseView(campaignId.ToString(), Paused: false);
+    }
+
+    public Task<CampaignSchedulerView> DrainAsync(CampaignId campaignId, CancellationToken cancellationToken)
+    {
+        return DrainCoreAsync(campaignId, cancellationToken);
+    }
+
+    private async Task<CampaignSchedulerView> DrainCoreAsync(CampaignId campaignId, CancellationToken cancellationToken)
+    {
+        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        var request = state.SchedulerPolicy is { } policy
+            ? SchedulerRequest(policy) with
+            {
+                Health = SchedulerHealthState.Draining,
+                Eligibility = SimulationSourceEligibility.DrainOnly,
+            }
+            : new CampaignSchedulerRequest(
+                [],
+                [],
+                SchedulerHealthState.Draining,
+                SimulationSourceEligibility.DrainOnly,
+                TacticalEntityCapacity: 4,
+                BacklogDepth: 0,
+                TacticalReserveCapacity: 1);
+        return await ScheduleFidelityAsync(campaignId, request, cancellationToken);
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -3335,3 +3379,6 @@ public sealed record CampaignFallbackAssignment(
     long? LastCheckpointCommitPosition,
     string? LastCheckpointSha256,
     string Resolution);
+
+public sealed record CampaignPauseView(string CampaignId, bool Paused);
+

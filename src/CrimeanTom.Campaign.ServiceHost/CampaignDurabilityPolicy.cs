@@ -40,7 +40,8 @@ public static class CampaignDurabilityPolicy
         FailoverClaim: "cold-checkpoint-or-operational; hot-shadow-unclaimed",
         ReplicaHashRule: CampaignReplicaHashRegistry.MajorityRule,
         DeploymentTrustModel: "trusted-private-multiplayer; a-player-process-holding-full-opposing-truth-is-trusted",
-        PlayerProjectionTransport: "http-coalition-filtered; signalr-not-canonical-commit");
+        PlayerProjectionTransport: "http-coalition-filtered; signalr-not-canonical-commit",
+        PackagedDeploymentProfile: "sqlite-wal-local-blobs; no-docker-no-external-db");
 }
 
 public sealed record CampaignDurabilityPolicyView(
@@ -58,4 +59,5 @@ public sealed record CampaignDurabilityPolicyView(
     string FailoverClaim,
     string ReplicaHashRule,
     string DeploymentTrustModel,
-    string PlayerProjectionTransport);
+    string PlayerProjectionTransport,
+    string PackagedDeploymentProfile);
