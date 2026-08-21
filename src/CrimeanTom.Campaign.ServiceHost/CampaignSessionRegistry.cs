@@ -166,6 +166,8 @@ public sealed class CampaignCompanionSession
     private int _ownedRecoveryRequiredEntityCount;
     private int _tacticalEntityCapacity;
     private int _tacticalReserveCapacity;
+    private string _health = CampaignWorkerHealth.Healthy;
+    private string _eligibility = CampaignWorkerHealth.Eligible;
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
@@ -180,6 +182,7 @@ public sealed class CampaignCompanionSession
         _playerTaskforceId = hello.PlayerTaskforceId;
         _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
         ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
+        ObserveHealth(hello.Health, hello.Eligibility);
     }
 
     public CompanionHello Hello { get; }
@@ -232,6 +235,7 @@ public sealed class CampaignCompanionSession
                     ObserveCapacity(
                         frame.Heartbeat.TacticalEntityCapacity,
                         frame.Heartbeat.TacticalReserveCapacity);
+                    ObserveHealth(frame.Heartbeat.Health, frame.Heartbeat.Eligibility);
                     ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                 }
             }
@@ -266,6 +270,8 @@ public sealed class CampaignCompanionSession
                 _ownedRecoveryRequiredEntityCount,
                 _tacticalEntityCapacity,
                 _tacticalReserveCapacity,
+                _health,
+                _eligibility,
                 _couplingRelationships.Values
                     .OrderBy(item => item.Key, StringComparer.Ordinal)
                     .Select(item => new CampaignCouplingRelationship(
@@ -315,6 +321,26 @@ public sealed class CampaignCompanionSession
         _tacticalReserveCapacity = reserve;
     }
 
+    private void ObserveHealth(string health, string eligibility)
+    {
+        var normalizedHealth = CampaignWorkerHealth.NormalizeHealth(health);
+        var normalizedEligibility = CampaignWorkerHealth.NormalizeEligibility(eligibility);
+        if (!string.IsNullOrWhiteSpace(health)
+            && !string.Equals(normalizedHealth, health.Trim(), StringComparison.Ordinal))
+        {
+            normalizedHealth = CampaignWorkerHealth.Quarantined;
+            normalizedEligibility = CampaignWorkerHealth.Quarantined;
+        }
+        if (!string.IsNullOrWhiteSpace(eligibility)
+            && !string.Equals(normalizedEligibility, eligibility.Trim(), StringComparison.Ordinal))
+        {
+            normalizedHealth = CampaignWorkerHealth.Quarantined;
+            normalizedEligibility = CampaignWorkerHealth.Quarantined;
+        }
+        _health = normalizedHealth;
+        _eligibility = normalizedEligibility;
+    }
+
     private static string CouplingKey(TacticalCouplingRelationship item) => string.Join('\n',
         item.Kind,
         item.SourceEntityId,
@@ -352,6 +378,8 @@ public sealed record CampaignSessionSnapshot(
     int OwnedRecoveryRequiredEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    string Health,
+    string Eligibility,
     IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships);
 
 public sealed record CampaignMaterializationProfile(
