@@ -155,7 +155,10 @@ public static class CampaignStateValidator
                 || !state.Entities.ContainsKey(assignment.EntityId) || !Enum.IsDefined(assignment.Role)
                 || !Enum.IsDefined(assignment.Lifecycle) || assignment.BatchSize <= 0
                 || (string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize != 1)
-                || (!string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize < 2))
+                || (!string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize < 2)
+                || assignment.WorkerClientInstanceId is null
+                || assignment.WorkerClientInstanceId.Length > 256
+                || assignment.WorkerClientInstanceId.Any(char.IsControl))
             {
                 throw Invalid("assignment", "An assignment identity, relationship, role, time, epoch, or revision is invalid.");
             }

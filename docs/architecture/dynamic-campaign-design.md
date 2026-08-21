@@ -196,10 +196,20 @@ mission load, briefing, debrief, and scene changes update the service-side
 worker snapshot without restarting the companion. The stable campaign/client
 identity remains on the session while the game session, runtime and catalog
 fingerprints, player task force, and supported profiles follow the live scene.
-The scheduler requires one connected worker, a player task force, and support
-for every entity in an interaction island before it can request Tactical
-fidelity. An offline worker, missing task force, or partially unsupported island
-stays Operational with an explicit diagnostic reason.
+The scheduler requires a connected compatible worker, a player task force, and
+support for every entity in an interaction island before it can request
+Tactical fidelity. An offline worker, missing task force, or partially
+unsupported island stays Operational with an explicit diagnostic reason.
+
+Schema v6 allows multiple tactical-container sessions to coexist. Each new
+assignment records its owner's stable client instance ID; service-to-worker
+assignments and fences use that affinity, inbound assignment traffic from a
+non-owner is fenced, and committed campaign events fan out to all sessions.
+The operator projection lists every worker and its materialized, active,
+retained, recovery-required, profile, and coupling counts. Deterministic
+least-loaded selection is only the placement foundation: migration still
+requires destination headroom, checkpoint transfer, cooldown, and source/target
+overlap accounting before it is safe to enable.
 
 A representable interaction island is durably reserved and queued to the
 companion directly by the schedule operation. Singleton assignments activate

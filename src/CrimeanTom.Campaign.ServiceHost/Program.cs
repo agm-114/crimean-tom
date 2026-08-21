@@ -123,6 +123,7 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     protocolVersion = 1,
     grpcUrl = grpcUri.ToString(),
     session = sessions.Snapshot(),
+    sessions = sessions.Snapshots(),
 }));
 app.MapGet("/durability-policy", () => Results.Ok(CampaignDurabilityPolicy.Current));
 app.MapGet("/campaigns", async (
@@ -188,13 +189,17 @@ app.MapPost("/control/handoffs", async (
     {
         return Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
     }
-    var assignment = await coordinator.PrepareHandoffAsync(request, cancellationToken);
-    if (sessions.TryQueueForCampaign(request.CampaignId, new ServiceFrame { Assignment = assignment }))
+    var ownedRequest = request with { WorkerClientInstanceId = session.ClientInstanceId };
+    var assignment = await coordinator.PrepareHandoffAsync(ownedRequest, cancellationToken);
+    if (sessions.TryQueueForClient(
+        request.CampaignId,
+        session.ClientInstanceId,
+        new ServiceFrame { Assignment = assignment }))
     {
         return Results.Accepted(value: assignment);
     }
     await coordinator.CancelPreparingHandoffAsync(
-        request, "session-lost-before-queue", cancellationToken);
+        ownedRequest, "session-lost-before-queue", cancellationToken);
     return Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
 app.MapPost("/control/campaigns/{campaignId}/advance/{target:long}", async (

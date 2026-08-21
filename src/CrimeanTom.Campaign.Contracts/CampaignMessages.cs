@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 5;
-    public const int AlgorithmVersion = 5;
+    public const int Version = 6;
+    public const int AlgorithmVersion = 6;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -220,7 +220,8 @@ public sealed record AssignAuthorityCommand(
     AuthorityEpoch AuthorityEpoch,
     CampaignTime EffectiveAt,
     string BatchId = "",
-    int BatchSize = 1)
+    int BatchSize = 1,
+    string WorkerClientInstanceId = "")
     : CampaignCommandData;
 
 public sealed record ReportIntelligenceCommand(

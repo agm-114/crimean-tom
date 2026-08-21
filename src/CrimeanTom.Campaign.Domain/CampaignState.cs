@@ -111,7 +111,8 @@ public sealed record AssignmentState(
     AssignmentLifecycle Lifecycle,
     EntityRevision Revision,
     string BatchId = "",
-    int BatchSize = 1);
+    int BatchSize = 1,
+    string WorkerClientInstanceId = "");
 
 public sealed record SchedulerPolicyState(
     ImmutableSortedSet<EntityId> ObservedEntityIds,

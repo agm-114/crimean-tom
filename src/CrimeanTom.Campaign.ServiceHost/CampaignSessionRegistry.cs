@@ -7,15 +7,20 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public sealed class CampaignSessionRegistry
 {
     private readonly object _gate = new();
-    private CampaignCompanionSession? _active;
+    private readonly Dictionary<string, CampaignCompanionSession> _activeByClient =
+        new(StringComparer.Ordinal);
 
     public CampaignCompanionSession Open(CompanionHello hello)
     {
         lock (_gate)
         {
-            _active?.Complete("session-replaced");
-            _active = new CampaignCompanionSession(hello);
-            return _active;
+            if (_activeByClient.Remove(hello.ClientInstanceId, out var prior))
+            {
+                prior.Complete("client-session-replaced");
+            }
+            var session = new CampaignCompanionSession(hello);
+            _activeByClient.Add(hello.ClientInstanceId, session);
+            return session;
         }
     }
 
@@ -23,19 +28,35 @@ public sealed class CampaignSessionRegistry
     {
         lock (_gate)
         {
-            if (ReferenceEquals(_active, session))
+            if (_activeByClient.TryGetValue(session.Hello.ClientInstanceId, out var active)
+                && ReferenceEquals(active, session))
             {
-                _active = null;
+                _activeByClient.Remove(session.Hello.ClientInstanceId);
             }
             session.Complete("session-closed");
         }
     }
 
-    public CampaignSessionSnapshot? Snapshot()
+    public CampaignSessionSnapshot? Snapshot(string? campaignId = null)
     {
         lock (_gate)
         {
-            return _active?.Snapshot();
+            return SelectSession(campaignId)?.Snapshot();
+        }
+    }
+
+    public IReadOnlyList<CampaignSessionSnapshot> Snapshots(string? campaignId = null)
+    {
+        lock (_gate)
+        {
+            return _activeByClient.Values
+                .Where(session => campaignId is null || string.Equals(
+                    session.Hello.CampaignId,
+                    campaignId,
+                    StringComparison.Ordinal))
+                .Select(session => session.Snapshot())
+                .OrderBy(snapshot => snapshot.ClientInstanceId, StringComparer.Ordinal)
+                .ToArray();
         }
     }
 
@@ -43,7 +64,7 @@ public sealed class CampaignSessionRegistry
     {
         lock (_gate)
         {
-            return _active?.TryQueue(frame) == true;
+            return SelectSession(null)?.TryQueue(frame) == true;
         }
     }
 
@@ -51,11 +72,75 @@ public sealed class CampaignSessionRegistry
     {
         lock (_gate)
         {
-            return _active is not null
-                && string.Equals(_active.Hello.CampaignId, campaignId, StringComparison.Ordinal)
-                && _active.TryQueue(frame);
+            return SelectSession(campaignId)?.TryQueue(frame) == true;
         }
     }
+
+    public bool TryQueueForClient(
+        string campaignId,
+        string clientInstanceId,
+        ServiceFrame frame)
+    {
+        lock (_gate)
+        {
+            return _activeByClient.TryGetValue(clientInstanceId, out var session)
+                && string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal)
+                && session.TryQueue(frame);
+        }
+    }
+
+    public CampaignBroadcastResult TryBroadcastForCampaign(string campaignId, ServiceFrame frame)
+    {
+        lock (_gate)
+        {
+            var matches = _activeByClient.Values
+                .Where(session => string.Equals(
+                    session.Hello.CampaignId,
+                    campaignId,
+                    StringComparison.Ordinal))
+                .OrderBy(session => session.Hello.ClientInstanceId, StringComparer.Ordinal)
+                .ToArray();
+            var queued = 0;
+            foreach (var session in matches)
+            {
+                if (session.TryQueue(frame))
+                {
+                    queued++;
+                    continue;
+                }
+                if (_activeByClient.TryGetValue(session.Hello.ClientInstanceId, out var active)
+                    && ReferenceEquals(active, session))
+                {
+                    _activeByClient.Remove(session.Hello.ClientInstanceId);
+                }
+                session.Complete("campaign-event-backpressure");
+            }
+            return new CampaignBroadcastResult(matches.Length, queued);
+        }
+    }
+
+    private CampaignCompanionSession? SelectSession(string? campaignId)
+    {
+        return _activeByClient.Values
+            .Where(session => campaignId is null || string.Equals(
+                session.Hello.CampaignId,
+                campaignId,
+                StringComparison.Ordinal))
+            .Select(session => (Session: session, Snapshot: session.Snapshot()))
+            .OrderBy(item => string.IsNullOrWhiteSpace(item.Snapshot.PlayerTaskforceId) ? 1 : 0)
+            .ThenBy(item => item.Snapshot.OwnedRecoveryRequiredEntityCount)
+            .ThenBy(item => item.Snapshot.OwnedMaterializedEntityCount)
+            .ThenBy(item => item.Snapshot.ConnectedAt)
+            .ThenBy(item => item.Snapshot.ClientInstanceId, StringComparer.Ordinal)
+            .Select(item => item.Session)
+            .FirstOrDefault();
+    }
+}
+
+public sealed record CampaignBroadcastResult(int MatchedSessionCount, int QueuedSessionCount)
+{
+    public bool AllQueued => MatchedSessionCount == QueuedSessionCount;
+    public int DroppedSessionCount => MatchedSessionCount - QueuedSessionCount;
 }
 
 public sealed class CampaignCompanionSession

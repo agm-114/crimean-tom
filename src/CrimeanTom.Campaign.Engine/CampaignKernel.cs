@@ -639,7 +639,8 @@ public static class CampaignKernel
     {
         var data = value.Assignment;
         var entry = new AssignmentState(data.AssignmentId, data.EntityId, data.Role, data.AuthorityEpoch,
-            data.EffectiveAt, AssignmentLifecycle.Preparing, item.NewSubjectRevision, data.BatchId, data.BatchSize);
+            data.EffectiveAt, AssignmentLifecycle.Preparing, item.NewSubjectRevision, data.BatchId, data.BatchSize,
+            data.WorkerClientInstanceId);
         return state with { Assignments = state.Assignments.Add(entry.AssignmentId, entry) };
     }
 

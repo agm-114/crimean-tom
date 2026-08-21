@@ -102,7 +102,7 @@ public static class CampaignCanonicalSerializer
                 ParseId(item.Id, value => new AssignmentId(value)), ParseId(item.EntityId, value => new EntityId(value)),
                 ParseEnum<AssignmentRole>(item.Role), new AuthorityEpoch(item.AuthorityEpoch),
                 new CampaignTime(item.EffectiveAt), ParseEnum<AssignmentLifecycle>(item.Lifecycle),
-                new EntityRevision(item.Revision), item.BatchId, item.BatchSize))
+                new EntityRevision(item.Revision), item.BatchId, item.BatchSize, item.WorkerClientInstanceId))
                 .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
             SchedulerPolicy = document.SchedulerPolicy is null ? null : new SchedulerPolicyState(
                 document.SchedulerPolicy.ObservedEntityIds
@@ -395,6 +395,10 @@ public static class CampaignCanonicalSerializer
                 writer.WriteString("batchId", item.BatchId);
                 writer.WriteNumber("batchSize", item.BatchSize);
             }
+            if (!string.IsNullOrEmpty(item.WorkerClientInstanceId))
+            {
+                writer.WriteString("workerClientInstanceId", item.WorkerClientInstanceId);
+            }
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -643,6 +647,7 @@ public static class CampaignCanonicalSerializer
         public required long Revision { get; init; }
         public string BatchId { get; init; } = string.Empty;
         public int BatchSize { get; init; } = 1;
+        public string WorkerClientInstanceId { get; init; } = string.Empty;
     }
 
     private sealed class SchedulerPolicyDocument

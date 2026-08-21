@@ -295,7 +295,7 @@ checkpoint with a maximum 120-quanta rollback. Exact UI/audio/visual emission
 timestamps remain unavailable from Sea Power and are reported as unavailable,
 not inferred as a display delay.
 
-Phase 5 is active on schema v5. The deterministic Fulda Gap Gone Hot proving
+Phase 5 is active on schema v6. The deterministic Fulda Gap Gone Hot proving
 campaign has 12 connected regions and 15 opening entities across the Central
 Front, North Atlantic, GIUK, Norwegian Sea, North Sea, and Baltic. Land armies
 are explicitly `LandAbstract`, capped at Operational fidelity, and rejected by
@@ -312,6 +312,16 @@ those decisions on a square black-and-white wireframe campaign plot with green,
 red, amber, and white semantic state. The broad host story proves promotion,
 ceiling enforcement, quiet-island overload demotion, re-promotion, safe
 demotion, transport, crash recovery, and operational fallback together.
+
+Schema v6 begins the simulation-container layer. The session registry now keeps
+multiple companion workers connected at once; assignments persist their owner
+client ID, assignments and fences route only to that owner, non-owner tactical
+returns are rejected, and committed journal events broadcast to every worker.
+The diagnostic API reports every worker and its live resource/coupling envelope.
+The broad protocol story connects a second gRPC worker without replacing the
+real game companion, then removes it while the primary session remains intact.
+This is placement and fencing infrastructure, not yet a claim of safe live
+whole-island migration or automatic rebalance.
 
 Tactical fidelity is now an achieved worker state rather than a scheduler label.
 The scheduler may project Tactical as desired, but leaves canonical fidelity at

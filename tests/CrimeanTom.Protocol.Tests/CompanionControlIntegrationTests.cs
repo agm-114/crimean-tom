@@ -12,6 +12,9 @@ using System.Text.Json;
 using CrimeanTom.Campaign.Transport.V1;
 using CrimeanTom.Protocol;
 
+using Grpc.Core;
+using Grpc.Net.Client;
+
 namespace CrimeanTom.Protocol.Tests;
 
 public sealed class CompanionControlIntegrationTests
@@ -371,6 +374,13 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
+            await ProveConcurrentCampaignSessionsAsync(
+                campaignClient,
+                campaignGrpcUrl,
+                campaignToken,
+                campaignId,
+                firstCampaignSession,
+                testTimeout.Token);
             await WaitForCampaignResourceCountsAsync(
                 campaignClient,
                 materialized: 0,
@@ -2748,6 +2758,48 @@ public sealed class CompanionControlIntegrationTests
         return client;
     }
 
+    private static async Task ProveConcurrentCampaignSessionsAsync(
+        HttpClient campaignClient,
+        string campaignGrpcUrl,
+        string campaignToken,
+        string campaignId,
+        string primarySessionId,
+        CancellationToken cancellationToken)
+    {
+        using var channel = GrpcChannel.ForAddress(campaignGrpcUrl, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+        });
+        var transport = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
+        using var call = transport.Connect(
+            new Metadata { { "authorization", $"Bearer {campaignToken}" } },
+            cancellationToken: cancellationToken);
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 1,
+            Hello = new CompanionHello
+            {
+                ProtocolVersion = 1,
+                ClientInstanceId = "20000000000000000000000000000002",
+                GameSessionId = "container-worker-probe",
+                CampaignId = campaignId,
+                ReconnectCommitPosition = 0,
+                RuntimeFingerprintSha256 = new string('2', 64),
+                CatalogFingerprintSha256 = new string('3', 64),
+            },
+        });
+        Assert.True(await call.ResponseStream.MoveNext(cancellationToken));
+        Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, call.ResponseStream.Current.PayloadCase);
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+
+        await call.RequestStream.CompleteAsync();
+        call.Dispose();
+        await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
+        Assert.Equal(
+            primarySessionId,
+            await WaitForCampaignSessionAsync(campaignClient, null, cancellationToken));
+    }
+
     private static async Task<string> WaitForCampaignSessionAsync(
         HttpClient client,
         string? previousSessionId,
@@ -2788,6 +2840,29 @@ public sealed class CompanionControlIntegrationTests
                     && session.ValueKind == JsonValueKind.Object
                     && session.TryGetProperty("couplingRelationships", out var relationships)
                     && relationships.GetArrayLength() == expectedCount)
+                {
+                    return;
+                }
+            }
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task WaitForCampaignSessionCountAsync(
+        HttpClient client,
+        int expectedCount,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            using var response = await client.GetAsync("/health", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                using var document = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("sessions", out var sessions)
+                    && sessions.ValueKind == JsonValueKind.Array
+                    && sessions.GetArrayLength() == expectedCount)
                 {
                     return;
                 }

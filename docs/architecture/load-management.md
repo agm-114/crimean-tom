@@ -128,6 +128,19 @@ loaded mission has no player task force, or any member lacks a supported
 profile. This prevents a surface-only adapter from silently promoting mixed
 surface/submarine or otherwise unsupported task forces.
 
+Schema v6 is the first multi-container ownership foundation. The service keeps
+concurrent companion sessions by stable client instance rather than replacing
+the prior connection globally, persists the selected worker ID on every new
+assignment, routes assignments and fences only to that owner, rejects tactical
+events returned by a different worker, and broadcasts committed campaign events
+to every connected worker for catch-up. A backpressured recipient is disconnected
+and must replay from the durable journal; it cannot stall canonical commits or
+another worker. Diagnostics expose all connected worker
+sessions and their live resource envelopes. Worker selection is deterministic
+and load-aware, but whole-island migration, destination reserve accounting, and
+bounded concurrent rebalance remain open work; this foundation must not be read
+as a completed migration controller.
+
 The service automatically creates and queues deterministic, batch-linked
 Preparing assignments for a selected, fully representable island. Manual and
 automatic handoffs both stage Strategic entities at Operational before the

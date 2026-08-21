@@ -104,7 +104,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("32e3bd19091a56a12b9abd723447e7a8ad75cea66c1c96bbc4be0e910905c781", longHorizon.Hash);
+        Assert.Equal("845cb503d344c094f1af692c0f29fd2aa251e150cf37b117ccd839934a4c07fa", longHorizon.Hash);
         await ProveDurableJournalAsync(longHorizon);
         await ProvePersistenceBoundariesAsync(longHorizon);
         await ProveProcessCrashRecoveryAsync(longHorizon);
@@ -216,8 +216,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(5, CampaignSchema.Version);
-        Assert.Equal(5, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(6, CampaignSchema.Version);
+        Assert.Equal(6, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

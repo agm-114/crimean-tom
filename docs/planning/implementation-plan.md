@@ -606,9 +606,15 @@ single-player prototype.
 
 ### Current implementation slice
 
-- Schema v5 records each entity's simulation domain, maximum fidelity, selected
+- Schema v6 records each entity's simulation domain, maximum fidelity, selected
   catalog loadout and operational weapon capabilities, plus contact uncertainty
-  and recent operational outcomes.
+  and recent operational outcomes. It also persists assignment-to-worker
+  affinity. Concurrent companion/container sessions now coexist, committed
+  events fan out to each campaign worker, assignment and fence delivery is
+  owner-specific, and non-owner tactical returns are rejected. The broad
+  protocol story proves that a second worker can connect and disconnect without
+  replacing the live game companion. Placement exists; migration, destination
+  reserve accounting, and rebalance cooldown are still open.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
@@ -676,13 +682,15 @@ single-player prototype.
   also captures sensor, host, formation, temporary-refueling, and stable
   plotting relationships. Reserve-aware whole-island load shedding now includes
   retained and recovery-required runtime objects. This is not yet the full P5
-  gate: tactical performance
-  targets, and calibration remain. The external-kernel
+  gate: mixed-island tactical performance targets and calibration remain. The external-kernel
   large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
   600 entities measures 18.5/s and is explicitly an overloaded envelope. The
   first live independent-surface burst reaches four Active Knox assignments in
   4.02 seconds, drains them in 2.01 seconds, and re-promotes retained objects in
-  1.32 seconds; active-combat tick headroom is still unmeasured.
+  1.32 seconds. The first exact active-combat sample launches a native RUR-5
+  ASROC against a Victor III and sustains 59.5-59.8 controlled ticks per wall
+  second (1.98-1.99x real time) across 30- and 60-second batches; this is a
+  single-weapon observation, not a mixed-island ceiling or outcome calibration.
 - Campaign heartbeats now refresh the worker's live game session, compatibility
   fingerprints, player task force, and exact materialization profiles. Typed
   debrief-to-mission transitions were verified under one unchanged companion

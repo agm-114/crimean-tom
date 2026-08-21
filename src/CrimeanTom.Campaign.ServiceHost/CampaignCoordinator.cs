@@ -314,6 +314,28 @@ public sealed class CampaignCoordinator(
         try
         {
             var campaignId = ParseId(hello.CampaignId, value => new CampaignId(value));
+            var scopedAssignmentId = frame.PayloadCase switch
+            {
+                CompanionFrame.PayloadOneofCase.AssignmentPrepared => frame.AssignmentPrepared.AssignmentId,
+                CompanionFrame.PayloadOneofCase.CheckpointPublished => frame.CheckpointPublished.AssignmentId,
+                _ => frame.TacticalEvent.AssignmentId,
+            };
+            var assignmentId = ParseScopedId(
+                scopedAssignmentId,
+                "assignment:",
+                value => new AssignmentId(value));
+            var ownershipState = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (ownershipState.Assignments.TryGetValue(assignmentId, out var ownedAssignment)
+                && !string.IsNullOrWhiteSpace(ownedAssignment.WorkerClientInstanceId)
+                && !string.Equals(
+                    ownedAssignment.WorkerClientInstanceId,
+                    hello.ClientInstanceId,
+                    StringComparison.Ordinal))
+            {
+                throw new CampaignStoreConflict(
+                    "assignment-worker-fenced",
+                    "The companion client does not own this tactical assignment.");
+            }
             if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared)
             {
                 await ActivateAsync(campaignId, frame.AssignmentPrepared, cancellationToken);
@@ -378,7 +400,8 @@ public sealed class CampaignCoordinator(
         var stopwatch = Stopwatch.StartNew();
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
         telemetry.Record(campaignId, CampaignOperationKind.Recovery, stopwatch.Elapsed);
-        var worker = sessions.Snapshot();
+        var workers = sessions.Snapshots(campaignId.ToString());
+        var worker = sessions.Snapshot(campaignId.ToString());
         var scheduler = recovery.State.SchedulerPolicy is { } policy
             ? CampaignFidelityScheduler.Evaluate(
                 recovery.State,
@@ -442,7 +465,8 @@ public sealed class CampaignCoordinator(
                 item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
                 item.Revision.Value,
                 item.BatchId,
-                item.BatchSize)).ToArray(),
+                item.BatchSize,
+                item.WorkerClientInstanceId)).ToArray(),
             recovery.State.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
                 item.OutcomeId,
                 item.OccurredAt.Quanta,
@@ -454,7 +478,8 @@ public sealed class CampaignCoordinator(
                 item.DamageInflictedMilliUnits,
                 item.Detail)).ToArray(),
             CampaignFidelityScheduler.ToView(recovery.State, scheduler),
-            telemetry.Snapshot(campaignId));
+            telemetry.Snapshot(campaignId),
+            workers.Select(ToWorkerView).ToArray());
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -467,7 +492,7 @@ public sealed class CampaignCoordinator(
         try
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            var worker = sessions.Snapshot();
+            var worker = sessions.Snapshot(campaignId.ToString());
             var observed = (request.ObservedEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
             var controlled = (request.ControlledEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
@@ -587,10 +612,14 @@ public sealed class CampaignCoordinator(
                             profile.LoadoutId,
                             worker.PlayerTaskforceId,
                             batchId,
-                            batchSize);
+                            batchSize,
+                            worker.ClientInstanceId);
                         var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
                         state = prepared.State;
-                        if (sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                        if (sessions.TryQueueForClient(
+                            campaignId.ToString(),
+                            worker.ClientInstanceId,
+                            new ServiceFrame
                             {
                                 Assignment = prepared.Assignment,
                             }))
@@ -646,10 +675,13 @@ public sealed class CampaignCoordinator(
                             resolveExpectedRevisionFromWorker: true,
                             cancellationToken);
                         state = quiesced.State;
-                        _ = sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
-                        {
-                            Fence = quiesced.Fence,
-                        });
+                        var fenceFrame = new ServiceFrame { Fence = quiesced.Fence };
+                        _ = string.IsNullOrWhiteSpace(assignment.WorkerClientInstanceId)
+                            ? sessions.TryQueueForCampaign(campaignId.ToString(), fenceFrame)
+                            : sessions.TryQueueForClient(
+                                campaignId.ToString(),
+                                assignment.WorkerClientInstanceId,
+                                fenceFrame);
                     }
                 }
             }
@@ -721,7 +753,8 @@ public sealed class CampaignCoordinator(
                 new AuthorityEpoch(request.AuthorityEpoch),
                 state.Time,
                 request.BatchId,
-                request.BatchSize),
+                request.BatchSize,
+                request.WorkerClientInstanceId),
             $"{request.IdempotencyKey}-assignment"), cancellationToken);
         entity = state.Entities[entityId];
         return (state, new TacticalAssignment
@@ -1165,10 +1198,9 @@ public sealed class CampaignCoordinator(
         var lease = await RequireLeaseAsync(state.Metadata.CampaignId, cancellationToken);
         var result = await journal.AppendAsync(lease, command, campaignEvent, DateTimeOffset.UtcNow, cancellationToken);
         var json = CampaignContractJson.Serialize(result.CampaignEvent);
-        var snapshot = sessions.Snapshot();
-        if (snapshot is not null
-            && string.Equals(snapshot.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal)
-            && !sessions.TryQueue(new ServiceFrame
+        _ = sessions.TryBroadcastForCampaign(
+            state.Metadata.CampaignId.ToString(),
+            new ServiceFrame
             {
                 CommittedEvent = new CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent
                 {
@@ -1177,12 +1209,7 @@ public sealed class CampaignCoordinator(
                     EventJson = ByteString.CopyFrom(json),
                     EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
                 },
-            }))
-        {
-            throw new CampaignStoreConflict(
-                "companion-stream-backpressured",
-                "The campaign event committed but could not enter the companion stream; reconnect catch-up is required.");
-        }
+            });
         return CampaignKernel.Apply(state, result.CampaignEvent);
     }
 
@@ -1248,6 +1275,23 @@ public sealed class CampaignCoordinator(
         policy.TacticalEntityCapacity,
         policy.BacklogDepth,
         policy.TacticalReserveCapacity);
+
+    private static CampaignWorkerView ToWorkerView(CampaignSessionSnapshot worker) => new(
+        worker.SessionId,
+        worker.ClientInstanceId,
+        worker.GameSessionId,
+        worker.ConnectedAt,
+        worker.LastAppliedCommitPosition,
+        worker.ReceivedFrameCount,
+        worker.RuntimeFingerprintSha256,
+        worker.CatalogFingerprintSha256,
+        worker.PlayerTaskforceId,
+        worker.OwnedMaterializedEntityCount,
+        worker.OwnedActiveEntityCount,
+        worker.OwnedRetainedSuspendedEntityCount,
+        worker.OwnedRecoveryRequiredEntityCount,
+        worker.MaterializationProfiles.Count,
+        worker.CouplingRelationships.Count);
 
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
@@ -1322,7 +1366,8 @@ public sealed record CampaignHandoffRequest(
     string LoadoutId,
     string TaskforceId,
     string BatchId = "",
-    int BatchSize = 1);
+    int BatchSize = 1,
+    string WorkerClientInstanceId = "");
 
 public sealed record CampaignQuiesceRequest(
     string CampaignId,
@@ -1379,7 +1424,25 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignAssignmentView> Assignments,
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
     CampaignSchedulerView Scheduler,
-    CampaignPerformanceView Performance);
+    CampaignPerformanceView Performance,
+    IReadOnlyList<CampaignWorkerView> Workers);
+
+public sealed record CampaignWorkerView(
+    string SessionId,
+    string ClientInstanceId,
+    string GameSessionId,
+    DateTimeOffset ConnectedAt,
+    long LastAppliedCommitPosition,
+    long ReceivedFrameCount,
+    string RuntimeFingerprintSha256,
+    string CatalogFingerprintSha256,
+    string PlayerTaskforceId,
+    int OwnedMaterializedEntityCount,
+    int OwnedActiveEntityCount,
+    int OwnedRetainedSuspendedEntityCount,
+    int OwnedRecoveryRequiredEntityCount,
+    int MaterializationProfileCount,
+    int CouplingRelationshipCount);
 
 public sealed record CampaignRegionView(
     string RegionId,
@@ -1448,7 +1511,8 @@ public sealed record CampaignAssignmentView(
     long ResolveByQuanta,
     long Revision,
     string BatchId,
-    int BatchSize);
+    int BatchSize,
+    string WorkerClientInstanceId);
 
 public sealed record CampaignFallbackResult(
     long CommitPosition,
