@@ -527,6 +527,29 @@ The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
 campaign's durable cursor and silently prevents the gRPC session from opening.
 
+Named tactical-worker launchers now isolate Crimean Tom control state under
+`.run/workers/<workerId>/` with distinct control URLs, pipe names, instance IDs,
+experimental save directories, Unity log files, and companion campaign state.
+`scripts/sea-power-worker.ps1` starts the companion first, then launches the
+installed `Sea Power.exe` directly through per-process `ProcessStartInfo`
+environment variables without building, deploying, or stopping the default demo
+process. Stop validates executable path, PID, and recorded start time before
+terminating only that worker's recorded game process. Status checks companion
+health, game connection, campaign worker visibility, and headroom when campaign
+URLs are supplied.
+
+`scripts/sea-power-worker-live-proof.ps1` is the read-only admission gate for
+two coexisting real workers. It requires two distinct game session IDs, client
+instance IDs, and campaign session IDs with non-synthetic runtime fingerprints,
+and refuses success for the synthetic raw-gRPC probes used in protocol tests.
+It does not claim safe two-container island migration.
+
+Local second-instance Sea Power remains experimental. Steam's sanctioned launch
+path may ignore a second request, BepInEx/AnchorChain may conflict, and Unity
+`Application.persistentDataPath`, `PlayerPrefs`, and native `last_save` remain
+shared for the same Windows user. Do not claim two-container migration until
+live proof succeeds on this host.
+
 Reserve-aware load shedding is now implemented around actual runtime resource
 counts: active, suspended-retained, recovery-required and total materialized
 objects all contribute to the scheduler projection. Destination-local admission

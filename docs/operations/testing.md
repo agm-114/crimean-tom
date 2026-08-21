@@ -113,6 +113,48 @@ companion shutdown. Protocol invariants that do not yet fit this flow should be
 proven through a new broad failure/recovery scenario, not a collection of narrow
 method tests.
 
+### Named tactical workers (experimental second instance)
+
+The default `pnpm dev` / `pnpm status` path remains the primary demo launcher.
+Named workers use isolated state and do not build, deploy, or stop that default
+process:
+
+```powershell
+pnpm worker:start -- -WorkerId worker-a -SkipBuild `
+  -CampaignId <32-char-guid> `
+  -CampaignGrpcUrl http://127.0.0.1:5082 `
+  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -CampaignRunDirectory .run/campaign-service
+pnpm worker:status -- -WorkerId worker-a -CampaignId <guid> `
+  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -CampaignRunDirectory .run/campaign-service
+pnpm worker:stop -- -WorkerId worker-a
+```
+
+Start a second worker with a different ID (`worker-b`), then run live proof only
+when both companions report connected games and distinct campaign sessions:
+
+```powershell
+pnpm worker:live-proof -- -CampaignId <guid> `
+  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -WorkerIds worker-a,worker-b
+```
+
+Live proof refuses synthetic gRPC test sessions (`container-worker-probe`,
+repeated-digit fingerprints, and similar protocol-test stand-ins). Success means
+two real runtime+companion workers coexist with distinct game session IDs, client
+instance IDs, and campaign session IDs. It does not claim safe two-container
+island migration.
+
+Limitations (fail closed):
+
+- Steam's single-process launch may block a second game; the worker script uses
+  direct `Sea Power.exe` launch as an experimental path only.
+- Same-user `Application.persistentDataPath`, `PlayerPrefs`, native logs, and
+  `last_save` remain shared; per-worker isolation covers Crimean Tom control
+  traffic, experimental probe saves, and `-logFile` redirection only.
+- Do not run `pnpm worker:stop` against the default demo worker ID or paths.
+
 After a mission is fully loaded and paused, the pinned experimental logical-tick
 adapter can be exercised without menu input:
 

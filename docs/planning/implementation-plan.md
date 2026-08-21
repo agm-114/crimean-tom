@@ -641,7 +641,18 @@ single-player prototype.
   exact commit position and source checkpoint blobs.
   Bounded migration orchestration admission and durable campaign-scoped cooldown are
   now enforced around the authenticated migrate path; per-worker health
-  declarations and live two-container verification remain open. The
+  declarations and live two-container verification remain open. Named worker
+  launch scripts (`scripts/sea-power-worker.ps1`, `pnpm worker:start|stop|status`)
+  isolate control ports, pipes, run directories, Unity logs, and companion state
+  per worker ID. They launch Sea Power directly with per-process environment
+  variables and do not disturb the default `pnpm dev` process. Stop validates
+  executable path, PID, and start metadata before terminating only the recorded
+  worker game process. `scripts/sea-power-worker-live-proof.ps1` (`pnpm worker:live-proof`)
+  admits coexistence only when two workers publish distinct real campaign sessions
+  and non-synthetic fingerprints; it rejects synthetic gRPC test probes. Local
+  second-instance Sea Power is experimental: Steam may forbid duplicate processes,
+  shared native profile paths remain, and no two-container migration claim is
+  valid until live proof passes on the host. The
   campaign kernel itself accepts one atomic
   `migrate-tactical-island` command that promotes a prepared `Shadow`
   destination over a quiesced `Primary` source for a complete island; this is
