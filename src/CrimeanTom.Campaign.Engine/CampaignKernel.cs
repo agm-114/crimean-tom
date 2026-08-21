@@ -222,6 +222,7 @@ public static class CampaignKernel
         {
             throw Violation("fidelity-ceiling", "The requested fidelity exceeds the entity's simulation-domain ceiling.");
         }
+        CampaignInvariants.RequireText(value.Reason, nameof(value.Reason));
 
         return Decision.Create(command.Subject, new FidelityChangedEvent(value), entity.Revision.Next());
     }

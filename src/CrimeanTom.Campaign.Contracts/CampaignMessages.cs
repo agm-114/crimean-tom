@@ -195,7 +195,10 @@ public sealed record IssueOrderCommand(
     CampaignTime? MustCompleteBy)
     : CampaignCommandData;
 
-public sealed record ChangeFidelityCommand(EntityId EntityId, FidelityState Fidelity) : CampaignCommandData;
+public sealed record ChangeFidelityCommand(
+    EntityId EntityId,
+    FidelityState Fidelity,
+    string Reason = "manual") : CampaignCommandData;
 
 public sealed record AssignAuthorityCommand(
     AssignmentId AssignmentId,

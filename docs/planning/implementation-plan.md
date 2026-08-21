@@ -617,14 +617,24 @@ single-player prototype.
   promotion surface.
 - The monitor is part of the Phase 5 exit artifact, not a separate authority. It
   now exposes the campaign graph, bases, units, task forces, domains, fidelity,
-  damage, recent interactions, health, and journal head from the authenticated
-  diagnostic projection. Scheduler reasons, client load, and transition history
-  will be added with the scheduler slice.
+  damage, recent interactions, health, journal head, scheduler health and
+  eligibility, island coupling, transition reasons, and target tempo from the
+  authenticated diagnostic projection.
 - The unattended resolver now performs deterministic region-level detection,
   uncertainty degradation, weapons expenditure, damage, destruction, and
   whole-task-force withdrawal. Coalition projections receive opaque track IDs
   instead of hostile canonical entity IDs. These mechanics are functional but
   remain uncalibrated until compared with measured Sea Power batches.
+- The first dynamic-fidelity vertical slice treats each task force as a minimum
+  island, merges opposing groups involved in recent region combat, applies
+  player observation/control and simulation-domain ceilings, fences active
+  authority and active interactions, and journals whole-island fidelity changes.
+  Health, simulation-source eligibility, tactical capacity, and transport
+  backlog drive load shedding; suitable quiet islands demote before the global
+  target tempo falls. The fixed step remains 33,333 microseconds.
+- This is not yet the P5 gate: sensor/weapon/host coupling, hysteretic split,
+  durable scheduler-input recovery, client migration/reserve accounting, live
+  Sea Power materialization, performance targets, and calibration remain.
 
 ### Objective
 

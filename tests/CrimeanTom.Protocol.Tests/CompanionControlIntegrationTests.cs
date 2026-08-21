@@ -28,7 +28,7 @@ public sealed class CompanionControlIntegrationTests
             return;
         }
 
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
@@ -152,6 +152,7 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(12, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
             Assert.Equal(15, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
             Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
             using var fuldaViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{fuldaCampaignId}",
                 testTimeout.Token);
@@ -181,6 +182,117 @@ public sealed class CompanionControlIntegrationTests
                 .EnumerateArray().ToArray();
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Damage");
+            var landEntityId = Assert.Single(
+                advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"
+                    && item.GetProperty("name").GetString()!.StartsWith("US V Corps", StringComparison.Ordinal))
+                .GetProperty("entityId").GetString()!;
+            using var promoteResponse = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { tacticalDemoEntityId, landEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            promoteResponse.EnsureSuccessStatusCode();
+            using var promoted = JsonDocument.Parse(
+                await promoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var promotionTransitions = promoted.RootElement.GetProperty("transitions").EnumerateArray().ToArray();
+            Assert.Contains(promotionTransitions, item => item.GetProperty("entityId").GetString() == tacticalDemoEntityId
+                && item.GetProperty("toFidelity").GetString() == "Tactical");
+            Assert.Contains(
+                promoted.RootElement.GetProperty("islands").EnumerateArray(),
+                item => item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == landEntityId)
+                    && item.GetProperty("desiredFidelity").GetString() == "Operational"
+                    && item.GetProperty("reason").GetString() == "simulation-domain-ceiling");
+            var loadSheddingIsland = promoted.RootElement.GetProperty("islands").EnumerateArray()
+                .First(item => !item.GetProperty("engaged").GetBoolean()
+                    && item.GetProperty("reason").GetString() == "outside-player-interest"
+                    && item.GetProperty("entityIds").GetArrayLength() <= 4);
+            var loadSheddingEntityId = loadSheddingIsland.GetProperty("entityIds")[0].GetString()!;
+
+            using var loadPromotionResponse = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { loadSheddingEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            loadPromotionResponse.EnsureSuccessStatusCode();
+
+            using var overloadedResponse = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { loadSheddingEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Pressured",
+                    eligibility = "DrainOnly",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 256,
+                },
+                testTimeout.Token);
+            overloadedResponse.EnsureSuccessStatusCode();
+            using var overloaded = JsonDocument.Parse(
+                await overloadedResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(20, overloaded.RootElement.GetProperty("targetTicksPerWallSecond").GetInt32());
+            Assert.Equal("demote-whole-islands-before-tempo",
+                overloaded.RootElement.GetProperty("loadAction").GetString());
+            Assert.Contains(
+                overloaded.RootElement.GetProperty("transitions").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == loadSheddingEntityId
+                    && item.GetProperty("fromFidelity").GetString() == "Tactical"
+                    && item.GetProperty("toFidelity").GetString() == "Operational"
+                    && item.GetProperty("reason").GetString() == "source-drainonly");
+            Assert.DoesNotContain(
+                overloaded.RootElement.GetProperty("transitions").EnumerateArray(),
+                item => item.GetProperty("fromFidelity").GetString() == "Strategic"
+                    && item.GetProperty("toFidelity").GetString() == "Operational");
+
+            using var rePromoteResponse = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { loadSheddingEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            rePromoteResponse.EnsureSuccessStatusCode();
+
+            using var demoteResponse = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/schedule",
+                new
+                {
+                    observedEntityIds = Array.Empty<string>(),
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            demoteResponse.EnsureSuccessStatusCode();
+            using var demoted = JsonDocument.Parse(
+                await demoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Contains(
+                demoted.RootElement.GetProperty("transitions").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == loadSheddingEntityId
+                    && item.GetProperty("fromFidelity").GetString() == "Tactical"
+                    && item.GetProperty("toFidelity").GetString() == "Strategic");
 
             var start = await RunControlScriptAsync(
                 scriptPath,
@@ -2351,11 +2463,24 @@ public sealed class CompanionControlIntegrationTests
         CancellationToken cancellationToken)
     {
         var tokenPath = Path.Combine(runDirectory, "service.token");
-        while (!File.Exists(tokenPath))
+        string token;
+        while (true)
         {
+            try
+            {
+                token = File.Exists(tokenPath)
+                    ? (await File.ReadAllTextAsync(tokenPath, cancellationToken)).Trim()
+                    : string.Empty;
+                if (token.Length > 0)
+                {
+                    break;
+                }
+            }
+            catch (IOException) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
             await Task.Delay(25, cancellationToken);
         }
-        var token = (await File.ReadAllTextAsync(tokenPath, cancellationToken)).Trim();
         using var client = CreateBearerClient(httpUrl, token);
         while (true)
         {

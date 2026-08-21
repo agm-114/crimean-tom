@@ -295,19 +295,29 @@ checkpoint with a maximum 120-quanta rollback. Exact UI/audio/visual emission
 timestamps remain unavailable from Sea Power and are reported as unavailable,
 not inferred as a display delay.
 
-Phase 5 is active. Its first slice adds schema-v3 simulation-domain and
-maximum-fidelity invariants plus the deterministic Fulda Gap Gone Hot proving
-campaign. The campaign has 12 connected regions and 15 opening entities across
-the Central Front, North Atlantic, GIUK, Norwegian Sea, North Sea, and Baltic.
-Land armies are explicitly `LandAbstract`, capped at Operational fidelity, and
-rejected by tactical handoff; Sea Power tactical promotion is reserved for the
-naval and air reinforcement war it can credibly simulate.
+Phase 5 is active on schema v4. The deterministic Fulda Gap Gone Hot proving
+campaign has 12 connected regions and 15 opening entities across the Central
+Front, North Atlantic, GIUK, Norwegian Sea, North Sea, and Baltic. Land armies
+are explicitly `LandAbstract`, capped at Operational fidelity, and rejected by
+tactical handoff; Sea Power tactical promotion is reserved for the naval and air
+reinforcement war it can credibly simulate.
 
-Next, implement operational contact uncertainty and combat outcomes, then build
-task-force-minimum interaction islands, dynamic fidelity scheduling, load
-management, and the authenticated Tailwind/Babylon campaign monitor. Keep
-tactical projection and campaign commit separate: Sea Power remains a fenced
-client of the external authoritative kernel.
+The service now resolves deterministic operational detection, uncertainty,
+expenditure, damage, destruction, and whole-task-force withdrawal. Its first
+dynamic scheduler builds task-force-minimum islands, merges recent opposing
+combat groups, applies observation/control, domain ceilings, active-authority
+and interaction fences, capacity, client health/eligibility, backlog load
+shedding, and target tempo. The authenticated Tailwind/Babylon monitor explains
+those decisions on the campaign map. The broad host story proves promotion,
+ceiling enforcement, quiet-island overload demotion, re-promotion, safe
+demotion, transport, crash recovery, and operational fallback together.
+
+Next, carry these decisions through live Sea Power materialization/quiesce,
+extend coupling to weapon/guidance/host relationships, persist and hysteretically
+recover scheduler state, measure capacity/tempo under stress, and calibrate the
+operational resolver against tactical observation batches. Keep tactical
+projection and campaign commit separate: Sea Power remains a fenced client of
+the external authoritative kernel.
 
 ## Deferred hardening
 

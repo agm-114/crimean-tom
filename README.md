@@ -41,7 +41,9 @@ use **Create Fulda** to create and advance a representative Fulda Gap Gone Hot
 campaign. The static Tailwind/Babylon shell is loopback-readable so it can load
 before authentication; `/health`, campaign data, and all control routes still
 require the bearer token. The page keeps the token in memory only—never in a
-URL, cookie, or browser storage.
+URL, cookie, or browser storage. Its map and inspector also expose task-force
+interaction islands, current and desired fidelity, client eligibility/backlog,
+load-shedding decisions, and fixed-step target tempo.
 
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main

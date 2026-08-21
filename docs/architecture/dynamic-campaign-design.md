@@ -81,6 +81,14 @@ token after load; the client retains it only in JavaScript memory and sends it i
 the `Authorization` header. It is never placed in a query string, cookie,
 `localStorage`, or `sessionStorage`. Closing or reloading the page discards it.
 
+The current scheduler projection also shows health and simulation-source
+eligibility, backlog and tactical capacity, fixed-step target tempo, load action,
+interaction-island members, coupling score, current/desired fidelity, and the
+reason for each choice. `POST /control/campaigns/{campaignId}/schedule` accepts
+the current observed/controlled entity set and client load envelope, then commits
+required fidelity transitions through the campaign journal before returning the
+applied diagnostic view.
+
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the
@@ -140,6 +148,14 @@ Dense interactions should be assigned as an **interaction island**—usually a
 task force, aircraft package, missile engagement, or sensor/weapon bubble.
 Partitioning ships that exchange tightly coupled sensor and weapon state across
 different authorities would create more synchronization cost than it saves.
+
+The implemented P5 slice uses a conservative first coupling graph: a task force
+is indivisible, ungrouped entities are singleton islands, and opposing groups in
+a region with recent expenditure, damage, or destruction outcomes merge for a
+20-quanta interaction fence. Active tactical assignments and recently engaged
+tactical islands cannot be demoted by ordinary load pressure. This does not yet
+claim safe weapon/guidance, hosted-aircraft, or physical-dependency splitting;
+those boundaries remain fenced until live adapter evidence extends the graph.
 
 ## Multiple replicas of the same unit
 

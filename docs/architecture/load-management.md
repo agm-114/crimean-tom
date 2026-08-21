@@ -106,6 +106,26 @@ steps. An imminent process failure may trigger immediate fencing and failover.
 The coordinator records the pressure signal, selected action, rejected
 alternatives, affected islands, and recovery result.
 
+### Implemented Phase 5 scheduler slice
+
+The service currently accepts a scheduler envelope containing observed and
+controlled entity IDs, health, simulation-source eligibility, tactical entity
+capacity, and transport backlog. Healthy sources target 30 ticks per wall
+second, pressured/healthy-backlogged sources target 20, and worse health targets
+10, while the simulation fixed step remains 33,333 microseconds.
+
+Promotion consumes capacity by complete island. Non-eligible, overloaded,
+draining, quarantined, offline, or backlog-saturated sources request Operational
+fallback for suitable islands without raising already-Strategic work. Active
+authority and active-interaction fences win over that fallback. Every actual
+entity transition is a normal revisioned, idempotent campaign command with its
+scheduler reason in the durable event.
+
+The request envelope is retained only for the running service's diagnostic view;
+the resulting entity fidelity is durable. Persisted health history, hysteresis,
+cooldowns, reserve and destination accounting, migration, and tempo events are
+still target architecture rather than implemented claims.
+
 ### Avoiding cascade failure
 
 - Keep explicit reserve capacity for promotion, catch-up, and migration.

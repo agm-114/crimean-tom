@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json.Serialization;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
@@ -8,16 +9,20 @@ using CrimeanTom.Campaign.Transport.V1;
 
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
-var repositoryWebRoot = Path.GetFullPath(Path.Combine(
-    Directory.GetCurrentDirectory(),
-    "src",
-    "CrimeanTom.Campaign.ServiceHost",
-    "wwwroot"));
-var deployedWebRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+var workingDirectory = Directory.GetCurrentDirectory();
+var repositoryRoot = FindRepositoryRoot(workingDirectory);
+var workingDirectoryWebRoot = Path.GetFullPath(Path.Combine(workingDirectory, "wwwroot"));
+var repositoryWebRoot = repositoryRoot is null
+    ? string.Empty
+    : Path.Combine(repositoryRoot, "src", "CrimeanTom.Campaign.ServiceHost", "wwwroot");
+var deployedWebRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+var webRoot = new[] { workingDirectoryWebRoot, repositoryWebRoot, deployedWebRoot }
+    .FirstOrDefault(Directory.Exists)
+    ?? deployedWebRoot;
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
-    WebRootPath = Directory.Exists(repositoryWebRoot) ? repositoryWebRoot : deployedWebRoot,
+    WebRootPath = webRoot,
 });
 var grpcUri = RequireLoopbackUri(
     builder.Configuration["GrpcUrl"]
@@ -40,7 +45,7 @@ builder.WebHost.ConfigureKestrel(options =>
 var runDirectory = Path.GetFullPath(
     builder.Configuration["RunDirectory"]
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY")
-    ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-service"));
+    ?? Path.Combine(repositoryRoot ?? workingDirectory, ".run", "campaign-service"));
 var token = CampaignServiceToken.LoadOrCreate(Path.Combine(runDirectory, "service.token"));
 var journal = new SqliteCampaignJournal(
     Path.Combine(runDirectory, "campaign.db"),
@@ -48,6 +53,8 @@ var journal = new SqliteCampaignJournal(
 await journal.InitializeAsync();
 
 builder.Services.AddGrpc(options => options.MaxReceiveMessageSize = 256 * 1024);
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton<CampaignSessionRegistry>();
@@ -148,6 +155,15 @@ app.MapPost("/control/campaigns/{campaignId}/advance/{target:long}", async (
         ? Results.Ok(await coordinator.AdvanceAsync(
             new CampaignId(parsed), new CampaignTime(target), cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/schedule", async (
+    string campaignId,
+    CampaignSchedulerRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(await coordinator.ScheduleFidelityAsync(
+            new CampaignId(parsed), request, cancellationToken))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
 app.MapPost("/control/quiesce", async (
     CampaignQuiesceRequest request,
     CampaignCoordinator coordinator,
@@ -217,6 +233,18 @@ app.MapPost("/control/fences", (AuthorityFence fence, CampaignSessionRegistry se
         : Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" }));
 
 app.Run();
+
+static string? FindRepositoryRoot(string startPath)
+{
+    for (var directory = new DirectoryInfo(startPath); directory is not null; directory = directory.Parent)
+    {
+        if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
+        {
+            return directory.FullName;
+        }
+    }
+    return null;
+}
 
 static Uri RequireLoopbackUri(string value)
 {

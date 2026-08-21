@@ -1,6 +1,7 @@
 import { ActionManager } from "@babylonjs/core/Actions/actionManager.js";
 import { ExecuteCodeAction } from "@babylonjs/core/Actions/directActions.js";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
+import "@babylonjs/core/Culling/ray.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
@@ -31,10 +32,19 @@ type Outcome = {
   actorEntityId: string; targetEntityId: string | null; munitionsExpendedMilliunits: number;
   damageInflictedMilliunits: number; detail: string;
 };
+type InteractionIsland = {
+  islandId: string; entityIds: string[]; groupIds: string[]; currentFidelity: string;
+  desiredFidelity: string; engaged: boolean; couplingScoreMilliunits: number; reason: string;
+};
+type Scheduler = {
+  health: string; eligibility: string; tacticalEntityCapacity: number; backlogDepth: number;
+  fixedStepMicroseconds: number; targetTicksPerWallSecond: number; effectiveAtQuanta: number;
+  loadAction: string; islands: InteractionIsland[];
+};
 type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
-  assignments: unknown[]; recentOperationalOutcomes: Outcome[];
+  assignments: unknown[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
 };
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -60,7 +70,8 @@ app.innerHTML = `
       <label class="mb-1 text-xs text-[#91aaa1]" for="campaign-id">Campaign ID</label>
       <div class="mb-3 flex gap-2"><input id="campaign-id" class="min-w-0 flex-1 rounded-md border border-[#315047] bg-black/30 px-3 py-2 font-mono text-xs outline-none focus:border-emerald-400/60" placeholder="32 hex characters" /><button id="new-id" class="rounded-md border border-[#315047] px-3 text-xs hover:bg-white/5" title="Generate campaign ID">New</button></div>
       <div class="mb-4 grid grid-cols-2 gap-2"><button id="connect" class="rounded-md bg-emerald-400/15 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/35 hover:bg-emerald-400/25">Connect</button><button id="bootstrap" class="rounded-md border border-[#315047] px-3 py-2 text-xs hover:bg-white/5">Create Fulda</button></div>
-      <div id="connection-message" class="mb-4 min-h-5 text-xs text-[#91aaa1]">The visual shell contains no campaign data or stored credential.</div>
+      <div id="connection-message" class="mb-1 min-h-5 text-xs text-[#91aaa1]">The visual shell contains no campaign data or stored credential.</div>
+      <div id="scheduler-status" class="mb-4 text-[0.66rem] uppercase tracking-[0.1em] text-[#627c73]">Scheduler unavailable</div>
       <div class="mb-2 flex items-center justify-between"><span class="metric-label">Units</span><span id="unit-count" class="metric-value text-xs">0</span></div>
       <div id="unit-list" class="scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto pr-1" role="list" aria-label="Campaign units"></div>
     </aside>
@@ -69,10 +80,11 @@ app.innerHTML = `
       <div id="selection" class="mb-5"><div class="metric-label mb-2">Selection</div><div class="text-sm text-[#91aaa1]">Select a map symbol or unit row.</div></div>
       <div class="mb-2 flex items-center justify-between"><span class="metric-label">Operational outcomes</span><span id="outcome-count" class="metric-value text-xs">0</span></div>
       <div id="outcome-list" class="scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" aria-live="polite"></div>
-      <div class="mt-4 grid grid-cols-3 gap-2 border-t border-[#315047]/50 pt-4 text-center">
+      <div class="mt-4 grid grid-cols-4 gap-2 border-t border-[#315047]/50 pt-4 text-center">
         <div><div class="metric-label">Regions</div><div id="region-count" class="metric-value">0</div></div>
         <div><div class="metric-label">Groups</div><div id="group-count" class="metric-value">0</div></div>
         <div><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
+        <div><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
       </div>
     </aside>
 
@@ -214,6 +226,7 @@ function selectEntity(entityId: string): void {
   const entity = campaign.entities.find(item => item.entityId === entityId);
   if (!entity) return;
   const group = campaign.groups.find(item => item.memberEntityIds.includes(entityId));
+  const island = campaign.scheduler.islands.find(item => item.entityIds.includes(entityId));
   const damage = (entity.damageMilliunits / 10_000).toFixed(1);
   byId("selection").innerHTML = `
     <div class="metric-label mb-2">Selection</div>
@@ -225,6 +238,7 @@ function selectEntity(entityId: string): void {
       <div><div class="metric-label">Damage</div>${damage}%</div>
       <div><div class="metric-label">Lifecycle</div>${escapeHtml(entity.lifecycle)}</div>
       <div class="col-span-2"><div class="metric-label">Task force</div>${escapeHtml(group?.name ?? "Unassigned")}</div>
+      <div class="col-span-2"><div class="metric-label">Scheduler</div>${escapeHtml(island?.reason ?? "Not evaluated")} · ${island?.couplingScoreMilliunits ?? 0}/1000 coupling</div>
     </div>`;
 }
 
@@ -236,6 +250,8 @@ function renderPanels(data: Campaign): void {
   byId("region-count").textContent = data.regions.length.toString();
   byId("group-count").textContent = data.groups.length.toString();
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
+  byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
+  byId("scheduler-status").textContent = `${data.scheduler.health} · ${data.scheduler.eligibility} · ${data.scheduler.loadAction}`;
   byId("outcome-count").textContent = data.recentOperationalOutcomes.length.toString();
   const groups = new Map(data.groups.flatMap(group => group.memberEntityIds.map(id => [id, group.name])));
   byId("unit-list").innerHTML = data.entities.map(entity => `
@@ -296,8 +312,15 @@ async function createFulda(): Promise<void> {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ campaignId: id, name: "Fulda Gap Gone Hot", seed: 19890911, catalogFingerprint: "fulda-gap-1989-v1" }),
     });
-    await request(`/control/campaigns/${id}/bootstrap/fulda-gap`, { method: "POST" });
+    const seed = await request<{ tacticalDemoEntityId: string }>(`/control/campaigns/${id}/bootstrap/fulda-gap`, { method: "POST" });
     await request(`/control/campaigns/${id}/advance/30`, { method: "POST" });
+    await request(`/control/campaigns/${id}/schedule`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observedEntityIds: [seed.tacticalDemoEntityId], controlledEntityIds: [], health: "Healthy",
+        eligibility: "Eligible", tacticalEntityCapacity: 4, backlogDepth: 0,
+      }),
+    });
     await connect();
   } catch (error) { showError(error); }
 }

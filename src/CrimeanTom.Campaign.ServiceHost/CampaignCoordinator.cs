@@ -20,6 +20,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     private static readonly PlayerId ServicePlayer = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000002"));
     private readonly ConcurrentDictionary<CampaignId, CampaignWriterLease> _leases = new();
+    private readonly ConcurrentDictionary<CampaignId, CampaignSchedulerRequest> _schedulerRequests = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<CampaignBootstrapResult> BootstrapAsync(
@@ -368,6 +369,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
     public async Task<CampaignDiagnosticView> ViewAsync(CampaignId campaignId, CancellationToken cancellationToken)
     {
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        var scheduler = _schedulerRequests.TryGetValue(campaignId, out var schedulerRequest)
+            ? CampaignFidelityScheduler.Evaluate(recovery.State, schedulerRequest)
+            : CampaignFidelityScheduler.Inspect(recovery.State);
         return new CampaignDiagnosticView(
             recovery.State.Metadata.CampaignId.ToString(),
             recovery.State.Metadata.Name,
@@ -427,7 +431,49 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.TargetEntityId?.ToString(),
                 item.MunitionsExpendedMilliUnits,
                 item.DamageInflictedMilliUnits,
-                item.Detail)).ToArray());
+                item.Detail)).ToArray(),
+            CampaignFidelityScheduler.ToView(recovery.State, scheduler));
+    }
+
+    public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
+        CampaignId campaignId,
+        CampaignSchedulerRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var evaluation = CampaignFidelityScheduler.Evaluate(state, request);
+            foreach (var island in evaluation.Islands.OrderBy(item => item.IslandId, StringComparer.Ordinal))
+            {
+                foreach (var entityId in island.EntityIds.OrderBy(item => item))
+                {
+                    var entity = state.Entities[entityId];
+                    if (entity.Fidelity == island.DesiredFidelity || entity.Fidelity == FidelityState.Suspended)
+                    {
+                        continue;
+                    }
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Entity(entityId),
+                        entity.Revision,
+                        new ChangeFidelityCommand(entityId, island.DesiredFidelity, island.Reason),
+                        $"scheduler-{state.Time.Quanta}-{island.IslandId}-{entityId}-{entity.Revision.Value}-{island.DesiredFidelity}"), cancellationToken);
+                }
+            }
+            _schedulerRequests[campaignId] = request;
+            var applied = CampaignFidelityScheduler.Evaluate(state, request) with
+            {
+                LoadAction = evaluation.LoadAction,
+                Transitions = evaluation.Transitions,
+            };
+            return CampaignFidelityScheduler.ToView(state, applied);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(
@@ -896,7 +942,8 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignEntityView> Entities,
     IReadOnlyList<CampaignGroupView> Groups,
     IReadOnlyList<CampaignAssignmentView> Assignments,
-    IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes);
+    IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
+    CampaignSchedulerView Scheduler);
 
 public sealed record CampaignRegionView(
     string RegionId,
