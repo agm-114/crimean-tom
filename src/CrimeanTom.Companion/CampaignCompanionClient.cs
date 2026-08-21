@@ -285,6 +285,10 @@ public sealed class CampaignCompanionClient(
             await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
             var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(checkpointResult.ResultJson, JsonOptions)
                 ?? throw new InvalidDataException("Checkpoint result was empty.");
+            await stateStore.SaveGameRevisionAsync(
+                assignment.AssignmentId,
+                materialized.Revision,
+                cancellationToken);
             return new AssignmentPreparation(
                 new AssignmentPrepared
                 {
@@ -341,6 +345,7 @@ public sealed class CampaignCompanionClient(
             cancellationToken);
         var update = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Tactical update result was empty.");
+        await stateStore.SaveGameRevisionAsync(command.AssignmentId, update.Revision, cancellationToken);
         return new TacticalEventProposal
         {
             EventId = DeterministicId(command.CommandId, command.IdempotencyKey),
@@ -364,12 +369,15 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
+        var expectedGameRevision = fence.ResolveExpectedRevisionFromWorker
+            ? stateStore.ReadGameRevision(fence.AssignmentId)
+            : fence.ExpectedEntityRevision;
         var checkpointResult = await RequireGameCommandAsync(
             GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
             JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
             {
                 Context = Context(fence.AssignmentId, fence.FencedAuthorityEpoch,
-                    fence.ExpectedEntityRevision, $"{fence.IdempotencyKey}-checkpoint"),
+                    expectedGameRevision, $"{fence.IdempotencyKey}-checkpoint"),
                 EntityId = fence.EntityId,
             }, JsonOptions),
             cancellationToken);
@@ -396,13 +404,14 @@ public sealed class CampaignCompanionClient(
             JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
             {
                 Context = Context(fence.AssignmentId, fence.FencedAuthorityEpoch,
-                    fence.ExpectedEntityRevision, fence.IdempotencyKey),
+                    expectedGameRevision, fence.IdempotencyKey),
                 EntityId = fence.EntityId,
                 IsSuspended = true,
             }, JsonOptions),
             cancellationToken);
         var suspension = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Tactical fence result was empty.");
+        await stateStore.SaveGameRevisionAsync(fence.AssignmentId, suspension.Revision, cancellationToken);
         return new FencePreparation(
             new TacticalEventProposal
             {
@@ -433,7 +442,7 @@ public sealed class CampaignCompanionClient(
                 AssignmentId = fence.AssignmentId,
                 EntityId = fence.EntityId,
                 AuthorityEpoch = fence.FencedAuthorityEpoch,
-                EntityRevision = fence.ExpectedEntityRevision,
+                EntityRevision = expectedGameRevision,
                 CheckpointSha256 = checkpointHash,
                 CheckpointLength = checkpointBytes.Length,
             });

@@ -492,37 +492,33 @@ public sealed class CompanionControlIntegrationTests
             Assert.NotEqual(firstCampaignSession, secondCampaignSession);
 
             using var queuedQuiesce = await campaignClient.PostAsJsonAsync(
-                "/control/quiesce",
+                $"/control/campaigns/{campaignId}/schedule",
                 new
                 {
-                    campaignId,
-                    assignmentId,
-                    gameEntityId,
-                    expectedGameRevision = 2,
-                    idempotencyKey = "transport-quiesce-1",
+                    observedEntityIds = new[] { primaryEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Draining",
+                    eligibility = "DrainOnly",
+                    tacticalEntityCapacity = 1,
+                    backlogDepth = 0,
                 },
-                JsonOptions,
                 testTimeout.Token);
-            Assert.True(
-                queuedQuiesce.StatusCode == HttpStatusCode.Accepted,
-                $"Quiesce fence was not queued: {queuedQuiesce.StatusCode} "
-                + await queuedQuiesce.Content.ReadAsStringAsync(testTimeout.Token)
-                + Environment.NewLine
-                + ReadSharedText(stdoutPath)
-                + Environment.NewLine
-                + ReadSharedText(Path.Combine(campaignServiceRunDirectory, "service.stdout.log")));
+            queuedQuiesce.EnsureSuccessStatusCode();
             var quiesceFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 5,
                 testTimeout.Token,
                 required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
-                    && item.TacticalEvent.IdempotencyKey == "transport-quiesce-1");
+                    && item.TacticalEvent.AssignmentId == assignmentId
+                    && item.TacticalEvent.Kind == TacticalEventKind.Checkpoint);
             Assert.Contains(quiesceFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished
+                && item.CheckpointPublished.AssignmentId == assignmentId
                 && item.CheckpointPublished.EntityRevision == 2);
             Assert.Contains(quiesceFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
-                && item.TacticalEvent.IdempotencyKey == "transport-quiesce-1");
+                && item.TacticalEvent.AssignmentId == assignmentId
+                && item.TacticalEvent.Kind == TacticalEventKind.Checkpoint);
             using var releasedView = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,
@@ -1950,7 +1946,7 @@ public sealed class CompanionControlIntegrationTests
     {
         var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(payloadJson, JsonOptions)!;
         var unit = CreateOwnedSurfaceState(disabled: false);
-        if (request.Context.IdempotencyKey == "transport-quiesce-1-checkpoint")
+        if (request.Context.IdempotencyKey.StartsWith("scheduler-quiesce-", StringComparison.Ordinal))
         {
             unit.FuelFractionMilliunits = 800_000;
             unit.StoresFractionMilliunits = 600_000;

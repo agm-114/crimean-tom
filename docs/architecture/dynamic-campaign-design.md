@@ -120,6 +120,14 @@ assignment/entity activation. Multi-entity islands currently report
 partially promoted while batch-ready state and one-event island activation are
 still being implemented.
 
+The same schedule operation can now drain an active singleton under load or
+source-ineligibility. The companion durably tracks the current in-game mutation
+revision after materialization and each ordered update; an automatic authority
+fence explicitly resolves that worker-owned revision, captures the final
+checkpoint, suspends the owned object, and releases the entity back to
+Operational. Manual fences continue to require an exact revision from their
+caller.
+
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the

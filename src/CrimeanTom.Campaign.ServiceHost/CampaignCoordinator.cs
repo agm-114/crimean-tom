@@ -438,6 +438,15 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                         // successful materialization and checkpoint through ActivateAsync.
                         continue;
                     }
+                    if (state.Assignments.Values.Any(item => item.EntityId == entityId
+                        && item.Lifecycle is AssignmentLifecycle.Preparing
+                            or AssignmentLifecycle.Active
+                            or AssignmentLifecycle.Quiescing))
+                    {
+                        // Authority must checkpoint and release before the canonical
+                        // entity can leave Tactical fidelity.
+                        continue;
+                    }
                     state = await CommitAsync(state, Command(
                         state,
                         CampaignSubject.Entity(entityId),
@@ -515,6 +524,39 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                             AssignmentLifecycle.Released,
                             state.Time),
                         $"cancel-{idempotencyKey}-session-lost-before-queue"), cancellationToken);
+                }
+            }
+            if (worker is not null
+                && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
+            {
+                foreach (var island in evaluation.Islands
+                    .Where(item => item.DesiredFidelity != FidelityState.Tactical && item.EntityIds.Count == 1)
+                    .OrderBy(item => item.IslandId, StringComparer.Ordinal))
+                {
+                    var entityId = island.EntityIds[0];
+                    var assignment = state.Assignments.Values.SingleOrDefault(item =>
+                        item.EntityId == entityId && item.Lifecycle == AssignmentLifecycle.Active);
+                    if (assignment is null)
+                    {
+                        continue;
+                    }
+                    var quiesceKey = $"scheduler-quiesce-{island.IslandId}-{assignment.AssignmentId}-{assignment.AuthorityEpoch.Value}";
+                    var quiesceRequest = new CampaignQuiesceRequest(
+                        campaignId.ToString(),
+                        $"assignment:{assignment.AssignmentId}",
+                        $"unit:crimean-tom:{entityId}",
+                        0,
+                        quiesceKey);
+                    var quiesced = await BeginQuiesceCoreAsync(
+                        state,
+                        quiesceRequest,
+                        resolveExpectedRevisionFromWorker: true,
+                        cancellationToken);
+                    state = quiesced.State;
+                    _ = sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                    {
+                        Fence = quiesced.Fence,
+                    });
                 }
             }
             _schedulerRequests[campaignId] = request;
@@ -879,35 +921,53 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         try
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
-            var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            var assignment = state.Assignments[assignmentId];
-            state = await CommitAsync(state, Command(
+            return (await BeginQuiesceCoreAsync(
                 state,
-                CampaignSubject.Assignment(assignmentId),
-                assignment.Revision,
-                new SetAssignmentLifecycleCommand(
-                    assignmentId,
-                    assignment.AuthorityEpoch,
-                    AssignmentLifecycle.Quiescing,
-                    state.Time),
-                request.IdempotencyKey), cancellationToken);
-            var entity = state.Entities[assignment.EntityId];
-            return new AuthorityFence
-            {
-                AssignmentId = request.AssignmentId,
-                EntityId = request.GameEntityId,
-                FencedAuthorityEpoch = assignment.AuthorityEpoch.Value,
-                ExpectedEntityRevision = request.ExpectedGameRevision,
-                EffectiveTimeQuanta = state.Time.Quanta,
-                IdempotencyKey = request.IdempotencyKey,
-                Reason = "quiesce-for-operational-dematerialization",
-            };
+                request,
+                resolveExpectedRevisionFromWorker: false,
+                cancellationToken)).Fence;
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task<(CampaignState State, AuthorityFence Fence)> BeginQuiesceCoreAsync(
+        CampaignState state,
+        CampaignQuiesceRequest request,
+        bool resolveExpectedRevisionFromWorker,
+        CancellationToken cancellationToken)
+    {
+        var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+        if (campaignId != state.Metadata.CampaignId)
+        {
+            throw new CampaignStoreConflict("campaign-mismatch", "The quiesce campaign does not match canonical state.");
+        }
+        var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
+        var assignment = state.Assignments[assignmentId];
+        state = await CommitAsync(state, Command(
+            state,
+            CampaignSubject.Assignment(assignmentId),
+            assignment.Revision,
+            new SetAssignmentLifecycleCommand(
+                assignmentId,
+                assignment.AuthorityEpoch,
+                AssignmentLifecycle.Quiescing,
+                state.Time),
+            request.IdempotencyKey), cancellationToken);
+        return (state, new AuthorityFence
+        {
+            AssignmentId = request.AssignmentId,
+            EntityId = request.GameEntityId,
+            FencedAuthorityEpoch = assignment.AuthorityEpoch.Value,
+            ExpectedEntityRevision = request.ExpectedGameRevision,
+            EffectiveTimeQuanta = state.Time.Quanta,
+            IdempotencyKey = request.IdempotencyKey,
+            Reason = "quiesce-for-operational-dematerialization",
+            ResolveExpectedRevisionFromWorker = resolveExpectedRevisionFromWorker,
+        });
     }
 
     private async Task<CampaignState> CommitAsync(

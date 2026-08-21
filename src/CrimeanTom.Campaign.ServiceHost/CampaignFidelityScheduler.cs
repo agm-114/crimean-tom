@@ -111,8 +111,12 @@ internal static class CampaignFidelityScheduler
         {
             var current = CurrentFidelity(state, island.EntityIds);
             var hasInterest = island.EntityIds.Any(interested.Contains);
-            var hasActiveAssignment = state.Assignments.Values.Any(item => island.EntityIds.Contains(item.EntityId)
-                && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
+            var islandAssignments = state.Assignments.Values
+                .Where(item => island.EntityIds.Contains(item.EntityId))
+                .ToArray();
+            var hasPreparingAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Preparing);
+            var hasActiveAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Active);
+            var hasQuiescingAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Quiescing);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
             var workerConnected = worker is not null
                 && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
@@ -122,22 +126,41 @@ internal static class CampaignFidelityScheduler
                     profile.UnitTypeId,
                     state.Entities[id].CatalogUnitId,
                     StringComparison.Ordinal)));
+            var loadRequiresFallback = request.Health is SchedulerHealthState.Overloaded or SchedulerHealthState.Draining
+                or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
+                || request.Eligibility != SimulationSourceEligibility.Eligible
+                || request.BacklogDepth >= 192;
             FidelityState desired;
             string reason;
-            if (hasActiveAssignment)
+            if (hasQuiescingAssignment)
             {
                 desired = FidelityState.Tactical;
-                reason = "active-authority-fence";
+                reason = "authority-quiescing";
+            }
+            else if (hasPreparingAssignment)
+            {
+                desired = FidelityState.Tactical;
+                reason = "authority-preparing";
+            }
+            else if (hasActiveAssignment && workerConnected
+                && (loadRequiresFallback || (!hasInterest && !island.Engaged)))
+            {
+                desired = FidelityState.Operational;
+                reason = loadRequiresFallback
+                    ? "active-island-load-shed"
+                    : "active-island-outside-player-interest";
+            }
+            else if (hasActiveAssignment)
+            {
+                desired = FidelityState.Tactical;
+                reason = workerConnected ? "active-authority-fence" : "active-authority-worker-offline";
             }
             else if (current == FidelityState.Tactical && island.Engaged)
             {
                 desired = FidelityState.Tactical;
                 reason = "active-interaction-fence";
             }
-            else if (request.Health is SchedulerHealthState.Overloaded or SchedulerHealthState.Draining
-                or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
-                || request.Eligibility != SimulationSourceEligibility.Eligible
-                || request.BacklogDepth >= 192)
+            else if (loadRequiresFallback)
             {
                 desired = current == FidelityState.Strategic
                     ? FidelityState.Strategic

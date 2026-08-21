@@ -339,6 +339,13 @@ Multi-entity candidates explicitly stop at
 `atomic-island-activation-unavailable` until batch preparation and atomic island
 activation land.
 
+Scheduler-driven load shedding now closes the singleton loop: Active becomes
+Quiescing, the companion resolves its durably recorded game mutation revision,
+publishes a final checkpoint, suspends the owned unit, and the service releases
+authority and restores Operational fidelity. The broad protocol story now uses
+the scheduler for both promotion and drain; direct handoff/quiesce endpoints
+remain as explicit operator/debug seams.
+
 Next, carry these decisions through live Sea Power materialization/quiesce,
 extend coupling to weapon/guidance/host relationships, persist and hysteretically
 recover scheduler state, measure capacity/tempo under stress, and calibrate the

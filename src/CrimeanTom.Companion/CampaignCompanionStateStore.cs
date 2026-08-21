@@ -133,6 +133,39 @@ public sealed class CampaignCompanionStateStore
             : throw new InvalidDataException("The durable tactical assignment baseline is missing.");
     }
 
+    public async Task SaveGameRevisionAsync(
+        string assignmentId,
+        long revision,
+        CancellationToken cancellationToken)
+    {
+        if (revision < 0)
+        {
+            throw new InvalidDataException("A game entity revision cannot be negative.");
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.revision"),
+                Encoding.UTF8.GetBytes(revision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public long ReadGameRevision(string assignmentId)
+    {
+        var path = Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.revision");
+        return File.Exists(path)
+            && long.TryParse(File.ReadAllText(path).Trim(), out var revision)
+            && revision >= 0
+                ? revision
+                : throw new InvalidDataException("The durable game entity revision is missing or invalid.");
+    }
+
     public async Task AcknowledgeOutboundAsync(string key, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);

@@ -136,6 +136,15 @@ fidelity. Islands with multiple entities remain Operational with
 `atomic-island-activation-unavailable`; partial per-entity activation is not an
 accepted approximation of whole-island authority.
 
+Active singleton assignments now enter Quiescing when a connected worker is
+draining, ineligible, overloaded, quarantined, offline by policy, or transport
+backlog-saturated. The companion persists its game-side revision independently
+of campaign revision and resolves it only for scheduler-issued fences. This lets
+the automatic drain reuse the exact final-checkpoint and retained-suspension
+path without weakening manual expected-revision checks. A disconnected active
+worker remains fenced Tactical until reconnect or bounded expiry fallback; the
+service does not invent a checkpoint.
+
 The request envelope is retained only for the running service's diagnostic view;
 the resulting entity fidelity is durable. Persisted health history, hysteresis,
 cooldowns, reserve and destination accounting, migration, and tempo events are

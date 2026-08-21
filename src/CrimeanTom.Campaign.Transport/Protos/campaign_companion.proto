@@ -197,6 +197,7 @@ message AuthorityFence {
   string entity_id = 5;
   int64 expected_entity_revision = 6;
   string idempotency_key = 7;
+  bool resolve_expected_revision_from_worker = 8;
 }
 
 message ServiceError {
