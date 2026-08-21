@@ -375,6 +375,15 @@ The existing broad protocol story verifies the default envelope through the
 real companion/service handshake and campaign diagnostic view. The monitor now
 reports aggregate capacity, reserve and free admission headroom.
 
+The real campaign companion then reconnected to
+`08eed6175b1a4e1abf50004d4e5808c8` and advertised capacity four with reserve
+one while owning one materialized, active Pharris. The active-campaign endpoint
+selected that worker-backed journal. In the in-app browser, both `/monitor/it`
+and the older `ec4fb4931d2a46589092530202af3ad8` deep link redirected to the
+current campaign. The rendered status showed `CAP 4`, `RESERVE 1`, `FREE 2`, 60
+units and no browser errors; only Babylon's normal WebGL initialization log was
+present.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,

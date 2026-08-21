@@ -509,6 +509,16 @@ The current cold-reconstruction campaign and monitor are
 It is at commit 242 with Pharris epoch 2 Active/Tactical after a full Sea Power
 restart and portable checkpoint import.
 
+The hosted monitor now resolves its active campaign from server truth. A
+campaign with a connected worker ranks ahead of inactive journals, followed by
+worker connection time, commit position and deterministic name/ID tie-breaks.
+Bare or stale monitor document routes, including `/monitor/it` and old
+`?campaign=` links, issue the same HttpOnly same-origin monitor session and
+redirect to the canonical active-campaign URL. Real compiled assets are excluded
+from this canonicalization. A live browser pass redirected both forms to the
+campaign above and rendered its 60 units plus worker capacity `4`, reserve `1`
+and free headroom `2` without console errors.
+
 The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
 campaign's durable cursor and silently prevents the gRPC session from opening.
