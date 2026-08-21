@@ -72,9 +72,34 @@ is Tactical, and the bridge reports one active retained constructed object,
 checkpoint present, and no detached or recovery-required state. The live game
 record is game unique ID 398.
 
+## Four-island tactical-capacity probe
+
+A separate 4x Fulda campaign,
+`160bc4f63fdd4d6f84fb2bd136c255ac`, contains 60 operational entities and 36
+task forces. Its four independent USS Pharris pickets were observed together
+with tactical capacity set to four. On the same game/catalog/bridge fingerprint:
+
+| Operation | HTTP scheduler return | All four terminal state | Result |
+| --- | ---: | ---: | --- |
+| Initial materialize + checkpoint | 2,555.7 ms | 4,020.2 ms | Four Active/Tactical at commit 177 |
+| Two-sample drain + final checkpoint | 336.3 ms | 2,011.0 ms | Four Released/Operational at commit 191 |
+| Retained re-promotion + checkpoint | 337.9 ms | 1,318.4 ms | Four epoch-2 Active/Tactical at commit 200 |
+
+The initial game unique IDs were `365`, `455`, `545`, and `635`; the same four
+IDs remained after drain and re-promotion. Runtime diagnostics ended with four
+active retained objects, four checkpoints, and zero detached or
+recovery-required objects. This supports a local tactical capacity of four for
+independent Knox islands on this host. It does not yet establish tick-rate or
+combat-load headroom, and it must not be generalized to mixed unit profiles.
+
+The live capacity monitor is:
+
+`http://127.0.0.1:5081/monitor/?campaign=160bc4f63fdd4d6f84fb2bd136c255ac`
+
 ## Remaining gate
 
-- Measure tactical island throughput, checkpoint bursts, and main-thread costs.
+- Measure tactical tick throughput and main-thread costs under active combat;
+  the four-island materialize/drain burst baseline is now recorded.
 - Add safe profiles for more naval/air units before claiming mixed-island
   coverage.
 - Extend interaction islands with active weapons, guidance, sensors, hosts, and

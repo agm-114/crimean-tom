@@ -361,6 +361,15 @@ retained checkpointed object. Campaign `37772898357347cd9c9c6fd724037d11`
 ended the proof at commit 85 with epoch 5 Active/Tactical and no bridge recovery
 debt. See `docs/evidence/phase-5-live-evidence-2026-08-21.md`.
 
+The follow-on live capacity campaign
+`160bc4f63fdd4d6f84fb2bd136c255ac` promoted four independent Pharris/Knox
+islands into one Sea Power client. All four were Active in 4.02 seconds, drained
+in 2.01 seconds after the required hysteresis samples, and reactivated from the
+same retained game objects in 1.32 seconds. It ended at commit 200 with four
+epoch-2 Active/Tactical assignments and zero recovery debt. The hosted monitor
+deep link is
+`http://127.0.0.1:5081/monitor/?campaign=160bc4f63fdd4d6f84fb2bd136c255ac`.
+
 Next, extend coupling to weapon/guidance/host relationships, measure live
 tactical capacity/tempo, and calibrate the operational resolver against tactical
 observation batches. Keep tactical projection and campaign commit separate: Sea

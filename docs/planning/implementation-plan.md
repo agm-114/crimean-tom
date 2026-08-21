@@ -650,7 +650,10 @@ single-player prototype.
   hysteretic split, client migration/reserve accounting, tactical performance
   targets, and calibration remain. The external-kernel
   large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
-  600 entities measures 18.5/s and is explicitly an overloaded envelope.
+  600 entities measures 18.5/s and is explicitly an overloaded envelope. The
+  first live independent-surface burst reaches four Active Knox assignments in
+  4.02 seconds, drains them in 2.01 seconds, and re-promotes retained objects in
+  1.32 seconds; active-combat tick headroom is still unmeasured.
 
 ### Objective
 

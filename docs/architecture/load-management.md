@@ -161,6 +161,15 @@ external operational kernel only; tactical client and backlog thresholds still
 require their own calibration. See
 [Phase 5 operational-load evidence](../evidence/phase-5-load-evidence-2026-08-21.md).
 
+The first live tactical burst on the same host schedules four independent Knox
+islands into one Sea Power client. Initial materialization and checkpointing
+reached four Active assignments in 4.02 seconds; a two-sample drain released all
+four in 2.01 seconds; retained checkpoint re-promotion restored all four in 1.32
+seconds without changing their game object IDs or creating recovery debt. This
+supports a four-entity independent-surface capacity claim only. Active combat
+tick throughput and mixed-profile capacity remain unmeasured. See
+[Phase 5 live scheduler evidence](../evidence/phase-5-live-evidence-2026-08-21.md).
+
 ### Avoiding cascade failure
 
 - Keep explicit reserve capacity for promotion, catch-up, and migration.
