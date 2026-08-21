@@ -1521,6 +1521,21 @@ public sealed class CompanionControlIntegrationTests
                         && item.GetProperty("fidelity").GetString() == "Operational"),
                 testTimeout.Token);
 
+            string? sessionBeforeCompanionRestart = null;
+            using (var healthBeforeCompanionStop = await campaignClient.GetAsync("/health", testTimeout.Token))
+            {
+                healthBeforeCompanionStop.EnsureSuccessStatusCode();
+                using var healthBeforeCompanionStopBody = JsonDocument.Parse(
+                    await healthBeforeCompanionStop.Content.ReadAsStringAsync(testTimeout.Token));
+                if (healthBeforeCompanionStopBody.RootElement.TryGetProperty("session", out var session)
+                    && session.ValueKind == JsonValueKind.Object
+                    && session.TryGetProperty("sessionId", out var campaignSessionId)
+                    && campaignSessionId.GetString() is { Length: > 0 } value)
+                {
+                    sessionBeforeCompanionRestart = value;
+                }
+            }
+
             using var stopBeforeFallback = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var stoppedCompanion = await RunControlScriptAsync(
                 scriptPath,
@@ -1597,6 +1612,10 @@ public sealed class CompanionControlIntegrationTests
                 CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted,
                 TaskScheduler.Default);
+            await WaitForCampaignSessionAsync(
+                campaignClient,
+                sessionBeforeCompanionRestart,
+                testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             await ProveFinalCheckpointMigrationAsync(
                 campaignClient,
@@ -3200,45 +3219,13 @@ public sealed class CompanionControlIntegrationTests
         const string destinationClientId = "20000000000000000000000000000002";
         var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
         await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
-        string? sourceAssignmentId = null;
-        HttpResponseMessage? handoff = null;
-        for (var attempt = 0; attempt < 8; attempt++)
-        {
-            handoff?.Dispose();
-            var candidate = $"assignment:{Guid.NewGuid():N}";
-            handoff = await campaignClient.PostAsJsonAsync(
-                "/control/handoffs",
-                new
-                {
-                    campaignId,
-                    canonicalEntityId = primaryEntityId,
-                    gameEntityId,
-                    assignmentId = candidate,
-                    authorityEpoch = 21 + attempt,
-                    idempotencyKey = $"migrate-source-1-{attempt}",
-                    requiredRuntimeFingerprintSha256 = new string('a', 64),
-                    requiredCatalogFingerprintSha256 = string.Empty,
-                    unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant43",
-                    loadoutId = "Default",
-                    taskforceId = "taskforce:Blue",
-                },
-                JsonOptions,
-                cancellationToken);
-            if (handoff.IsSuccessStatusCode)
-            {
-                sourceAssignmentId = candidate;
-                break;
-            }
-            await Task.Delay(250, cancellationToken);
-        }
-        using (handoff)
-        {
-            Assert.True(
-                handoff!.IsSuccessStatusCode,
-                $"Migration source handoff failed: {handoff.StatusCode} {await handoff.Content.ReadAsStringAsync(cancellationToken)}");
-        }
-        Assert.False(string.IsNullOrWhiteSpace(sourceAssignmentId));
+        var sourceAssignmentId = await WaitForAcceptedMigrationSourceHandoffAsync(
+            campaignClient,
+            campaignId,
+            primaryEntityId,
+            gameEntityId,
+            cancellationToken);
+        var sourceAssignmentKey = sourceAssignmentId["assignment:".Length..];
         var preparedFrames = await WaitForInboundFramesAsync(
             serviceRunDirectory,
             count: 1,
@@ -3253,16 +3240,26 @@ public sealed class CompanionControlIntegrationTests
         using var activeSource = await WaitForCampaignViewAsync(
             campaignClient,
             campaignId,
-            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
-                item.GetProperty("entityId").GetString() == primaryEntityId
-                && item.GetProperty("role").GetString() == "Primary"
-                && item.GetProperty("lifecycle").GetString() == "Active"),
+            root =>
+            {
+                var assignments = root.GetProperty("assignments").EnumerateArray().ToArray();
+                return assignments.Any(item =>
+                    item.GetProperty("assignmentId").GetString() == sourceAssignmentKey
+                    && item.GetProperty("entityId").GetString() == primaryEntityId
+                    && item.GetProperty("role").GetString() == "Primary"
+                    && item.GetProperty("lifecycle").GetString() == "Active");
+            },
             cancellationToken);
         var sourceAssignment = Assert.Single(
             activeSource.RootElement.GetProperty("assignments").EnumerateArray(),
-            item => item.GetProperty("entityId").GetString() == primaryEntityId
-                && item.GetProperty("role").GetString() == "Primary"
+            item => item.GetProperty("assignmentId").GetString() == sourceAssignmentKey
                 && item.GetProperty("lifecycle").GetString() == "Active");
+        Assert.Equal("Primary", sourceAssignment.GetProperty("role").GetString());
+        Assert.Equal(primaryEntityId, sourceAssignment.GetProperty("entityId").GetString());
+        Assert.DoesNotContain(
+            activeSource.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("assignmentId").GetString() == sourceAssignmentKey
+                && item.GetProperty("lifecycle").GetString() == "Released");
 
         using var channel = GrpcChannel.ForAddress(campaignGrpcUrl, new GrpcChannelOptions
         {
@@ -3569,6 +3566,68 @@ public sealed class CompanionControlIntegrationTests
         await recoveredCall.RequestStream.CompleteAsync();
         recoveredCall.Dispose();
         await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
+    }
+
+    private static async Task<string> WaitForAcceptedMigrationSourceHandoffAsync(
+        HttpClient campaignClient,
+        string campaignId,
+        string primaryEntityId,
+        string gameEntityId,
+        CancellationToken cancellationToken)
+    {
+        HttpStatusCode? lastStatus = null;
+        var lastBody = "migration source handoff was never attempted";
+        var attempt = 0;
+        try
+        {
+            while (true)
+            {
+                var candidate = $"assignment:{Guid.NewGuid():N}";
+                using var handoff = await campaignClient.PostAsJsonAsync(
+                    "/control/handoffs",
+                    new
+                    {
+                        campaignId,
+                        canonicalEntityId = primaryEntityId,
+                        gameEntityId,
+                        assignmentId = candidate,
+                        authorityEpoch = 21 + attempt,
+                        idempotencyKey = $"migrate-source-1-{attempt}",
+                        requiredRuntimeFingerprintSha256 = new string('a', 64),
+                        requiredCatalogFingerprintSha256 = string.Empty,
+                        unitTypeId = "usn_ff_knox_84",
+                        variantId = "Variant43",
+                        loadoutId = "Default",
+                        taskforceId = "taskforce:Blue",
+                    },
+                    JsonOptions,
+                    cancellationToken);
+                lastStatus = handoff.StatusCode;
+                lastBody = await handoff.Content.ReadAsStringAsync(cancellationToken);
+                if (handoff.IsSuccessStatusCode)
+                {
+                    return candidate;
+                }
+
+                if (handoff.StatusCode != HttpStatusCode.Conflict
+                    || !lastBody.Contains("companion-session-unavailable-or-backpressured", StringComparison.Ordinal))
+                {
+                    Assert.Fail(
+                        $"Migration source handoff was rejected instead of waiting for the restarted companion session. "
+                        + $"{handoff.StatusCode}: {lastBody}");
+                }
+
+                attempt++;
+                await Task.Delay(25, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                "Restarted companion campaign session did not accept a fresh Primary migration-source assignment. "
+                + $"Last status {lastStatus}: {lastBody}",
+                exception);
+        }
     }
 
     private static async Task<ServiceFrame> WaitForServicePayloadAsync(
@@ -3923,14 +3982,17 @@ public sealed class CompanionControlIntegrationTests
         HttpClient client,
         string campaignId,
         Func<JsonElement, bool> predicate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [CallerLineNumber] int callerLine = 0)
     {
         string lastView = "campaign view was never available";
+        HttpStatusCode? lastStatus = null;
         try
         {
             while (true)
             {
                 using var response = await client.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+                lastStatus = response.StatusCode;
                 lastView = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
@@ -3946,7 +4008,10 @@ public sealed class CompanionControlIntegrationTests
         }
         catch (OperationCanceledException exception)
         {
-            throw new TimeoutException($"Campaign view predicate was not reached. Last view: {lastView}", exception);
+            throw new TimeoutException(
+                $"Campaign view predicate from test line {callerLine} was not reached. "
+                + $"Last HTTP {lastStatus}. Last view: {lastView}",
+                exception);
         }
     }
 

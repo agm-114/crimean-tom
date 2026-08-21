@@ -37,15 +37,16 @@ public sealed class SqliteCampaignJournal
         {
             DataSource = fullPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            Cache = SqliteCacheMode.Private,
             ForeignKeys = true,
             Pooling = false,
             DefaultTimeout = 30,
         }.ToString();
     }
 
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
+    public Task InitializeAsync(CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await ExecuteAsync(connection, null, "PRAGMA journal_mode=WAL;", cancellationToken);
         await ExecuteAsync(connection, null, "PRAGMA synchronous=FULL;", cancellationToken);
@@ -79,12 +80,14 @@ public sealed class SqliteCampaignJournal
             await ExecuteAsync(connection, transaction, $"PRAGMA user_version={DatabaseSchemaVersion};", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
-    }
+        }, cancellationToken);
 
     public async Task CreateCampaignAsync(CampaignMetadata metadata, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         _ = CampaignState.Create(metadata);
+        await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -102,16 +105,22 @@ public sealed class SqliteCampaignJournal
         command.Parameters.AddWithValue("$algorithm", metadata.AlgorithmVersion);
         await command.ExecuteNonQueryAsync(cancellationToken);
 
-        var stored = await ReadMetadataAsync(metadata.CampaignId, cancellationToken);
+        var stored = await ReadMetadataCoreAsync(metadata.CampaignId, cancellationToken);
         if (stored != metadata)
         {
             throw Conflict("campaign-metadata-conflict", "The campaign ID already exists with different metadata.");
         }
+        }, cancellationToken);
     }
 
-    public async Task<CampaignMetadata> ReadMetadataAsync(
+    public Task<CampaignMetadata> ReadMetadataAsync(
         CampaignId campaignId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(() => ReadMetadataCoreAsync(campaignId, cancellationToken), cancellationToken);
+
+    private async Task<CampaignMetadata> ReadMetadataCoreAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
@@ -130,9 +139,10 @@ public sealed class SqliteCampaignJournal
             reader.GetInt32(3), reader.GetInt32(4));
     }
 
-    public async Task<IReadOnlyList<CampaignSummary>> ListCampaignsAsync(
-        CancellationToken cancellationToken = default)
-    {
+    public Task<IReadOnlyList<CampaignSummary>> ListCampaignsAsync(
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -150,8 +160,8 @@ public sealed class SqliteCampaignJournal
                 reader.GetInt64(2),
                 reader.GetString(3)));
         }
-        return campaigns;
-    }
+        return (IReadOnlyList<CampaignSummary>)campaigns;
+        }, cancellationToken);
 
     public async Task<CampaignWriterLease> AcquireWriterAsync(
         CampaignId campaignId,
@@ -168,6 +178,8 @@ public sealed class SqliteCampaignJournal
         }
 
         var expiresAt = now.Add(leaseDuration);
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -195,6 +207,7 @@ public sealed class SqliteCampaignJournal
         }
 
         return new CampaignWriterLease(campaignId, coordinatorId, new WriterEpoch(Convert.ToInt64(result)), expiresAt);
+        }, cancellationToken);
     }
 
     public async Task<CampaignWriterLease> RenewWriterAsync(
@@ -210,6 +223,8 @@ public sealed class SqliteCampaignJournal
         }
 
         var expiresAt = now.Add(leaseDuration);
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -228,6 +243,7 @@ public sealed class SqliteCampaignJournal
         }
 
         return lease with { ExpiresAt = expiresAt };
+        }, cancellationToken);
     }
 
     public async Task ReleaseWriterAsync(
@@ -235,6 +251,8 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lease);
+        await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -245,6 +263,7 @@ public sealed class SqliteCampaignJournal
         command.Parameters.AddWithValue("$owner", lease.CoordinatorId.ToString());
         command.Parameters.AddWithValue("$epoch", lease.WriterEpoch.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<CampaignAppendResult> AppendAsync(
@@ -262,6 +281,8 @@ public sealed class SqliteCampaignJournal
         var commandHash = Hash(commandJson);
         var eventHash = Hash(eventJson);
 
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = connection.BeginTransaction(deferred: false);
         await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
@@ -320,6 +341,7 @@ public sealed class SqliteCampaignJournal
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
         return new CampaignAppendResult(campaignEvent, Duplicate: false);
+        }, cancellationToken);
     }
 
     public async Task<CampaignSnapshotInfo> SaveSnapshotAsync(
@@ -339,6 +361,8 @@ public sealed class SqliteCampaignJournal
             throw Conflict("snapshot-roundtrip", "The canonical snapshot did not survive its own decoder.");
         }
 
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = connection.BeginTransaction(deferred: false);
         await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
@@ -391,19 +415,25 @@ public sealed class SqliteCampaignJournal
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
         return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
+        }, cancellationToken);
     }
 
-    public async Task<CampaignRecoveryResult> RecoverAsync(
+    public Task<CampaignRecoveryResult> RecoverAsync(
         CampaignId campaignId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var transaction = connection.BeginTransaction(deferred: true);
-        var head = await ReadHeadAsync(connection, transaction, campaignId, cancellationToken);
-        var result = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return result;
-    }
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            DurableCampaignReplay replay;
+            await using (var connection = await OpenAsync(cancellationToken))
+            await using (var transaction = connection.BeginTransaction(deferred: true))
+            {
+                var head = await ReadHeadAsync(connection, transaction, campaignId, cancellationToken);
+                replay = await LoadReplayAsync(connection, transaction, campaignId, head, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return MaterializeReplay(replay);
+        }, cancellationToken);
 
     public async Task<CampaignBlobReference> PutBlobAsync(
         CampaignWriterLease lease,
@@ -420,6 +450,8 @@ public sealed class SqliteCampaignJournal
             throw Conflict("blob-reference-invalid", "A blob purpose and logical ID of at most 256 characters are required.");
         }
 
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = connection.BeginTransaction(deferred: false);
         await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
@@ -498,6 +530,7 @@ public sealed class SqliteCampaignJournal
         _faultInjector.Reach(CampaignPersistenceBoundary.BlobAfterCommitBeforeAcknowledgement);
         return new CampaignBlobReference(lease.CampaignId, purpose, logicalId, referencedPosition,
             blob.Sha256, blob.Length, Duplicate: !inserted);
+        }, cancellationToken);
     }
 
     public Task<byte[]> ReadBlobAsync(string sha256, CancellationToken cancellationToken = default) =>
@@ -518,6 +551,8 @@ public sealed class SqliteCampaignJournal
         {
             throw Conflict("blob-prefix-invalid", "A logical blob prefix is required.");
         }
+        return await WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -543,10 +578,12 @@ public sealed class SqliteCampaignJournal
                 reader.GetInt64(3),
                 Duplicate: false)
             : null;
+        }, cancellationToken);
     }
 
-    public async Task<CampaignIntegrityReport> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
-    {
+    public Task<CampaignIntegrityReport> VerifyIntegrityAsync(CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = connection.BeginTransaction(deferred: true);
         await using (var integrity = connection.CreateCommand())
@@ -561,6 +598,7 @@ public sealed class SqliteCampaignJournal
         }
 
         var campaigns = new List<CampaignIntegrityHead>();
+        var heads = new List<(CampaignId CampaignId, CommitPosition Head)>();
         await using (var campaignQuery = connection.CreateCommand())
         {
             campaignQuery.Transaction = transaction;
@@ -568,11 +606,15 @@ public sealed class SqliteCampaignJournal
             await using var reader = await campaignQuery.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var campaignId = new CampaignId(Guid.ParseExact(reader.GetString(0), "N"));
-                var head = new CommitPosition(reader.GetInt64(1));
-                var recovered = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
-                campaigns.Add(new CampaignIntegrityHead(campaignId, head, recovered.CanonicalHash));
+                heads.Add((
+                    new CampaignId(Guid.ParseExact(reader.GetString(0), "N")),
+                    new CommitPosition(reader.GetInt64(1))));
             }
+        }
+        foreach (var (campaignId, head) in heads)
+        {
+            var recovered = await RecoverAsync(connection, transaction, campaignId, head, cancellationToken);
+            campaigns.Add(new CampaignIntegrityHead(campaignId, head, recovered.CanonicalHash));
         }
 
         var eventCount = await CountAsync(connection, transaction, "events", cancellationToken);
@@ -660,7 +702,7 @@ public sealed class SqliteCampaignJournal
 
         await transaction.CommitAsync(cancellationToken);
         return new CampaignIntegrityReport(campaigns, eventCount, snapshotCount, referencedBlobs.Count);
-    }
+        }, cancellationToken);
 
     public Task<CampaignBackupResult> CreateBackupAsync(
         string destinationDirectory,
@@ -674,11 +716,12 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken = default) =>
         CampaignBackupManager.RestoreAsync(backupDirectory, destinationStorageDirectory, cancellationToken);
 
-    public async Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
+    public Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
         CampaignId campaignId,
         CommitPosition after,
-        CancellationToken cancellationToken = default)
-    {
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -696,18 +739,27 @@ public sealed class SqliteCampaignJournal
             VerifyHash(json, reader.GetString(1), "event-corrupt");
             result.Add(CampaignContractJson.DeserializeEvent(json));
         }
-        return result;
-    }
+        return (IReadOnlyList<CommittedCampaignEvent>)result;
+        }, cancellationToken);
 
-    public async Task<CommitPosition> ReadHeadAsync(
+    public Task<CommitPosition> ReadHeadAsync(
         CampaignId campaignId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-        return await ReadHeadAsync(connection, null, campaignId, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            return await ReadHeadAsync(connection, null, campaignId, cancellationToken);
+        }, cancellationToken);
 
     private static async Task<CampaignRecoveryResult> RecoverAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CampaignId campaignId,
+        CommitPosition durableHead,
+        CancellationToken cancellationToken) =>
+        MaterializeReplay(await LoadReplayAsync(connection, transaction, campaignId, durableHead, cancellationToken));
+
+    private static async Task<DurableCampaignReplay> LoadReplayAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         CampaignId campaignId,
@@ -715,8 +767,9 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken)
     {
         var metadata = await ReadMetadataAsync(connection, transaction, campaignId, cancellationToken);
-        var state = CampaignState.Create(metadata);
         var snapshotPosition = CommitPosition.Origin;
+        string? snapshotHash = null;
+        byte[]? snapshotJson = null;
 
         await using (var snapshot = connection.CreateCommand())
         {
@@ -732,60 +785,78 @@ public sealed class SqliteCampaignJournal
             if (await reader.ReadAsync(cancellationToken))
             {
                 snapshotPosition = new CommitPosition(reader.GetInt64(0));
-                var expectedHash = reader.GetString(1);
-                var json = (byte[])reader[2];
-                VerifyHash(json, expectedHash, "snapshot-corrupt");
-                try
-                {
-                    state = CampaignCanonicalSerializer.Deserialize(json);
-                }
-                catch (Exception exception) when (exception is JsonException or InvalidDataException or ArgumentException)
-                {
-                    throw Conflict("snapshot-corrupt", $"The newest snapshot is invalid: {exception.Message}");
-                }
-                if (state.Metadata != metadata || state.Head != snapshotPosition
-                    || CampaignCanonicalSerializer.ComputeHash(state) != expectedHash)
-                {
-                    throw Conflict("snapshot-corrupt", "The newest snapshot identity, position, metadata, or hash is invalid.");
-                }
+                snapshotHash = reader.GetString(1);
+                snapshotJson = (byte[])reader[2];
             }
         }
 
-        await using (var events = connection.CreateCommand())
+        var events = new List<DurableCampaignEventRow>();
+        await using (var eventQuery = connection.CreateCommand())
         {
-            events.Transaction = transaction;
-            events.CommandText = """
+            eventQuery.Transaction = transaction;
+            eventQuery.CommandText = """
                 SELECT commit_position, event_json, event_hash FROM events
                 WHERE campaign_id = $campaign_id AND commit_position > $after AND commit_position <= $head
                 ORDER BY commit_position;
                 """;
-            events.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
-            events.Parameters.AddWithValue("$after", state.Head.Value);
-            events.Parameters.AddWithValue("$head", durableHead.Value);
-            await using var reader = await events.ExecuteReaderAsync(cancellationToken);
+            eventQuery.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            eventQuery.Parameters.AddWithValue("$after", snapshotJson is null ? 0 : snapshotPosition.Value);
+            eventQuery.Parameters.AddWithValue("$head", durableHead.Value);
+            await using var reader = await eventQuery.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var position = new CommitPosition(reader.GetInt64(0));
-                if (position != state.Head.Next())
-                {
-                    throw Conflict("journal-gap", "The durable journal contains a commit-position gap.");
-                }
-                var json = (byte[])reader[1];
-                VerifyHash(json, reader.GetString(2), "event-corrupt");
-                CommittedCampaignEvent campaignEvent;
-                try
-                {
-                    campaignEvent = CampaignContractJson.DeserializeEvent(json);
-                    state = CampaignKernel.Apply(state, campaignEvent);
-                }
-                catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException)
-                {
-                    throw Conflict("event-corrupt", $"Event {position.Value} cannot replay: {exception.Message}");
-                }
+                events.Add(new DurableCampaignEventRow(
+                    new CommitPosition(reader.GetInt64(0)),
+                    (byte[])reader[1],
+                    reader.GetString(2)));
             }
         }
 
-        if (state.Head != durableHead)
+        return new DurableCampaignReplay(metadata, durableHead, snapshotPosition, snapshotHash, snapshotJson, events);
+    }
+
+    private static CampaignRecoveryResult MaterializeReplay(DurableCampaignReplay replay)
+    {
+        var state = CampaignState.Create(replay.Metadata);
+        var snapshotPosition = CommitPosition.Origin;
+        if (replay.SnapshotJson is not null)
+        {
+            snapshotPosition = replay.SnapshotPosition;
+            VerifyHash(replay.SnapshotJson, replay.SnapshotHash!, "snapshot-corrupt");
+            try
+            {
+                state = CampaignCanonicalSerializer.Deserialize(replay.SnapshotJson);
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidDataException or ArgumentException)
+            {
+                throw Conflict("snapshot-corrupt", $"The newest snapshot is invalid: {exception.Message}");
+            }
+            if (state.Metadata != replay.Metadata || state.Head != snapshotPosition
+                || CampaignCanonicalSerializer.ComputeHash(state) != replay.SnapshotHash)
+            {
+                throw Conflict("snapshot-corrupt", "The newest snapshot identity, position, metadata, or hash is invalid.");
+            }
+        }
+
+        foreach (var row in replay.Events)
+        {
+            if (row.Position != state.Head.Next())
+            {
+                throw Conflict("journal-gap", "The durable journal contains a commit-position gap.");
+            }
+            VerifyHash(row.Json, row.Hash, "event-corrupt");
+            try
+            {
+                var campaignEvent = CampaignContractJson.DeserializeEvent(row.Json);
+                state = CampaignKernel.Apply(state, campaignEvent);
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException)
+            {
+                throw Conflict("event-corrupt", $"Event {row.Position.Value} cannot replay: {exception.Message}");
+            }
+        }
+
+        if (state.Head != replay.DurableHead)
         {
             throw Conflict("journal-gap", "The durable journal does not reach the campaign head.");
         }
@@ -835,9 +906,55 @@ public sealed class SqliteCampaignJournal
     {
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, null, "PRAGMA busy_timeout=30000;", cancellationToken);
         await ExecuteAsync(connection, null, "PRAGMA foreign_keys=ON;", cancellationToken);
         return connection;
     }
+
+    private static async Task WithContentionRetryAsync(Func<Task> action, CancellationToken cancellationToken) =>
+        await WithContentionRetryAsync(async () =>
+        {
+            await action();
+            return 0;
+        }, cancellationToken);
+
+    private static async Task<T> WithContentionRetryAsync<T>(
+        Func<Task<T>> action,
+        CancellationToken cancellationToken)
+    {
+        var delay = TimeSpan.FromMilliseconds(5);
+        SqliteException? last = null;
+        for (var attempt = 0; attempt < 24; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return await action();
+            }
+            catch (SqliteException exception) when (IsRetryableSqliteContention(exception))
+            {
+                last = exception;
+                await Task.Delay(delay, cancellationToken);
+                var nextMilliseconds = Math.Min(delay.TotalMilliseconds * 2, 100);
+                delay = TimeSpan.FromMilliseconds(nextMilliseconds);
+            }
+        }
+
+        throw last!;
+    }
+
+    private static bool IsRetryableSqliteContention(SqliteException exception) =>
+        exception.SqliteErrorCode is 5 or 6;
+
+    private sealed record DurableCampaignEventRow(CommitPosition Position, byte[] Json, string Hash);
+
+    private sealed record DurableCampaignReplay(
+        CampaignMetadata Metadata,
+        CommitPosition DurableHead,
+        CommitPosition SnapshotPosition,
+        string? SnapshotHash,
+        byte[]? SnapshotJson,
+        IReadOnlyList<DurableCampaignEventRow> Events);
 
     private static async Task RequireCurrentWriterAsync(
         SqliteConnection connection,
