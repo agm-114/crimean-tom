@@ -2,12 +2,17 @@
 param(
     [string]$CampaignHttpUrl = $(
         if ($env:CRIMEAN_TOM_CAMPAIGN_HTTP_URL) { $env:CRIMEAN_TOM_CAMPAIGN_HTTP_URL }
-        else { 'http://127.0.0.1:5080' }
+        else { 'http://127.0.0.1:5081' }
     ),
 
     [string]$CampaignId = $env:CRIMEAN_TOM_CAMPAIGN_ID,
 
     [string]$CampaignTokenFile,
+
+    [string]$SeaPowerDir = $(
+        if ($env:SEA_POWER_DIR) { $env:SEA_POWER_DIR }
+        else { 'C:\Program Files (x86)\Steam\steamapps\common\Sea Power' }
+    ),
 
     [string[]]$WorkerIds = @('worker-a', 'worker-b')
 )
@@ -16,6 +21,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$installedGameExecutable = [System.IO.Path]::GetFullPath((Join-Path $SeaPowerDir 'Sea Power.exe'))
+$processStartTimeToleranceSeconds = 2
+
 if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
     if ($env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE) {
         $CampaignTokenFile = $env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE
@@ -34,6 +42,20 @@ $syntheticClientInstanceIds = @(
     '20000000000000000000000000000002'
 )
 
+function Normalize-WorkerIds([string[]]$Ids) {
+    $normalized = @()
+    foreach ($id in $Ids) {
+        if ([string]::IsNullOrWhiteSpace($id)) { continue }
+        foreach ($part in $id.Split(',')) {
+            $trimmed = $part.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $normalized += $trimmed
+            }
+        }
+    }
+    return @($normalized | Select-Object -Unique)
+}
+
 function Test-SyntheticFingerprint([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
     if ($Value -notmatch '^[0-9a-f]{64}$') { return $true }
@@ -46,7 +68,91 @@ function Invoke-WorkerControl([string]$ControlUrl, [string]$TokenPath, [string]$
     Invoke-RestMethod -Method Get -Uri "$ControlUrl$Path" -Headers $headers -TimeoutSec 8
 }
 
-function Get-WorkerControlLayout([string]$WorkerId) {
+function Get-ProcessCommandLine([int]$ProcessId) {
+    $searcher = New-Object System.Management.ManagementObjectSearcher(
+        "SELECT CommandLine FROM Win32_Process WHERE ProcessId = $ProcessId")
+    try {
+        $processInfo = @($searcher.Get()) | Select-Object -First 1
+        if ($null -eq $processInfo) { return '' }
+        return [string]$processInfo.CommandLine
+    }
+    finally {
+        $searcher.Dispose()
+    }
+}
+
+function Get-ProcessExecutablePath([int]$ProcessId) {
+    $searcher = New-Object System.Management.ManagementObjectSearcher(
+        "SELECT ExecutablePath FROM Win32_Process WHERE ProcessId = $ProcessId")
+    try {
+        $processInfo = @($searcher.Get()) | Select-Object -First 1
+        if ($null -eq $processInfo) { return '' }
+        return [string]$processInfo.ExecutablePath
+    }
+    finally {
+        $searcher.Dispose()
+    }
+}
+
+function Test-ProcessStartTimeMatches(
+    $Process,
+    [string]$RecordedStartTimeUtc,
+    [int]$ToleranceSeconds) {
+    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) { return $true }
+    $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
+    $actualStart = [DateTimeOffset]$Process.StartTime.ToUniversalTime()
+    $deltaForward = ($actualStart - $recordedStart).TotalSeconds
+    $deltaBackward = ($recordedStart - $actualStart).TotalSeconds
+    return $deltaForward -le $ToleranceSeconds -and $deltaBackward -le $ToleranceSeconds
+}
+
+function Test-LiveSeaPowerProcess(
+    [int]$ProcessId,
+    [string]$ExpectedExecutable,
+    [string]$ExpectedUnityLog,
+    [string]$RecordedStartTimeUtc) {
+    if ($ProcessId -le 0) {
+        throw "Recorded game process ID is missing or invalid."
+    }
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $process) {
+        throw "Recorded game PID $ProcessId is not running."
+    }
+    if ($process.ProcessName -cne 'Sea Power') {
+        throw "Recorded game PID $ProcessId is not a Sea Power process (name='$($process.ProcessName)')."
+    }
+
+    $executablePath = Get-ProcessExecutablePath $ProcessId
+    if ([string]::IsNullOrWhiteSpace($executablePath)) {
+        throw "Recorded game PID $ProcessId has no verifiable executable path."
+    }
+    $resolvedExecutable = [System.IO.Path]::GetFullPath($executablePath)
+    $expectedResolved = [System.IO.Path]::GetFullPath($ExpectedExecutable)
+    if (-not $resolvedExecutable.Equals($expectedResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Recorded game PID $ProcessId executable '$resolvedExecutable' does not match expected '$expectedResolved'."
+    }
+    if (-not $expectedResolved.Equals($installedGameExecutable, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Recorded metadata executable '$expectedResolved' does not match installed Sea Power at '$installedGameExecutable'."
+    }
+
+    if (-not (Test-ProcessStartTimeMatches $process $RecordedStartTimeUtc $processStartTimeToleranceSeconds)) {
+        throw "Recorded game PID $ProcessId start time does not match metadata '$RecordedStartTimeUtc'."
+    }
+
+    $commandLine = Get-ProcessCommandLine $ProcessId
+    if ($commandLine.IndexOf('-logFile', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Recorded game PID $ProcessId command line does not include -logFile."
+    }
+    $normalizedLog = [System.IO.Path]::GetFullPath($ExpectedUnityLog)
+    if ($commandLine.IndexOf($normalizedLog, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Recorded game PID $ProcessId command line does not reference worker log '$normalizedLog'."
+    }
+
+    return $process
+}
+
+function Get-WorkerProofLayout([string]$WorkerId) {
     $runDir = Join-Path $repoRoot ".run\workers\$WorkerId"
     $metadataPath = Join-Path $runDir 'worker.metadata.json'
     if (-not (Test-Path -LiteralPath $metadataPath)) {
@@ -60,18 +166,27 @@ function Get-WorkerControlLayout([string]$WorkerId) {
         PipeName = [string]$metadata.pipeName
         InstanceId = [string]$metadata.instanceId
         GameProcessId = [int]$metadata.gameProcessId
+        GameProcessStartTimeUtc = [string]$metadata.gameProcessStartTimeUtc
+        GameExecutable = [string]$metadata.gameExecutable
         UnityLog = [string]$metadata.unityLog
+        CampaignStateDirectory = [string]$metadata.campaignStateDirectory
     }
 }
 
 function Prove-WorkerRuntime($Layout) {
+    $liveGame = Test-LiveSeaPowerProcess `
+        $Layout.GameProcessId `
+        $Layout.GameExecutable `
+        $Layout.UnityLog `
+        $Layout.GameProcessStartTimeUtc
+
     if (-not (Test-Path -LiteralPath $Layout.TokenFile)) {
         throw "Control token missing for worker '$($Layout.WorkerId)' at $($Layout.TokenFile)."
     }
 
     $health = Invoke-WorkerControl $Layout.ControlUrl $Layout.TokenFile '/health'
     if (-not $health.gameConnected) {
-        throw "Worker '$($Layout.WorkerId)' companion is healthy but Sea Power is not connected on $($Layout.PipeName)."
+        throw "Worker '$($Layout.WorkerId)' has a validated Sea Power PID $($liveGame.Id), but the companion is not connected on $($Layout.PipeName)."
     }
     if ($health.connectionState -cne 'connected' -or [string]::IsNullOrWhiteSpace([string]$health.sessionId)) {
         throw "Worker '$($Layout.WorkerId)' did not publish a valid connected session."
@@ -88,11 +203,14 @@ function Prove-WorkerRuntime($Layout) {
         ControlUrl = $Layout.ControlUrl
         PipeName = $Layout.PipeName
         InstanceId = $Layout.InstanceId
-        GameProcessId = $Layout.GameProcessId
+        GameProcessId = $liveGame.Id
+        GameExecutable = $Layout.GameExecutable
+        GameProcessStartTimeUtc = $Layout.GameProcessStartTimeUtc
         GameSessionId = [string]$health.sessionId
         SessionGeneration = [long]$health.sessionGeneration
         RuntimeFingerprintSha256 = $fingerprint
         CatalogFingerprintSha256 = $capabilities.runtimeFingerprint.catalogSha256
+        CampaignStateDirectory = $Layout.CampaignStateDirectory
     }
 }
 
@@ -103,9 +221,14 @@ if (-not (Test-Path -LiteralPath $CampaignTokenFile)) {
     throw "Campaign token file not found at $CampaignTokenFile."
 }
 
+$normalizedWorkerIds = Normalize-WorkerIds $WorkerIds
+if ($normalizedWorkerIds.Count -lt 2) {
+    throw 'Live proof requires at least two distinct worker IDs. Pass -WorkerIds worker-a,worker-b or separate values.'
+}
+
 $workerProofs = @()
-foreach ($workerId in $WorkerIds) {
-    $layout = Get-WorkerControlLayout $workerId.Trim()
+foreach ($workerId in $normalizedWorkerIds) {
+    $layout = Get-WorkerProofLayout $workerId
     $workerProofs += Prove-WorkerRuntime $layout
 }
 
@@ -141,6 +264,8 @@ foreach ($proof in $workerProofs) {
         ControlUrl = $proof.ControlUrl
         PipeName = $proof.PipeName
         GameProcessId = $proof.GameProcessId
+        GameExecutable = $proof.GameExecutable
+        GameProcessStartTimeUtc = $proof.GameProcessStartTimeUtc
         GameSessionId = $proof.GameSessionId
         ClientInstanceId = [string]$campaignWorker.clientInstanceId
         CampaignSessionId = [string]$campaignWorker.sessionId
@@ -151,16 +276,18 @@ foreach ($proof in $workerProofs) {
         OccupiedTacticalEntityCount = [int]$campaignWorker.occupiedTacticalEntityCount
         TacticalEntityCapacity = [int]$campaignWorker.tacticalEntityCapacity
         TacticalReserveCapacity = [int]$campaignWorker.tacticalReserveCapacity
+        CampaignStateDirectory = $proof.CampaignStateDirectory
     }
-}
-
-if ($matchedWorkers.Count -lt 2) {
-    throw 'Live proof requires at least two worker proofs.'
 }
 
 $distinctGameSessions = @($matchedWorkers | Select-Object -ExpandProperty GameSessionId -Unique)
 $distinctClientIds = @($matchedWorkers | Select-Object -ExpandProperty ClientInstanceId -Unique)
 $distinctCampaignSessions = @($matchedWorkers | Select-Object -ExpandProperty CampaignSessionId -Unique)
+$distinctStateDirectories = @(
+    $matchedWorkers |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_.CampaignStateDirectory) } |
+        Select-Object -ExpandProperty CampaignStateDirectory -Unique
+)
 if ($distinctGameSessions.Count -lt 2) {
     throw 'Live proof failed: game session IDs are not distinct across workers.'
 }
@@ -169,6 +296,9 @@ if ($distinctClientIds.Count -lt 2) {
 }
 if ($distinctCampaignSessions.Count -lt 2) {
     throw 'Live proof failed: campaign session IDs are not distinct across workers.'
+}
+if ($distinctStateDirectories.Count -lt 2) {
+    throw 'Live proof failed: campaign companion state directories are not distinct across workers.'
 }
 
 $result = [pscustomobject]@{
@@ -179,11 +309,12 @@ $result = [pscustomobject]@{
     DistinctGameSessionIds = $distinctGameSessions
     DistinctClientInstanceIds = $distinctClientIds
     DistinctCampaignSessionIds = $distinctCampaignSessions
+    DistinctCampaignStateDirectories = $distinctStateDirectories
     Workers = $matchedWorkers
     LiveProofSucceeded = $true
     TwoContainerMigrationClaim = $false
     Notes = @(
-        'This proof admits coexistence of two real runtime+companion workers with distinct campaign sessions.'
+        'This proof admits coexistence of two real runtime+companion workers with distinct campaign sessions and validated live Sea Power processes.'
         'It does not claim safe two-container island migration or automatic rebalance.'
         'Local second-instance Sea Power remains experimental; Steam and shared native profile paths may still block or corrupt paired runs.'
     )

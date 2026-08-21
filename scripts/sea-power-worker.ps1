@@ -36,6 +36,12 @@ param(
     [ValidateRange(5, 600)]
     [int]$TimeoutSeconds = 120,
 
+    [ValidateRange(640, 3840)]
+    [int]$UnityScreenWidth = 1280,
+
+    [ValidateRange(480, 2160)]
+    [int]$UnityScreenHeight = 720,
+
     [switch]$SkipBuild
 )
 
@@ -45,8 +51,10 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gameExe = Join-Path $SeaPowerDir 'Sea Power.exe'
 $companionControlScript = Join-Path $PSScriptRoot 'crimean-tom-control.ps1'
+$companionDll = Join-Path $repoRoot "src\CrimeanTom.Companion\bin\$Configuration\net8.0\CrimeanTom.Companion.dll"
 $healthMarker = '[Sea Power Runtime Bridge] loaded via AnchorChain'
 $defaultPipeName = 'CrimeanTom.Game.v1'
+$processStartTimeToleranceSeconds = 2
 
 function Assert-RestrictedWorkerId([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -79,7 +87,7 @@ function Get-DefaultWorkerControlPort([string]$Id) {
     finally {
         $sha256.Dispose()
     }
-  return 5140 + ([BitConverter]::ToUInt32($hash, 0) % 900)
+    return 5140 + ([BitConverter]::ToUInt32($hash, 0) % 900)
 }
 
 function Get-WorkerGamePipeName([string]$Id) {
@@ -95,6 +103,41 @@ function Set-ProcessStartInfoEnvironment(
     }
     foreach ($entry in $Overrides.GetEnumerator()) {
         $StartInfo.EnvironmentVariables[$entry.Key] = [string]$entry.Value
+    }
+}
+
+function Resolve-WorkerCampaignSettings([string]$RunDir) {
+    $resolvedRunDirectory = if ([string]::IsNullOrWhiteSpace($CampaignRunDirectory)) {
+        $null
+    }
+    else {
+        [System.IO.Path]::GetFullPath($CampaignRunDirectory)
+    }
+    $resolvedStateDirectory = if (-not [string]::IsNullOrWhiteSpace($CampaignStateDirectory)) {
+        [System.IO.Path]::GetFullPath($CampaignStateDirectory)
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($CampaignId)) {
+        Join-Path $RunDir "campaign-companion-state-$CampaignId"
+    }
+    else {
+        Join-Path $RunDir 'campaign-companion-state'
+    }
+    $resolvedTokenFile = if (-not [string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
+        [System.IO.Path]::GetFullPath($CampaignTokenFile)
+    }
+    elseif ($null -ne $resolvedRunDirectory) {
+        Join-Path $resolvedRunDirectory 'service.token'
+    }
+    else {
+        $null
+    }
+    return [pscustomobject]@{
+        CampaignGrpcUrl = $CampaignGrpcUrl
+        CampaignHttpUrl = $CampaignHttpUrl
+        CampaignId = $CampaignId
+        CampaignRunDirectory = $resolvedRunDirectory
+        CampaignTokenFile = $resolvedTokenFile
+        CampaignStateDirectory = $resolvedStateDirectory
     }
 }
 
@@ -119,6 +162,7 @@ function Get-WorkerLayout([string]$Id) {
     $gamePidFile = Join-Path $runDir 'game.pid'
     $companionPidFile = Join-Path $runDir 'companion.pid'
     $tokenFile = Join-Path $runDir 'control.token'
+    $campaignSettings = Resolve-WorkerCampaignSettings $runDir
     return [pscustomobject]@{
         WorkerId = $Id
         RunDirectory = $runDir
@@ -133,6 +177,10 @@ function Get-WorkerLayout([string]$Id) {
         CompanionPidFile = $companionPidFile
         TokenFile = $tokenFile
         GameExecutable = [System.IO.Path]::GetFullPath($gameExe)
+        CompanionDll = [System.IO.Path]::GetFullPath($companionDll)
+        CampaignSettings = $campaignSettings
+        UnityScreenWidth = $UnityScreenWidth
+        UnityScreenHeight = $UnityScreenHeight
     }
 }
 
@@ -148,7 +196,8 @@ function Read-WorkerMetadata([string]$Path) {
     return $raw | ConvertFrom-Json
 }
 
-function Write-WorkerMetadata($Layout, $CompanionProcessId, $GameProcess) {
+function Write-WorkerMetadata($Layout, [int]$CompanionProcessId, $GameProcess) {
+    $campaign = $Layout.CampaignSettings
     $metadata = [ordered]@{
         workerId = $Layout.WorkerId
         instanceId = $Layout.InstanceId
@@ -161,10 +210,12 @@ function Write-WorkerMetadata($Layout, $CompanionProcessId, $GameProcess) {
         companionProcessId = $CompanionProcessId
         gameProcessId = $GameProcess.Id
         gameProcessStartTimeUtc = $GameProcess.StartTime.ToUniversalTime().ToString('o')
-        campaignId = $CampaignId
-        campaignGrpcUrl = $CampaignGrpcUrl
-        campaignHttpUrl = $CampaignHttpUrl
-        campaignRunDirectory = $CampaignRunDirectory
+        campaignId = $campaign.CampaignId
+        campaignGrpcUrl = $campaign.CampaignGrpcUrl
+        campaignHttpUrl = $campaign.CampaignHttpUrl
+        campaignRunDirectory = $campaign.CampaignRunDirectory
+        campaignStateDirectory = $campaign.CampaignStateDirectory
+        campaignTokenFile = $campaign.CampaignTokenFile
         recordedAtUtc = [DateTime]::UtcNow.ToString('o')
     }
     $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Layout.MetadataPath -Encoding UTF8
@@ -196,44 +247,113 @@ function Get-ProcessExecutablePath([int]$ProcessId) {
     }
 }
 
-function Test-ValidatedGameProcess($Layout, $Metadata) {
-    if (-not (Test-Path -LiteralPath $Layout.GamePidFile)) {
-        return $null
+function Test-ProcessStartTimeMatches(
+    $Process,
+    [string]$RecordedStartTimeUtc,
+    [int]$ToleranceSeconds) {
+    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) { return $true }
+    $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
+    $actualStart = [DateTimeOffset]$Process.StartTime.ToUniversalTime()
+    $deltaForward = ($actualStart - $recordedStart).TotalSeconds
+    $deltaBackward = ($recordedStart - $actualStart).TotalSeconds
+    return $deltaForward -le $ToleranceSeconds -and $deltaBackward -le $ToleranceSeconds
+}
+
+function Test-GameProcessValidation(
+    $Process,
+    [string]$ExpectedExecutable,
+    [string]$ExpectedUnityLog,
+    [int]$ExpectedProcessId,
+    [string]$RecordedStartTimeUtc) {
+    if ($null -eq $Process) { return $false }
+    if ($Process.ProcessName -cne 'Sea Power') { return $false }
+    if ($ExpectedProcessId -gt 0 -and $Process.Id -ne $ExpectedProcessId) { return $false }
+
+    $executablePath = Get-ProcessExecutablePath $Process.Id
+    if ([string]::IsNullOrWhiteSpace($executablePath)) { return $false }
+    $resolvedExecutable = [System.IO.Path]::GetFullPath($executablePath)
+    $expectedResolved = [System.IO.Path]::GetFullPath($ExpectedExecutable)
+    if (-not $resolvedExecutable.Equals($expectedResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
     }
-    $rawPid = (Get-Content -LiteralPath $Layout.GamePidFile -Raw).Trim()
+
+    if (-not (Test-ProcessStartTimeMatches $Process $RecordedStartTimeUtc $processStartTimeToleranceSeconds)) {
+        return $false
+    }
+
+    $commandLine = Get-ProcessCommandLine $Process.Id
+    if ($commandLine.IndexOf('-logFile', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $false
+    }
+    $normalizedLog = [System.IO.Path]::GetFullPath($ExpectedUnityLog)
+    if ($commandLine.IndexOf($normalizedLog, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $false
+    }
+
+    return $true
+}
+
+function Get-LiveProcessFromPidFile([string]$PidFilePath) {
+    if (-not (Test-Path -LiteralPath $PidFilePath)) { return $null }
+    $rawPid = (Get-Content -LiteralPath $PidFilePath -Raw).Trim()
     $processId = 0
     if (-not [int]::TryParse($rawPid, [ref]$processId)) { return $null }
+    return Get-Process -Id $processId -ErrorAction SilentlyContinue
+}
 
-    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-    if ($null -eq $process) { return $null }
-    if ($process.ProcessName -cne 'Sea Power') { return $null }
+function Test-ValidatedGameProcess($Layout, $Metadata) {
+    $liveProcess = Get-LiveProcessFromPidFile $Layout.GamePidFile
+    if ($null -eq $liveProcess) { return $null }
 
-    $executablePath = Get-ProcessExecutablePath $processId
-    if ([string]::IsNullOrWhiteSpace($executablePath)) { return $null }
-    $resolvedExecutable = [System.IO.Path]::GetFullPath($executablePath)
-    $expectedExecutable = [System.IO.Path]::GetFullPath($Layout.GameExecutable)
-    if (-not $resolvedExecutable.Equals($expectedExecutable, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $expectedProcessId = 0
+    $recordedStart = ''
+    if ($null -ne $Metadata) {
+        $expectedProcessId = [int]$Metadata.gameProcessId
+        $recordedStart = [string]$Metadata.gameProcessStartTimeUtc
+    }
+
+    if (-not (Test-GameProcessValidation `
+        $liveProcess `
+        $Layout.GameExecutable `
+        $Layout.UnityLog `
+        $expectedProcessId `
+        $recordedStart)) {
         return $null
     }
 
-    if ($null -ne $Metadata) {
-        if ([int]$Metadata.gameProcessId -ne $processId) { return $null }
-        $recordedStart = [DateTimeOffset]::Parse([string]$Metadata.gameProcessStartTimeUtc)
-        $actualStart = [DateTimeOffset]$process.StartTime.ToUniversalTime()
-        if (($actualStart - $recordedStart).TotalSeconds -gt 2 -or ($recordedStart - $actualStart).TotalSeconds -gt 2) {
-            return $null
+    return $liveProcess
+}
+
+function Test-ValidatedCompanionProcess($Layout) {
+    $liveProcess = Get-LiveProcessFromPidFile $Layout.CompanionPidFile
+    if ($null -eq $liveProcess) { return $null }
+
+    $commandLine = Get-ProcessCommandLine $liveProcess.Id
+    if ($commandLine.IndexOf($Layout.CompanionDll, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $null
+    }
+    if ($commandLine.IndexOf($Layout.ControlUrl, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $null
+    }
+
+    return $liveProcess
+}
+
+function Assert-NoUnvalidatedBlockingProcesses($Layout) {
+    $liveGame = Get-LiveProcessFromPidFile $Layout.GamePidFile
+    if ($null -ne $liveGame) {
+        $metadata = Read-WorkerMetadata $Layout.MetadataPath
+        if ($null -eq (Test-ValidatedGameProcess $Layout $metadata)) {
+            throw "Refusing to start worker '$($Layout.WorkerId)': game PID file points to live PID $($liveGame.Id), but the process failed worker validation. Stop or diagnose the stale worker before retrying."
         }
     }
 
-    $commandLine = Get-ProcessCommandLine $processId
-    if ($commandLine.IndexOf('-logFile', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-        return $null
+    $liveCompanion = Get-LiveProcessFromPidFile $Layout.CompanionPidFile
+    if ($null -ne $liveCompanion) {
+        if ($null -eq (Test-ValidatedCompanionProcess $Layout)) {
+            throw "Refusing to start worker '$($Layout.WorkerId)': companion PID file points to live PID $($liveCompanion.Id), but the process failed worker validation. Stop or diagnose the stale worker before retrying."
+        }
     }
-    if ($commandLine.IndexOf($Layout.UnityLog, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-        return $null
-    }
-
-    $process
 }
 
 function Invoke-ControlRequest([string]$Url, [string]$TokenPath, [string]$Path) {
@@ -249,7 +369,8 @@ function Wait-ForGameConnection($Layout) {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $lastHealth = $null
     while ([DateTime]::UtcNow -lt $deadline) {
-        $gameProcess = Test-ValidatedGameProcess $Layout (Read-WorkerMetadata $Layout.MetadataPath)
+        $metadata = Read-WorkerMetadata $Layout.MetadataPath
+        $gameProcess = Test-ValidatedGameProcess $Layout $metadata
         if ($null -eq $gameProcess) {
             throw "Sea Power exited or failed validation before connecting to $($Layout.PipeName). Check $($Layout.UnityLog)."
         }
@@ -290,6 +411,16 @@ function Wait-ForPluginMarker($Layout, [datetime]$NotBeforeUtc) {
     throw "Worker '$($Layout.WorkerId)' did not write the runtime bridge health marker to $($Layout.UnityLog)."
 }
 
+function Get-UnityLaunchArguments($Layout) {
+    $logPath = [System.IO.Path]::GetFullPath($Layout.UnityLog)
+    return @(
+        "-logFile `"$logPath`""
+        "-screen-fullscreen 0"
+        "-screen-width $($Layout.UnityScreenWidth)"
+        "-screen-height $($Layout.UnityScreenHeight)"
+    ) -join ' '
+}
+
 function Start-WorkerGameProcess($Layout) {
     Assert-GameInstalled $Layout.GameExecutable
     New-Item -ItemType Directory -Path (Split-Path -Parent $Layout.UnityLog) -Force | Out-Null
@@ -300,7 +431,7 @@ function Start-WorkerGameProcess($Layout) {
     $startInfo.WorkingDirectory = Split-Path -Parent $Layout.GameExecutable
     $startInfo.UseShellExecute = $false
     $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Minimized
-    $startInfo.Arguments = "-logFile `"$($Layout.UnityLog)`""
+    $startInfo.Arguments = Get-UnityLaunchArguments $Layout
 
     Set-ProcessStartInfoEnvironment $startInfo @{
         CRIMEAN_TOM_INSTANCE_ID = $Layout.InstanceId
@@ -317,6 +448,9 @@ function Start-WorkerGameProcess($Layout) {
 }
 
 function Start-WorkerCompanion($Layout) {
+    $campaign = $Layout.CampaignSettings
+    New-Item -ItemType Directory -Path $campaign.CampaignStateDirectory -Force | Out-Null
+
     $companionParameters = @{
         Action = 'start'
         Configuration = $Configuration
@@ -324,14 +458,14 @@ function Start-WorkerCompanion($Layout) {
         ControlUrl = $Layout.ControlUrl
         RunDirectory = $Layout.RunDirectory
         GamePipeName = $Layout.PipeName
+        CampaignStateDirectory = $campaign.CampaignStateDirectory
     }
     foreach ($setting in @{
-        CampaignGrpcUrl = $CampaignGrpcUrl
-        CampaignHttpUrl = $CampaignHttpUrl
-        CampaignId = $CampaignId
-        CampaignRunDirectory = $CampaignRunDirectory
-        CampaignTokenFile = $CampaignTokenFile
-        CampaignStateDirectory = $CampaignStateDirectory
+        CampaignGrpcUrl = $campaign.CampaignGrpcUrl
+        CampaignHttpUrl = $campaign.CampaignHttpUrl
+        CampaignId = $campaign.CampaignId
+        CampaignRunDirectory = $campaign.CampaignRunDirectory
+        CampaignTokenFile = $campaign.CampaignTokenFile
     }.GetEnumerator()) {
         if (-not [string]::IsNullOrWhiteSpace($setting.Value)) {
             $companionParameters[$setting.Key] = $setting.Value
@@ -350,10 +484,47 @@ function Start-WorkerCompanion($Layout) {
     return $processId
 }
 
+function Stop-WorkerCompanion($Layout) {
+    & $companionControlScript stop `
+        -ControlUrl $layout.ControlUrl `
+        -RunDirectory $layout.RunDirectory
+}
+
+function Cleanup-FailedWorkerStart($Layout, $GameProcess, [int]$CompanionProcessId, [string]$Reason) {
+    if ($null -ne $GameProcess -and -not $GameProcess.HasExited) {
+        if (Test-GameProcessValidation `
+            $GameProcess `
+            $Layout.GameExecutable `
+            $Layout.UnityLog `
+            $GameProcess.Id `
+            $GameProcess.StartTime.ToUniversalTime().ToString('o')) {
+            Stop-ValidatedProcess $GameProcess.Id $Layout.GameExecutable "worker '$($Layout.WorkerId)' Sea Power"
+        }
+    }
+
+    if ($CompanionProcessId -gt 0) {
+        $liveCompanion = Get-Process -Id $CompanionProcessId -ErrorAction SilentlyContinue
+        if ($null -ne $liveCompanion) {
+            Stop-WorkerCompanion $Layout
+        }
+    }
+
+    if (Test-Path -LiteralPath $Layout.GamePidFile) {
+        Remove-Item -LiteralPath $Layout.GamePidFile -Force
+    }
+    if (Test-Path -LiteralPath $Layout.MetadataPath) {
+        Remove-Item -LiteralPath $Layout.MetadataPath -Force
+    }
+
+    throw $Reason
+}
+
 function Start-Worker {
     $id = Assert-RestrictedWorkerId $WorkerId
     $layout = Get-WorkerLayout $id
     New-Item -ItemType Directory -Path $layout.RunDirectory -Force | Out-Null
+
+    Assert-NoUnvalidatedBlockingProcesses $layout
 
     $metadata = Read-WorkerMetadata $layout.MetadataPath
     $existingGame = Test-ValidatedGameProcess $layout $metadata
@@ -371,17 +542,29 @@ function Start-Worker {
         }
     }
 
-    Write-Host "Starting companion for worker '$id' at $($layout.ControlUrl) on pipe $($layout.PipeName)..."
-    $companionPid = Start-WorkerCompanion $layout
+    $companionPid = 0
+    $gameProcess = $null
+    try {
+        Write-Host "Starting companion for worker '$id' at $($layout.ControlUrl) on pipe $($layout.PipeName)..."
+        Write-Host "Campaign companion state: $($layout.CampaignSettings.CampaignStateDirectory)"
+        $companionPid = Start-WorkerCompanion $layout
 
-    $startedAtUtc = [DateTime]::UtcNow
-    Write-Host "Launching Sea Power directly for worker '$id' (experimental second-instance path)..."
-    $gameProcess = Start-WorkerGameProcess $layout
-    Write-WorkerMetadata $layout $companionPid $gameProcess
+        $startedAtUtc = [DateTime]::UtcNow
+        Write-Host "Launching Sea Power directly for worker '$id' (experimental second-instance path)..."
+        $gameProcess = Start-WorkerGameProcess $layout
+        Write-WorkerMetadata $layout $companionPid $gameProcess
 
-    Wait-ForPluginMarker $layout $startedAtUtc
-    $health = Wait-ForGameConnection $layout
-    Write-Host "Worker '$id' is live: companion PID $companionPid, game PID $($gameProcess.Id), session $($health.sessionId)."
+        Wait-ForPluginMarker $layout $startedAtUtc
+        $health = Wait-ForGameConnection $layout
+        Write-Host "Worker '$id' is live: companion PID $companionPid, game PID $($gameProcess.Id), session $($health.sessionId)."
+    }
+    catch {
+        $reason = $_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = "Worker '$id' start failed."
+        }
+        Cleanup-FailedWorkerStart $layout $gameProcess $companionPid $reason
+    }
 }
 
 function Stop-ValidatedProcess([int]$ProcessId, [string]$ExpectedExecutable, [string]$Label) {
@@ -399,7 +582,7 @@ function Stop-ValidatedProcess([int]$ProcessId, [string]$ExpectedExecutable, [st
     }
 
     Write-Host "Stopping $Label (PID $ProcessId)..."
-  $null = $process.CloseMainWindow()
+    $null = $process.CloseMainWindow()
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 250
@@ -415,18 +598,35 @@ function Stop-Worker {
     $id = Assert-RestrictedWorkerId $WorkerId
     $layout = Get-WorkerLayout $id
     $metadata = Read-WorkerMetadata $layout.MetadataPath
+    $expectedExecutable = $layout.GameExecutable
 
-    if ($null -ne $metadata -and $metadata.gameProcessId -gt 0) {
-        Stop-ValidatedProcess `
-            ([int]$metadata.gameProcessId) `
-            ([string]$metadata.gameExecutable) `
-            "worker '$id' Sea Power"
+    $candidateProcessId = 0
+    $recordedStart = ''
+    if ($null -ne $metadata -and [int]$metadata.gameProcessId -gt 0) {
+        $candidateProcessId = [int]$metadata.gameProcessId
+        $recordedStart = [string]$metadata.gameProcessStartTimeUtc
     }
     elseif (Test-Path -LiteralPath $layout.GamePidFile) {
         $rawPid = (Get-Content -LiteralPath $layout.GamePidFile -Raw).Trim()
-        $processId = 0
-        if ([int]::TryParse($rawPid, [ref]$processId)) {
-            Stop-ValidatedProcess $processId $layout.GameExecutable "worker '$id' Sea Power"
+        if ([int]::TryParse($rawPid, [ref]$candidateProcessId)) {
+            if ($null -ne $metadata) {
+                $recordedStart = [string]$metadata.gameProcessStartTimeUtc
+            }
+        }
+    }
+
+    if ($candidateProcessId -gt 0) {
+        $liveProcess = Get-Process -Id $candidateProcessId -ErrorAction SilentlyContinue
+        if ($null -ne $liveProcess) {
+            if (-not (Test-GameProcessValidation `
+                $liveProcess `
+                $expectedExecutable `
+                $layout.UnityLog `
+                $candidateProcessId `
+                $recordedStart)) {
+                throw "Refusing to stop worker '$id': recorded game PID $candidateProcessId is live but failed validation against $expectedExecutable. Metadata preserved at $($layout.MetadataPath)."
+            }
+            Stop-ValidatedProcess $candidateProcessId $expectedExecutable "worker '$id' Sea Power"
         }
     }
 
@@ -434,12 +634,7 @@ function Stop-Worker {
         Remove-Item -LiteralPath $layout.GamePidFile -Force
     }
 
-    $companionParameters = @{
-        Action = 'stop'
-        ControlUrl = $layout.ControlUrl
-        RunDirectory = $layout.RunDirectory
-    }
-    & $companionControlScript @companionParameters
+    Stop-WorkerCompanion $layout
 
     if (Test-Path -LiteralPath $layout.MetadataPath) {
         Remove-Item -LiteralPath $layout.MetadataPath -Force
@@ -472,19 +667,39 @@ function Show-WorkerStatus {
         }
     }
 
-    if ((-not [string]::IsNullOrWhiteSpace($CampaignHttpUrl)) -and
-        (-not [string]::IsNullOrWhiteSpace($CampaignId)) -and
-        (-not [string]::IsNullOrWhiteSpace($CampaignTokenFile)) -and
-        (Test-Path -LiteralPath $CampaignTokenFile)) {
+    $campaign = $layout.CampaignSettings
+    $campaignHttp = if (-not [string]::IsNullOrWhiteSpace($CampaignHttpUrl)) {
+        $CampaignHttpUrl
+    }
+    else {
+        $campaign.CampaignHttpUrl
+    }
+    $campaignId = if (-not [string]::IsNullOrWhiteSpace($CampaignId)) {
+        $CampaignId
+    }
+    else {
+        $campaign.CampaignId
+    }
+    $campaignToken = if (-not [string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
+        $CampaignTokenFile
+    }
+    else {
+        $campaign.CampaignTokenFile
+    }
+
+    if ((-not [string]::IsNullOrWhiteSpace($campaignHttp)) -and
+        (-not [string]::IsNullOrWhiteSpace($campaignId)) -and
+        (-not [string]::IsNullOrWhiteSpace($campaignToken)) -and
+        (Test-Path -LiteralPath $campaignToken)) {
         try {
-            $token = (Get-Content -LiteralPath $CampaignTokenFile -Raw).Trim()
+            $token = (Get-Content -LiteralPath $campaignToken -Raw).Trim()
             $headers = @{ Authorization = "Bearer $token" }
-            $campaign = Invoke-RestMethod `
+            $campaignView = Invoke-RestMethod `
                 -Method Get `
-                -Uri "$CampaignHttpUrl/campaigns/$CampaignId" `
+                -Uri "$campaignHttp/campaigns/$campaignId" `
                 -Headers $headers `
                 -TimeoutSec 8
-            $campaignSession = @($campaign.workers | Where-Object {
+            $campaignSession = @($campaignView.workers | Where-Object {
                 $_.gameSessionId -and $health -and $_.gameSessionId -eq $health.sessionId
             }) | Select-Object -First 1
         }
@@ -500,6 +715,7 @@ function Show-WorkerStatus {
         ControlUrl = $layout.ControlUrl
         PipeName = $layout.PipeName
         RunDirectory = $layout.RunDirectory
+        CampaignStateDirectory = $campaign.CampaignStateDirectory
         UnityLog = $layout.UnityLog
         GameExecutable = $layout.GameExecutable
         GameProcessId = if ($null -ne $gameProcess) { $gameProcess.Id } else { $null }

@@ -123,25 +123,29 @@ process:
 pnpm worker:start -- -WorkerId worker-a -SkipBuild `
   -CampaignId <32-char-guid> `
   -CampaignGrpcUrl http://127.0.0.1:5082 `
-  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -CampaignHttpUrl http://127.0.0.1:5081 `
   -CampaignRunDirectory .run/campaign-service
 pnpm worker:status -- -WorkerId worker-a -CampaignId <guid> `
-  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -CampaignHttpUrl http://127.0.0.1:5081 `
   -CampaignRunDirectory .run/campaign-service
 pnpm worker:stop -- -WorkerId worker-a
 ```
 
-Start a second worker with a different ID (`worker-b`), then run live proof only
-when both companions report connected games and distinct campaign sessions:
+Each named worker stores campaign companion state under its own run directory
+(for example `.run/workers/worker-a/campaign-companion-state-<campaignId>`), so
+two workers on the same campaign service receive distinct client instance IDs.
 
 ```powershell
 pnpm worker:live-proof -- -CampaignId <guid> `
-  -CampaignHttpUrl http://127.0.0.1:5080 `
+  -CampaignHttpUrl http://127.0.0.1:5081 `
   -WorkerIds worker-a,worker-b
 ```
 
 Live proof refuses synthetic gRPC test sessions (`container-worker-probe`,
-repeated-digit fingerprints, and similar protocol-test stand-ins). Success means
+repeated-digit fingerprints, and similar protocol-test stand-ins). It also
+requires each worker's recorded Sea Power PID to match the installed executable,
+recorded UTC start time, and worker `-logFile` path before trusting companion
+health. A mock pipe peer cannot qualify without that live game process. Success means
 two real runtime+companion workers coexist with distinct game session IDs, client
 instance IDs, and campaign session IDs. It does not claim safe two-container
 island migration.
