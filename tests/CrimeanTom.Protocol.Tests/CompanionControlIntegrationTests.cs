@@ -3433,13 +3433,14 @@ public sealed class CompanionControlIntegrationTests
             item => item.GetProperty("assignmentId").GetString() == sourceAssignment.GetProperty("assignmentId").GetString()
                 && item.GetProperty("lifecycle").GetString() == "Released");
 
-        destinationSequence = await PrepareCooldownProbeIslandForMigrationAsync(
+        var cooldownProbeIsland = await PrepareCooldownProbeIslandForMigrationAsync(
             campaignClient,
             call,
             destinationSequence,
             campaignId,
             cooldownProbeEntityId,
             cancellationToken);
+        destinationSequence = cooldownProbeIsland.DestinationSequence;
 
         using var migrate = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/migrate-tactical-island",
@@ -3469,6 +3470,32 @@ public sealed class CompanionControlIntegrationTests
             unchangedDuringBusyBody.RootElement.GetProperty("assignments").EnumerateArray(),
             item => item.GetProperty("role").GetString() == "Primary"
                 && item.GetProperty("workerClientInstanceId").GetString() == destinationClientId);
+
+        destinationSequence++;
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = destinationSequence,
+            FinalCheckpointStaged = new FinalCheckpointStaged
+            {
+                AssignmentId = cooldownProbeIsland.ShadowAssignmentId,
+                EntityId = cooldownProbeIsland.ShadowEntityId,
+                AuthorityEpoch = cooldownProbeIsland.ShadowAuthorityEpoch,
+                RealizedRevision = 1,
+                StagedCheckpointSha256 = new string('b', 64),
+                Ready = false,
+                IdempotencyKey = "unrelated-probe-staging-fail",
+            },
+        });
+        using var stillBusyAfterUnrelatedFailure = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/migrate-tactical-island",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-still-busy" },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, stillBusyAfterUnrelatedFailure.StatusCode);
+        using var stillBusyBody = JsonDocument.Parse(
+            await stillBusyAfterUnrelatedFailure.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "migration-orchestration-busy",
+            stillBusyBody.RootElement.GetProperty("error").GetString());
 
         var staging = await WaitForServicePayloadAsync(
             call,
@@ -3670,7 +3697,13 @@ public sealed class CompanionControlIntegrationTests
         await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
     }
 
-    private static async Task<ulong> PrepareCooldownProbeIslandForMigrationAsync(
+    private sealed record CooldownProbeIslandStaging(
+        ulong DestinationSequence,
+        string ShadowAssignmentId,
+        string ShadowEntityId,
+        long ShadowAuthorityEpoch);
+
+    private static async Task<CooldownProbeIslandStaging> PrepareCooldownProbeIslandForMigrationAsync(
         HttpClient campaignClient,
         AsyncDuplexStreamingCall<CompanionFrame, ServiceFrame> destinationCall,
         ulong destinationSequence,
@@ -3746,7 +3779,11 @@ public sealed class CompanionControlIntegrationTests
                 && item.GetProperty("lifecycle").GetString() == "Quiesced"),
             cancellationToken);
 
-        return destinationSequence;
+        return new CooldownProbeIslandStaging(
+            destinationSequence,
+            shadowQueued.Assignment.AssignmentId,
+            shadowQueued.Assignment.EntityId,
+            shadowQueued.Assignment.AuthorityEpoch);
     }
 
     private static async Task AssertCampaignMigrationCooldownBlocksSecondIslandAsync(

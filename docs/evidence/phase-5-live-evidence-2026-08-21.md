@@ -418,6 +418,7 @@ any authority mutation. After a successful `TacticalIslandMigratedEvent`, a
 later non-idempotent migration for another ready island in the same campaign is
 rejected with `migration-cooldown-active` before staging or authority mutation;
 the rejection survives coordinator restart because cooldown is reconstructed from
-journal history, not a process-local clock. Already-migrated activation-grant
-replay remains allowed. Cooldown duration is configurable through
+journal history, not a process-local clock. Unrelated `FinalCheckpointStaged`
+failures for another prepared island do not release an in-flight migration lease.
+Already-migrated activation-grant replay remains allowed. Cooldown duration is configurable through
 `CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA` (default 30 quanta).

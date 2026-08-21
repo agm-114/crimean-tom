@@ -566,7 +566,8 @@ now enforced around the authenticated migrate path: overlapping campaign/worker
 orchestration is rejected before staging, failed pre-commit attempts release
 admission without starting cooldown, and any successful migration commits a
 campaign-wide cooldown reconstructed from `TacticalIslandMigratedEvent` history
-across service restart. Next expand live tactical
+across service restart. Admission release on failed staging is island-specific so
+unrelated `FinalCheckpointStaged` failures cannot clear another island's lease.
 combat tempo to mixed active systems, exercise campaign-owned
 sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep

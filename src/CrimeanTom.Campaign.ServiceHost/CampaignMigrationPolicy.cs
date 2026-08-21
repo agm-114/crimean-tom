@@ -20,6 +20,7 @@ internal sealed record CampaignMigrationPolicyOptions(int CooldownQuanta)
 
 internal sealed record MigrationOrchestrationLease(
     CampaignId CampaignId,
+    string IslandAnchorEntityId,
     string SourceWorkerClientInstanceId,
     string DestinationWorkerClientInstanceId,
     string IdempotencyKey);
@@ -35,8 +36,7 @@ internal sealed class CampaignMigrationAdmissionRegistry
         {
             if (_active.TryGetValue(requested.CampaignId, out var sameCampaign))
             {
-                if (sameCampaign.SourceWorkerClientInstanceId != requested.SourceWorkerClientInstanceId
-                    || sameCampaign.DestinationWorkerClientInstanceId != requested.DestinationWorkerClientInstanceId)
+                if (!MatchesIslandAndWorkers(sameCampaign, requested))
                 {
                     return false;
                 }
@@ -62,8 +62,7 @@ internal sealed class CampaignMigrationAdmissionRegistry
         lock (_gate)
         {
             return _active.TryGetValue(requested.CampaignId, out var active)
-                && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
-                && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId;
+                && MatchesIslandAndWorkers(active, requested);
         }
     }
 
@@ -72,21 +71,19 @@ internal sealed class CampaignMigrationAdmissionRegistry
         lock (_gate)
         {
             if (_active.TryGetValue(requested.CampaignId, out var active)
-                && active.SourceWorkerClientInstanceId == requested.SourceWorkerClientInstanceId
-                && active.DestinationWorkerClientInstanceId == requested.DestinationWorkerClientInstanceId)
+                && MatchesIslandAndWorkers(active, requested))
             {
                 _active.Remove(requested.CampaignId);
             }
         }
     }
 
-    public void ReleaseForCampaign(CampaignId campaignId)
-    {
-        lock (_gate)
-        {
-            _active.Remove(campaignId);
-        }
-    }
+    private static bool MatchesIslandAndWorkers(
+        MigrationOrchestrationLease left,
+        MigrationOrchestrationLease right) =>
+        string.Equals(left.IslandAnchorEntityId, right.IslandAnchorEntityId, StringComparison.Ordinal)
+        && left.SourceWorkerClientInstanceId == right.SourceWorkerClientInstanceId
+        && left.DestinationWorkerClientInstanceId == right.DestinationWorkerClientInstanceId;
 
     private static bool SharesWorker(
         MigrationOrchestrationLease left,

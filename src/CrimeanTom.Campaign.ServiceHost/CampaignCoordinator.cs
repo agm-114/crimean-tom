@@ -578,10 +578,9 @@ public sealed class CampaignCoordinator(
                     plan.Members.Select(item => item.Destination.AssignmentId.ToString()).ToArray());
             }
 
-            orchestration = new MigrationOrchestrationLease(
+            orchestration = CreateMigrationOrchestrationLease(
                 campaignId,
-                plan.SourceClientInstanceId,
-                plan.DestinationClientInstanceId,
+                plan,
                 request.IdempotencyKey);
             await EnsureMigrationCooldownAsync(state, cancellationToken);
             if (!TryBeginMigrationOrchestration(orchestration))
@@ -1375,7 +1374,13 @@ public sealed class CampaignCoordinator(
             members.Add(new IslandMigrationMemberPlan(source, destination, checkpoint));
         }
 
-        return new IslandMigrationPlan(sourceWorkers[0], destinationWorkers[0], false, null, members);
+        return new IslandMigrationPlan(
+            sourceWorkers[0],
+            destinationWorkers[0],
+            NormalizeIslandAnchorEntityId(island.EntityIds),
+            false,
+            null,
+            members);
     }
 
     private async Task<IslandMigrationPlan?> TryReconstructMigratedPlanAsync(
@@ -1438,6 +1443,7 @@ public sealed class CampaignCoordinator(
         return new IslandMigrationPlan(
             members[0].Source.WorkerClientInstanceId,
             destinationWorkers[0],
+            NormalizeIslandAnchorEntityId(islandEntityIds),
             true,
             matching.CommitPosition.Value,
             members);
@@ -1616,11 +1622,6 @@ public sealed class CampaignCoordinator(
         }
         catch (CampaignStoreConflict)
         {
-            if (!staged.Ready)
-            {
-                _migrationAdmission.ReleaseForCampaign(campaignId);
-            }
-
             return;
         }
 
@@ -1641,7 +1642,7 @@ public sealed class CampaignCoordinator(
 
         if (!staged.Ready)
         {
-            _migrationAdmission.ReleaseForCampaign(campaignId);
+            TryReleaseMigrationOrchestrationForPlan(campaignId, plan);
             return;
         }
 
@@ -1649,7 +1650,7 @@ public sealed class CampaignCoordinator(
             ?? throw new CampaignStoreConflict("migration-batch-inconsistent", "Staged assignment is not part of the island plan.");
         if (!string.Equals(staged.StagedCheckpointSha256, member.SourceCheckpoint.Sha256, StringComparison.OrdinalIgnoreCase))
         {
-            _migrationAdmission.ReleaseForCampaign(campaignId);
+            TryReleaseMigrationOrchestrationForPlan(campaignId, plan);
             throw new CampaignStoreConflict(
                 "checkpoint-hash-mismatch",
                 "The staged checkpoint hash does not match the source final checkpoint.");
@@ -1667,10 +1668,9 @@ public sealed class CampaignCoordinator(
             return;
         }
 
-        var orchestration = new MigrationOrchestrationLease(
+        var orchestration = CreateMigrationOrchestrationLease(
             campaignId,
-            plan.SourceClientInstanceId,
-            plan.DestinationClientInstanceId,
+            plan,
             staged.IdempotencyKey.Length > 0 ? staged.IdempotencyKey : $"migrate-{assignmentId}-{staged.AuthorityEpoch}");
         await EnsureMigrationCooldownAsync(state, cancellationToken);
         if (!_migrationAdmission.IsHeld(orchestration) && !TryBeginMigrationOrchestration(orchestration))
@@ -1739,6 +1739,23 @@ public sealed class CampaignCoordinator(
 
     private void EndMigrationOrchestration(MigrationOrchestrationLease orchestration) =>
         _migrationAdmission.Release(orchestration);
+
+    private void TryReleaseMigrationOrchestrationForPlan(CampaignId campaignId, IslandMigrationPlan plan) =>
+        EndMigrationOrchestration(CreateMigrationOrchestrationLease(campaignId, plan));
+
+    private static string NormalizeIslandAnchorEntityId(IReadOnlyList<EntityId> islandEntityIds) =>
+        islandEntityIds.OrderBy(id => id.Value).First().ToString();
+
+    private static MigrationOrchestrationLease CreateMigrationOrchestrationLease(
+        CampaignId campaignId,
+        IslandMigrationPlan plan,
+        string idempotencyKey = "") =>
+        new(
+            campaignId,
+            plan.IslandAnchorEntityId,
+            plan.SourceClientInstanceId,
+            plan.DestinationClientInstanceId,
+            idempotencyKey);
 
     private async Task EnsureMigrationCooldownAsync(
         CampaignState state,
@@ -2633,6 +2650,7 @@ internal sealed record IslandMigrationMemberPlan(
 internal sealed record IslandMigrationPlan(
     string SourceClientInstanceId,
     string DestinationClientInstanceId,
+    string IslandAnchorEntityId,
     bool AlreadyMigrated,
     long? MigrationCommitPosition,
     IReadOnlyList<IslandMigrationMemberPlan> Members);
