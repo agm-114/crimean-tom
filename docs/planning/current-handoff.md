@@ -533,8 +533,12 @@ objects all contribute to the scheduler projection. Destination-local admission
 also honors each worker's advertised capacity and reserve; the campaign API and
 monitor expose the same envelope. Capacity pressure selects whole quiet islands
 and preserves fenced/engaged islands; the scheduling response retains the
-original decision reasons even after assignments enter Quiescing. Next, add a
-bounded temporary-overlap budget for fenced migration, then expand live tactical
+original decision reasons even after assignments enter Quiescing. The campaign
+kernel now has a durable fenced-migration command: a complete island can move
+from a quiesced Primary onto a prepared Shadow in one event, keeping Tactical
+fidelity and one live publisher. The coordinator still does not schedule that
+path, and this is not a live Sea Power migration claim. Next, add a bounded
+temporary-overlap budget for fenced migration, then expand live tactical
 combat tempo to mixed active systems, exercise campaign-owned
 sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep

@@ -174,11 +174,16 @@ public static class CampaignStateValidator
             {
                 throw Invalid("active-assignment-fidelity", "An active tactical assignment requires tactical entity fidelity.");
             }
-            if (assignment.Lifecycle == AssignmentLifecycle.Prepared
-                && (string.IsNullOrWhiteSpace(assignment.BatchId)
-                    || state.Entities[assignment.EntityId].Fidelity == FidelityState.Tactical))
+            if (assignment.Lifecycle == AssignmentLifecycle.Prepared)
             {
-                throw Invalid("prepared-assignment", "A prepared batch assignment requires a batch ID and a non-tactical canonical entity.");
+                var entityFidelity = state.Entities[assignment.EntityId].Fidelity;
+                var shadowDestinationWithTactical =
+                    assignment.Role == AssignmentRole.Shadow && entityFidelity == FidelityState.Tactical;
+                if (!shadowDestinationWithTactical
+                    && (string.IsNullOrWhiteSpace(assignment.BatchId) || entityFidelity == FidelityState.Tactical))
+                {
+                    throw Invalid("prepared-assignment", "A prepared batch assignment requires a batch ID and a non-tactical canonical entity.");
+                }
             }
         }
 

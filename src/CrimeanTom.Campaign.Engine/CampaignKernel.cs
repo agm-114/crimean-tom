@@ -45,6 +45,7 @@ public static class CampaignKernel
             ActivateTacticalAssignmentCommand value => DecideTacticalAssignmentActivation(state, command, value),
             ActivateTacticalIslandCommand value => DecideTacticalIslandActivation(state, command, value),
             ReleaseTacticalIslandCommand value => DecideTacticalIslandRelease(state, command, value),
+            MigrateTacticalIslandCommand value => DecideTacticalIslandMigration(state, command, value),
             UpdateSchedulerPolicyCommand value => DecideSchedulerPolicy(state, command, value),
             ApplyTacticalStateCommand value => DecideTacticalState(state, command, value),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
@@ -97,6 +98,7 @@ public static class CampaignKernel
             TacticalAssignmentActivatedEvent value => ApplyTacticalAssignmentActivation(state, campaignEvent, value),
             TacticalIslandActivatedEvent value => ApplyTacticalIslandActivation(state, campaignEvent, value),
             TacticalIslandReleasedEvent value => ApplyTacticalIslandRelease(state, campaignEvent, value),
+            TacticalIslandMigratedEvent value => ApplyTacticalIslandMigration(state, value),
             SchedulerPolicyUpdatedEvent value => ApplySchedulerPolicy(state, campaignEvent, value),
             TacticalStateAppliedEvent value => ApplyTacticalState(state, campaignEvent, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
@@ -510,6 +512,88 @@ public static class CampaignKernel
             state.CampaignRevision.Next());
     }
 
+    private static Decision DecideTacticalIslandMigration(
+        CampaignState state,
+        CampaignCommand command,
+        MigrateTacticalIslandCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Campaign(state.Metadata.CampaignId));
+        RequireRevision(command, state.CampaignRevision);
+        CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
+        CampaignInvariants.RequireText(value.Reason, nameof(value.Reason));
+        if (value.EffectiveAt != command.EffectiveAt || value.Members.Count < 1)
+        {
+            throw Violation("invalid-island-migration", "An island migration requires at least one member and matching effective time.");
+        }
+
+        var entityIds = new HashSet<EntityId>();
+        var assignmentIds = new HashSet<AssignmentId>();
+        string? sourceBatchId = null;
+        string? destinationBatchId = null;
+        var expectedBatchSize = value.Members.Count;
+        foreach (var member in value.Members)
+        {
+            if (!entityIds.Add(member.EntityId)
+                || !assignmentIds.Add(member.SourceAssignmentId)
+                || !assignmentIds.Add(member.DestinationAssignmentId)
+                || member.SourceAssignmentId == member.DestinationAssignmentId)
+            {
+                throw Violation("invalid-island-migration", "Migration members must pair distinct assignments with unique entities.");
+            }
+
+            var source = state.Assignments.TryGetValue(member.SourceAssignmentId, out var foundSource)
+                ? foundSource
+                : throw Violation("assignment-missing", "A migration source assignment does not exist.");
+            var destination = state.Assignments.TryGetValue(member.DestinationAssignmentId, out var foundDestination)
+                ? foundDestination
+                : throw Violation("assignment-missing", "A migration destination assignment does not exist.");
+            var entity = RequireEntity(state, member.EntityId);
+            sourceBatchId ??= source.BatchId;
+            destinationBatchId ??= destination.BatchId;
+            if (source.EntityId != member.EntityId
+                || destination.EntityId != member.EntityId
+                || source.Role != AssignmentRole.Primary
+                || source.Lifecycle != AssignmentLifecycle.Quiesced
+                || destination.Role != AssignmentRole.Shadow
+                || destination.Lifecycle != AssignmentLifecycle.Prepared
+                || source.AuthorityEpoch != member.SourceAuthorityEpoch
+                || destination.AuthorityEpoch != member.DestinationAuthorityEpoch
+                || destination.AuthorityEpoch.Value <= source.AuthorityEpoch.Value
+                || source.Revision != member.ExpectedSourceAssignmentRevision
+                || destination.Revision != member.ExpectedDestinationAssignmentRevision
+                || entity.Revision != member.ExpectedEntityRevision
+                || source.BatchSize != expectedBatchSize
+                || destination.BatchSize != expectedBatchSize
+                || !string.Equals(source.BatchId, sourceBatchId, StringComparison.Ordinal)
+                || !string.Equals(destination.BatchId, destinationBatchId, StringComparison.Ordinal)
+                || string.Equals(source.WorkerClientInstanceId, destination.WorkerClientInstanceId, StringComparison.Ordinal)
+                || entity.Fidelity != FidelityState.Tactical
+                || entity.MaximumFidelity != FidelityState.Tactical
+                || entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+            {
+                throw Violation("island-migration-fenced", "A migration member is stale, overlapping, or cannot transfer tactical authority.");
+            }
+        }
+
+        if (expectedBatchSize == 1)
+        {
+            if (!string.IsNullOrEmpty(sourceBatchId) || !string.IsNullOrEmpty(destinationBatchId))
+            {
+                throw Violation("invalid-island-migration", "A singleton migration cannot carry a multi-entity assignment batch identity.");
+            }
+        }
+        else if (string.IsNullOrEmpty(sourceBatchId)
+            || !string.Equals(destinationBatchId, value.BatchId, StringComparison.Ordinal))
+        {
+            throw Violation("invalid-island-migration", "A multi-entity migration requires consistent source and destination batch identities.");
+        }
+
+        return Decision.Create(
+            command.Subject,
+            new TacticalIslandMigratedEvent(value),
+            state.CampaignRevision.Next());
+    }
+
     private static Decision DecideSchedulerPolicy(
         CampaignState state,
         CampaignCommand command,
@@ -724,6 +808,38 @@ public static class CampaignKernel
             });
         }
         return state with { Assignments = assignments, Entities = entities };
+    }
+
+    private static CampaignState ApplyTacticalIslandMigration(
+        CampaignState state,
+        TacticalIslandMigratedEvent value)
+    {
+        var assignments = state.Assignments;
+        var entities = state.Entities;
+        foreach (var member in value.Migration.Members)
+        {
+            assignments = assignments.SetItem(member.SourceAssignmentId, assignments[member.SourceAssignmentId] with
+            {
+                Lifecycle = AssignmentLifecycle.Released,
+                Revision = member.ExpectedSourceAssignmentRevision.Next(),
+            });
+            assignments = assignments.SetItem(member.DestinationAssignmentId, assignments[member.DestinationAssignmentId] with
+            {
+                Role = AssignmentRole.Primary,
+                Lifecycle = AssignmentLifecycle.Active,
+                Revision = member.ExpectedDestinationAssignmentRevision.Next(),
+            });
+            var entity = entities[member.EntityId];
+            entities = entities.SetItem(member.EntityId, entity with
+            {
+                Fidelity = FidelityState.Tactical,
+                Revision = member.ExpectedEntityRevision.Next(),
+            });
+        }
+
+        var updated = state with { Assignments = assignments, Entities = entities };
+        CampaignStateValidator.Validate(updated);
+        return updated;
     }
 
     private static CampaignState ApplySchedulerPolicy(

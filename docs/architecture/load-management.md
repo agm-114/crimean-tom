@@ -154,12 +154,19 @@ assignment ownership both count as occupied, preventing stale heartbeats from
 overbooking a destination. The monitor exposes declared capacity, reserve and
 remaining ordinary-promotion headroom. It also reports the portion of physical
 headroom protected by reserve as migration-overlap headroom. That value is an
-admission envelope, not permission to create a second publisher; migration
-preparation remains disabled until the canonical non-publishing replacement
-state exists. Per-worker health declarations, temporary
+admission envelope, not permission to create a second publisher. Canonical
+Shadow replacement state now exists in the kernel; coordinator preparation,
+overlap budgets, and live enablement remain disabled. Per-worker health declarations, temporary
 source/destination migration overlap, whole-island migration, and bounded
 concurrent rebalance remain open work; this foundation must not be read as a
-completed migration controller.
+completed migration controller. The campaign kernel now has one atomic
+command/event that can migrate a complete singleton or multi-entity island:
+source assignments must be live `Primary`/`Quiesced`, destinations must be
+non-publishing `Shadow`/`Prepared` with a strictly higher epoch and a different
+worker, and one committed event releases the source while promoting the
+destination to `Primary`/`Active` without changing Tactical fidelity. The
+validator still allows only one live Primary. The coordinator does not schedule
+or claim this path yet.
 
 Assignment preparation now carries the entity's latest durable checkpoint when
 one exists. The companion authenticates the download and verifies its content
@@ -193,8 +200,9 @@ so health, eligibility, interest, capacity, backlog, request identity, and the
 stable-sample count survive service restart. An active quiet island requires two
 identical healthy interest-loss samples before quiescing; load shedding and
 explicit drain remain immediate. Longer health history, cooldowns,
-source/destination overlap accounting, migration, and tempo events are still
-target architecture rather than implemented claims.
+source/destination overlap accounting, coordinator-driven migration, and tempo
+events are still target architecture rather than live claims. The kernel's
+atomic Shadow promotion event is the durable fence for that future controller.
 
 The first reproducible operational baseline on the Ryzen 9 9900X development
 host sustains 35.9 quanta/s for 300 entities and 180 groups, clearing the healthy

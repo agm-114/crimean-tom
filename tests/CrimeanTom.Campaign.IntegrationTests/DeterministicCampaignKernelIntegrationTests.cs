@@ -105,10 +105,12 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.Equal("845cb503d344c094f1af692c0f29fd2aa251e150cf37b117ccd839934a4c07fa", longHorizon.Hash);
-        await ProveDurableJournalAsync(longHorizon);
-        await ProvePersistenceBoundariesAsync(longHorizon);
-        await ProveProcessCrashRecoveryAsync(longHorizon);
-        await ProveIndependentWriterFencingAsync(longHorizon);
+        var migrated = ProveFencedShadowMigration(longHorizon);
+        Assert.Equal("c4605852499091e553e2c057493ee254e5d25f9f8be0e3e47dd270eafe88644d", migrated.Hash);
+        await ProveDurableJournalAsync(migrated);
+        await ProvePersistenceBoundariesAsync(migrated);
+        await ProveProcessCrashRecoveryAsync(migrated);
+        await ProveIndependentWriterFencingAsync(migrated);
     }
 
     private static TheaterResult BuildTheater(bool reverseCollectionInputs)
@@ -258,6 +260,95 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         }
 
         return new TheaterResult(single, commands, events, CampaignCanonicalSerializer.ComputeHash(single));
+    }
+
+    private static TheaterResult ProveFencedShadowMigration(TheaterResult theater)
+    {
+        var state = theater.State;
+        var commands = theater.Commands.ToList();
+        var events = theater.Events.ToList();
+        var sequence = theater.Commands.Count + 1;
+        var source = state.Assignments[Ids.Assignment];
+        var entity = state.Entities[Ids.BlueKnox];
+        Assert.Equal(AssignmentRole.Primary, source.Role);
+        Assert.Equal(AssignmentLifecycle.Preparing, source.Lifecycle);
+        Assert.Equal(FidelityState.Tactical, entity.Fidelity);
+
+        state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.Assignment), source.Revision,
+            new ActivateTacticalAssignmentCommand(Ids.Assignment, source.AuthorityEpoch, Ids.BlueKnox, entity.Revision,
+                state.Time, "activate-source-for-migration"),
+            effectiveAt: state.Time), commands, events);
+        source = state.Assignments[Ids.Assignment];
+        state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.Assignment), source.Revision,
+            new SetAssignmentLifecycleCommand(Ids.Assignment, source.AuthorityEpoch, AssignmentLifecycle.Quiescing, state.Time),
+            effectiveAt: state.Time), commands, events);
+        source = state.Assignments[Ids.Assignment];
+        state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.Assignment), source.Revision,
+            new SetAssignmentLifecycleCommand(Ids.Assignment, source.AuthorityEpoch, AssignmentLifecycle.Quiesced, state.Time),
+            effectiveAt: state.Time), commands, events);
+
+        state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.ShadowAssignment), EntityRevision.None,
+            new AssignAuthorityCommand(Ids.ShadowAssignment, Ids.BlueKnox, AssignmentRole.Shadow, new AuthorityEpoch(8),
+                state.Time, WorkerClientInstanceId: "destination-worker"),
+            effectiveAt: state.Time), commands, events);
+        var destination = state.Assignments[Ids.ShadowAssignment];
+        state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.ShadowAssignment), destination.Revision,
+            new SetAssignmentLifecycleCommand(Ids.ShadowAssignment, destination.AuthorityEpoch, AssignmentLifecycle.Prepared,
+                state.Time),
+            effectiveAt: state.Time), commands, events);
+
+        source = state.Assignments[Ids.Assignment];
+        destination = state.Assignments[Ids.ShadowAssignment];
+        entity = state.Entities[Ids.BlueKnox];
+        Assert.Equal(AssignmentLifecycle.Quiesced, source.Lifecycle);
+        Assert.Equal(AssignmentRole.Shadow, destination.Role);
+        Assert.Equal(AssignmentLifecycle.Prepared, destination.Lifecycle);
+        Assert.Equal(FidelityState.Tactical, entity.Fidelity);
+        CampaignStateValidator.Validate(state);
+
+        var member = new TacticalIslandMigrationMember(
+            Ids.Assignment, source.AuthorityEpoch, source.Revision,
+            Ids.ShadowAssignment, destination.AuthorityEpoch, destination.Revision,
+            Ids.BlueKnox, entity.Revision);
+        var stale = Command(sequence, CampaignSubject.Campaign(Ids.Campaign), state.CampaignRevision,
+            new MigrateTacticalIslandCommand("migration-batch-pharris",
+                [member with { ExpectedEntityRevision = entity.Revision.Next() }],
+                state.Time, "stale-entity-revision"),
+            effectiveAt: state.Time);
+        var fenced = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(state, stale));
+        Assert.Equal("island-migration-fenced", fenced.Code);
+
+        state = Commit(state, Command(sequence++, CampaignSubject.Campaign(Ids.Campaign), state.CampaignRevision,
+            new MigrateTacticalIslandCommand("migration-batch-pharris", [member], state.Time, "promote-prepared-shadow"),
+            effectiveAt: state.Time), commands, events);
+
+        source = state.Assignments[Ids.Assignment];
+        destination = state.Assignments[Ids.ShadowAssignment];
+        entity = state.Entities[Ids.BlueKnox];
+        Assert.Equal(AssignmentRole.Primary, source.Role);
+        Assert.Equal(AssignmentLifecycle.Released, source.Lifecycle);
+        Assert.Equal(member.ExpectedSourceAssignmentRevision.Next(), source.Revision);
+        Assert.Equal(AssignmentRole.Primary, destination.Role);
+        Assert.Equal(AssignmentLifecycle.Active, destination.Lifecycle);
+        Assert.Equal(member.ExpectedDestinationAssignmentRevision.Next(), destination.Revision);
+        Assert.Equal(new AuthorityEpoch(8), destination.AuthorityEpoch);
+        Assert.Equal(FidelityState.Tactical, entity.Fidelity);
+        Assert.Equal(member.ExpectedEntityRevision.Next(), entity.Revision);
+        Assert.Equal("destination-worker", destination.WorkerClientInstanceId);
+        Assert.Equal(1, state.Assignments.Values.Count(item =>
+            item.EntityId == Ids.BlueKnox
+            && item.Role == AssignmentRole.Primary
+            && item.Lifecycle != AssignmentLifecycle.Released));
+        CampaignStateValidator.Validate(state);
+        AssertCampaignInvariants(state);
+
+        var replay = CampaignState.Create(theater.State.Metadata);
+        foreach (var campaignEvent in events)
+        {
+            replay = CampaignKernel.Apply(replay, campaignEvent);
+        }
+        Assert.Equal(CampaignCanonicalSerializer.Serialize(state), CampaignCanonicalSerializer.Serialize(replay));
+        return new TheaterResult(state, commands, events, CampaignCanonicalSerializer.ComputeHash(state));
     }
 
     private static IReadOnlyDictionary<ResourceKind, long> ResourceTotals(CampaignState state) =>
@@ -889,6 +980,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly GroupId RedGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000002"));
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
         public static readonly AssignmentId Assignment = new(Guid.Parse("90000000-0000-0000-0000-000000000001"));
+        public static readonly AssignmentId ShadowAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000002"));
         public const string BlueTruth = "BLUE-TRUE-STATE-SENTINEL";
         public const string RedTruth = "RED-TRUE-STATE-SENTINEL";
     }

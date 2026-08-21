@@ -207,9 +207,11 @@ assignments and fences use that affinity, inbound assignment traffic from a
 non-owner is fenced, and committed campaign events fan out to all sessions.
 The operator projection lists every worker and its materialized, active,
 retained, recovery-required, profile, and coupling counts. Deterministic
-least-loaded selection is only the placement foundation: migration still
-requires destination headroom, checkpoint transfer, cooldown, and source/target
-overlap accounting before it is safe to enable.
+least-loaded selection is only the placement foundation. The durable kernel can
+now commit one fenced Shadow-to-Primary migration for a complete island, but
+live enablement still requires destination headroom, checkpoint transfer,
+cooldown, source/target overlap accounting, and coordinator scheduling before
+it is safe to use in Sea Power.
 
 A representable interaction island is durably reserved and queued to the
 companion directly by the schedule operation. Singleton assignments activate
