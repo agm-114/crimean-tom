@@ -128,6 +128,14 @@ loaded mission has no player task force, or any member lacks a supported
 profile. This prevents a surface-only adapter from silently promoting mixed
 surface/submarine or otherwise unsupported task forces.
 
+The service now automatically creates and queues a deterministic Preparing
+assignment for a selected, fully representable singleton island. Manual and
+automatic handoffs both stage Strategic entities at Operational before the
+reservation, so rejection or a pre-checkpoint crash has one safe fallback
+fidelity. Islands with multiple entities remain Operational with
+`atomic-island-activation-unavailable`; partial per-entity activation is not an
+accepted approximation of whole-island authority.
+
 The request envelope is retained only for the running service's diagnostic view;
 the resulting entity fidelity is durable. Persisted health history, hysteresis,
 cooldowns, reserve and destination accounting, migration, and tempo events are

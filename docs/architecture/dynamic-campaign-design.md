@@ -112,6 +112,14 @@ for every entity in an interaction island before it can request Tactical
 fidelity. An offline worker, missing task force, or partially unsupported island
 stays Operational with an explicit diagnostic reason.
 
+For the first executable scheduler-to-game slice, a representable singleton
+island is durably reserved and queued to the companion directly by the schedule
+operation. A ready checkpoint then performs the existing atomic
+assignment/entity activation. Multi-entity islands currently report
+`atomic-island-activation-unavailable` and remain Operational; they will not be
+partially promoted while batch-ready state and one-event island activation are
+still being implemented.
+
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the

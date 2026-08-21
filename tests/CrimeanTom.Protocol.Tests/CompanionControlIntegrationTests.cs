@@ -131,9 +131,6 @@ public sealed class CompanionControlIntegrationTests
                 .GetProperty("crashBeforeCheckpointEntityId")
                 .GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
-            var assignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000004"):N}";
-            const string gameEntityId = "unit:crimean-tom:transport-knox";
-
             var fuldaCampaignId = Guid.Parse("10000000-0000-0000-0000-000000000005").ToString("N");
             using var createdFuldaCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
@@ -305,7 +302,11 @@ public sealed class CompanionControlIntegrationTests
             demoteResponse.EnsureSuccessStatusCode();
             using var demoted = JsonDocument.Parse(
                 await demoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Empty(demoted.RootElement.GetProperty("transitions").EnumerateArray());
+            var demotionTransitions = demoted.RootElement.GetProperty("transitions").EnumerateArray().ToArray();
+            Assert.NotEmpty(demotionTransitions);
+            Assert.Single(demotionTransitions.Select(item => item.GetProperty("islandId").GetString()).Distinct());
+            Assert.All(demotionTransitions, item =>
+                Assert.Equal("Strategic", item.GetProperty("toFidelity").GetString()));
 
             var start = await RunControlScriptAsync(
                 scriptPath,
@@ -356,33 +357,30 @@ public sealed class CompanionControlIntegrationTests
             var gamePeer = RunGamePeerAsync(gamePipeName, probeSavePath, testTimeout.Token);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
-            using var queuedAssignment = await campaignClient.PostAsJsonAsync(
-                "/control/handoffs",
+            var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
+            using var scheduledAssignment = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/schedule",
                 new
                 {
-                    campaignId,
-                    canonicalEntityId = primaryEntityId,
-                    gameEntityId,
-                    assignmentId,
-                    authorityEpoch = 11,
-                    idempotencyKey = "transport-materialize-1",
-                    requiredRuntimeFingerprintSha256 = new string('a', 64),
-                    requiredCatalogFingerprintSha256 = string.Empty,
-                    unitTypeId = "usn_ff_knox_84",
-                    variantId = "Variant13",
-                    loadoutId = "Default",
-                    taskforceId = "taskforce:Blue",
+                    observedEntityIds = new[] { primaryEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 1,
+                    backlogDepth = 0,
                 },
-                JsonOptions,
                 testTimeout.Token);
-            Assert.True(
-                queuedAssignment.StatusCode == HttpStatusCode.Accepted,
-                $"Canonical handoff was not queued: {queuedAssignment.StatusCode} "
-                + await queuedAssignment.Content.ReadAsStringAsync(testTimeout.Token));
+            scheduledAssignment.EnsureSuccessStatusCode();
             var assignmentFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 2,
                 testTimeout.Token);
+            var prepared = Assert.Single(assignmentFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
+            Assert.True(prepared.Ready, prepared.ErrorMessage);
+            var assignmentId = prepared.AssignmentId;
+            var authorityEpoch = prepared.AuthorityEpoch;
+            Assert.Equal(gameEntityId, prepared.EntityId);
             var checkpointPublished = Assert.Single(assignmentFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished).CheckpointPublished;
             Assert.Equal(assignmentId, checkpointPublished.AssignmentId);
@@ -392,9 +390,6 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(HttpStatusCode.OK, checkpointDownload.StatusCode);
             Assert.Equal(checkpointPublished.CheckpointLength,
                 (await checkpointDownload.Content.ReadAsByteArrayAsync(testTimeout.Token)).Length);
-            var prepared = Assert.Single(assignmentFrames, item =>
-                item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
-            Assert.True(prepared.Ready, prepared.ErrorMessage);
 
             using var activeCampaign = await WaitForCampaignViewAsync(
                 campaignClient,
@@ -445,7 +440,7 @@ public sealed class CompanionControlIntegrationTests
                     IdempotencyKey = "transport-move-1",
                     AssignmentId = assignmentId,
                     EntityId = gameEntityId,
-                    AuthorityEpoch = 11,
+                    AuthorityEpoch = authorityEpoch,
                     ExpectedEntityRevision = 1,
                     EffectiveTimeQuanta = 1,
                     LatitudeMicrodegrees = 12_260_000,
@@ -1463,6 +1458,16 @@ public sealed class CompanionControlIntegrationTests
                     CommandCancellationSupported = true,
                     SupportedPriorities = CommandPriorities.Supported,
                     ExecutionThreadGuardSelfTest = "passed",
+                    PlayerTaskforceId = "taskforce:Blue",
+                    OwnedSurfaceMaterializationProfiles =
+                    [
+                        new OwnedSurfaceMaterializationProfilePayload
+                        {
+                            UnitTypeId = "usn_ff_knox_84",
+                            VariantId = "Variant13",
+                            LoadoutId = "Default",
+                        },
+                    ],
                     RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
                     {
                         FingerprintSha256 = new string('a', 64),
@@ -1798,6 +1803,16 @@ public sealed class CompanionControlIntegrationTests
                     SupportedCommands = GameCommandTypes.AllCommands,
                     SupportedUiAutomationCommands = GameCommandTypes.UiAutomationCommands,
                     UiAutomationEnabled = true,
+                    PlayerTaskforceId = "taskforce:Blue",
+                    OwnedSurfaceMaterializationProfiles =
+                    [
+                        new OwnedSurfaceMaterializationProfilePayload
+                        {
+                            UnitTypeId = "usn_ff_knox_84",
+                            VariantId = "Variant13",
+                            LoadoutId = "Default",
+                        },
+                    ],
                     RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
                     {
                         FingerprintSha256 = new string('a', 64),

@@ -230,56 +230,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         try
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
-            var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
-            var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            var entity = state.Entities.TryGetValue(entityId, out var found)
-                ? found
-                : throw new CampaignStoreConflict("entity-missing", "The handoff entity does not exist.");
-            if (entity.MaximumFidelity != FidelityState.Tactical)
-            {
-                throw new CampaignStoreConflict(
-                    "fidelity-ceiling",
-                    "The entity's simulation domain cannot be assigned to a Sea Power tactical worker.");
-            }
-            state = await CommitAsync(state, Command(
-                state,
-                CampaignSubject.Assignment(assignmentId),
-                EntityRevision.None,
-                new AssignAuthorityCommand(
-                    assignmentId,
-                    entityId,
-                    CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
-                    new AuthorityEpoch(request.AuthorityEpoch),
-                    state.Time),
-                $"{request.IdempotencyKey}-assignment"), cancellationToken);
-            entity = state.Entities[entityId];
-            return new TacticalAssignment
-            {
-                CampaignId = campaignId.ToString(),
-                AssignmentId = request.AssignmentId,
-                EntityId = request.GameEntityId,
-                CanonicalEntityId = entityId.ToString(),
-                AuthorityEpoch = request.AuthorityEpoch,
-                Role = CrimeanTom.Campaign.Transport.V1.AssignmentRole.Primary,
-                HandoffCommitPosition = state.Head.Value,
-                HandoffTimeQuanta = state.Time.Quanta,
-                ExpectedEntityRevision = 0,
-                IdempotencyKey = request.IdempotencyKey,
-                RequiredRuntimeFingerprintSha256 = request.RequiredRuntimeFingerprintSha256,
-                RequiredCatalogFingerprintSha256 = request.RequiredCatalogFingerprintSha256,
-                UnitTypeId = request.UnitTypeId,
-                VariantId = request.VariantId,
-                LoadoutId = request.LoadoutId,
-                TaskforceId = request.TaskforceId,
-                LatitudeMicrodegrees = entity.Coordinate.LatitudeMicrodegrees,
-                LongitudeMicrodegrees = entity.Coordinate.LongitudeMicrodegrees,
-                HeadingMillidegrees = entity.Heading.Value,
-                Telegraph = entity.Telegraph,
-                GloballyPaused = true,
-                InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
-                InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
-            };
+            return (await PrepareHandoffCoreAsync(state, request, cancellationToken)).Assignment;
         }
         finally
         {
@@ -494,6 +446,77 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                         $"scheduler-{state.Time.Quanta}-{island.IslandId}-{entityId}-{entity.Revision.Value}-{island.DesiredFidelity}"), cancellationToken);
                 }
             }
+            if (worker is not null
+                && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
+            {
+                foreach (var island in evaluation.Islands
+                    .Where(item => item.DesiredFidelity == FidelityState.Tactical && item.EntityIds.Count == 1)
+                    .OrderBy(item => item.IslandId, StringComparer.Ordinal))
+                {
+                    var entityId = island.EntityIds[0];
+                    if (state.Assignments.Values.Any(item => item.EntityId == entityId
+                        && item.Lifecycle != AssignmentLifecycle.Released))
+                    {
+                        continue;
+                    }
+                    var entity = state.Entities[entityId];
+                    var profile = worker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
+                        item.UnitTypeId,
+                        entity.CatalogUnitId,
+                        StringComparison.Ordinal));
+                    if (profile is null || string.IsNullOrWhiteSpace(worker.PlayerTaskforceId))
+                    {
+                        continue;
+                    }
+                    var attempt = state.Assignments.Values.Count(item => item.EntityId == entityId) + 1;
+                    var assignmentGuid = KeyedGuid(
+                        campaignId.Value,
+                        $"scheduler-assignment-{island.IslandId}-{entityId}-{attempt}");
+                    var authorityEpoch = state.Assignments.Values
+                        .Where(item => item.EntityId == entityId)
+                        .Select(item => item.AuthorityEpoch.Value)
+                        .DefaultIfEmpty(0)
+                        .Max() + 1;
+                    var idempotencyKey = $"scheduler-handoff-{island.IslandId}-{entityId}-{attempt}";
+                    var handoffRequest = new CampaignHandoffRequest(
+                        campaignId.ToString(),
+                        entityId.ToString(),
+                        $"unit:crimean-tom:{entityId}",
+                        $"assignment:{assignmentGuid:N}",
+                        authorityEpoch,
+                        idempotencyKey,
+                        worker.RuntimeFingerprintSha256,
+                        worker.CatalogFingerprintSha256,
+                        profile.UnitTypeId,
+                        profile.VariantId,
+                        profile.LoadoutId,
+                        worker.PlayerTaskforceId);
+                    var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
+                    state = prepared.State;
+                    if (sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                        {
+                            Assignment = prepared.Assignment,
+                        }))
+                    {
+                        continue;
+                    }
+                    var assignmentId = ParseScopedId(
+                        handoffRequest.AssignmentId,
+                        "assignment:",
+                        value => new AssignmentId(value));
+                    var assignment = state.Assignments[assignmentId];
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Assignment(assignmentId),
+                        assignment.Revision,
+                        new SetAssignmentLifecycleCommand(
+                            assignmentId,
+                            assignment.AuthorityEpoch,
+                            AssignmentLifecycle.Released,
+                            state.Time),
+                        $"cancel-{idempotencyKey}-session-lost-before-queue"), cancellationToken);
+                }
+            }
             _schedulerRequests[campaignId] = request;
             var applied = CampaignFidelityScheduler.Evaluate(state, request, worker) with
             {
@@ -506,6 +529,83 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
         {
             _gate.Release();
         }
+    }
+
+    private async Task<(CampaignState State, TacticalAssignment Assignment)> PrepareHandoffCoreAsync(
+        CampaignState state,
+        CampaignHandoffRequest request,
+        CancellationToken cancellationToken)
+    {
+        var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+        if (campaignId != state.Metadata.CampaignId)
+        {
+            throw new CampaignStoreConflict("campaign-mismatch", "The handoff campaign does not match canonical state.");
+        }
+        var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
+        var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
+        var entity = state.Entities.TryGetValue(entityId, out var found)
+            ? found
+            : throw new CampaignStoreConflict("entity-missing", "The handoff entity does not exist.");
+        if (entity.MaximumFidelity != FidelityState.Tactical)
+        {
+            throw new CampaignStoreConflict(
+                "fidelity-ceiling",
+                "The entity's simulation domain cannot be assigned to a Sea Power tactical worker.");
+        }
+        if (entity.Fidelity == FidelityState.Strategic)
+        {
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Entity(entityId),
+                entity.Revision,
+                new ChangeFidelityCommand(entityId, FidelityState.Operational, "tactical-handoff-preparation"),
+                $"{request.IdempotencyKey}-operational-preparation"), cancellationToken);
+            entity = state.Entities[entityId];
+        }
+        if (entity.Fidelity is FidelityState.Suspended or FidelityState.Tactical)
+        {
+            throw new CampaignStoreConflict(
+                "handoff-source-fidelity",
+                "A new tactical handoff must start from Strategic or Operational fidelity.");
+        }
+        state = await CommitAsync(state, Command(
+            state,
+            CampaignSubject.Assignment(assignmentId),
+            EntityRevision.None,
+            new AssignAuthorityCommand(
+                assignmentId,
+                entityId,
+                CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
+                new AuthorityEpoch(request.AuthorityEpoch),
+                state.Time),
+            $"{request.IdempotencyKey}-assignment"), cancellationToken);
+        entity = state.Entities[entityId];
+        return (state, new TacticalAssignment
+        {
+            CampaignId = campaignId.ToString(),
+            AssignmentId = request.AssignmentId,
+            EntityId = request.GameEntityId,
+            CanonicalEntityId = entityId.ToString(),
+            AuthorityEpoch = request.AuthorityEpoch,
+            Role = CrimeanTom.Campaign.Transport.V1.AssignmentRole.Primary,
+            HandoffCommitPosition = state.Head.Value,
+            HandoffTimeQuanta = state.Time.Quanta,
+            ExpectedEntityRevision = 0,
+            IdempotencyKey = request.IdempotencyKey,
+            RequiredRuntimeFingerprintSha256 = request.RequiredRuntimeFingerprintSha256,
+            RequiredCatalogFingerprintSha256 = request.RequiredCatalogFingerprintSha256,
+            UnitTypeId = request.UnitTypeId,
+            VariantId = request.VariantId,
+            LoadoutId = request.LoadoutId,
+            TaskforceId = request.TaskforceId,
+            LatitudeMicrodegrees = entity.Coordinate.LatitudeMicrodegrees,
+            LongitudeMicrodegrees = entity.Coordinate.LongitudeMicrodegrees,
+            HeadingMillidegrees = entity.Heading.Value,
+            Telegraph = entity.Telegraph,
+            GloballyPaused = true,
+            InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
+            InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+        });
     }
 
     public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(

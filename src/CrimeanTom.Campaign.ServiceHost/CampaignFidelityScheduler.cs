@@ -147,12 +147,6 @@ internal static class CampaignFidelityScheduler
                     : request.BacklogDepth >= 192 ? "transport-backlog-load-shed"
                     : $"client-{request.Health.ToString().ToLowerInvariant()}";
             }
-            else if (hasInterest && tacticalCapable && island.EntityIds.Count <= remainingCapacity)
-            {
-                desired = FidelityState.Tactical;
-                remainingCapacity -= island.EntityIds.Count;
-                reason = controlled.Overlaps(island.EntityIds) ? "player-control" : "player-observation";
-            }
             else if (hasInterest && !tacticalCapable)
             {
                 desired = FidelityState.Operational;
@@ -172,6 +166,17 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Operational;
                 reason = "worker-materialization-ceiling";
+            }
+            else if (hasInterest && island.EntityIds.Count > 1)
+            {
+                desired = FidelityState.Operational;
+                reason = "atomic-island-activation-unavailable";
+            }
+            else if (hasInterest && island.EntityIds.Count <= remainingCapacity)
+            {
+                desired = FidelityState.Tactical;
+                remainingCapacity -= island.EntityIds.Count;
+                reason = controlled.Overlaps(island.EntityIds) ? "player-control" : "player-observation";
             }
             else if (hasInterest)
             {

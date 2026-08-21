@@ -330,6 +330,15 @@ connected matching campaign worker and full-island representability, reporting
 current Knox-only surface adapter therefore cannot misrepresent a mixed naval
 island as fully tactical.
 
+Scheduling a compatible singleton now creates its deterministic assignment and
+queues it to the connected companion without a separate handoff API call. The
+broad protocol story exercises this route through materialization, first
+checkpoint, atomic activation, command application, service restart, quiesce,
+and recovery. Strategic sources are promoted to Operational before Preparing.
+Multi-entity candidates explicitly stop at
+`atomic-island-activation-unavailable` until batch preparation and atomic island
+activation land.
+
 Next, carry these decisions through live Sea Power materialization/quiesce,
 extend coupling to weapon/guidance/host relationships, persist and hysteretically
 recover scheduler state, measure capacity/tempo under stress, and calibrate the
