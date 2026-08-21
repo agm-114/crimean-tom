@@ -52,6 +52,7 @@ type Worker = {
   ownedMaterializedEntityCount: number; ownedActiveEntityCount: number;
   ownedRetainedSuspendedEntityCount: number; ownedRecoveryRequiredEntityCount: number;
   tacticalEntityCapacity: number; tacticalReserveCapacity: number;
+  occupiedTacticalEntityCount: number; promotionHeadroom: number; migrationOverlapHeadroom: number;
   materializationProfileCount: number; couplingRelationshipCount: number;
 };
 type InteractionIsland = {
@@ -552,18 +553,17 @@ function renderPanels(data: Campaign): void {
     ? `${(data.performance.advance.lastWorkUnitsPerSecondMilliunits / 1_000).toFixed(0)}/s`
     : "—";
   byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // LOAD ${data.scheduler.occupiedTacticalEntityCount}/${data.scheduler.tacticalEntityCapacity} // ACTIVE ${data.scheduler.activeTacticalEntityCount} // HELD ${data.scheduler.retainedSuspendedTacticalEntityCount} // RESERVE ${data.scheduler.tacticalReserveCapacity} // FREE ${data.scheduler.availableTacticalEntityCapacity} // ${data.scheduler.loadAction}`;
-  const workerMaterialized = data.workers.reduce((total, worker) => total + worker.ownedMaterializedEntityCount, 0);
   const workerActive = data.workers.reduce((total, worker) => total + worker.ownedActiveEntityCount, 0);
   const workerRecovery = data.workers.reduce((total, worker) => total + worker.ownedRecoveryRequiredEntityCount, 0);
   const workerCapacity = data.workers.reduce((total, worker) => total + worker.tacticalEntityCapacity, 0);
   const workerReserve = data.workers.reduce((total, worker) => total + worker.tacticalReserveCapacity, 0);
-  const workerFree = data.workers.reduce((total, worker) => total + Math.max(
-    0,
-    worker.tacticalEntityCapacity - worker.tacticalReserveCapacity - worker.ownedMaterializedEntityCount), 0);
-  const workerStatus = `WORKERS / ${data.workers.length} // MATERIALIZED ${workerMaterialized} // ACTIVE ${workerActive} // CAP ${workerCapacity} // RESERVE ${workerReserve} // FREE ${workerFree} // RECOVERY ${workerRecovery}`;
+  const workerOccupied = data.workers.reduce((total, worker) => total + worker.occupiedTacticalEntityCount, 0);
+  const workerPromotionHeadroom = data.workers.reduce((total, worker) => total + worker.promotionHeadroom, 0);
+  const workerMigrationHeadroom = data.workers.reduce((total, worker) => total + worker.migrationOverlapHeadroom, 0);
+  const workerStatus = `WORKERS / ${data.workers.length} // LOAD ${workerOccupied}/${workerCapacity} // ACTIVE ${workerActive} // RESERVE ${workerReserve} // PROMO ${workerPromotionHeadroom} // MIG ${workerMigrationHeadroom} // RECOVERY ${workerRecovery}`;
   byId("worker-status").textContent = workerStatus;
   byId("worker-status").title = data.workers.length
-    ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.playerTaskforceId || "NO TASKFORCE"}:${worker.ownedMaterializedEntityCount}/${worker.tacticalEntityCapacity}-R${worker.tacticalReserveCapacity}`).join(" + ")}`
+    ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.playerTaskforceId || "NO TASKFORCE"}:O${worker.occupiedTacticalEntityCount}/${worker.tacticalEntityCapacity}:R${worker.tacticalReserveCapacity}:P${worker.promotionHeadroom}:M${worker.migrationOverlapHeadroom}`).join(" + ")}`
     : workerStatus;
   byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;

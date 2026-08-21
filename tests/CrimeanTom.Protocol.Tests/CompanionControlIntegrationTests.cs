@@ -476,6 +476,9 @@ public sealed class CompanionControlIntegrationTests
             var activeWorker = Assert.Single(activeCampaign.RootElement.GetProperty("workers").EnumerateArray());
             Assert.Equal(4, activeWorker.GetProperty("tacticalEntityCapacity").GetInt32());
             Assert.Equal(1, activeWorker.GetProperty("tacticalReserveCapacity").GetInt32());
+            Assert.Equal(1, activeWorker.GetProperty("occupiedTacticalEntityCount").GetInt32());
+            Assert.Equal(0, activeWorker.GetProperty("promotionHeadroom").GetInt32());
+            Assert.Equal(1, activeWorker.GetProperty("migrationOverlapHeadroom").GetInt32());
             var activeAssignment = Assert.Single(activeCampaign.RootElement.GetProperty("assignments").EnumerateArray());
             Assert.Equal("Active", activeAssignment.GetProperty("lifecycle").GetString());
             await WaitForCampaignResourceCountsAsync(

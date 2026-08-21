@@ -152,7 +152,11 @@ tie-breakers. Admission is bounded by the smaller of the campaign-safe budget
 and `worker capacity - worker reserve`; runtime materialization and live
 assignment ownership both count as occupied, preventing stale heartbeats from
 overbooking a destination. The monitor exposes declared capacity, reserve and
-remaining admission headroom. Per-worker health declarations, temporary
+remaining ordinary-promotion headroom. It also reports the portion of physical
+headroom protected by reserve as migration-overlap headroom. That value is an
+admission envelope, not permission to create a second publisher; migration
+preparation remains disabled until the canonical non-publishing replacement
+state exists. Per-worker health declarations, temporary
 source/destination migration overlap, whole-island migration, and bounded
 concurrent rebalance remain open work; this foundation must not be read as a
 completed migration controller.

@@ -384,6 +384,15 @@ current campaign. The rendered status showed `CAP 4`, `RESERVE 1`, `FREE 2`, 60
 units and no browser errors; only Babylon's normal WebGL initialization log was
 present.
 
+The follow-on admission projection removed that UI-side `FREE` estimate. With
+the campaign-safe budget still at one, the same live worker reported one
+occupied object, zero ordinary-promotion headroom and one reserve-protected
+migration-overlap slot. The monitor rendered `LOAD 1/4`, `RESERVE 1`, `PROMO 0`
+and `MIG 1` directly from the service, and `/monitor/it` again canonicalized to
+the active campaign without browser warnings or errors. `MIG 1` proves the
+reserved physical envelope is accounted for; it does not claim that the current
+one-Primary state machine can spend that slot yet.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,
@@ -394,7 +403,8 @@ present.
   test split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.
-- Add bounded temporary source/destination overlap accounting and fenced
-  whole-island migration,
+- Add a durable non-publishing destination-preparation state, spend the now
+  explicit overlap reserve under bounded concurrency, and fence whole-island
+  migration,
   then prove this checkpoint reconstruction path between two real tactical
   containers. Do not enable automatic migration for unsupported state families.

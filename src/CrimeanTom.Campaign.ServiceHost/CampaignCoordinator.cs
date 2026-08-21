@@ -478,7 +478,11 @@ public sealed class CampaignCoordinator(
                 item.Detail)).ToArray(),
             CampaignFidelityScheduler.ToView(recovery.State, scheduler),
             telemetry.Snapshot(campaignId),
-            workers.Select(ToWorkerView).ToArray());
+            workers.Select(worker => ToWorkerView(
+                recovery.State,
+                worker,
+                Math.Max(0, scheduler.Request.TacticalEntityCapacity
+                    - scheduler.Request.TacticalReserveCapacity))).ToArray());
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -1334,24 +1338,37 @@ public sealed class CampaignCoordinator(
         policy.BacklogDepth,
         policy.TacticalReserveCapacity);
 
-    private static CampaignWorkerView ToWorkerView(CampaignSessionSnapshot worker) => new(
-        worker.SessionId,
-        worker.ClientInstanceId,
-        worker.GameSessionId,
-        worker.ConnectedAt,
-        worker.LastAppliedCommitPosition,
-        worker.ReceivedFrameCount,
-        worker.RuntimeFingerprintSha256,
-        worker.CatalogFingerprintSha256,
-        worker.PlayerTaskforceId,
-        worker.OwnedMaterializedEntityCount,
-        worker.OwnedActiveEntityCount,
-        worker.OwnedRetainedSuspendedEntityCount,
-        worker.OwnedRecoveryRequiredEntityCount,
-        worker.TacticalEntityCapacity,
-        worker.TacticalReserveCapacity,
-        worker.MaterializationProfiles.Count,
-        worker.CouplingRelationships.Count);
+    private static CampaignWorkerView ToWorkerView(
+        CampaignState state,
+        CampaignSessionSnapshot worker,
+        int campaignSafeCapacity)
+    {
+        var admission = CampaignWorkerAdmissionPolicy.Calculate(
+            state,
+            worker,
+            campaignSafeCapacity);
+        return new(
+            worker.SessionId,
+            worker.ClientInstanceId,
+            worker.GameSessionId,
+            worker.ConnectedAt,
+            worker.LastAppliedCommitPosition,
+            worker.ReceivedFrameCount,
+            worker.RuntimeFingerprintSha256,
+            worker.CatalogFingerprintSha256,
+            worker.PlayerTaskforceId,
+            worker.OwnedMaterializedEntityCount,
+            worker.OwnedActiveEntityCount,
+            worker.OwnedRetainedSuspendedEntityCount,
+            worker.OwnedRecoveryRequiredEntityCount,
+            worker.TacticalEntityCapacity,
+            worker.TacticalReserveCapacity,
+            admission.OccupiedTacticalEntityCount,
+            admission.PromotionHeadroom,
+            admission.MigrationOverlapHeadroom,
+            worker.MaterializationProfiles.Count,
+            worker.CouplingRelationships.Count);
+    }
 
     private static CampaignSessionSnapshot? SelectPlacementWorker(
         CampaignState state,
@@ -1386,22 +1403,24 @@ public sealed class CampaignCoordinator(
                     profile.UnitTypeId,
                     state.Entities[entityId].CatalogUnitId,
                     StringComparison.Ordinal))))
-            .Where(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId) + missingEntityCount
-                <= DestinationSafeCapacity(worker, destinationCapacity))
-            .OrderBy(worker => checked(
-                plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId) * 1_000_000L)
-                / Math.Max(1, DestinationSafeCapacity(worker, destinationCapacity)))
-            .ThenBy(worker => worker.OwnedRecoveryRequiredEntityCount)
-            .ThenBy(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId))
-            .ThenBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
+            .Select(worker => new
+            {
+                Worker = worker,
+                Admission = CampaignWorkerAdmissionPolicy.Calculate(
+                    worker,
+                    destinationCapacity,
+                    plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId)),
+            })
+            .Where(candidate => candidate.Admission.CanAdmitPromotion(missingEntityCount))
+            .OrderBy(candidate => checked(
+                candidate.Admission.OccupiedTacticalEntityCount * 1_000_000L)
+                / Math.Max(1, candidate.Admission.PromotionCapacityLimit))
+            .ThenBy(candidate => candidate.Worker.OwnedRecoveryRequiredEntityCount)
+            .ThenBy(candidate => candidate.Admission.OccupiedTacticalEntityCount)
+            .ThenBy(candidate => candidate.Worker.ClientInstanceId, StringComparer.Ordinal)
+            .Select(candidate => candidate.Worker)
             .FirstOrDefault();
     }
-
-    private static int DestinationSafeCapacity(
-        CampaignSessionSnapshot worker,
-        int campaignSafeCapacity) => Math.Min(
-            campaignSafeCapacity,
-            Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity));
 
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
@@ -1556,6 +1575,9 @@ public sealed record CampaignWorkerView(
     int OwnedRecoveryRequiredEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    int OccupiedTacticalEntityCount,
+    int PromotionHeadroom,
+    int MigrationOverlapHeadroom,
     int MaterializationProfileCount,
     int CouplingRelationshipCount);
 

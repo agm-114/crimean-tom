@@ -335,10 +335,14 @@ smaller of the campaign budget and the destination's `capacity - reserve`,
 counts both runtime objects and non-released assignments, and sorts candidates
 by normalized utilization before recovery debt, load and stable identity. The
 development defaults are capacity four and reserve one, based on the live
-independent-Knox probe rather than mixed-combat calibration. The monitor exposes
-aggregate capacity, reserve and free headroom. Explicit per-worker health and
-temporary source/destination migration-overlap budgets remain the next
-admission-control slice.
+independent-Knox probe rather than mixed-combat calibration. One shared
+server-side admission policy now exposes occupied count, ordinary promotion
+headroom and the protected reserve still physically available for temporary
+migration overlap. Placement and the monitor use those server-derived values,
+so the UI cannot overstate headroom from a stale materialized count. The overlap
+value is diagnostic only: explicit per-worker health and a durable
+non-publishing destination-preparation state remain prerequisites for spending
+it without violating the one-Primary fence.
 
 New assignments now reference the latest durable checkpoint for their entity.
 The companion downloads that blob with campaign authentication and verifies its

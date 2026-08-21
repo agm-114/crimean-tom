@@ -617,8 +617,13 @@ single-player prototype.
   aggregate across all connected campaign workers. Each complete island keeps
   one owner and selects a compatible least-loaded destination using planned as
   well as reported occupancy, the campaign-global safe capacity, and stable
-  client identity. Per-worker health/capacity declarations, migration overlap,
-  destination reserve accounting, and rebalance cooldown are still open.
+  client identity. Workers now advertise their own capacity and reserve on
+  hello and heartbeat. Admission uses the smaller of campaign-safe capacity and
+  destination `capacity - reserve`, counting both materialized objects and live
+  assignments. Diagnostics separately expose ordinary promotion headroom and
+  the still-protected reserve available for a future migration overlap. The
+  reserve is not spent yet: non-publishing replacement preparation, per-worker
+  health, bounded migration concurrency, and rebalance cooldown remain open.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies

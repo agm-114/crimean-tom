@@ -203,22 +203,8 @@ internal static class CampaignFidelityScheduler
                     StringComparison.Ordinal)))).ToArray();
             var workerCanMaterializeIsland = compatibleWorkers.Length > 0;
             var workerCanAdmitIsland = compatibleWorkers.Any(worker =>
-            {
-                var assignedCount = state.Assignments.Values
-                    .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
-                        && string.Equals(
-                            assignment.WorkerClientInstanceId,
-                            worker.ClientInstanceId,
-                            StringComparison.Ordinal))
-                    .Select(assignment => assignment.EntityId)
-                    .Distinct()
-                    .Count();
-                var occupied = Math.Max(worker.OwnedMaterializedEntityCount, assignedCount);
-                var destinationSafeCapacity = Math.Min(
-                    safeTacticalCapacity,
-                    Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity));
-                return occupied + island.EntityIds.Count <= destinationSafeCapacity;
-            });
+                CampaignWorkerAdmissionPolicy.Calculate(state, worker, safeTacticalCapacity)
+                    .CanAdmitPromotion(island.EntityIds.Count));
             var workerRequiresEvacuation = request.Health is SchedulerHealthState.Draining
                     or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
                 || request.Eligibility != SimulationSourceEligibility.Eligible;
