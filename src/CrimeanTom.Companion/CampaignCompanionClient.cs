@@ -89,80 +89,96 @@ public sealed class CampaignCompanionClient(
             await SendAsync(staged.Frame, staged.Key);
         }
 
-        ulong previousServiceSequence = 0;
-        await foreach (var frame in call.ResponseStream.ReadAllAsync(cancellationToken))
+        using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var heartbeatTask = RunHeartbeatAsync(heartbeatCancellation.Token);
+        try
         {
-            if (frame.Sequence != previousServiceSequence + 1)
+            ulong previousServiceSequence = 0;
+            await foreach (var frame in call.ResponseStream.ReadAllAsync(cancellationToken))
             {
-                throw new InvalidDataException("Campaign-service frame sequence is non-contiguous.");
-            }
-            previousServiceSequence = frame.Sequence;
-            switch (frame.PayloadCase)
-            {
-                case ServiceFrame.PayloadOneofCase.Welcome:
-                    if (frame.Welcome.ProtocolVersion != 1
-                        || !string.Equals(frame.Welcome.CampaignId, options.CampaignId, StringComparison.Ordinal))
-                    {
-                        throw new InvalidDataException("Campaign-service welcome is incompatible.");
-                    }
-                    break;
-                case ServiceFrame.PayloadOneofCase.CommittedEvent:
-                    await stateStore.AcceptCommittedEventAsync(frame.CommittedEvent, cancellationToken);
-                    await SendAcknowledgementAsync(frame.Sequence, stateStore.ReadCursor());
-                    break;
-                case ServiceFrame.PayloadOneofCase.Assignment:
-                    {
-                        var currentCapabilities = await ReadCapabilitiesAsync(cancellationToken);
-                        var preparation = await PrepareAssignmentAsync(
-                            frame.Assignment,
-                            currentCapabilities,
-                            token,
-                            cancellationToken);
-                        if (preparation.Checkpoint is { } checkpoint)
+                if (frame.Sequence != previousServiceSequence + 1)
+                {
+                    throw new InvalidDataException("Campaign-service frame sequence is non-contiguous.");
+                }
+                previousServiceSequence = frame.Sequence;
+                switch (frame.PayloadCase)
+                {
+                    case ServiceFrame.PayloadOneofCase.Welcome:
+                        if (frame.Welcome.ProtocolVersion != 1
+                            || !string.Equals(frame.Welcome.CampaignId, options.CampaignId, StringComparison.Ordinal))
                         {
-                            await SendAsync(
-                                new CompanionFrame { CheckpointPublished = checkpoint },
-                                CheckpointSpoolKey(checkpoint));
+                            throw new InvalidDataException("Campaign-service welcome is incompatible.");
                         }
-                        var prepared = preparation.Prepared;
-                        await SendAsync(
-                            new CompanionFrame { AssignmentPrepared = prepared },
-                            $"assignment-{prepared.AssignmentId}-{prepared.AuthorityEpoch}");
                         break;
-                    }
-                case ServiceFrame.PayloadOneofCase.Command:
-                    {
-                        var proposal = await ApplyCommandAsync(frame.Command, cancellationToken);
-                        await SendAsync(
-                            new CompanionFrame { TacticalEvent = proposal },
-                            $"event-{proposal.EventId}");
+                    case ServiceFrame.PayloadOneofCase.CommittedEvent:
+                        await stateStore.AcceptCommittedEventAsync(frame.CommittedEvent, cancellationToken);
+                        await SendAcknowledgementAsync(frame.Sequence, stateStore.ReadCursor());
                         break;
-                    }
-                case ServiceFrame.PayloadOneofCase.Fence:
-                    {
-                        var preparation = await ApplyFenceAsync(frame.Fence, token, cancellationToken);
-                        await SendAsync(
-                            new CompanionFrame { CheckpointPublished = preparation.Checkpoint },
-                            CheckpointSpoolKey(preparation.Checkpoint));
-                        var proposal = preparation.Proposal;
-                        await SendAsync(
-                            new CompanionFrame { TacticalEvent = proposal },
-                            $"event-{proposal.EventId}");
+                    case ServiceFrame.PayloadOneofCase.Assignment:
+                        {
+                            var currentCapabilities = await ReadCapabilitiesAsync(cancellationToken);
+                            var preparation = await PrepareAssignmentAsync(
+                                frame.Assignment,
+                                currentCapabilities,
+                                token,
+                                cancellationToken);
+                            if (preparation.Checkpoint is { } checkpoint)
+                            {
+                                await SendAsync(
+                                    new CompanionFrame { CheckpointPublished = checkpoint },
+                                    CheckpointSpoolKey(checkpoint));
+                            }
+                            var prepared = preparation.Prepared;
+                            await SendAsync(
+                                new CompanionFrame { AssignmentPrepared = prepared },
+                                $"assignment-{prepared.AssignmentId}-{prepared.AuthorityEpoch}");
+                            break;
+                        }
+                    case ServiceFrame.PayloadOneofCase.Command:
+                        {
+                            var proposal = await ApplyCommandAsync(frame.Command, cancellationToken);
+                            await SendAsync(
+                                new CompanionFrame { TacticalEvent = proposal },
+                                $"event-{proposal.EventId}");
+                            break;
+                        }
+                    case ServiceFrame.PayloadOneofCase.Fence:
+                        {
+                            var preparation = await ApplyFenceAsync(frame.Fence, token, cancellationToken);
+                            await SendAsync(
+                                new CompanionFrame { CheckpointPublished = preparation.Checkpoint },
+                                CheckpointSpoolKey(preparation.Checkpoint));
+                            var proposal = preparation.Proposal;
+                            await SendAsync(
+                                new CompanionFrame { TacticalEvent = proposal },
+                                $"event-{proposal.EventId}");
+                            break;
+                        }
+                    case ServiceFrame.PayloadOneofCase.Acknowledgement:
+                        if (pending.TryRemove(frame.Acknowledgement.CompanionSequence, out var key)
+                            && frame.Acknowledgement.DurablyAccepted)
+                        {
+                            await stateStore.AcknowledgeOutboundAsync(key, cancellationToken);
+                        }
                         break;
-                    }
-                case ServiceFrame.PayloadOneofCase.Acknowledgement:
-                    if (pending.TryRemove(frame.Acknowledgement.CompanionSequence, out var key)
-                        && frame.Acknowledgement.DurablyAccepted)
-                    {
-                        await stateStore.AcknowledgeOutboundAsync(key, cancellationToken);
-                    }
-                    break;
-                case ServiceFrame.PayloadOneofCase.Error:
-                    if (frame.Error.Terminal)
-                    {
-                        throw new InvalidDataException($"Campaign service rejected the session: {frame.Error.Code}.");
-                    }
-                    break;
+                    case ServiceFrame.PayloadOneofCase.Error:
+                        if (frame.Error.Terminal)
+                        {
+                            throw new InvalidDataException($"Campaign service rejected the session: {frame.Error.Code}.");
+                        }
+                        break;
+                }
+            }
+        }
+        finally
+        {
+            heartbeatCancellation.Cancel();
+            try
+            {
+                await heartbeatTask;
+            }
+            catch (OperationCanceledException) when (heartbeatCancellation.IsCancellationRequested)
+            {
             }
         }
 
@@ -201,6 +217,57 @@ public sealed class CampaignCompanionClient(
             finally
             {
                 writeGate.Release();
+            }
+        }
+
+        async Task RunHeartbeatAsync(CancellationToken heartbeatToken)
+        {
+            while (!heartbeatToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
+                try
+                {
+                    var current = await ReadCapabilitiesAsync(heartbeatToken);
+                    await writeGate.WaitAsync(heartbeatToken);
+                    try
+                    {
+                        await call.RequestStream.WriteAsync(new CompanionFrame
+                        {
+                            Sequence = ++nextSequence,
+                            Heartbeat = new CompanionHeartbeat
+                            {
+                                ObservedCommitPosition = stateStore.ReadCursor(),
+                                SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                GameSessionId = CurrentGameSessionId(),
+                                RuntimeFingerprintSha256 = current.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
+                                CatalogFingerprintSha256 = current.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
+                                PlayerTaskforceId = current.PlayerTaskforceId,
+                                MaterializationProfiles =
+                                {
+                                    current.OwnedSurfaceMaterializationProfiles.Select(profile =>
+                                        new TacticalMaterializationProfile
+                                        {
+                                            UnitTypeId = profile.UnitTypeId,
+                                            VariantId = profile.VariantId,
+                                            LoadoutId = profile.LoadoutId,
+                                        }),
+                                },
+                            },
+                        });
+                    }
+                    finally
+                    {
+                        writeGate.Release();
+                    }
+                }
+                catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogDebug(exception, "Campaign heartbeat capability refresh was skipped.");
+                }
             }
         }
     }

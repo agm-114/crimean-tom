@@ -130,6 +130,11 @@ real service/journal path.
 
 At companion handshake the game advertises the exact player task-force ID and
 the bounded unit/variant/loadout profiles its runtime adapter can materialize.
+The companion refreshes that capability envelope in its campaign heartbeat, so
+mission load, briefing, debrief, and scene changes update the service-side
+worker snapshot without restarting the companion. The stable campaign/client
+identity remains on the session while the game session, runtime and catalog
+fingerprints, player task force, and supported profiles follow the live scene.
 The scheduler requires one connected worker, a player task force, and support
 for every entity in an interaction island before it can request Tactical
 fidelity. An offline worker, missing task force, or partially unsupported island

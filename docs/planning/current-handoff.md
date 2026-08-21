@@ -370,6 +370,17 @@ epoch-2 Active/Tactical assignments and zero recovery debt. The hosted monitor
 deep link is
 `http://127.0.0.1:5081/monitor/?campaign=160bc4f63fdd4d6f84fb2bd136c255ac`.
 
+The connected worker no longer freezes its launch-scene capability snapshot.
+One-second campaign heartbeats refresh the game session, runtime/catalog
+fingerprints, player task force, and exact materialization profiles. Live typed
+automation moved the same service session `8a6e6fd197bc4fce9586b9f0145c1f61`
+from tactical play to debrief (where the task force cleared) and back into Red
+Sea Breakout (where `taskforce:Taskforce1` and the Knox profile returned) without
+restarting the companion. A fresh post-transition 4x campaign,
+`739f13a58fde41ff9563bae754213672`, reached commit 177 with four epoch-1
+Active/Tactical Knox assignments and zero recovery debt. Its current monitor is
+`http://127.0.0.1:5081/monitor/?campaign=739f13a58fde41ff9563bae754213672`.
+
 Next, extend coupling to weapon/guidance/host relationships, measure live
 tactical capacity/tempo, and calibrate the operational resolver against tactical
 observation batches. Keep tactical projection and campaign commit separate: Sea

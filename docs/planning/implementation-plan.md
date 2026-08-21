@@ -654,6 +654,11 @@ single-player prototype.
   first live independent-surface burst reaches four Active Knox assignments in
   4.02 seconds, drains them in 2.01 seconds, and re-promotes retained objects in
   1.32 seconds; active-combat tick headroom is still unmeasured.
+- Campaign heartbeats now refresh the worker's live game session, compatibility
+  fingerprints, player task force, and exact materialization profiles. Typed
+  debrief-to-mission transitions were verified under one unchanged companion
+  session, eliminating the development-only companion restart that was formerly
+  needed after loading a scenario.
 
 ### Objective
 

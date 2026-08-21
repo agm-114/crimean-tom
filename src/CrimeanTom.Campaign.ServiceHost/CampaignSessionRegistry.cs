@@ -60,6 +60,7 @@ public sealed class CampaignSessionRegistry
 
 public sealed class CampaignCompanionSession
 {
+    private readonly object _capabilityGate = new();
     private readonly Channel<ServiceFrame> _outgoing = Channel.CreateBounded<ServiceFrame>(new BoundedChannelOptions(256)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -70,12 +71,22 @@ public sealed class CampaignCompanionSession
     private long _lastAcknowledgedSequence;
     private long _lastAppliedCommitPosition;
     private long _receivedFrames;
+    private string _gameSessionId;
+    private string _runtimeFingerprintSha256;
+    private string _catalogFingerprintSha256;
+    private string _playerTaskforceId;
+    private TacticalMaterializationProfile[] _materializationProfiles;
 
     public CampaignCompanionSession(CompanionHello hello)
     {
         Hello = hello.Clone();
         SessionId = Guid.NewGuid().ToString("N");
         ConnectedAt = DateTimeOffset.UtcNow;
+        _gameSessionId = hello.GameSessionId;
+        _runtimeFingerprintSha256 = hello.RuntimeFingerprintSha256;
+        _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
+        _playerTaskforceId = hello.PlayerTaskforceId;
+        _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
     }
 
     public CompanionHello Hello { get; }
@@ -103,27 +114,47 @@ public sealed class CampaignCompanionSession
         else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.Heartbeat)
         {
             Interlocked.Exchange(ref _lastAppliedCommitPosition, frame.Heartbeat.ObservedCommitPosition);
+            if (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
+                && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
+                && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
+            {
+                lock (_capabilityGate)
+                {
+                    _gameSessionId = frame.Heartbeat.GameSessionId;
+                    _runtimeFingerprintSha256 = frame.Heartbeat.RuntimeFingerprintSha256;
+                    _catalogFingerprintSha256 = frame.Heartbeat.CatalogFingerprintSha256;
+                    _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
+                    _materializationProfiles = frame.Heartbeat.MaterializationProfiles
+                        .Select(item => item.Clone()).ToArray();
+                }
+            }
         }
     }
 
-    public CampaignSessionSnapshot Snapshot() => new(
-        SessionId,
-        Hello.ClientInstanceId,
-        Hello.GameSessionId,
-        Hello.CampaignId,
-        Hello.ReconnectCommitPosition,
-        ConnectedAt,
-        Interlocked.Read(ref _nextServiceSequence),
-        Interlocked.Read(ref _lastAcknowledgedSequence),
-        Interlocked.Read(ref _lastAppliedCommitPosition),
-        Interlocked.Read(ref _receivedFrames),
-        Hello.RuntimeFingerprintSha256,
-        Hello.CatalogFingerprintSha256,
-        Hello.PlayerTaskforceId,
-        Hello.MaterializationProfiles.Select(profile => new CampaignMaterializationProfile(
-            profile.UnitTypeId,
-            profile.VariantId,
-            profile.LoadoutId)).ToArray());
+    public CampaignSessionSnapshot Snapshot()
+    {
+        lock (_capabilityGate)
+        {
+            return new(
+                SessionId,
+                Hello.ClientInstanceId,
+                _gameSessionId,
+                Hello.CampaignId,
+                Hello.ReconnectCommitPosition,
+                ConnectedAt,
+                Interlocked.Read(ref _nextServiceSequence),
+                Interlocked.Read(ref _lastAcknowledgedSequence),
+                Interlocked.Read(ref _lastAppliedCommitPosition),
+                Interlocked.Read(ref _receivedFrames),
+                _runtimeFingerprintSha256,
+                _catalogFingerprintSha256,
+                _playerTaskforceId,
+                _materializationProfiles.Select(profile => new CampaignMaterializationProfile(
+                    profile.UnitTypeId,
+                    profile.VariantId,
+                    profile.LoadoutId)).ToArray());
+        }
+    }
 
     public void Complete(string reason) => _outgoing.Writer.TryComplete();
 }

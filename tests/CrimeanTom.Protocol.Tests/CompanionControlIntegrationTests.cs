@@ -1517,11 +1517,15 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 40; commandIndex++)
+        while (true)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);
             Assert.Equal(handshake.SessionId, command.SessionId);
+            var completesPrimaryPeer = command.MessageType == GameCommandTypes.CaptureOwnedSurfaceCheckpoint
+                && JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                    command.PayloadJson,
+                    JsonOptions)?.Context.IdempotencyKey == "fallback-materialize-1-checkpoint";
             if (command.MessageType == GameCommandTypes.OpenTaskForceBuilder)
             {
                 builderLoaded = true;
@@ -1832,6 +1836,10 @@ public sealed class CompanionControlIntegrationTests
                 }, JsonOptions),
                 Priority = command.Priority,
             }, cancellationToken);
+            if (completesPrimaryPeer)
+            {
+                return;
+            }
         }
     }
 

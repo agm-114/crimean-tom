@@ -96,6 +96,26 @@ The live capacity monitor is:
 
 `http://127.0.0.1:5081/monitor/?campaign=160bc4f63fdd4d6f84fb2bd136c255ac`
 
+## Scene-aware worker refresh
+
+The companion now publishes its current game session, compatibility
+fingerprints, player task force, and materialization profiles in each campaign
+heartbeat. Service session `8a6e6fd197bc4fce9586b9f0145c1f61` remained
+unchanged while typed automation exited tactical play to debrief and loaded Red
+Sea Breakout again. The service projection cleared the player task force at
+debrief, then reacquired `taskforce:Taskforce1` and the
+`usn_ff_knox_84 / Variant13 / Default` profile after mission load without a
+companion restart.
+
+After that transition, fresh 4x campaign
+`739f13a58fde41ff9563bae754213672` promoted four independent USS Pharris
+islands. The scheduler request returned in 2,623.8 ms and all four epoch-1
+assignments were Active/Tactical at commit 177. Sea Power reported four active
+owned objects (unique IDs `405`, `495`, `585`, and `675`) and zero recovery
+debt. The hosted monitor is:
+
+`http://127.0.0.1:5081/monitor/?campaign=739f13a58fde41ff9563bae754213672`
+
 ## Remaining gate
 
 - Measure tactical tick throughput and main-thread costs under active combat;
