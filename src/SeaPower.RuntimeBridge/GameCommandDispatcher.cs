@@ -1682,12 +1682,30 @@ internal static class GameCommandDispatcher
         if (!Enum.TryParse<Ammunition.Type>(request.WeaponType, true, out var desiredType)
             || desiredType is not (Ammunition.Type.Missile
                 or Ammunition.Type.Torpedo
-                or Ammunition.Type.Bomb))
+                or Ammunition.Type.Bomb
+                or Ammunition.Type.ASROC))
         {
             return Failure(
                 ProtocolErrorCodes.InvalidMessage,
-                "weaponType must be Missile, Torpedo, or Bomb.");
+                "weaponType must be Missile, Torpedo, Bomb, or ASROC.");
         }
+        var desiredAmmunitionId = request.AmmunitionId?.Trim() ?? string.Empty;
+        static bool WeaponMatchesRequestedAmmunition(
+            WeaponBase candidate,
+            string requestedAmmunitionId) =>
+            string.IsNullOrEmpty(requestedAmmunitionId)
+            || string.Equals(
+                candidate._ap?._ammunitionFileName,
+                requestedAmmunitionId,
+                StringComparison.OrdinalIgnoreCase);
+        static bool AmmunitionMatchesRequestedAmmunition(
+            Ammunition candidate,
+            string requestedAmmunitionId) =>
+            string.IsNullOrEmpty(requestedAmmunitionId)
+            || string.Equals(
+                candidate._ap?._ammunitionFileName,
+                requestedAmmunitionId,
+                StringComparison.OrdinalIgnoreCase);
 
         ObjectBase? intendedTarget = null;
         if (!string.IsNullOrWhiteSpace(request.TargetUnitId))
@@ -1732,7 +1750,8 @@ internal static class GameCommandDispatcher
                     var weapon = hardpoint._weapons.FirstOrDefault(candidate =>
                         candidate is not null
                         && !candidate.isLaunched()
-                        && candidate._ap?._type == desiredType);
+                        && candidate._ap?._type == desiredType
+                        && WeaponMatchesRequestedAmmunition(candidate, desiredAmmunitionId));
                     if (weapon is null)
                     {
                         continue;
@@ -1766,6 +1785,7 @@ internal static class GameCommandDispatcher
                         desiredType,
                         weapon,
                         intendedTarget,
+                        desiredAmmunitionId,
                         "The pinned hardpoint launch seam returned without launching the selected weapon.");
                 }
 
@@ -1779,7 +1799,8 @@ internal static class GameCommandDispatcher
                     var weapon = container._weapons.FirstOrDefault(candidate =>
                         candidate is not null
                         && !candidate.isLaunched()
-                        && candidate._ap?._type == desiredType);
+                        && candidate._ap?._type == desiredType
+                        && WeaponMatchesRequestedAmmunition(candidate, desiredAmmunitionId));
                     if (weapon is not null)
                     {
                         if (intendedTarget is null)
@@ -1802,6 +1823,7 @@ internal static class GameCommandDispatcher
                             desiredType,
                             weapon,
                             intendedTarget,
+                            desiredAmmunitionId,
                             "The pinned container launch seam returned without launching the selected weapon.");
                     }
 
@@ -1814,6 +1836,7 @@ internal static class GameCommandDispatcher
                     var magazine = weaponParameters._associatedMagazine;
                     var ammunition = magazine?._ammunitionList.FirstOrDefault(candidate =>
                         candidate?._ap?._type == desiredType
+                        && AmmunitionMatchesRequestedAmmunition(candidate, desiredAmmunitionId)
                         && magazine.getAmmunitionCount(candidate._ap._ammunitionFileName) > 0);
                     if (ammunition is null || !container.HasReadyCell())
                     {
@@ -1864,14 +1887,18 @@ internal static class GameCommandDispatcher
                         desiredType,
                         weapon,
                         intendedTarget,
+                        desiredAmmunitionId,
                         "The magazine launch returned a weapon that was not marked launched.");
                 }
             }
         }
 
+        var requestedDescription = string.IsNullOrEmpty(desiredAmmunitionId)
+            ? desiredType.ToString()
+            : $"{desiredType} ammunition '{desiredAmmunitionId}'";
         return Failure(
             ProtocolErrorCodes.AutomationPreconditionFailed,
-            $"No loaded or magazine-ready {desiredType} was found on the requested player unit scope.");
+            $"No loaded or magazine-ready {requestedDescription} was found on the requested player unit scope.");
     }
 
     private static CommandResponsePayload CompleteExperimentalWeaponLaunch(
@@ -1881,6 +1908,7 @@ internal static class GameCommandDispatcher
         Ammunition.Type desiredType,
         WeaponBase weapon,
         ObjectBase? intendedTarget,
+        string requestedAmmunitionId,
         string notLaunchedMessage)
     {
         if (!weapon.isLaunched())
@@ -1889,29 +1917,57 @@ internal static class GameCommandDispatcher
                 ProtocolErrorCodes.AutomationPostconditionFailed,
                 notLaunchedMessage);
         }
-        var serializableWeapons = GetSerializableActiveWeapons();
-        if (!serializableWeapons.Contains(weapon))
+        var activeWeapons = GetActiveWeapons();
+        if (!activeWeapons.Contains(weapon))
         {
             return Failure(
                 ProtocolErrorCodes.AutomationPostconditionFailed,
-                "The launched weapon was not registered in a native taskforce save list.");
+                "The launched weapon was not registered in Sea Power's active object world.");
+        }
+        var serializableWeapons = GetSerializableActiveWeapons();
+        var nativeSaveRegistered = serializableWeapons.Contains(weapon);
+        var launchedAmmunitionId = weapon._ap?._ammunitionFileName ?? string.Empty;
+        if (!string.IsNullOrEmpty(requestedAmmunitionId)
+            && !string.Equals(
+                launchedAmmunitionId,
+                requestedAmmunitionId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPostconditionFailed,
+                $"The launch seam returned ammunition '{launchedAmmunitionId}' instead of requested ammunition '{requestedAmmunitionId}'.");
         }
         return Success(new ExperimentalWeaponLaunchResultPayload
         {
             Action = GameCommandTypes.LaunchExperimentalProbeWeapon,
             Outcome = "completed",
-            Postcondition = "serializable-active-weapon-launched",
+            Postcondition = nativeSaveRegistered
+                ? "serializable-active-weapon-launched"
+                : "active-weapon-launched",
             UnitId = StableUnitId(unit),
             WeaponSystemIndex = weaponSystemIndex,
             ContainerIndex = containerIndex,
             WeaponType = desiredType.ToString(),
-            AmmunitionId = weapon._ap?._ammunitionFileName ?? string.Empty,
+            AmmunitionId = launchedAmmunitionId,
             ActiveWeaponId = $"weapon:{weapon.UniqueID}",
             IntendedTargetUnitId = intendedTarget is null
                 ? string.Empty
                 : StableUnitId(intendedTarget),
+            ActiveWeaponCount = activeWeapons.Length,
+            NativeSaveRegistered = nativeSaveRegistered,
             SerializableActiveWeaponCount = serializableWeapons.Length,
         });
+    }
+
+    private static WeaponBase[] GetActiveWeapons()
+    {
+        return Singleton<ObjectsManager>.InstanceExists()
+            ? Singleton<ObjectsManager>.Instance._listOfAllObjects
+                .OfType<WeaponBase>()
+                .Where(weapon => weapon.isLaunched() && !weapon.IsDestroyed)
+                .Distinct()
+                .ToArray()
+            : [];
     }
 
     private static WeaponBase[] GetSerializableActiveWeapons()

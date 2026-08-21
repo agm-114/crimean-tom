@@ -42,8 +42,10 @@ param(
 
     [string]$VariantReference = 'Variant17',
 
-    [ValidateSet('Missile', 'Torpedo', 'Bomb')]
+    [ValidateSet('Missile', 'Torpedo', 'Bomb', 'ASROC')]
     [string]$WeaponType = 'Missile',
+
+    [string]$AmmunitionId = '',
 
     [string]$UnitId = '',
 
@@ -679,6 +681,7 @@ switch ($Action) {
             'Post' `
             ([pscustomobject]@{
                 weaponType = $WeaponType
+                ammunitionId = $AmmunitionId
                 unitId = $UnitId
                 targetUnitId = $TargetUnitId
             }))

@@ -431,6 +431,24 @@ task force, one stationary process-local Adjutant-class anchor, zero campaign
 identities, no hostile units, and no local campaign-resolution path. This is the
 intended empty shell for fenced interaction-island materialization.
 
+The shell has now completed a real scheduler round trip in the schema-v5
+campaign. USS Pharris became epoch-1 Active/Tactical at commit 242, materialized
+beside the anchor, then returned to Released/Operational at commit 248 after the
+two-sample interest-loss hysteresis. Runtime resources ended with zero active,
+one retained-suspended and zero recovery-required campaign objects; no local
+scenario outcome entered the journal.
+
+The experimental weapon seam now takes an exact ammunition ID and supports Sea
+Power's native `ASROC` type. It verifies that exact round after launch and
+distinguishes active-world registration from the narrower native save lists.
+In the representative GIUK window, typed automation launched `usn_rur-5` from
+Pharris to a Victor III five nautical miles away. With that exact ASW weapon
+active, 900 controlled ticks advanced 30.0 simulation seconds in 15.114 wall
+seconds (59.5 ticks/s, 1.98x real time), and a following 1,800-tick batch held
+59.8 ticks/s. Coupling capture retained the native Pharris-to-Victor edge in
+203 microseconds. This is the first valid active-combat load sample; mixed-island
+capacity and operational outcome calibration remain open.
+
 The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
 campaign's durable cursor and silently prevents the gRPC session from opening.
@@ -440,8 +458,8 @@ counts: active, suspended-retained, recovery-required and total materialized
 objects all contribute to the scheduler projection. Capacity pressure selects
 whole quiet islands and preserves fenced/engaged islands; the scheduling
 response retains the original decision reasons even after assignments enter
-Quiescing. Next, measure live tactical combat tempo, exercise campaign-owned
-sensor/host/refueling edges, and
+Quiescing. Next, expand live tactical combat tempo to mixed active systems,
+exercise campaign-owned sensor/host/refueling edges, and
 calibrate the operational resolver against tactical observation batches. Keep
 tactical projection and campaign commit separate: Sea Power remains a fenced
 client of the external authoritative kernel.

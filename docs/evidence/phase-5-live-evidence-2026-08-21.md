@@ -242,14 +242,51 @@ mission defines no objectives or victory conditions. Its sole trigger displays
 the external-authority notice and cannot create a campaign outcome. This proves
 the first loadable non-resolving shell for future fenced island materialization.
 
+The same schema-v5 campaign then completed the shell's first full scheduler
+lifecycle. USS Pharris reached assignment epoch 1 Active/Tactical at commit 242;
+the bridge reported one materialized and one active campaign object alongside
+the process-local anchor. After two identical healthy interest-loss samples,
+the first returned `scheduler-hysteresis-hold` and the second returned
+`active-island-outside-player-interest`. Commit 248 left Pharris
+Released/Operational with zero active campaign objects, one retained suspended
+object and zero recovery-required objects. The container therefore provides
+real promotion and demotion without resolving a local scenario or fabricating a
+campaign result.
+
+## Exact native-weapon tactical load sample
+
+The typed experimental launch request now accepts an exact installed
+ammunition ID as well as Sea Power's native ammunition type. This closed a probe
+defect where requesting only broad type `Missile` could select RGM-84C for a
+submarine target. The bridge does not add its own target or range table: exact
+selection still invokes the native weapon system, and it verifies the launched
+round's ammunition ID before returning success.
+
+The catalog-valid GIUK window was adjusted to place Victor III K-244 five
+nautical miles from USS Pharris. On a fresh deployed runtime, typed automation
+launched exactly `usn_rur-5` / `ASROC` from `unit:1` to `unit:94`. Sea Power
+registered `weapon:5` with launch platform Pharris, intended target K-244,
+primary target type `ASW`, and flight stage `ASROCFlight`. ASROC is a live native
+world object but is not present in Sea Power's missile/torpedo/bomb save lists,
+so the response explicitly reported `nativeSaveRegistered=false` rather than
+claiming save/load coverage.
+
+With that exact ASROC active, a controlled 900-tick batch completed 30.0
+simulation seconds in 15.114 wall seconds: 59.5 ticks per wall second, 1.98x
+real time, 900 game updates and 450 physics updates. Compact coupling capture
+took 203 microseconds and retained the exact Pharris-to-Victor active-weapon
+edge. A following 1,800-tick/60-second batch held 59.8 ticks per wall second and
+1.99x real time. These are valid single-ASROC tactical-load observations, not a
+calibration claim for operational hit probability or damage.
+
 The live monitor for the schema-v5 campaign is:
 
 `http://127.0.0.1:5081/monitor/?campaign=e7ae56ae91be4138abf4af5c03fee6cd`
 
 ## Remaining gate
 
-- Measure tactical tick throughput and main-thread costs under active combat;
-  the four-island materialize/drain burst baseline is now recorded.
+- Expand the first exact-ASROC tactical throughput sample to mixed weapons,
+  sensors and multiple simultaneous islands before setting a capacity ceiling.
 - Add safe profiles for more naval/air units before claiming mixed-island
   coverage.
 - Exercise campaign-owned sensor, host, and temporary-refueling edges, then

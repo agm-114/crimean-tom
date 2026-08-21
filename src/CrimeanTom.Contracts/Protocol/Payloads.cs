@@ -688,6 +688,7 @@ public sealed class ExperimentalSaveLoadProbeResultPayload
 public sealed class ExperimentalWeaponLaunchRequestPayload
 {
     public string WeaponType { get; set; } = "Missile";
+    public string AmmunitionId { get; set; } = string.Empty;
     public string UnitId { get; set; } = string.Empty;
     public string TargetUnitId { get; set; } = string.Empty;
 }
@@ -705,6 +706,8 @@ public sealed class ExperimentalWeaponLaunchResultPayload
     public string AmmunitionId { get; set; } = string.Empty;
     public string ActiveWeaponId { get; set; } = string.Empty;
     public string IntendedTargetUnitId { get; set; } = string.Empty;
+    public int ActiveWeaponCount { get; set; }
+    public bool NativeSaveRegistered { get; set; }
     public int SerializableActiveWeaponCount { get; set; }
 }
 

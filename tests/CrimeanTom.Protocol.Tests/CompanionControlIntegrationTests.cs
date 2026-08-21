@@ -1207,6 +1207,7 @@ public sealed class CompanionControlIntegrationTests
                 JsonSerializer.Serialize(new ExperimentalWeaponLaunchRequestPayload
                 {
                     WeaponType = "Missile",
+                    AmmunitionId = "integration_missile",
                 }, JsonOptions),
                 testTimeout.Token);
             Assert.Equal(
@@ -1215,6 +1216,8 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "integration_missile",
                 launchProbeWeapon.RootElement.GetProperty("ammunitionId").GetString());
+            Assert.Equal(1, launchProbeWeapon.RootElement.GetProperty("activeWeaponCount").GetInt32());
+            Assert.True(launchProbeWeapon.RootElement.GetProperty("nativeSaveRegistered").GetBoolean());
 
             using var saveProbe = await PostAuthorizedJsonAsync(
                 client,
@@ -1864,6 +1867,8 @@ public sealed class CompanionControlIntegrationTests
                         WeaponType = "Missile",
                         AmmunitionId = "integration_missile",
                         ActiveWeaponId = "weapon:43",
+                        ActiveWeaponCount = 1,
+                        NativeSaveRegistered = true,
                         SerializableActiveWeaponCount = 1,
                     },
                     JsonOptions),
