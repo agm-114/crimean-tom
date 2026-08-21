@@ -208,10 +208,13 @@ non-owner is fenced, and committed campaign events fan out to all sessions.
 The operator projection lists every worker and its materialized, active,
 retained, recovery-required, profile, and coupling counts. Deterministic
 least-loaded selection is only the placement foundation. The durable kernel can
-now commit one fenced Shadow-to-Primary migration for a complete island, but
-live enablement still requires destination headroom, checkpoint transfer,
-cooldown, source/target overlap accounting, and coordinator scheduling before
-it is safe to use in Sea Power.
+now commit one fenced Shadow-to-Primary migration for a complete island. The
+coordinator can prepare that destination against migration-overlap reserve and
+queue Shadow frames without taking over publishing, but live enablement still
+requires final-checkpoint staging, cooldown, bounded concurrency, and
+coordinator-scheduled promotion before it is safe to use in Sea Power. The
+companion already reconstructs and suspends queued Shadow objects before it
+reports them prepared.
 
 A representable interaction island is durably reserved and queued to the
 companion directly by the schedule operation. Singleton assignments activate

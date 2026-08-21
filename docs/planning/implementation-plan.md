@@ -622,10 +622,18 @@ single-player prototype.
   destination `capacity - reserve`, counting both materialized objects and live
   assignments. Diagnostics separately expose ordinary promotion headroom and
   the still-protected reserve available for a future migration overlap. The
-  reserve is not spent yet: coordinator-driven replacement placement, per-worker
-  health, bounded migration concurrency, and rebalance cooldown remain open.
-  A companion can prepare a nonpublishing `Shadow` as a suspended native object;
-  the campaign kernel itself now accepts one atomic
+  coordinator can now reserve a non-publishing `Shadow` destination for a
+  complete currently-active, quiescing, or quiesced island: it selects a distinct
+  connected compatible worker, admits the whole island only against that
+  worker's migration-overlap reserve, commits higher-epoch `Shadow`/`Preparing`
+  assignments with exact affinity and consistent batch identity, and queues them
+  only to that destination. The companion reconstructs and suspends each native
+  object before the coordinator commits `Prepared` from its readiness report.
+  Source `Primary` ownership is unchanged. Repeated calls reuse the live Shadows
+  instead of creating duplicates. Automatic scheduler promotion still uses
+  ordinary headroom. Per-worker health declarations, bounded migration
+  concurrency, rebalance cooldown, and the `migrate-tactical-island` controller
+  remain open. The campaign kernel itself now accepts one atomic
   `migrate-tactical-island` command that promotes a prepared `Shadow`
   destination over a quiesced `Primary` source for a complete island; this is
   a durable domain fence plus destination-runtime preparation, not a completed

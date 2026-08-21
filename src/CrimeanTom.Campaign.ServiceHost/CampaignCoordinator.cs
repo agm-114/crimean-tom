@@ -251,6 +251,12 @@ public sealed class CampaignCoordinator(
         CampaignHandoffRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.Role != CrimeanTom.Campaign.Contracts.AssignmentRole.Primary)
+        {
+            throw new CampaignStoreConflict(
+                "handoff-role-unsupported",
+                "The general handoff operation creates only Primary assignments; Shadow preparation uses its dedicated coordinator operation.");
+        }
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -276,7 +282,9 @@ public sealed class CampaignCoordinator(
             var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
             if (!state.Assignments.TryGetValue(assignmentId, out var assignment)
-                || assignment.Lifecycle != AssignmentLifecycle.Preparing)
+                || (assignment.Lifecycle != AssignmentLifecycle.Preparing
+                    && !(assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+                        && assignment.Lifecycle == AssignmentLifecycle.Prepared)))
             {
                 return;
             }
@@ -290,6 +298,246 @@ public sealed class CampaignCoordinator(
                     AssignmentLifecycle.Released,
                     state.Time),
                 $"cancel-{request.IdempotencyKey}-{reason}"), cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CampaignShadowPreparationResult> PrepareShadowDestinationAsync(
+        CampaignShadowPreparationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+            var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (campaignId != state.Metadata.CampaignId)
+            {
+                throw new CampaignStoreConflict("campaign-mismatch", "The Shadow campaign does not match canonical state.");
+            }
+            if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                throw new CampaignStoreConflict("invalid-idempotency-key", "Shadow destination preparation requires an idempotency key.");
+            }
+            var workers = sessions.Snapshots(campaignId.ToString());
+            var island = CampaignFidelityScheduler.Inspect(state).Islands
+                .FirstOrDefault(item => item.EntityIds.Contains(entityId))
+                ?? throw new CampaignStoreConflict("shadow-island-missing", "The entity does not belong to a tactical interaction island.");
+            var sourceAssignments = island.EntityIds
+                .Select(id => state.Assignments.Values
+                    .Where(item => item.EntityId == id
+                        && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                        && item.Lifecycle is AssignmentLifecycle.Active
+                            or AssignmentLifecycle.Quiescing
+                            or AssignmentLifecycle.Quiesced)
+                    .OrderByDescending(item => item.AuthorityEpoch.Value)
+                    .ThenByDescending(item => item.AssignmentId.Value)
+                    .FirstOrDefault())
+                .ToArray();
+            if (sourceAssignments.Any(item => item is null)
+                || sourceAssignments.Length != island.EntityIds.Count)
+            {
+                throw new CampaignStoreConflict(
+                    "shadow-island-incomplete",
+                    "Shadow preparation requires a complete currently-active, quiescing, or quiesced tactical island.");
+            }
+            var sourceOwners = sourceAssignments
+                .Select(item => item!.WorkerClientInstanceId)
+                .Where(owner => !string.IsNullOrWhiteSpace(owner))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (sourceOwners.Length != 1)
+            {
+                throw new CampaignStoreConflict(
+                    "island-worker-affinity-conflict",
+                    "A tactical interaction island has live Primary assignments on multiple workers.");
+            }
+
+            var liveShadows = island.EntityIds
+                .Select(id => state.Assignments.Values
+                    .Where(item => item.EntityId == id
+                        && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+                        && item.Lifecycle != AssignmentLifecycle.Released)
+                    .OrderByDescending(item => item.AuthorityEpoch.Value)
+                    .ThenByDescending(item => item.AssignmentId.Value)
+                    .FirstOrDefault())
+                .ToArray();
+            if (liveShadows.All(item => item is not null))
+            {
+                var destinationIds = liveShadows
+                    .Select(item => item!.WorkerClientInstanceId)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                var batchIds = liveShadows.Select(item => item!.BatchId).Distinct(StringComparer.Ordinal).ToArray();
+                var batchSizes = liveShadows.Select(item => item!.BatchSize).Distinct().ToArray();
+                if (destinationIds.Length != 1
+                    || batchIds.Length != 1
+                    || batchSizes.Length != 1
+                    || batchSizes[0] != island.EntityIds.Count
+                    || (island.EntityIds.Count == 1 && !string.IsNullOrEmpty(batchIds[0]))
+                    || (island.EntityIds.Count > 1 && string.IsNullOrEmpty(batchIds[0])))
+                {
+                    throw new CampaignStoreConflict(
+                        "shadow-already-assigned",
+                        "Live Shadow assignments for this island are incomplete or inconsistent.");
+                }
+                var destination = workers.FirstOrDefault(worker => string.Equals(
+                    worker.ClientInstanceId,
+                    destinationIds[0],
+                    StringComparison.Ordinal))
+                    ?? throw new CampaignStoreConflict(
+                        "shadow-destination-unavailable",
+                        "The prepared Shadow destination worker is no longer connected.");
+                var assignments = new List<TacticalAssignment>();
+                foreach (var shadow in liveShadows
+                    .Select(item => item!)
+                    .OrderBy(item => item.AssignmentId.Value))
+                {
+                    var sourceCheckpoint = await FindLatestEntityCheckpointAsync(
+                        state,
+                        shadow.EntityId,
+                        cancellationToken);
+                    assignments.Add(ToTacticalAssignment(
+                        state,
+                        shadow,
+                        destination,
+                        $"{request.IdempotencyKey}-{shadow.EntityId}",
+                        sourceCheckpoint));
+                }
+                foreach (var assignment in assignments)
+                {
+                    if (!sessions.TryQueueForClient(
+                        campaignId.ToString(),
+                        destination.ClientInstanceId,
+                        new ServiceFrame { Assignment = assignment }))
+                    {
+                        throw new CampaignStoreConflict(
+                            "companion-session-unavailable-or-backpressured",
+                            "The Shadow destination session could not accept the assignment frame.");
+                    }
+                }
+                return new CampaignShadowPreparationResult(destination.ClientInstanceId, assignments);
+            }
+
+            if (liveShadows.Any(item => item is not null))
+            {
+                throw new CampaignStoreConflict(
+                    "shadow-already-assigned",
+                    "Live Shadow assignments for this island are incomplete or inconsistent.");
+            }
+
+            var plannedWorkerLoads = workers.ToDictionary(
+                worker => worker.ClientInstanceId,
+                worker => Math.Max(
+                    worker.OwnedMaterializedEntityCount,
+                    state.Assignments.Values
+                        .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
+                            && string.Equals(
+                                assignment.WorkerClientInstanceId,
+                                worker.ClientInstanceId,
+                                StringComparison.Ordinal))
+                        .Select(assignment => assignment.EntityId)
+                        .Distinct()
+                        .Count()),
+                StringComparer.Ordinal);
+            var destinationCapacity = Math.Max(
+                0,
+                workers.Select(worker => Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity))
+                    .DefaultIfEmpty(0)
+                    .Max());
+            var selectedDestination = SelectShadowDestinationWorker(
+                state,
+                island.EntityIds,
+                sourceOwners[0],
+                workers,
+                plannedWorkerLoads,
+                destinationCapacity);
+            var batchSize = island.EntityIds.Count;
+            var batchId = batchSize == 1
+                ? string.Empty
+                : $"shadow:{island.IslandId}:{state.Assignments.Values.Count(item => island.EntityIds.Contains(item.EntityId)) + 1}";
+            var created = new List<(CampaignHandoffRequest Request, TacticalAssignment Assignment)>();
+            foreach (var memberId in island.EntityIds.OrderBy(item => item))
+            {
+                var entity = state.Entities[memberId];
+                var profile = selectedDestination.MaterializationProfiles.First(item => string.Equals(
+                    item.UnitTypeId,
+                    entity.CatalogUnitId,
+                    StringComparison.Ordinal));
+                var attempt = state.Assignments.Values.Count(item => item.EntityId == memberId) + 1;
+                var assignmentGuid = KeyedGuid(
+                    campaignId.Value,
+                    $"shadow-assignment-{island.IslandId}-{memberId}-{attempt}");
+                var authorityEpoch = state.Assignments.Values
+                    .Where(item => item.EntityId == memberId)
+                    .Select(item => item.AuthorityEpoch.Value)
+                    .DefaultIfEmpty(0)
+                    .Max() + 1;
+                var handoffRequest = new CampaignHandoffRequest(
+                    campaignId.ToString(),
+                    memberId.ToString(),
+                    $"unit:crimean-tom:{memberId}",
+                    $"assignment:{assignmentGuid:N}",
+                    authorityEpoch,
+                    $"{request.IdempotencyKey}-{memberId}-{attempt}",
+                    selectedDestination.RuntimeFingerprintSha256,
+                    selectedDestination.CatalogFingerprintSha256,
+                    profile.UnitTypeId,
+                    profile.VariantId,
+                    profile.LoadoutId,
+                    selectedDestination.PlayerTaskforceId,
+                    batchId,
+                    batchSize,
+                    selectedDestination.ClientInstanceId,
+                    CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow);
+                var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
+                state = prepared.State;
+                created.Add((handoffRequest, prepared.Assignment));
+            }
+
+            foreach (var item in created)
+            {
+                if (sessions.TryQueueForClient(
+                    campaignId.ToString(),
+                    selectedDestination.ClientInstanceId,
+                    new ServiceFrame { Assignment = item.Assignment }))
+                {
+                    continue;
+                }
+                foreach (var queued in created)
+                {
+                    var assignmentId = ParseScopedId(
+                        queued.Request.AssignmentId,
+                        "assignment:",
+                        value => new AssignmentId(value));
+                    var assignment = state.Assignments[assignmentId];
+                    if (assignment.Lifecycle == AssignmentLifecycle.Released)
+                    {
+                        continue;
+                    }
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Assignment(assignmentId),
+                        assignment.Revision,
+                        new SetAssignmentLifecycleCommand(
+                            assignmentId,
+                            assignment.AuthorityEpoch,
+                            AssignmentLifecycle.Released,
+                            state.Time),
+                        $"cancel-{queued.Request.IdempotencyKey}-session-lost-before-queue"), cancellationToken);
+                }
+                throw new CampaignStoreConflict(
+                    "companion-session-unavailable-or-backpressured",
+                    "The Shadow destination session could not accept the assignment frame.");
+            }
+
+            return new CampaignShadowPreparationResult(
+                selectedDestination.ClientInstanceId,
+                created.Select(item => item.Assignment).ToArray());
         }
         finally
         {
@@ -338,6 +586,55 @@ public sealed class CampaignCoordinator(
             }
             if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared)
             {
+                if (ownershipState.Assignments.TryGetValue(assignmentId, out var currentAssignment)
+                    && currentAssignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow)
+                {
+                    if (currentAssignment.Lifecycle != AssignmentLifecycle.Preparing)
+                    {
+                        return;
+                    }
+                    if (frame.AssignmentPrepared.Ready)
+                    {
+                        await CommitAsync(ownershipState, Command(
+                            ownershipState,
+                            CampaignSubject.Assignment(assignmentId),
+                            currentAssignment.Revision,
+                            new SetAssignmentLifecycleCommand(
+                                assignmentId,
+                                currentAssignment.AuthorityEpoch,
+                                AssignmentLifecycle.Prepared,
+                                ownershipState.Time),
+                            $"prepared-shadow-{frame.AssignmentPrepared.AssignmentId}-{frame.AssignmentPrepared.AuthorityEpoch}"),
+                            cancellationToken);
+                        return;
+                    }
+
+                    var state = ownershipState;
+                    var rejectedBatch = string.IsNullOrEmpty(currentAssignment.BatchId)
+                        ? new[] { currentAssignment }
+                        : state.Assignments.Values
+                            .Where(item => item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
+                                && item.Lifecycle != AssignmentLifecycle.Released
+                                && string.Equals(item.BatchId, currentAssignment.BatchId, StringComparison.Ordinal))
+                            .OrderBy(item => item.AssignmentId.Value)
+                            .ToArray();
+                    foreach (var rejectedCandidate in rejectedBatch)
+                    {
+                        var rejected = state.Assignments[rejectedCandidate.AssignmentId];
+                        state = await CommitAsync(state, Command(
+                            state,
+                            CampaignSubject.Assignment(rejected.AssignmentId),
+                            rejected.Revision,
+                            new SetAssignmentLifecycleCommand(
+                                rejected.AssignmentId,
+                                rejected.AuthorityEpoch,
+                                AssignmentLifecycle.Released,
+                                state.Time),
+                            $"reject-shadow-{rejected.AssignmentId}-{rejected.AuthorityEpoch.Value}"),
+                            cancellationToken);
+                    }
+                    return;
+                }
                 await ActivateAsync(campaignId, frame.AssignmentPrepared, cancellationToken);
             }
             else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished)
@@ -460,6 +757,7 @@ public sealed class CampaignCoordinator(
                 item.AssignmentId.ToString(),
                 item.EntityId.ToString(),
                 item.AuthorityEpoch.Value,
+                item.Role.ToString(),
                 item.Lifecycle.ToString(),
                 item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
                 item.Revision.Value,
@@ -684,7 +982,7 @@ public sealed class CampaignCoordinator(
                     var activeAssignments = state.Assignments.Values
                         .Where(item => island.EntityIds.Contains(item.EntityId)
                             && item.Lifecycle == AssignmentLifecycle.Active)
-                        .OrderBy(item => item.AssignmentId)
+                        .OrderBy(item => item.AssignmentId.Value)
                         .ToArray();
                     if (activeAssignments.Length == 0)
                     {
@@ -756,21 +1054,34 @@ public sealed class CampaignCoordinator(
                 "fidelity-ceiling",
                 "The entity's simulation domain cannot be assigned to a Sea Power tactical worker.");
         }
-        if (entity.Fidelity == FidelityState.Strategic)
+        var role = request.Role;
+        if (role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow)
         {
-            state = await CommitAsync(state, Command(
-                state,
-                CampaignSubject.Entity(entityId),
-                entity.Revision,
-                new ChangeFidelityCommand(entityId, FidelityState.Operational, "tactical-handoff-preparation"),
-                $"{request.IdempotencyKey}-operational-preparation"), cancellationToken);
-            entity = state.Entities[entityId];
+            if (entity.Fidelity != FidelityState.Tactical)
+            {
+                throw new CampaignStoreConflict(
+                    "shadow-source-fidelity",
+                    "A Shadow destination must cover an island that is already Tactical.");
+            }
         }
-        if (entity.Fidelity is FidelityState.Suspended or FidelityState.Tactical)
+        else
         {
-            throw new CampaignStoreConflict(
-                "handoff-source-fidelity",
-                "A new tactical handoff must start from Strategic or Operational fidelity.");
+            if (entity.Fidelity == FidelityState.Strategic)
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Entity(entityId),
+                    entity.Revision,
+                    new ChangeFidelityCommand(entityId, FidelityState.Operational, "tactical-handoff-preparation"),
+                    $"{request.IdempotencyKey}-operational-preparation"), cancellationToken);
+                entity = state.Entities[entityId];
+            }
+            if (entity.Fidelity is FidelityState.Suspended or FidelityState.Tactical)
+            {
+                throw new CampaignStoreConflict(
+                    "handoff-source-fidelity",
+                    "A new tactical handoff must start from Strategic or Operational fidelity.");
+            }
         }
         var sourceCheckpoint = await FindLatestEntityCheckpointAsync(
             state,
@@ -783,7 +1094,7 @@ public sealed class CampaignCoordinator(
             new AssignAuthorityCommand(
                 assignmentId,
                 entityId,
-                CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
+                role,
                 new AuthorityEpoch(request.AuthorityEpoch),
                 state.Time,
                 request.BatchId,
@@ -791,37 +1102,13 @@ public sealed class CampaignCoordinator(
                 request.WorkerClientInstanceId),
             $"{request.IdempotencyKey}-assignment"), cancellationToken);
         entity = state.Entities[entityId];
-        return (state, new TacticalAssignment
-        {
-            CampaignId = campaignId.ToString(),
-            AssignmentId = request.AssignmentId,
-            EntityId = request.GameEntityId,
-            CanonicalEntityId = entityId.ToString(),
-            AuthorityEpoch = request.AuthorityEpoch,
-            Role = CrimeanTom.Campaign.Transport.V1.AssignmentRole.Primary,
-            HandoffCommitPosition = state.Head.Value,
-            HandoffTimeQuanta = state.Time.Quanta,
-            ExpectedEntityRevision = 0,
-            IdempotencyKey = request.IdempotencyKey,
-            RequiredRuntimeFingerprintSha256 = request.RequiredRuntimeFingerprintSha256,
-            RequiredCatalogFingerprintSha256 = request.RequiredCatalogFingerprintSha256,
-            CheckpointSha256 = sourceCheckpoint?.Sha256 ?? string.Empty,
-            CheckpointUri = sourceCheckpoint is null
-                ? string.Empty
-                : $"/content/{sourceCheckpoint.Sha256}",
-            UnitTypeId = request.UnitTypeId,
-            VariantId = request.VariantId,
-            LoadoutId = request.LoadoutId,
-            TaskforceId = request.TaskforceId,
-            LatitudeMicrodegrees = entity.Coordinate.LatitudeMicrodegrees,
-            LongitudeMicrodegrees = entity.Coordinate.LongitudeMicrodegrees,
-            HeadingMillidegrees = entity.Heading.Value,
-            Telegraph = entity.Telegraph,
-            GloballyPaused = true,
-            InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
-            InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
-            InitialDamageMilliunits = entity.DamageMilliUnits,
-        });
+        return (state, ToTacticalAssignment(
+            campaignId,
+            request,
+            entity,
+            sourceCheckpoint,
+            state.Head,
+            state.Time));
     }
 
     private async Task<CampaignBlobReference?> FindLatestEntityCheckpointAsync(
@@ -831,8 +1118,8 @@ public sealed class CampaignCoordinator(
     {
         foreach (var assignment in state.Assignments.Values
             .Where(assignment => assignment.EntityId == entityId)
-            .OrderByDescending(assignment => assignment.AuthorityEpoch)
-            .ThenByDescending(assignment => assignment.AssignmentId))
+            .OrderByDescending(assignment => assignment.AuthorityEpoch.Value)
+            .ThenByDescending(assignment => assignment.AssignmentId.Value))
         {
             var checkpoint = await journal.ReadLatestBlobReferenceAsync(
                 state.Metadata.CampaignId,
@@ -872,7 +1159,7 @@ public sealed class CampaignCoordinator(
                     })
                     .Where(item => item.Deadline <= target.Quanta)
                     .OrderBy(item => item.Deadline)
-                    .ThenBy(item => item.Assignment.AssignmentId)
+                    .ThenBy(item => item.Assignment.AssignmentId.Value)
                     .ToArray();
                 if (pending.Length == 0)
                 {
@@ -997,7 +1284,7 @@ public sealed class CampaignCoordinator(
             var batch = state.Assignments.Values
                 .Where(item => string.Equals(item.BatchId, assignment.BatchId, StringComparison.Ordinal)
                     && item.Lifecycle != AssignmentLifecycle.Released)
-                .OrderBy(item => item.AssignmentId)
+                .OrderBy(item => item.AssignmentId.Value)
                 .ToArray();
             if (batch.Length != assignment.BatchSize
                 || batch.Any(item => item.BatchSize != assignment.BatchSize
@@ -1148,7 +1435,7 @@ public sealed class CampaignCoordinator(
                 var batch = state.Assignments.Values
                     .Where(item => string.Equals(item.BatchId, assignment.BatchId, StringComparison.Ordinal)
                         && item.Lifecycle != AssignmentLifecycle.Released)
-                    .OrderBy(item => item.AssignmentId)
+                    .OrderBy(item => item.AssignmentId.Value)
                     .ToArray();
                 if (batch.Length != assignment.BatchSize
                     || batch.Any(item => item.BatchSize != assignment.BatchSize
@@ -1422,6 +1709,158 @@ public sealed class CampaignCoordinator(
             .FirstOrDefault();
     }
 
+    private static CampaignSessionSnapshot SelectShadowDestinationWorker(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        string sourceClientInstanceId,
+        IReadOnlyList<CampaignSessionSnapshot> workers,
+        IReadOnlyDictionary<string, int> plannedWorkerLoads,
+        int destinationCapacity)
+    {
+        var connected = workers
+            .Where(worker => !string.Equals(
+                worker.ClientInstanceId,
+                sourceClientInstanceId,
+                StringComparison.Ordinal))
+            .ToArray();
+        if (connected.Length == 0)
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-same-worker",
+                "Shadow preparation requires a distinct connected destination worker.");
+        }
+
+        var compatible = connected.Where(worker =>
+            !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+            && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
+                profile.UnitTypeId,
+                state.Entities[entityId].CatalogUnitId,
+                StringComparison.Ordinal)))).ToArray();
+        if (compatible.Length == 0)
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-incompatible",
+                "No distinct connected worker can materialize the complete island.");
+        }
+
+        var eligible = compatible
+            .Where(worker => worker.TacticalEntityCapacity > 0
+                && worker.OwnedRecoveryRequiredEntityCount == 0)
+            .Select(worker => new
+            {
+                Worker = worker,
+                Admission = CampaignWorkerAdmissionPolicy.Calculate(
+                    worker,
+                    destinationCapacity,
+                    plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId)),
+            })
+            .ToArray();
+        if (eligible.Length == 0)
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-ineligible",
+                "No distinct compatible destination worker is healthy and eligible.");
+        }
+
+        var admitted = eligible
+            .Where(candidate => candidate.Admission.CanAdmitMigrationOverlap(islandEntityIds.Count))
+            .OrderBy(candidate => candidate.Admission.OccupiedTacticalEntityCount)
+            .ThenBy(candidate => candidate.Worker.OwnedRecoveryRequiredEntityCount)
+            .ThenBy(candidate => candidate.Worker.ClientInstanceId, StringComparer.Ordinal)
+            .Select(candidate => candidate.Worker)
+            .FirstOrDefault();
+        return admitted ?? throw new CampaignStoreConflict(
+            "shadow-destination-headroom",
+            "The destination worker does not have enough migration-overlap reserve for the island.");
+    }
+
+    private static TacticalAssignment ToTacticalAssignment(
+        CampaignState state,
+        AssignmentState assignment,
+        CampaignSessionSnapshot destination,
+        string idempotencyKey,
+        CampaignBlobReference? sourceCheckpoint)
+    {
+        var entity = state.Entities[assignment.EntityId];
+        var profile = destination.MaterializationProfiles.First(item => string.Equals(
+            item.UnitTypeId,
+            entity.CatalogUnitId,
+            StringComparison.Ordinal));
+        return ToTacticalAssignment(
+            state.Metadata.CampaignId,
+            new CampaignHandoffRequest(
+                state.Metadata.CampaignId.ToString(),
+                assignment.EntityId.ToString(),
+                $"unit:crimean-tom:{assignment.EntityId}",
+                $"assignment:{assignment.AssignmentId:N}",
+                assignment.AuthorityEpoch.Value,
+                idempotencyKey,
+                destination.RuntimeFingerprintSha256,
+                destination.CatalogFingerprintSha256,
+                profile.UnitTypeId,
+                profile.VariantId,
+                profile.LoadoutId,
+                destination.PlayerTaskforceId,
+                assignment.BatchId,
+                assignment.BatchSize,
+                destination.ClientInstanceId,
+                assignment.Role),
+            entity,
+            sourceCheckpoint,
+            state.Head,
+            state.Time);
+    }
+
+    private static TacticalAssignment ToTacticalAssignment(
+        CampaignId campaignId,
+        CampaignHandoffRequest request,
+        EntityState entity,
+        CampaignBlobReference? sourceCheckpoint,
+        CommitPosition head,
+        CampaignTime time) => new()
+    {
+        CampaignId = campaignId.ToString(),
+        AssignmentId = request.AssignmentId,
+        EntityId = request.GameEntityId,
+        CanonicalEntityId = entity.EntityId.ToString(),
+        AuthorityEpoch = request.AuthorityEpoch,
+        Role = ToTransportRole(request.Role),
+        HandoffCommitPosition = head.Value,
+        HandoffTimeQuanta = time.Quanta,
+        ExpectedEntityRevision = 0,
+        IdempotencyKey = request.IdempotencyKey,
+        RequiredRuntimeFingerprintSha256 = request.RequiredRuntimeFingerprintSha256,
+        RequiredCatalogFingerprintSha256 = request.RequiredCatalogFingerprintSha256,
+        CheckpointSha256 = sourceCheckpoint?.Sha256 ?? string.Empty,
+        CheckpointUri = sourceCheckpoint is null
+            ? string.Empty
+            : $"/content/{sourceCheckpoint.Sha256}",
+        UnitTypeId = request.UnitTypeId,
+        VariantId = request.VariantId,
+        LoadoutId = request.LoadoutId,
+        TaskforceId = request.TaskforceId,
+        LatitudeMicrodegrees = entity.Coordinate.LatitudeMicrodegrees,
+        LongitudeMicrodegrees = entity.Coordinate.LongitudeMicrodegrees,
+        HeadingMillidegrees = entity.Heading.Value,
+        Telegraph = entity.Telegraph,
+        GloballyPaused = true,
+        InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
+        InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+        InitialDamageMilliunits = entity.DamageMilliUnits,
+    };
+
+    private static CrimeanTom.Campaign.Transport.V1.AssignmentRole ToTransportRole(
+        CrimeanTom.Campaign.Contracts.AssignmentRole role) => role switch
+    {
+        CrimeanTom.Campaign.Contracts.AssignmentRole.Primary =>
+            CrimeanTom.Campaign.Transport.V1.AssignmentRole.Primary,
+        CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow =>
+            CrimeanTom.Campaign.Transport.V1.AssignmentRole.Shadow,
+        CrimeanTom.Campaign.Contracts.AssignmentRole.Observer =>
+            CrimeanTom.Campaign.Transport.V1.AssignmentRole.Observer,
+        _ => CrimeanTom.Campaign.Transport.V1.AssignmentRole.Unspecified,
+    };
+
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
         IReadOnlyList<EntityId> observedEntityIds,
@@ -1499,7 +1938,17 @@ public sealed record CampaignHandoffRequest(
     string TaskforceId,
     string BatchId = "",
     int BatchSize = 1,
-    string WorkerClientInstanceId = "");
+    string WorkerClientInstanceId = "",
+    CrimeanTom.Campaign.Contracts.AssignmentRole Role = CrimeanTom.Campaign.Contracts.AssignmentRole.Primary);
+
+public sealed record CampaignShadowPreparationRequest(
+    string CampaignId,
+    string CanonicalEntityId,
+    string IdempotencyKey);
+
+public sealed record CampaignShadowPreparationResult(
+    string DestinationClientInstanceId,
+    IReadOnlyList<TacticalAssignment> Assignments);
 
 public sealed record CampaignQuiesceRequest(
     string CampaignId,
@@ -1644,6 +2093,7 @@ public sealed record CampaignAssignmentView(
     string AssignmentId,
     string EntityId,
     long AuthorityEpoch,
+    string Role,
     string Lifecycle,
     long ResolveByQuanta,
     long Revision,

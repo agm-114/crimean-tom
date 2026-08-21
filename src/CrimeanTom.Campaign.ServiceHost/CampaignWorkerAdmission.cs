@@ -11,6 +11,9 @@ internal readonly record struct CampaignWorkerAdmission(
 {
     public bool CanAdmitPromotion(int entityCount) =>
         entityCount >= 0 && entityCount <= PromotionHeadroom;
+
+    public bool CanAdmitMigrationOverlap(int entityCount) =>
+        entityCount > 0 && entityCount <= MigrationOverlapHeadroom;
 }
 
 internal static class CampaignWorkerAdmissionPolicy

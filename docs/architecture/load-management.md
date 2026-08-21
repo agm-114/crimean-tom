@@ -154,15 +154,18 @@ assignment ownership both count as occupied, preventing stale heartbeats from
 overbooking a destination. The monitor exposes declared capacity, reserve and
 remaining ordinary-promotion headroom. It also reports the portion of physical
 headroom protected by reserve as migration-overlap headroom. That value is an
-admission envelope, not permission to create a second publisher. Canonical
-Shadow replacement state now exists in the kernel, and the companion can
-materialize a queued Shadow from a checkpoint, capture its realized state, and
-immediately suspend it before reporting readiness. Coordinator scheduling,
-overlap budgets, final-checkpoint transfer, and live enablement remain disabled.
-Per-worker health declarations, temporary
-source/destination migration overlap, whole-island migration, and bounded
-concurrent rebalance remain open work; this foundation must not be read as a
-completed migration controller. The campaign kernel now has one atomic
+admission envelope, not permission to create a second publisher. The coordinator
+can now reserve that envelope for a non-publishing `Shadow` on a distinct
+connected compatible destination: complete currently-active, quiescing, or
+quiesced islands are admitted against destination `MigrationOverlapHeadroom`
+only, source `Primary` ownership stays put, and the service first commits
+`Shadow`/`Preparing` assignments. The companion materializes each queued Shadow
+from a checkpoint, captures its realized state, suspends the native object, and
+only then reports readiness so the coordinator can commit `Prepared`. Idempotent
+repeats do not create another live Shadow. Per-worker health declarations,
+bounded concurrency, cooldown, final-checkpoint transfer, and the promotion
+controller remain open; this is not a completed live Sea Power migration. The
+campaign kernel now has one atomic
 command/event that can migrate a complete singleton or multi-entity island:
 source assignments must be live `Primary`/`Quiesced`, destinations must be
 non-publishing `Shadow`/`Prepared` with a strictly higher epoch and a different
@@ -202,10 +205,11 @@ The latest scheduler envelope is a canonical campaign event and snapshot field,
 so health, eligibility, interest, capacity, backlog, request identity, and the
 stable-sample count survive service restart. An active quiet island requires two
 identical healthy interest-loss samples before quiescing; load shedding and
-explicit drain remain immediate. Longer health history, cooldowns,
-source/destination overlap accounting, coordinator-driven migration, and tempo
-events are still target architecture rather than live claims. The kernel's
-atomic Shadow promotion event is the durable fence for that future controller.
+explicit drain remain immediate. Longer health history, cooldowns, bounded
+concurrent migration, and tempo events remain open. Coordinator destination
+preparation can now reserve overlap headroom and queue non-publishing Shadows;
+the kernel's atomic Shadow promotion event is still the durable fence for the
+future migration controller.
 
 The first reproducible operational baseline on the Ryzen 9 9900X development
 host sustains 35.9 quanta/s for 300 entities and 180 groups, clearing the healthy

@@ -488,6 +488,14 @@ public sealed class CompanionControlIntegrationTests
                 retainedSuspended: 0,
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
+            await ProveShadowDestinationPreparationAsync(
+                campaignClient,
+                campaignHttpUrl,
+                campaignGrpcUrl,
+                campaignToken,
+                campaignId,
+                primaryEntityId,
+                testTimeout.Token);
             var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             var primaryBeforeAdvance = Assert.Single(activeEntities,
                 item => item.GetProperty("entityId").GetString() == primaryEntityId);
@@ -551,7 +559,9 @@ public sealed class CompanionControlIntegrationTests
             var commandFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 3,
-                testTimeout.Token);
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                    && item.TacticalEvent.IdempotencyKey == "transport-move-1");
             Assert.Contains(commandFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
                 && item.TacticalEvent.IdempotencyKey == "transport-move-1");
@@ -633,7 +643,9 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.Equal(
                 "Released",
-                Assert.Single(releasedView.RootElement.GetProperty("assignments").EnumerateArray())
+                Assert.Single(
+                    releasedView.RootElement.GetProperty("assignments").EnumerateArray(),
+                    item => item.GetProperty("role").GetString() == "Primary")
                     .GetProperty("lifecycle").GetString());
             var releasedPrimary = Assert.Single(
                 releasedView.RootElement.GetProperty("entities").EnumerateArray(),
@@ -2849,6 +2861,229 @@ public sealed class CompanionControlIntegrationTests
         Assert.Equal(
             primarySessionId,
             await WaitForCampaignSessionAsync(campaignClient, null, cancellationToken));
+    }
+
+    private static async Task ProveShadowDestinationPreparationAsync(
+        HttpClient campaignClient,
+        string campaignHttpUrl,
+        string campaignGrpcUrl,
+        string campaignToken,
+        string campaignId,
+        string primaryEntityId,
+        CancellationToken cancellationToken)
+    {
+        const string destinationClientId = "20000000000000000000000000000002";
+        using (var anonymous = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            BaseAddress = new Uri(campaignHttpUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        })
+        {
+            using var unauthorized = await anonymous.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/prepare-shadow",
+                new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "shadow-unauth" },
+                cancellationToken);
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        }
+
+        using var sameWorker = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "shadow-same-worker" },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, sameWorker.StatusCode);
+        using var sameWorkerBody = JsonDocument.Parse(await sameWorker.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "shadow-destination-same-worker",
+            sameWorkerBody.RootElement.GetProperty("error").GetString());
+
+        using var channel = GrpcChannel.ForAddress(campaignGrpcUrl, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+        });
+        var transport = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
+        using var call = transport.Connect(
+            new Metadata { { "authorization", $"Bearer {campaignToken}" } },
+            cancellationToken: cancellationToken);
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 1,
+            Hello = new CompanionHello
+            {
+                ProtocolVersion = 1,
+                ClientInstanceId = destinationClientId,
+                GameSessionId = "shadow-destination-worker",
+                CampaignId = campaignId,
+                ReconnectCommitPosition = 0,
+                RuntimeFingerprintSha256 = new string('d', 64),
+                CatalogFingerprintSha256 = new string('e', 64),
+                PlayerTaskforceId = "taskforce:Blue",
+                TacticalEntityCapacity = 1,
+                TacticalReserveCapacity = 1,
+                MaterializationProfiles =
+                {
+                    new TacticalMaterializationProfile
+                    {
+                        UnitTypeId = "usn_ff_knox_84",
+                        VariantId = "Variant43",
+                        LoadoutId = "Default",
+                    },
+                },
+            },
+        });
+        Assert.True(await call.ResponseStream.MoveNext(cancellationToken));
+        Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, call.ResponseStream.Current.PayloadCase);
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+
+        using var preparedShadow = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "shadow-prep-1" },
+            cancellationToken);
+        Assert.True(
+            preparedShadow.IsSuccessStatusCode,
+            await preparedShadow.Content.ReadAsStringAsync(cancellationToken));
+        using var preparedShadowBody = JsonDocument.Parse(
+            await preparedShadow.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            destinationClientId,
+            preparedShadowBody.RootElement.GetProperty("destinationClientInstanceId").GetString());
+
+        TacticalAssignment? queued = null;
+        while (await call.ResponseStream.MoveNext(cancellationToken))
+        {
+            if (call.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
+                && call.ResponseStream.Current.Assignment.Role == AssignmentRole.Shadow)
+            {
+                queued = call.ResponseStream.Current.Assignment;
+                break;
+            }
+        }
+        Assert.NotNull(queued);
+        Assert.Equal("taskforce:Blue", queued.TaskforceId);
+        Assert.Equal(primaryEntityId, queued.CanonicalEntityId);
+        Assert.Equal(AssignmentRole.Shadow, queued.Role);
+        Assert.StartsWith("assignment:", queued.AssignmentId, StringComparison.Ordinal);
+
+        using (var preparingShadow = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("role").GetString() == "Shadow"
+                && item.GetProperty("lifecycle").GetString() == "Preparing"),
+            cancellationToken))
+        {
+            Assert.Contains(
+                preparingShadow.RootElement.GetProperty("assignments").EnumerateArray(),
+                item => item.GetProperty("role").GetString() == "Primary"
+                    && item.GetProperty("lifecycle").GetString() == "Active");
+        }
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 2,
+            AssignmentPrepared = new AssignmentPrepared
+            {
+                AssignmentId = queued.AssignmentId,
+                EntityId = queued.EntityId,
+                AuthorityEpoch = queued.AuthorityEpoch,
+                RealizedRevision = 2,
+                CanonicalStateSha256 = new string('a', 64),
+                Ready = true,
+            },
+        });
+
+        using var shadowView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root =>
+            {
+                var assignments = root.GetProperty("assignments").EnumerateArray().ToArray();
+                var workers = root.GetProperty("workers").EnumerateArray().ToArray();
+                return assignments.Any(item =>
+                        item.GetProperty("role").GetString() == "Primary"
+                        && item.GetProperty("lifecycle").GetString() == "Active")
+                    && assignments.Any(item =>
+                        item.GetProperty("role").GetString() == "Shadow"
+                        && item.GetProperty("lifecycle").GetString() == "Prepared"
+                        && item.GetProperty("workerClientInstanceId").GetString() == destinationClientId)
+                    && workers.Any(item =>
+                        item.GetProperty("clientInstanceId").GetString() == destinationClientId
+                        && item.GetProperty("promotionHeadroom").GetInt32() == 0
+                        && item.GetProperty("migrationOverlapHeadroom").GetInt32() == 0);
+            },
+            cancellationToken);
+        var assignments = shadowView.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
+        var source = Assert.Single(assignments, item => item.GetProperty("role").GetString() == "Primary");
+        var shadow = Assert.Single(assignments, item => item.GetProperty("role").GetString() == "Shadow");
+        Assert.Equal("Active", source.GetProperty("lifecycle").GetString());
+        Assert.Equal("Prepared", shadow.GetProperty("lifecycle").GetString());
+        Assert.NotEqual(
+            source.GetProperty("workerClientInstanceId").GetString(),
+            shadow.GetProperty("workerClientInstanceId").GetString());
+        Assert.Equal(destinationClientId, shadow.GetProperty("workerClientInstanceId").GetString());
+        Assert.True(shadow.GetProperty("authorityEpoch").GetInt64() > source.GetProperty("authorityEpoch").GetInt64());
+        Assert.Equal(source.GetProperty("entityId").GetString(), shadow.GetProperty("entityId").GetString());
+        var destinationWorker = Assert.Single(
+            shadowView.RootElement.GetProperty("workers").EnumerateArray(),
+            item => item.GetProperty("clientInstanceId").GetString() == destinationClientId);
+        Assert.Equal(1, destinationWorker.GetProperty("occupiedTacticalEntityCount").GetInt32());
+        Assert.Equal(0, destinationWorker.GetProperty("promotionHeadroom").GetInt32());
+        Assert.Equal(0, destinationWorker.GetProperty("migrationOverlapHeadroom").GetInt32());
+
+        using var repeated = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "shadow-prep-1" },
+            cancellationToken);
+        Assert.True(
+            repeated.IsSuccessStatusCode,
+            $"Repeated shadow preparation failed: {await repeated.Content.ReadAsStringAsync(cancellationToken)}");
+        using var repeatedView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        repeatedView.EnsureSuccessStatusCode();
+        using var repeatedDocument = JsonDocument.Parse(await repeatedView.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            1,
+            repeatedDocument.RootElement.GetProperty("assignments").EnumerateArray()
+                .Count(item => item.GetProperty("role").GetString() == "Shadow"
+                    && item.GetProperty("lifecycle").GetString() != "Released"));
+
+        using var cancel = await campaignClient.PostAsJsonAsync(
+            "/control/handoffs/cancel",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                gameEntityId = $"unit:crimean-tom:{primaryEntityId}",
+                assignmentId = $"assignment:{shadow.GetProperty("assignmentId").GetString()}",
+                authorityEpoch = shadow.GetProperty("authorityEpoch").GetInt64(),
+                idempotencyKey = "shadow-prep-cancel",
+                requiredRuntimeFingerprintSha256 = new string('d', 64),
+                requiredCatalogFingerprintSha256 = new string('e', 64),
+                unitTypeId = "usn_ff_knox_84",
+                variantId = "Variant43",
+                loadoutId = "Default",
+                taskforceId = "taskforce:Blue",
+            },
+            cancellationToken);
+        Assert.True(
+            cancel.IsSuccessStatusCode,
+            $"Shadow preparation cancellation failed: {await cancel.Content.ReadAsStringAsync(cancellationToken)}");
+        using var releasedShadow = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Count(item =>
+                item.GetProperty("lifecycle").GetString() != "Released") == 1
+                && root.GetProperty("assignments").EnumerateArray().Any(item =>
+                    item.GetProperty("role").GetString() == "Primary"
+                    && item.GetProperty("lifecycle").GetString() == "Active"),
+            cancellationToken);
+        Assert.Equal(
+            "Primary",
+            Assert.Single(
+                    releasedShadow.RootElement.GetProperty("assignments").EnumerateArray(),
+                    item => item.GetProperty("lifecycle").GetString() != "Released")
+                .GetProperty("role").GetString());
+
+        await call.RequestStream.CompleteAsync();
+        call.Dispose();
+        await WaitForCampaignSessionCountAsync(campaignClient, 1, cancellationToken);
     }
 
     private static async Task<string> WaitForCampaignSessionAsync(

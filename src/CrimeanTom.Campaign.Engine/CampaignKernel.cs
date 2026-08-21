@@ -279,6 +279,18 @@ public static class CampaignKernel
         {
             throw Violation("primary-already-assigned", "An entity can have only one canonical primary assignment.");
         }
+        if (value.Role == AssignmentRole.Shadow
+            && state.Assignments.Values.Any(item => item.EntityId == value.EntityId
+                && item.Role == AssignmentRole.Shadow
+                && item.Lifecycle != AssignmentLifecycle.Released))
+        {
+            throw Violation("shadow-already-assigned", "An entity can have only one live Shadow assignment.");
+        }
+        if (value.Role == AssignmentRole.Shadow
+            && string.IsNullOrWhiteSpace(value.WorkerClientInstanceId))
+        {
+            throw Violation("invalid-assignment", "A Shadow assignment requires exact destination worker affinity.");
+        }
 
         return Decision.Create(
             command.Subject,
