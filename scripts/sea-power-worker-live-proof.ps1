@@ -97,9 +97,17 @@ function Get-ProcessExecutablePath([int]$ProcessId) {
 function Test-ProcessStartTimeMatches(
     $Process,
     [string]$RecordedStartTimeUtc,
-    [int]$ToleranceSeconds) {
-    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) { return $true }
-    $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
+    [int]$ToleranceSeconds,
+    [bool]$RequireRecordedStartTime = $true) {
+    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) {
+        return -not $RequireRecordedStartTime
+    }
+    try {
+        $recordedStart = [DateTimeOffset]::Parse($RecordedStartTimeUtc)
+    }
+    catch {
+        return $false
+    }
     $actualStart = [DateTimeOffset]$Process.StartTime.ToUniversalTime()
     $deltaForward = ($actualStart - $recordedStart).TotalSeconds
     $deltaBackward = ($recordedStart - $actualStart).TotalSeconds
@@ -112,7 +120,16 @@ function Test-LiveSeaPowerProcess(
     [string]$ExpectedUnityLog,
     [string]$RecordedStartTimeUtc) {
     if ($ProcessId -le 0) {
-        throw "Recorded game process ID is missing or invalid."
+        throw 'Recorded game process ID is missing or invalid.'
+    }
+    if ([string]::IsNullOrWhiteSpace($RecordedStartTimeUtc)) {
+        throw 'Recorded game process start time is missing from worker metadata.'
+    }
+    try {
+        [DateTimeOffset]::Parse($RecordedStartTimeUtc)
+    }
+    catch {
+        throw "Recorded game process start time '$RecordedStartTimeUtc' is not a parseable UTC timestamp."
     }
 
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
@@ -136,7 +153,11 @@ function Test-LiveSeaPowerProcess(
         throw "Recorded metadata executable '$expectedResolved' does not match installed Sea Power at '$installedGameExecutable'."
     }
 
-    if (-not (Test-ProcessStartTimeMatches $process $RecordedStartTimeUtc $processStartTimeToleranceSeconds)) {
+    if (-not (Test-ProcessStartTimeMatches `
+        $process `
+        $RecordedStartTimeUtc `
+        $processStartTimeToleranceSeconds `
+        $true)) {
         throw "Recorded game PID $ProcessId start time does not match metadata '$RecordedStartTimeUtc'."
     }
 
