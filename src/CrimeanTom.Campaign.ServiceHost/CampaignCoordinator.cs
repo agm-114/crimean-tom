@@ -456,13 +456,14 @@ public sealed class CampaignCoordinator(
                 workers.Select(worker => Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity))
                     .DefaultIfEmpty(0)
                     .Max());
-            var selectedDestination = SelectShadowDestinationWorker(
+            var selectedDestination = ResolveShadowDestinationWorker(
                 state,
                 island.EntityIds,
                 sourceOwners[0],
                 workers,
                 plannedWorkerLoads,
-                destinationCapacity);
+                destinationCapacity,
+                request.PreferredDestinationClientInstanceId);
             var batchSize = island.EntityIds.Count;
             var batchId = batchSize == 1
                 ? string.Empty
@@ -545,6 +546,249 @@ public sealed class CampaignCoordinator(
             return new CampaignShadowPreparationResult(
                 selectedDestination.ClientInstanceId,
                 created.Select(item => item.Assignment).ToArray());
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CampaignSourcePreparationResult> PrepareSourceWorkerAsync(
+        CampaignSourcePreparationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
+            var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
+            if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                throw new CampaignStoreConflict(
+                    "invalid-idempotency-key",
+                    "Source worker preparation requires an idempotency key.");
+            }
+            if (string.IsNullOrWhiteSpace(request.PreferredWorkerClientInstanceId))
+            {
+                throw new CampaignStoreConflict(
+                    "invalid-preferred-worker",
+                    "Source worker preparation requires a preferred connected worker client instance ID.");
+            }
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            if (campaignId != state.Metadata.CampaignId)
+            {
+                throw new CampaignStoreConflict("campaign-mismatch", "The source campaign does not match canonical state.");
+            }
+            var workers = sessions.Snapshots(campaignId.ToString());
+            var preferredWorker = workers.FirstOrDefault(worker => string.Equals(
+                worker.ClientInstanceId,
+                request.PreferredWorkerClientInstanceId,
+                StringComparison.Ordinal))
+                ?? throw new CampaignStoreConflict(
+                    "source-worker-unavailable",
+                    "The preferred source worker is not connected to the campaign.");
+            var island = CampaignFidelityScheduler.Inspect(state).Islands
+                .FirstOrDefault(item => item.EntityIds.Contains(entityId))
+                ?? throw new CampaignStoreConflict(
+                    "source-island-missing",
+                    "The entity does not belong to a tactical interaction island.");
+            var livePrimaries = island.EntityIds
+                .Select(id => state.Assignments.Values
+                    .Where(item => item.EntityId == id
+                        && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                        && item.Lifecycle is AssignmentLifecycle.Active
+                            or AssignmentLifecycle.Quiescing
+                            or AssignmentLifecycle.Quiesced
+                            or AssignmentLifecycle.Preparing
+                            or AssignmentLifecycle.Prepared)
+                    .OrderByDescending(item => item.AuthorityEpoch.Value)
+                    .ThenByDescending(item => item.AssignmentId.Value)
+                    .FirstOrDefault())
+                .ToArray();
+            var livePrimaryOwners = livePrimaries
+                .Where(item => item is not null)
+                .Select(item => item!.WorkerClientInstanceId)
+                .Where(owner => !string.IsNullOrWhiteSpace(owner))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (livePrimaryOwners.Length > 1)
+            {
+                throw new CampaignStoreConflict(
+                    "island-worker-affinity-conflict",
+                    "Primary assignments for the island are split across multiple workers.");
+            }
+            if (livePrimaryOwners.Length == 1
+                && !string.Equals(
+                    livePrimaryOwners[0],
+                    preferredWorker.ClientInstanceId,
+                    StringComparison.Ordinal))
+            {
+                var ownerConnected = workers.Any(worker => string.Equals(
+                    worker.ClientInstanceId,
+                    livePrimaryOwners[0],
+                    StringComparison.Ordinal));
+                throw new CampaignStoreConflict(
+                    ownerConnected ? "source-worker-mismatch" : "source-worker-offline",
+                    ownerConnected
+                        ? "The live Primary assignment is not owned by the preferred source worker."
+                        : "The live Primary assignment owner is not a currently connected campaign worker.");
+            }
+            if (livePrimaries.Any(item => item is not null
+                && item!.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced))
+            {
+                throw new CampaignStoreConflict(
+                    "migration-source-not-ready",
+                    "Source preparation cannot proceed while a Primary assignment is quiescing.");
+            }
+            var activePrimaries = livePrimaries
+                .Where(item => item is not null && item!.Lifecycle == AssignmentLifecycle.Active)
+                .Select(item => item!)
+                .ToArray();
+            if (activePrimaries.Length == island.EntityIds.Count)
+            {
+                var assignments = activePrimaries
+                    .OrderBy(item => item.AssignmentId.Value)
+                    .Select(item => ToTacticalAssignment(
+                        state,
+                        item,
+                        preferredWorker,
+                        $"{request.IdempotencyKey}-{item.EntityId}",
+                        null))
+                    .ToArray();
+                return new CampaignSourcePreparationResult(
+                    preferredWorker.ClientInstanceId,
+                    assignments,
+                    "source-already-active");
+            }
+            if (livePrimaries.Any(item => item is not null
+                && item!.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing))
+            {
+                throw new CampaignStoreConflict(
+                    "migration-source-not-ready",
+                    "Source preparation requires a complete Primary assignment set on the preferred worker.");
+            }
+            var preparingPrimaries = livePrimaries
+                .Where(item => item is not null
+                    && item!.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared)
+                .Select(item => item!)
+                .ToArray();
+            if (preparingPrimaries.Length > 0)
+            {
+                if (preparingPrimaries.Length != island.EntityIds.Count)
+                {
+                    throw new CampaignStoreConflict(
+                        "source-island-incomplete",
+                        "Source preparation found incomplete Primary handoffs for the island.");
+                }
+                var assignments = new List<TacticalAssignment>();
+                foreach (var assignment in preparingPrimaries.OrderBy(item => item.AssignmentId.Value))
+                {
+                    assignments.Add(ToTacticalAssignment(
+                        state,
+                        assignment,
+                        preferredWorker,
+                        $"{request.IdempotencyKey}-{assignment.EntityId}",
+                        await FindLatestEntityCheckpointAsync(state, assignment.EntityId, cancellationToken)));
+                }
+                if (!TryQueueHandoffAssignments(
+                    campaignId,
+                    preferredWorker.ClientInstanceId,
+                    assignments,
+                    out _))
+                {
+                    throw new CampaignStoreConflict(
+                        "companion-session-unavailable-or-backpressured",
+                        "The preferred source worker session could not accept the assignment frame.");
+                }
+                return new CampaignSourcePreparationResult(
+                    preferredWorker.ClientInstanceId,
+                    assignments,
+                    "source-handoff-requeued");
+            }
+            var destinationCapacity = Math.Max(
+                0,
+                workers.Select(worker => Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity))
+                    .DefaultIfEmpty(0)
+                    .Max());
+            var plannedWorkerLoads = workers.ToDictionary(
+                worker => worker.ClientInstanceId,
+                worker => Math.Max(
+                    worker.OwnedMaterializedEntityCount,
+                    state.Assignments.Values
+                        .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
+                            && string.Equals(
+                                assignment.WorkerClientInstanceId,
+                                worker.ClientInstanceId,
+                                StringComparison.Ordinal))
+                        .Select(assignment => assignment.EntityId)
+                        .Distinct()
+                        .Count()),
+                StringComparer.Ordinal);
+            RequirePreferredSourceWorker(
+                state,
+                island.EntityIds,
+                preferredWorker,
+                plannedWorkerLoads,
+                destinationCapacity);
+            var batchSize = island.EntityIds.Count;
+            var batchId = batchSize == 1
+                ? string.Empty
+                : $"island:{island.IslandId}:{state.Assignments.Values.Count(item => island.EntityIds.Contains(item.EntityId)) + 1}";
+            var created = new List<(CampaignHandoffRequest Request, TacticalAssignment Assignment)>();
+            foreach (var memberId in island.EntityIds.OrderBy(item => item))
+            {
+                var memberEntity = state.Entities[memberId];
+                var profile = preferredWorker.MaterializationProfiles.First(item => string.Equals(
+                    item.UnitTypeId,
+                    memberEntity.CatalogUnitId,
+                    StringComparison.Ordinal));
+                var attempt = state.Assignments.Values.Count(item => item.EntityId == memberId) + 1;
+                var assignmentGuid = KeyedGuid(
+                    campaignId.Value,
+                    $"source-assignment-{island.IslandId}-{memberId}-{attempt}");
+                var authorityEpoch = state.Assignments.Values
+                    .Where(item => item.EntityId == memberId)
+                    .Select(item => item.AuthorityEpoch.Value)
+                    .DefaultIfEmpty(0)
+                    .Max() + 1;
+                var handoffRequest = new CampaignHandoffRequest(
+                    campaignId.ToString(),
+                    memberId.ToString(),
+                    $"unit:crimean-tom:{memberId}",
+                    $"assignment:{assignmentGuid:N}",
+                    authorityEpoch,
+                    $"{request.IdempotencyKey}-{memberId}-{attempt}",
+                    preferredWorker.RuntimeFingerprintSha256,
+                    preferredWorker.CatalogFingerprintSha256,
+                    profile.UnitTypeId,
+                    profile.VariantId,
+                    profile.LoadoutId,
+                    preferredWorker.PlayerTaskforceId,
+                    batchId,
+                    batchSize,
+                    preferredWorker.ClientInstanceId);
+                var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
+                state = prepared.State;
+                created.Add((handoffRequest, prepared.Assignment));
+            }
+            if (!TryQueueHandoffAssignments(
+                campaignId,
+                preferredWorker.ClientInstanceId,
+                created.Select(item => item.Assignment).ToArray(),
+                out _))
+            {
+                state = await ReleaseQueuedHandoffAssignmentsAsync(
+                    state,
+                    created.Select(queued => queued.Assignment).ToArray(),
+                    cancellationToken);
+                throw new CampaignStoreConflict(
+                    "companion-session-unavailable-or-backpressured",
+                    "The preferred source worker session could not accept the assignment frame.");
+            }
+            return new CampaignSourcePreparationResult(
+                preferredWorker.ClientInstanceId,
+                created.Select(item => item.Assignment).ToArray(),
+                "source-handoff-queued");
         }
         finally
         {
@@ -1114,6 +1358,59 @@ public sealed class CampaignCoordinator(
         {
             _gate.Release();
         }
+    }
+
+    private bool TryQueueHandoffAssignments(
+        CampaignId campaignId,
+        string clientInstanceId,
+        IReadOnlyList<TacticalAssignment> assignments,
+        out IReadOnlyList<TacticalAssignment> queued)
+    {
+        var accepted = new List<TacticalAssignment>();
+        foreach (var assignment in assignments)
+        {
+            if (!sessions.TryQueueForClient(
+                campaignId.ToString(),
+                clientInstanceId,
+                new ServiceFrame { Assignment = assignment }))
+            {
+                queued = accepted;
+                return false;
+            }
+            accepted.Add(assignment);
+        }
+        queued = accepted;
+        return true;
+    }
+
+    private async Task<CampaignState> ReleaseQueuedHandoffAssignmentsAsync(
+        CampaignState state,
+        IReadOnlyList<TacticalAssignment> assignments,
+        CancellationToken cancellationToken)
+    {
+        foreach (var assignment in assignments)
+        {
+            var assignmentId = ParseScopedId(
+                assignment.AssignmentId,
+                "assignment:",
+                value => new AssignmentId(value));
+            if (!state.Assignments.TryGetValue(assignmentId, out var current)
+                || current.Lifecycle == AssignmentLifecycle.Released)
+            {
+                continue;
+            }
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Assignment(assignmentId),
+                current.Revision,
+                new SetAssignmentLifecycleCommand(
+                    assignmentId,
+                    current.AuthorityEpoch,
+                    AssignmentLifecycle.Released,
+                    state.Time),
+                $"cancel-{assignment.AssignmentId}-session-lost-before-queue"), cancellationToken);
+        }
+        return state;
     }
 
     private async Task<(CampaignState State, TacticalAssignment Assignment)> PrepareHandoffCoreAsync(
@@ -2383,6 +2680,121 @@ public sealed class CampaignCoordinator(
             .FirstOrDefault();
     }
 
+    private static void RequirePreferredSourceWorker(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        CampaignSessionSnapshot preferredWorker,
+        IReadOnlyDictionary<string, int> plannedWorkerLoads,
+        int destinationCapacity)
+    {
+        if (string.IsNullOrWhiteSpace(preferredWorker.PlayerTaskforceId)
+            || preferredWorker.TacticalEntityCapacity <= 0
+            || preferredWorker.OwnedRecoveryRequiredEntityCount > 0
+            || !islandEntityIds.All(entityId => preferredWorker.MaterializationProfiles.Any(profile => string.Equals(
+                profile.UnitTypeId,
+                state.Entities[entityId].CatalogUnitId,
+                StringComparison.Ordinal))))
+        {
+            throw new CampaignStoreConflict(
+                "source-worker-ineligible",
+                "The preferred source worker cannot materialize the complete island.");
+        }
+        var admission = CampaignWorkerAdmissionPolicy.Calculate(
+            preferredWorker,
+            destinationCapacity,
+            plannedWorkerLoads.GetValueOrDefault(preferredWorker.ClientInstanceId));
+        if (!admission.CanAdmitPromotion(islandEntityIds.Count))
+        {
+            throw new CampaignStoreConflict(
+                "source-worker-capacity",
+                "The preferred source worker does not have promotion headroom for the island.");
+        }
+    }
+
+    private static CampaignSessionSnapshot ResolveShadowDestinationWorker(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        string sourceClientInstanceId,
+        IReadOnlyList<CampaignSessionSnapshot> workers,
+        IReadOnlyDictionary<string, int> plannedWorkerLoads,
+        int destinationCapacity,
+        string? preferredDestinationClientInstanceId)
+    {
+        var selected = SelectShadowDestinationWorker(
+            state,
+            islandEntityIds,
+            sourceClientInstanceId,
+            workers,
+            plannedWorkerLoads,
+            destinationCapacity);
+        if (string.IsNullOrWhiteSpace(preferredDestinationClientInstanceId))
+        {
+            return selected;
+        }
+        if (!string.Equals(
+            preferredDestinationClientInstanceId,
+            selected.ClientInstanceId,
+            StringComparison.Ordinal))
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-mismatch",
+                "The preferred Shadow destination worker does not match deterministic admission ordering.");
+        }
+        var preferred = workers.FirstOrDefault(worker => string.Equals(
+            worker.ClientInstanceId,
+            preferredDestinationClientInstanceId,
+            StringComparison.Ordinal))
+            ?? throw new CampaignStoreConflict(
+                "shadow-destination-unavailable",
+                "The preferred Shadow destination worker is not connected.");
+        RequireShadowDestinationCandidate(
+            state,
+            islandEntityIds,
+            sourceClientInstanceId,
+            preferred,
+            plannedWorkerLoads,
+            destinationCapacity);
+        return preferred;
+    }
+
+    private static void RequireShadowDestinationCandidate(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        string sourceClientInstanceId,
+        CampaignSessionSnapshot worker,
+        IReadOnlyDictionary<string, int> plannedWorkerLoads,
+        int destinationCapacity)
+    {
+        if (string.Equals(worker.ClientInstanceId, sourceClientInstanceId, StringComparison.Ordinal))
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-same-worker",
+                "Shadow preparation requires a distinct connected destination worker.");
+        }
+        if (string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+            || worker.TacticalEntityCapacity <= 0
+            || worker.OwnedRecoveryRequiredEntityCount > 0
+            || !islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
+                profile.UnitTypeId,
+                state.Entities[entityId].CatalogUnitId,
+                StringComparison.Ordinal))))
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-ineligible",
+                "The preferred Shadow destination worker cannot materialize the complete island.");
+        }
+        var admission = CampaignWorkerAdmissionPolicy.Calculate(
+            worker,
+            destinationCapacity,
+            plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId));
+        if (!admission.CanAdmitMigrationOverlap(islandEntityIds.Count))
+        {
+            throw new CampaignStoreConflict(
+                "shadow-destination-headroom",
+                "The preferred Shadow destination worker does not have migration-overlap reserve for the island.");
+        }
+    }
+
     private static CampaignSessionSnapshot SelectShadowDestinationWorker(
         CampaignState state,
         IReadOnlyList<EntityId> islandEntityIds,
@@ -2618,11 +3030,23 @@ public sealed record CampaignHandoffRequest(
 public sealed record CampaignShadowPreparationRequest(
     string CampaignId,
     string CanonicalEntityId,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? PreferredDestinationClientInstanceId = null);
 
 public sealed record CampaignShadowPreparationResult(
     string DestinationClientInstanceId,
     IReadOnlyList<TacticalAssignment> Assignments);
+
+public sealed record CampaignSourcePreparationRequest(
+    string CampaignId,
+    string CanonicalEntityId,
+    string IdempotencyKey,
+    string PreferredWorkerClientInstanceId);
+
+public sealed record CampaignSourcePreparationResult(
+    string PreferredWorkerClientInstanceId,
+    IReadOnlyList<TacticalAssignment> Assignments,
+    string Phase);
 
 public sealed record CampaignIslandMigrationRequest(
     string CampaignId,

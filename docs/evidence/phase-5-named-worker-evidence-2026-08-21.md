@@ -64,5 +64,12 @@ Result: `LIVE_PROOF_SUCCEEDED: two distinct real campaign workers coexist.`
 
 **Coexistence of two real runtime+companion workers is proven** on this host.
 **Cross-worker tactical-island migration remains unproven** — do not claim
-two-container migration or automatic rebalance until the authenticated migrate path
-is exercised live across these workers.
+two-container migration or automatic rebalance until `pnpm worker:migration-proof -Execute`
+succeeds on the live host.
+
+Migration proof driver (21 Aug 2026): `scripts/sea-power-worker-migration-proof.ps1`
+with shared helpers in `scripts/sea-power-worker-proof-common.ps1`. Preflight on
+campaign `08eed6175b1a4e1abf50004d4e5808c8` is **blocked** because USS Pharris
+Primary epoch 2 is still owned by the disconnected default companion client
+(`7cb34046…`), not `worker-a` or `worker-b`. See
+`docs/evidence/phase-5-migration-proof-2026-08-21.md`.

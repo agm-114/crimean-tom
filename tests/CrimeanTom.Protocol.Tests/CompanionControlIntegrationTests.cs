@@ -442,7 +442,23 @@ public sealed class CompanionControlIntegrationTests
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
             var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
-            using var scheduledAssignment = await campaignClient.PostAsJsonAsync(
+            var pinnedSourceProof = await ProvePinnedSourceWorkerPreparationAsync(
+                campaignClient,
+                campaignHttpUrl,
+                campaignId,
+                primaryEntityId,
+                campaignServiceRunDirectory,
+                testTimeout.Token);
+            var assignmentId = pinnedSourceProof.AssignmentId;
+            var authorityEpoch = pinnedSourceProof.AuthorityEpoch;
+            using var checkpointDownload = await campaignClient.GetAsync(
+                $"/content/{pinnedSourceProof.CheckpointSha256}",
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.OK, checkpointDownload.StatusCode);
+            Assert.Equal(pinnedSourceProof.CheckpointLength,
+                (await checkpointDownload.Content.ReadAsByteArrayAsync(testTimeout.Token)).Length);
+
+            using var scheduleHealthy = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
                 new
                 {
@@ -454,26 +470,7 @@ public sealed class CompanionControlIntegrationTests
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
-            scheduledAssignment.EnsureSuccessStatusCode();
-            var assignmentFrames = await WaitForInboundFramesAsync(
-                campaignServiceRunDirectory,
-                count: 2,
-                testTimeout.Token);
-            var prepared = Assert.Single(assignmentFrames, item =>
-                item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
-            Assert.True(prepared.Ready, prepared.ErrorMessage);
-            var assignmentId = prepared.AssignmentId;
-            var authorityEpoch = prepared.AuthorityEpoch;
-            Assert.Equal(gameEntityId, prepared.EntityId);
-            var checkpointPublished = Assert.Single(assignmentFrames, item =>
-                item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished).CheckpointPublished;
-            Assert.Equal(assignmentId, checkpointPublished.AssignmentId);
-            using var checkpointDownload = await campaignClient.GetAsync(
-                $"/content/{checkpointPublished.CheckpointSha256}",
-                testTimeout.Token);
-            Assert.Equal(HttpStatusCode.OK, checkpointDownload.StatusCode);
-            Assert.Equal(checkpointPublished.CheckpointLength,
-                (await checkpointDownload.Content.ReadAsByteArrayAsync(testTimeout.Token)).Length);
+            scheduleHealthy.EnsureSuccessStatusCode();
 
             using var activeCampaign = await WaitForCampaignViewAsync(
                 campaignClient,
@@ -496,6 +493,7 @@ public sealed class CompanionControlIntegrationTests
                 retainedSuspended: 0,
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
+            var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             await ProveShadowDestinationPreparationAsync(
                 campaignClient,
                 campaignHttpUrl,
@@ -504,7 +502,6 @@ public sealed class CompanionControlIntegrationTests
                 campaignId,
                 primaryEntityId,
                 testTimeout.Token);
-            var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             var primaryBeforeAdvance = Assert.Single(activeEntities,
                 item => item.GetProperty("entityId").GetString() == primaryEntityId);
             var unrelatedBeforeAdvance = Assert.Single(activeEntities,
@@ -3018,6 +3015,145 @@ public sealed class CompanionControlIntegrationTests
             await WaitForCampaignSessionAsync(campaignClient, null, cancellationToken));
     }
 
+    private sealed record PinnedSourceWorkerPreparationProof(
+        string AssignmentId,
+        long AuthorityEpoch,
+        string CheckpointSha256,
+        long CheckpointLength);
+
+    private static async Task<PinnedSourceWorkerPreparationProof> ProvePinnedSourceWorkerPreparationAsync(
+        HttpClient campaignClient,
+        string campaignHttpUrl,
+        string campaignId,
+        string primaryEntityId,
+        string serviceRunDirectory,
+        CancellationToken cancellationToken)
+    {
+        var gameEntityId = $"unit:crimean-tom:{primaryEntityId}";
+        using var view = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        view.EnsureSuccessStatusCode();
+        using var viewBody = JsonDocument.Parse(await view.Content.ReadAsStringAsync(cancellationToken));
+        var sourceClientId = Assert.Single(
+                viewBody.RootElement.GetProperty("workers").EnumerateArray())
+            .GetProperty("clientInstanceId").GetString()!;
+        Assert.DoesNotContain(
+            viewBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() != "Released");
+
+        using (var anonymous = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            BaseAddress = new Uri(campaignHttpUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        })
+        {
+            using var unauthorized = await anonymous.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/prepare-source",
+                new
+                {
+                    campaignId,
+                    canonicalEntityId = primaryEntityId,
+                    preferredWorkerClientInstanceId = sourceClientId,
+                    idempotencyKey = "source-unauth",
+                },
+                cancellationToken);
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        }
+
+        using var handoff = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredWorkerClientInstanceId = sourceClientId,
+                idempotencyKey = "source-prep-handoff",
+            },
+            cancellationToken);
+        Assert.True(
+            handoff.IsSuccessStatusCode,
+            await handoff.Content.ReadAsStringAsync(cancellationToken));
+        using var handoffBody = JsonDocument.Parse(await handoff.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            sourceClientId,
+            handoffBody.RootElement.GetProperty("preferredWorkerClientInstanceId").GetString());
+        Assert.Equal(
+            "source-handoff-queued",
+            handoffBody.RootElement.GetProperty("phase").GetString());
+
+        var assignmentFrames = await WaitForInboundFramesAsync(
+            serviceRunDirectory,
+            count: 2,
+            cancellationToken);
+        var prepared = Assert.Single(assignmentFrames, item =>
+            item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared).AssignmentPrepared;
+        Assert.True(prepared.Ready, prepared.ErrorMessage);
+        var assignmentId = prepared.AssignmentId;
+        var authorityEpoch = prepared.AuthorityEpoch;
+        Assert.Equal(gameEntityId, prepared.EntityId);
+        var checkpointPublished = Assert.Single(assignmentFrames, item =>
+            item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished).CheckpointPublished;
+        Assert.Equal(assignmentId, checkpointPublished.AssignmentId);
+
+        using var activeView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active"
+                && item.GetProperty("workerClientInstanceId").GetString() == sourceClientId),
+            cancellationToken);
+        Assert.Contains(
+            activeView.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("assignmentId").GetString() == assignmentId["assignment:".Length..]
+                && item.GetProperty("lifecycle").GetString() == "Active");
+
+        using var alreadyActive = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredWorkerClientInstanceId = sourceClientId,
+                idempotencyKey = "source-prep-idempotent",
+            },
+            cancellationToken);
+        Assert.True(
+            alreadyActive.IsSuccessStatusCode,
+            await alreadyActive.Content.ReadAsStringAsync(cancellationToken));
+        using var alreadyActiveBody = JsonDocument.Parse(
+            await alreadyActive.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            sourceClientId,
+            alreadyActiveBody.RootElement.GetProperty("preferredWorkerClientInstanceId").GetString());
+        Assert.Equal(
+            "source-already-active",
+            alreadyActiveBody.RootElement.GetProperty("phase").GetString());
+
+        using var unavailable = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredWorkerClientInstanceId = "20000000000000000000000000000002",
+                idempotencyKey = "source-prep-unavailable",
+            },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, unavailable.StatusCode);
+        using var unavailableBody = JsonDocument.Parse(await unavailable.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "source-worker-unavailable",
+            unavailableBody.RootElement.GetProperty("error").GetString());
+
+        return new PinnedSourceWorkerPreparationProof(
+            assignmentId,
+            authorityEpoch,
+            checkpointPublished.CheckpointSha256,
+            checkpointPublished.CheckpointLength);
+    }
+
     private static async Task ProveShadowDestinationPreparationAsync(
         HttpClient campaignClient,
         string campaignHttpUrl,
@@ -3089,9 +3225,58 @@ public sealed class CompanionControlIntegrationTests
         Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, call.ResponseStream.Current.PayloadCase);
         await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
 
+        using var sourceView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        sourceView.EnsureSuccessStatusCode();
+        using var sourceViewBody = JsonDocument.Parse(await sourceView.Content.ReadAsStringAsync(cancellationToken));
+        var sourceClientId = Assert.Single(
+            sourceViewBody.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active")
+            .GetProperty("workerClientInstanceId").GetString();
+
+        using var preferredMismatch = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredDestinationClientInstanceId = sourceClientId,
+                idempotencyKey = "shadow-pref-mismatch",
+            },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, preferredMismatch.StatusCode);
+        using var preferredMismatchBody = JsonDocument.Parse(
+            await preferredMismatch.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "shadow-destination-mismatch",
+            preferredMismatchBody.RootElement.GetProperty("error").GetString());
+
+        using var sourceMismatch = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-source",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredWorkerClientInstanceId = destinationClientId,
+                idempotencyKey = "source-prep-mismatch",
+            },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, sourceMismatch.StatusCode);
+        using var sourceMismatchBody = JsonDocument.Parse(
+            await sourceMismatch.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "source-worker-mismatch",
+            sourceMismatchBody.RootElement.GetProperty("error").GetString());
+
         using var preparedShadow = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/prepare-shadow",
-            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "shadow-prep-1" },
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredDestinationClientInstanceId = destinationClientId,
+                idempotencyKey = "shadow-prep-1",
+            },
             cancellationToken);
         Assert.True(
             preparedShadow.IsSuccessStatusCode,

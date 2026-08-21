@@ -422,3 +422,17 @@ journal history, not a process-local clock. Unrelated `FinalCheckpointStaged`
 failures for another prepared island do not release an in-flight migration lease.
 Already-migrated activation-grant replay remains allowed. Cooldown duration is configurable through
 `CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA` (default 30 quanta).
+
+## Cross-worker live migration driver (implementation only)
+
+`scripts/sea-power-worker-migration-proof.ps1` (`pnpm worker:migration-proof`) now
+provides a production-safe live driver that reuses the coexistence gate and
+fail-closes on campaign binding, named-worker affinity, admission headroom, and
+assignment lifecycle before calling authenticated `prepare-shadow`, source
+`quiesce`, and `migrate-tactical-island`. Execution requires `-Execute`; read-only
+preflight is the default.
+
+On campaign `08eed6175b1a4e1abf50004d4e5808c8`, preflight is **blocked** because
+USS Pharris Primary epoch 2 remains on the disconnected default companion client
+(`7cb34046…`), not on `worker-a` or `worker-b`. **Cross-worker migration is not
+yet proven** on this host. See `docs/evidence/phase-5-migration-proof-2026-08-21.md`.

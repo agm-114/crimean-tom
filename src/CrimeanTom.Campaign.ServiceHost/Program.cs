@@ -225,6 +225,27 @@ app.MapPost("/control/handoffs", async (
         ownedRequest, "session-lost-before-queue", cancellationToken);
     return Results.Conflict(new { error = "companion-session-unavailable-or-backpressured" });
 });
+app.MapPost("/control/campaigns/{campaignId}/prepare-source", async (
+    string campaignId,
+    CampaignSourcePreparationRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out _))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Accepted(value: await coordinator.PrepareSourceWorkerAsync(
+            request with { CampaignId = campaignId },
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/campaigns/{campaignId}/prepare-shadow", async (
     string campaignId,
     CampaignShadowPreparationRequest request,

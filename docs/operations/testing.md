@@ -205,9 +205,31 @@ with per-process Steam app context, two named workers coexist on the live host:
 
 `pnpm worker:live-proof` with `-WorkersRunRoot` against the main `.run\workers`
 root returned `LIVE_PROOF_SUCCEEDED`. **Coexistence of two real runtime+companion
-workers is proven** on this host. **Cross-worker island migration remains
+workers is proven** on this host. **Cross-worker tactical-island migration remains
 unproven** — do not claim two-container migration or automatic rebalance until
-that path is exercised live.
+`pnpm worker:migration-proof -Execute` succeeds.
+
+Cross-worker migration driver (implementation landed 21 Aug 2026):
+
+```powershell
+pnpm worker:migration-proof -- `
+  -CampaignId 08eed6175b1a4e1abf50004d4e5808c8 `
+  -CampaignHttpUrl http://127.0.0.1:5081 `
+  -CampaignTokenFile C:\Users\Varun\repos\crimean-tom\.run\campaign-service\service.token `
+  -WorkersRunRoot C:\Users\Varun\repos\crimean-tom\.run\workers `
+  -SourceWorkerId worker-a `
+  -DestinationWorkerId worker-b
+```
+
+Read-only preflight stops with exit `2` when migration is unsafe. Add `-Execute`
+only after preflight passes. Use `-AllowGhostRelease` to release a disconnected legacy
+Primary (`advance` + `resolve-expired`). Use `-AllowSourcePreparation` to pin Primary
+handoff onto the requested source worker via `POST /control/campaigns/{id}/prepare-source`
+(server-side admission, capacity, and ownership checks). Scheduler promotion remains a
+separate, nondeterministic `-AllowSchedulerPromotion` legacy step. `-AllowRepair` is a convenience alias for
+`-AllowGhostRelease` plus `-AllowSourcePreparation` only; it never enables scheduler promotion. Migration execution passes `preferredDestinationClientInstanceId`
+to `prepare-shadow` for pinned Shadow placement.
+See `docs/evidence/phase-5-migration-proof-2026-08-21.md`.
 
 After a mission is fully loaded and paused, the pinned experimental logical-tick
 adapter can be exercised without menu input:
