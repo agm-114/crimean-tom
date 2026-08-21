@@ -85,6 +85,7 @@ public static class CampaignCanonicalSerializer
                     ParseId(item.EstimatedRegionId, value => new RegionId(value)),
                     new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
                     ParseEnum<IntelligenceConfidence>(item.Confidence), new CampaignTime(item.ObservedAt),
+                    item.UncertaintyRadiusMeters, ParseEnum<ContactClassification>(item.Classification),
                     new EntityRevision(item.Revision));
             }).ToImmutableSortedDictionary(item => item.Key, item => item),
             Weather = document.Weather.Select(item => new WeatherState(
@@ -105,6 +106,16 @@ public static class CampaignCanonicalSerializer
                 new CampaignTime(item.DueAt),
                 new EntityRevision(item.Revision)))
                 .ToImmutableSortedDictionary(item => item.ActivityId, item => item),
+            RecentOperationalOutcomes = document.RecentOperationalOutcomes.Select(item => new OperationalOutcome(
+                item.OutcomeId,
+                new CampaignTime(item.OccurredAt),
+                ParseEnum<OperationalOutcomeKind>(item.Kind),
+                ParseId(item.RegionId, value => new RegionId(value)),
+                ParseId(item.ActorEntityId, value => new EntityId(value)),
+                item.TargetEntityId is null ? null : ParseId(item.TargetEntityId, value => new EntityId(value)),
+                item.MunitionsExpendedMilliUnits,
+                item.DamageInflictedMilliUnits,
+                item.Detail)).ToImmutableArray(),
         };
         CampaignStateValidator.Validate(state);
         return state;
@@ -131,6 +142,7 @@ public static class CampaignCanonicalSerializer
         WriteWeather(writer, state);
         WriteAssignments(writer, state);
         WriteScheduledActivities(writer, state);
+        WriteOperationalOutcomes(writer, state);
         writer.WriteEndObject();
     }
 
@@ -282,7 +294,36 @@ public static class CampaignCanonicalSerializer
             WriteCoordinate(writer, item.EstimatedCoordinate);
             writer.WriteNumber("confidence", (int)item.Confidence);
             writer.WriteNumber("observedAt", item.ObservedAt.Quanta);
+            writer.WriteNumber("uncertaintyRadiusMeters", item.UncertaintyRadiusMeters);
+            writer.WriteNumber("classification", (int)item.Classification);
             writer.WriteNumber("revision", item.Revision.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteOperationalOutcomes(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("recentOperationalOutcomes");
+        foreach (var item in state.RecentOperationalOutcomes)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("outcomeId", item.OutcomeId);
+            writer.WriteNumber("occurredAt", item.OccurredAt.Quanta);
+            writer.WriteNumber("kind", (int)item.Kind);
+            writer.WriteString("regionId", item.RegionId.ToString());
+            writer.WriteString("actorEntityId", item.ActorEntityId.ToString());
+            if (item.TargetEntityId is { } target)
+            {
+                writer.WriteString("targetEntityId", target.ToString());
+            }
+            else
+            {
+                writer.WriteNull("targetEntityId");
+            }
+            writer.WriteNumber("munitionsExpendedMilliUnits", item.MunitionsExpendedMilliUnits);
+            writer.WriteNumber("damageInflictedMilliUnits", item.DamageInflictedMilliUnits);
+            writer.WriteString("detail", item.Detail);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -419,6 +460,7 @@ public static class CampaignCanonicalSerializer
         public required WeatherDocument[] Weather { get; init; }
         public required AssignmentDocument[] Assignments { get; init; }
         public required ScheduledActivityDocument[] ScheduledActivities { get; init; }
+        public required OperationalOutcomeDocument[] RecentOperationalOutcomes { get; init; }
     }
 
     private sealed class RegionDocument
@@ -495,6 +537,8 @@ public static class CampaignCanonicalSerializer
         public required int LongitudeMicrodegrees { get; init; }
         public required int Confidence { get; init; }
         public required long ObservedAt { get; init; }
+        public required int UncertaintyRadiusMeters { get; init; }
+        public required int Classification { get; init; }
         public required long Revision { get; init; }
     }
 
@@ -533,5 +577,18 @@ public static class CampaignCanonicalSerializer
         public required string SubjectId { get; init; }
         public required long DueAt { get; init; }
         public required long Revision { get; init; }
+    }
+
+    private sealed class OperationalOutcomeDocument
+    {
+        public required string OutcomeId { get; init; }
+        public required long OccurredAt { get; init; }
+        public required int Kind { get; init; }
+        public required string RegionId { get; init; }
+        public required string ActorEntityId { get; init; }
+        public string? TargetEntityId { get; init; }
+        public required long MunitionsExpendedMilliUnits { get; init; }
+        public required int DamageInflictedMilliUnits { get; init; }
+        public required string Detail { get; init; }
     }
 }

@@ -172,6 +172,27 @@ Unity-only transforms, colliders, animation state, transient view models, and
 live guidance objects do not belong in the durable campaign schema. A tactical
 checkpoint maps those details to a versioned portable state when possible.
 
+## Operational resolution
+
+The unattended resolver advances fixed ten-quanta activities in stable ID order
+and derives every stochastic decision from campaign seed, logical time, subject,
+and purpose. Detection depends on graph proximity, simulation domain, weather,
+and combat observation. A missed observation ages the last estimate and expands
+its uncertainty rather than snapping to omniscient truth. Coalition projections
+replace the internal hostile entity key with a campaign-and-coalition-specific
+opaque track ID and expose only estimated region, coordinate, confidence,
+classification, age, and uncertainty radius.
+
+Opposing operational entities in one region can expend munitions and inflict
+readiness, damage, disablement, or destruction outcomes. A heavily damaged
+member causes its complete task force—not an individual ship—to receive a
+withdrawal order toward a home or safe adjacent region. The aggregate state and
+typed operational outcomes are committed in the same simulation event, making
+expenditure and losses replayable and visible to the operator monitor. These
+rules are deterministic and functional; their numerical outcome envelopes are
+not considered calibrated until the Phase 5 Sea Power observation batches are
+recorded and disagreement is displayed.
+
 ## Determinism and persistence
 
 Use deterministic time units, stable same-tick ordering, and keyed seeded RNG.

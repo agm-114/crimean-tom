@@ -88,6 +88,8 @@ public sealed record IntelligenceEstimate(
     GeoCoordinate EstimatedCoordinate,
     IntelligenceConfidence Confidence,
     CampaignTime ObservedAt,
+    int UncertaintyRadiusMeters,
+    ContactClassification Classification,
     EntityRevision Revision);
 
 public sealed record WeatherState(
@@ -122,6 +124,7 @@ public sealed record CampaignState
     public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
     public ImmutableSortedDictionary<AssignmentId, AssignmentState> Assignments { get; init; } = ImmutableSortedDictionary<AssignmentId, AssignmentState>.Empty;
     public ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> ScheduledActivities { get; init; } = ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState>.Empty;
+    public ImmutableArray<OperationalOutcome> RecentOperationalOutcomes { get; init; } = [];
 
     public static CampaignState Create(CampaignMetadata metadata)
     {

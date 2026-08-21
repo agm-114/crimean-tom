@@ -158,6 +158,16 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaAdvance = JsonDocument.Parse(
                 await fuldaAdvanceResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(30, fuldaAdvance.RootElement.GetProperty("timeQuanta").GetInt64());
+            using var advancedFuldaViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{fuldaCampaignId}",
+                testTimeout.Token);
+            advancedFuldaViewResponse.EnsureSuccessStatusCode();
+            using var advancedFuldaView = JsonDocument.Parse(
+                await advancedFuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var fuldaOutcomes = advancedFuldaView.RootElement.GetProperty("recentOperationalOutcomes")
+                .EnumerateArray().ToArray();
+            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");
+            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Damage");
 
             var start = await RunControlScriptAsync(
                 scriptPath,

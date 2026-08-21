@@ -396,7 +396,17 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.AuthorityEpoch.Value,
                 item.Lifecycle.ToString(),
                 item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
-                item.Revision.Value)).ToArray());
+                item.Revision.Value)).ToArray(),
+            recovery.State.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
+                item.OutcomeId,
+                item.OccurredAt.Quanta,
+                item.Kind.ToString(),
+                item.RegionId.ToString(),
+                item.ActorEntityId.ToString(),
+                item.TargetEntityId?.ToString(),
+                item.MunitionsExpendedMilliUnits,
+                item.DamageInflictedMilliUnits,
+                item.Detail)).ToArray());
     }
 
     public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(
@@ -859,7 +869,19 @@ public sealed record CampaignDiagnosticView(
     long TimeQuanta,
     string CanonicalHash,
     IReadOnlyList<CampaignEntityView> Entities,
-    IReadOnlyList<CampaignAssignmentView> Assignments);
+    IReadOnlyList<CampaignAssignmentView> Assignments,
+    IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes);
+
+public sealed record CampaignOperationalOutcomeView(
+    string OutcomeId,
+    long OccurredAtQuanta,
+    string Kind,
+    string RegionId,
+    string ActorEntityId,
+    string? TargetEntityId,
+    long MunitionsExpendedMilliunits,
+    int DamageInflictedMilliunits,
+    string Detail);
 
 public sealed record CampaignEntityView(
     string EntityId,

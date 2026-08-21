@@ -43,7 +43,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var projection = CampaignProjectionBuilder.ForCoalition(first.State, Ids.BlueCoalition);
         Assert.Equal(2, projection.FriendlyEntities.Count);
         Assert.Single(projection.Contacts);
-        Assert.Equal(Ids.RedKrivak, projection.Contacts[0].ContactEntityId);
+        Assert.StartsWith("track:", projection.Contacts[0].TrackId, StringComparison.Ordinal);
         Assert.Equal(Ids.BlackSea, projection.Contacts[0].EstimatedRegionId);
         Assert.DoesNotContain(projection.FriendlyEntities, item => item.EntityId == Ids.RedKrivak);
 
@@ -88,6 +88,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits < 900_000);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
         Assert.Equal(3, simulated.Intelligence.Count);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        Assert.True(simulated.Entities[Ids.RedKrivak].Resources[ResourceKind.Munitions].MilliUnits < 700_000);
 
         var simulatedProjection = CampaignProjectionBuilder.ForCoalition(simulated, Ids.BlueCoalition);
         var simulatedProjectionJson = JsonSerializer.Serialize(simulatedProjection);
@@ -101,7 +104,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("f7ea58eea2dd6abe167b73ec3e1f5c9b39485ed1fb0ccd4f829e9ed363b27b0e", longHorizon.Hash);
+        Assert.Equal("02c3e4100ec0b70ecab8917f116c7ccb0d710a92749c1d45620b1d9f10617bcc", longHorizon.Hash);
         await ProveDurableJournalAsync(longHorizon);
         await ProvePersistenceBoundariesAsync(longHorizon);
         await ProveProcessCrashRecoveryAsync(longHorizon);
@@ -206,8 +209,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(3, CampaignSchema.Version);
-        Assert.Equal(3, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(4, CampaignSchema.Version);
+        Assert.Equal(4, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

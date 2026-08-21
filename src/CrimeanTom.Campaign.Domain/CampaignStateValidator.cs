@@ -114,6 +114,8 @@ public static class CampaignStateValidator
         {
             if (key != estimate.Key || estimate.Revision.Value <= 0 || !state.Entities.ContainsKey(key.ContactEntityId)
                 || !state.Regions.ContainsKey(estimate.EstimatedRegionId) || !Enum.IsDefined(estimate.Confidence)
+                || !Enum.IsDefined(estimate.Classification)
+                || estimate.UncertaintyRadiusMeters is < 0 or > 2_000_000
                 || estimate.ObservedAt.Quanta < 0 || estimate.ObservedAt.Quanta > state.Time.Quanta)
             {
                 throw Invalid("intelligence", "An intelligence estimate is invalid.");
@@ -176,6 +178,22 @@ public static class CampaignStateValidator
             if (!subjectExists)
             {
                 throw Invalid("scheduled-subject", "A scheduled activity references a missing canonical subject.");
+            }
+        }
+
+        foreach (var outcome in state.RecentOperationalOutcomes)
+        {
+            if (string.IsNullOrWhiteSpace(outcome.OutcomeId)
+                || outcome.OccurredAt.Quanta < 0 || outcome.OccurredAt.Quanta > state.Time.Quanta
+                || !Enum.IsDefined(outcome.Kind)
+                || !state.Regions.ContainsKey(outcome.RegionId)
+                || !state.Entities.ContainsKey(outcome.ActorEntityId)
+                || outcome.TargetEntityId is { } target && !state.Entities.ContainsKey(target)
+                || outcome.MunitionsExpendedMilliUnits < 0
+                || outcome.DamageInflictedMilliUnits is < 0 or > 1_000_000
+                || string.IsNullOrWhiteSpace(outcome.Detail))
+            {
+                throw Invalid("operational-outcome", "An operational outcome is invalid.");
             }
         }
     }

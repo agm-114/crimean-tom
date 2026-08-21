@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 using CrimeanTom.Campaign.Contracts;
 
 namespace CrimeanTom.Campaign.Domain;
@@ -22,10 +25,12 @@ public sealed record FriendlyEntityProjection(
     EntityRevision Revision);
 
 public sealed record ContactProjection(
-    EntityId ContactEntityId,
+    string TrackId,
     RegionId EstimatedRegionId,
     GeoCoordinate EstimatedCoordinate,
     IntelligenceConfidence Confidence,
+    int UncertaintyRadiusMeters,
+    ContactClassification Classification,
     CampaignTime ObservedAt,
     EntityRevision Revision);
 
@@ -70,10 +75,12 @@ public static class CampaignProjectionBuilder
         var contacts = state.Intelligence.Values
             .Where(estimate => estimate.Key.ObserverCoalitionId == coalitionId)
             .Select(estimate => new ContactProjection(
-                estimate.Key.ContactEntityId,
+                TrackId(state.Metadata.CampaignId, estimate.Key),
                 estimate.EstimatedRegionId,
                 estimate.EstimatedCoordinate,
                 estimate.Confidence,
+                estimate.UncertaintyRadiusMeters,
+                estimate.Classification,
                 estimate.ObservedAt,
                 estimate.Revision))
             .ToArray();
@@ -86,5 +93,12 @@ public static class CampaignProjectionBuilder
             friendly,
             contacts,
             state.Weather.Values.ToArray());
+    }
+
+    private static string TrackId(CampaignId campaignId, IntelligenceKey key)
+    {
+        var material = $"{campaignId.Value:N}:{key.ObserverCoalitionId.Value:N}:{key.ContactEntityId.Value:N}:contact-track";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(material));
+        return $"track:{Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant()}";
     }
 }

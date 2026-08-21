@@ -273,6 +273,11 @@ public static class CampaignKernel
         {
             throw Violation("future-observation", "An observation cannot originate after its effective time.");
         }
+        if (value.UncertaintyRadiusMeters is < 0 or > 2_000_000
+            || !Enum.IsDefined(value.Classification))
+        {
+            throw Violation("invalid-contact-uncertainty", "Contact uncertainty or classification is invalid.");
+        }
 
         return Decision.Create(command.Subject, new IntelligenceReportedEvent(value), current.Next());
     }
@@ -499,7 +504,7 @@ public static class CampaignKernel
         var data = value.Report;
         var key = new IntelligenceKey(data.ObserverCoalitionId, data.ContactEntityId);
         var entry = new IntelligenceEstimate(key, data.EstimatedRegionId, data.EstimatedCoordinate, data.Confidence,
-            data.ObservedAt, item.NewSubjectRevision);
+            data.ObservedAt, data.UncertaintyRadiusMeters, data.Classification, item.NewSubjectRevision);
         return state with { Intelligence = state.Intelligence.SetItem(key, entry) };
     }
 
@@ -611,6 +616,8 @@ public static class CampaignKernel
                 update.EstimatedCoordinate,
                 update.Confidence,
                 update.ObservedAt,
+                update.UncertaintyRadiusMeters,
+                update.Classification,
                 update.Revision));
         }
 
@@ -630,6 +637,7 @@ public static class CampaignKernel
             Orders = orders,
             Intelligence = intelligence,
             ScheduledActivities = scheduled,
+            RecentOperationalOutcomes = [.. value.Outcomes],
         };
         CampaignStateValidator.Validate(updated);
         return updated;

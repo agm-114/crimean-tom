@@ -606,7 +606,8 @@ single-player prototype.
 
 ### Current implementation slice
 
-- Schema v3 records each entity's simulation domain and maximum fidelity.
+- Schema v4 records each entity's simulation domain and maximum fidelity, plus
+  contact uncertainty and recent operational outcomes.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot proving campaign supplies the large,
@@ -617,6 +618,11 @@ single-player prototype.
 - The monitor is part of the Phase 5 exit artifact, not a separate authority. It
   will expose campaign map state, units, interactions, fidelity reasons, health,
   load, and transitions from the same authenticated service projections.
+- The unattended resolver now performs deterministic region-level detection,
+  uncertainty degradation, weapons expenditure, damage, destruction, and
+  whole-task-force withdrawal. Coalition projections receive opaque track IDs
+  instead of hostile canonical entity IDs. These mechanics are functional but
+  remain uncalibrated until compared with measured Sea Power batches.
 
 ### Objective
 

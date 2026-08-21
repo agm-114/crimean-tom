@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 3;
-    public const int AlgorithmVersion = 3;
+    public const int Version = 4;
+    public const int AlgorithmVersion = 4;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -55,6 +55,7 @@ public enum OrderKind
     Resupply,
     Refit,
     Reinforce,
+    Withdraw,
 }
 
 public enum AssignmentRole
@@ -79,6 +80,25 @@ public enum IntelligenceConfidence
     Possible,
     Probable,
     Confirmed,
+}
+
+public enum ContactClassification
+{
+    Unknown,
+    Surface,
+    Subsurface,
+    Air,
+    Logistics,
+    LandFormation,
+}
+
+public enum OperationalOutcomeKind
+{
+    Detection,
+    WeaponExpenditure,
+    Damage,
+    Withdrawal,
+    Destruction,
 }
 
 public enum CampaignActivityKind
@@ -191,7 +211,9 @@ public sealed record ReportIntelligenceCommand(
     RegionId EstimatedRegionId,
     GeoCoordinate EstimatedCoordinate,
     IntelligenceConfidence Confidence,
-    CampaignTime ObservedAt)
+    CampaignTime ObservedAt,
+    int UncertaintyRadiusMeters = 100_000,
+    ContactClassification Classification = ContactClassification.Unknown)
     : CampaignCommandData;
 
 public sealed record SetWeatherCommand(
@@ -299,7 +321,20 @@ public sealed record SimulatedIntelligenceUpdate(
     GeoCoordinate EstimatedCoordinate,
     IntelligenceConfidence Confidence,
     CampaignTime ObservedAt,
+    int UncertaintyRadiusMeters,
+    ContactClassification Classification,
     EntityRevision Revision);
+
+public sealed record OperationalOutcome(
+    string OutcomeId,
+    CampaignTime OccurredAt,
+    OperationalOutcomeKind Kind,
+    RegionId RegionId,
+    EntityId ActorEntityId,
+    EntityId? TargetEntityId,
+    long MunitionsExpendedMilliUnits,
+    int DamageInflictedMilliUnits,
+    string Detail);
 
 public sealed record ScheduledCampaignActivity(
     ScheduledActivityId ActivityId,
@@ -315,6 +350,7 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedGroupUpdate> Groups,
     IReadOnlyList<SimulatedOrderUpdate> Orders,
     IReadOnlyList<SimulatedIntelligenceUpdate> Intelligence,
+    IReadOnlyList<OperationalOutcome> Outcomes,
     IReadOnlyList<ScheduledCampaignActivity> PendingActivities)
     : CampaignEventData;
 
