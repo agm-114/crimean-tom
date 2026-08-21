@@ -622,12 +622,14 @@ single-player prototype.
   destination `capacity - reserve`, counting both materialized objects and live
   assignments. Diagnostics separately expose ordinary promotion headroom and
   the still-protected reserve available for a future migration overlap. The
-  reserve is not spent yet: coordinator-driven non-publishing replacement
-  preparation, per-worker health, bounded migration concurrency, and rebalance
-  cooldown remain open. The campaign kernel itself now accepts one atomic
+  reserve is not spent yet: coordinator-driven replacement placement, per-worker
+  health, bounded migration concurrency, and rebalance cooldown remain open.
+  A companion can prepare a nonpublishing `Shadow` as a suspended native object;
+  the campaign kernel itself now accepts one atomic
   `migrate-tactical-island` command that promotes a prepared `Shadow`
   destination over a quiesced `Primary` source for a complete island; this is
-  a durable domain fence, not live scheduler or companion migration.
+  a durable domain fence plus destination-runtime preparation, not a completed
+  live migration controller.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies

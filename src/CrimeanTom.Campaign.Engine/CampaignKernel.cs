@@ -530,6 +530,7 @@ public static class CampaignKernel
         var assignmentIds = new HashSet<AssignmentId>();
         string? sourceBatchId = null;
         string? destinationBatchId = null;
+        var firstMember = true;
         var expectedBatchSize = value.Members.Count;
         foreach (var member in value.Members)
         {
@@ -548,8 +549,12 @@ public static class CampaignKernel
                 ? foundDestination
                 : throw Violation("assignment-missing", "A migration destination assignment does not exist.");
             var entity = RequireEntity(state, member.EntityId);
-            sourceBatchId ??= source.BatchId;
-            destinationBatchId ??= destination.BatchId;
+            if (firstMember)
+            {
+                sourceBatchId = source.BatchId;
+                destinationBatchId = destination.BatchId;
+                firstMember = false;
+            }
             if (source.EntityId != member.EntityId
                 || destination.EntityId != member.EntityId
                 || source.Role != AssignmentRole.Primary

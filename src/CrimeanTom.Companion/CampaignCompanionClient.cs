@@ -468,8 +468,9 @@ public sealed class CampaignCompanionClient(
     {
         try
         {
+            var isShadow = assignment.Role == AssignmentRole.Shadow;
             if (!assignment.GloballyPaused
-                || assignment.Role != AssignmentRole.Primary
+                || assignment.Role is not (AssignmentRole.Primary or AssignmentRole.Shadow)
                 || !MatchesRequirement(assignment.RequiredRuntimeFingerprintSha256, capabilities.RuntimeFingerprint.FingerprintSha256)
                 || !MatchesRequirement(assignment.RequiredCatalogFingerprintSha256, capabilities.RuntimeFingerprint.CatalogSha256))
             {
@@ -530,9 +531,28 @@ public sealed class CampaignCompanionClient(
             await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
             var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(checkpointResult.ResultJson, JsonOptions)
                 ?? throw new InvalidDataException("Checkpoint result was empty.");
+
+            var realizedRevision = materialized.Revision;
+            if (isShadow)
+            {
+                var suspensionResult = await RequireGameCommandAsync(
+                    GameCommandTypes.SetOwnedSurfaceSuspension,
+                    JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
+                    {
+                        Context = Context(assignment.AssignmentId, assignment.AuthorityEpoch,
+                            materialized.Revision, $"{assignment.IdempotencyKey}-suspend-prepared-shadow"),
+                        EntityId = assignment.EntityId,
+                        IsSuspended = true,
+                    }, JsonOptions),
+                    cancellationToken);
+                var suspension = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                    suspensionResult.ResultJson,
+                    JsonOptions) ?? throw new InvalidDataException("Shadow suspension result was empty.");
+                realizedRevision = suspension.Revision;
+            }
             await stateStore.SaveGameRevisionAsync(
                 assignment.AssignmentId,
-                materialized.Revision,
+                realizedRevision,
                 cancellationToken);
             return new AssignmentPreparation(
                 new AssignmentPrepared
@@ -540,7 +560,7 @@ public sealed class CampaignCompanionClient(
                     AssignmentId = assignment.AssignmentId,
                     EntityId = assignment.EntityId,
                     AuthorityEpoch = assignment.AuthorityEpoch,
-                    RealizedRevision = materialized.Revision,
+                    RealizedRevision = realizedRevision,
                     CanonicalStateSha256 = checkpoint.CheckpointSha256,
                     Ready = true,
                 },

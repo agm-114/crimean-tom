@@ -155,8 +155,11 @@ overbooking a destination. The monitor exposes declared capacity, reserve and
 remaining ordinary-promotion headroom. It also reports the portion of physical
 headroom protected by reserve as migration-overlap headroom. That value is an
 admission envelope, not permission to create a second publisher. Canonical
-Shadow replacement state now exists in the kernel; coordinator preparation,
-overlap budgets, and live enablement remain disabled. Per-worker health declarations, temporary
+Shadow replacement state now exists in the kernel, and the companion can
+materialize a queued Shadow from a checkpoint, capture its realized state, and
+immediately suspend it before reporting readiness. Coordinator scheduling,
+overlap budgets, final-checkpoint transfer, and live enablement remain disabled.
+Per-worker health declarations, temporary
 source/destination migration overlap, whole-island migration, and bounded
 concurrent rebalance remain open work; this foundation must not be read as a
 completed migration controller. The campaign kernel now has one atomic
@@ -166,7 +169,7 @@ non-publishing `Shadow`/`Prepared` with a strictly higher epoch and a different
 worker, and one committed event releases the source while promoting the
 destination to `Primary`/`Active` without changing Tactical fidelity. The
 validator still allows only one live Primary. The coordinator does not schedule
-or claim this path yet.
+or claim the end-to-end path yet.
 
 Assignment preparation now carries the entity's latest durable checkpoint when
 one exists. The companion authenticates the download and verifies its content

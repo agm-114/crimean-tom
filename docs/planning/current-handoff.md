@@ -536,8 +536,11 @@ and preserves fenced/engaged islands; the scheduling response retains the
 original decision reasons even after assignments enter Quiescing. The campaign
 kernel now has a durable fenced-migration command: a complete island can move
 from a quiesced Primary onto a prepared Shadow in one event, keeping Tactical
-fidelity and one live publisher. The coordinator still does not schedule that
-path, and this is not a live Sea Power migration claim. Next, add a bounded
+fidelity and one live publisher. The companion also accepts Shadow assignments,
+materializes their checkpoint state, captures a verification checkpoint, and
+suspends the destination object before reporting it ready. The coordinator
+still does not schedule that path, and this is not a live Sea Power migration
+claim. Next, add a bounded
 temporary-overlap budget for fenced migration, then expand live tactical
 combat tempo to mixed active systems, exercise campaign-owned
 sensor/host/refueling edges, and
