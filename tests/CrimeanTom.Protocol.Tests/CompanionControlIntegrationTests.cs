@@ -146,15 +146,16 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.Equal(HttpStatusCode.Created, createdFuldaCampaign.StatusCode);
             using var fuldaBootstrapResponse = await campaignClient.PostAsync(
-                $"/control/campaigns/{fuldaCampaignId}/bootstrap/fulda-gap",
+                $"/control/campaigns/{fuldaCampaignId}/bootstrap/fulda-gap/2",
                 content: null,
                 testTimeout.Token);
             fuldaBootstrapResponse.EnsureSuccessStatusCode();
             using var fuldaBootstrap = JsonDocument.Parse(
                 await fuldaBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
             Assert.Equal(12, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
-            Assert.Equal(15, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            Assert.Equal(30, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(4, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
             var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
             using var fuldaViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{fuldaCampaignId}",
@@ -163,7 +164,7 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaView = JsonDocument.Parse(
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
-            Assert.Equal(15, fuldaEntities.Length);
+            Assert.Equal(30, fuldaEntities.Length);
             Assert.All(
                 fuldaEntities.Where(item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"),
                 item => Assert.Equal("Operational", item.GetProperty("maximumFidelity").GetString()));
@@ -188,7 +189,7 @@ public sealed class CompanionControlIntegrationTests
             var landEntityId = Assert.Single(
                 advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray(),
                 item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"
-                    && item.GetProperty("name").GetString()!.StartsWith("US V Corps", StringComparison.Ordinal))
+                    && item.GetProperty("name").GetString() == "US V Corps (abstract)")
                 .GetProperty("entityId").GetString()!;
             using var promoteResponse = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{fuldaCampaignId}/schedule",

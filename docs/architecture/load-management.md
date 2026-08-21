@@ -153,6 +153,14 @@ explicit drain remain immediate. Longer health history, cooldowns, reserve and
 destination accounting, migration, and tempo events are still target
 architecture rather than implemented claims.
 
+The first reproducible operational baseline on the Ryzen 9 9900X development
+host sustains 35.9 quanta/s for 300 entities and 180 groups, clearing the healthy
+30/s target. A 600-entity/360-group shape sustains 18.5/s and is therefore an
+overloaded envelope, not a supported healthy claim. These measurements cover the
+external operational kernel only; tactical client and backlog thresholds still
+require their own calibration. See
+[Phase 5 operational-load evidence](../evidence/phase-5-load-evidence-2026-08-21.md).
+
 ### Avoiding cascade failure
 
 - Keep explicit reserve capacity for promotion, catch-up, and migration.

@@ -7,8 +7,12 @@ namespace CrimeanTom.Campaign.ServiceHost;
 
 internal static class FuldaGapCampaignSeed
 {
-    public static FuldaGapSeed Create(CampaignId campaignId)
+    public static FuldaGapSeed Create(CampaignId campaignId, int forceMultiplier = 1)
     {
+        if (forceMultiplier is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(forceMultiplier), "Fulda force multiplier must be between 1 and 100.");
+        }
         var blue = new CoalitionId(Id(campaignId, "coalition-blue"));
         var red = new CoalitionId(Id(campaignId, "coalition-red"));
         var regions = new[]
@@ -39,7 +43,7 @@ internal static class FuldaGapCampaignSeed
             Base(campaignId, "peenemunde", "Peenemunde", red, "baltic", 54_140_000, 13_770_000),
         };
         var baseIds = bases.ToDictionary(item => item.Key, item => item.BaseId, StringComparer.Ordinal);
-        var entities = new[]
+        var entityTemplates = new[]
         {
             Entity(campaignId, "pharris", "USS Pharris", "usn_ff_knox_84", blue, "giuk", 62_700_000, -15_000_000, "keflavik", "blue-giuk", SimulationDomain.Maritime),
             Entity(campaignId, "los-angeles", "USS Providence", "usn_ssn_los_angeles", blue, "giuk", 63_100_000, -17_200_000, "keflavik", "blue-giuk", SimulationDomain.Maritime),
@@ -57,6 +61,12 @@ internal static class FuldaGapCampaignSeed
             Entity(campaignId, "osa", "Osa missile boat squadron", "wp_ptg_osa1", red, "baltic", 55_000_000, 17_600_000, "baltiysk", "red-baltic", SimulationDomain.Maritime),
             Entity(campaignId, "eighth-guards", "8th Guards Army (abstract)", "abstract_land_formation", red, "fulda", 50_800_000, 10_300_000, null, "red-fulda", SimulationDomain.LandAbstract, FidelityState.Operational),
         };
+        var entities = Enumerable.Range(0, forceMultiplier)
+            .SelectMany(echelon => echelon == 0
+                ? entityTemplates
+                : entityTemplates.Select(template => Replicate(campaignId, template, echelon)))
+            .OrderBy(item => item.EntityId)
+            .ToArray();
         var entityIds = entities.ToDictionary(item => item.Key, item => item.EntityId, StringComparer.Ordinal);
         var groups = entities.GroupBy(item => item.GroupKey, StringComparer.Ordinal)
             .Select(group => new FuldaGroupSeed(
@@ -75,7 +85,7 @@ internal static class FuldaGapCampaignSeed
             Order(campaignId, "baltic-raid-to-baltap", groupIds["red-baltic"], regionIds["baltap"], OrderKind.Transit),
             Order(campaignId, "blue-sag-to-norsea", groupIds["blue-north-sea"], regionIds["norsea"], OrderKind.Patrol),
         };
-        return new FuldaGapSeed(campaignId, blue, red, regions, bases, entities, groups, orders, regionIds, baseIds, entityIds);
+        return new FuldaGapSeed(campaignId, forceMultiplier, blue, red, regions, bases, entities, groups, orders, regionIds, baseIds, entityIds);
     }
 
     private static FuldaRegionSeed Region(CampaignId campaignId, string key, string name, string[] neighbors) =>
@@ -99,8 +109,33 @@ internal static class FuldaGapCampaignSeed
         CampaignId campaignId, string key, GroupId groupId, RegionId destination, OrderKind kind) =>
         new(new OrderId(Id(campaignId, $"order-{key}")), groupId, kind, destination);
 
-    private static string GroupName(string key) => key switch
+    private static FuldaEntitySeed Replicate(CampaignId campaignId, FuldaEntitySeed template, int echelon)
     {
+        var suffix = $"echelon-{echelon + 1:D3}";
+        var latitudeOffset = ((echelon % 9) - 4) * 12_000;
+        var longitudeOffset = (((echelon / 9) % 9) - 4) * 18_000;
+        var key = $"{template.Key}-{suffix}";
+        return template with
+        {
+            Key = key,
+            EntityId = new EntityId(Id(campaignId, $"entity-{key}")),
+            Name = $"{template.Name} / {echelon + 1:D3}",
+            Coordinate = GeoCoordinate.FromMicrodegrees(
+                template.Coordinate.LatitudeMicrodegrees + latitudeOffset,
+                template.Coordinate.LongitudeMicrodegrees + longitudeOffset),
+            GroupKey = $"{template.GroupKey}-{suffix}",
+        };
+    }
+
+    private static string GroupName(string key)
+    {
+        var echelonMarker = key.IndexOf("-echelon-", StringComparison.Ordinal);
+        if (echelonMarker >= 0)
+        {
+            return $"{GroupName(key[..echelonMarker])} / {key[(echelonMarker + 9)..]}";
+        }
+        return key switch
+        {
         "blue-giuk" => "NATO GIUK barrier group",
         "blue-north-sea" => "NATO North Sea surface action group",
         "blue-reforger" => "REFORGER Convoy 261",
@@ -110,8 +145,9 @@ internal static class FuldaGapCampaignSeed
         "red-giuk" => "Northern Fleet submarine barrier group",
         "red-baltic" => "Baltic Fleet missile raid group",
         "red-fulda" => "8th Guards Army abstract formation",
-        _ => key,
-    };
+            _ => key,
+        };
+    }
 
     private static Guid Id(CampaignId campaignId, string purpose)
     {
@@ -122,6 +158,7 @@ internal static class FuldaGapCampaignSeed
 
 internal sealed record FuldaGapSeed(
     CampaignId CampaignId,
+    int ForceMultiplier,
     CoalitionId BlueCoalitionId,
     CoalitionId RedCoalitionId,
     IReadOnlyList<FuldaRegionSeed> Regions,

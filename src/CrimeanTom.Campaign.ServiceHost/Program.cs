@@ -157,6 +157,15 @@ app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap", async (
     Guid.TryParseExact(campaignId, "N", out var parsed)
         ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(new CampaignId(parsed), cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap/{forceMultiplier:int}", async (
+    string campaignId,
+    int forceMultiplier,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed) && forceMultiplier is >= 1 and <= 100
+        ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(
+            new CampaignId(parsed), cancellationToken, forceMultiplier))
+        : Results.BadRequest(new { error = "invalid-campaign-id-or-force-multiplier" }));
 app.MapGet("/campaigns/{campaignId}", async (
     string campaignId,
     CampaignCoordinator coordinator,

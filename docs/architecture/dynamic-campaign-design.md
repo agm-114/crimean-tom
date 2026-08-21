@@ -112,6 +112,10 @@ service uptime and memory, recovery/advance/schedule completion counts and
 durations, completed work units, and last measured throughput. These metrics do
 not enter canonical simulation decisions; they make the service-observed load
 visible and provide the measurement surface for Phase 5 stress calibration.
+`POST /control/campaigns/{campaignId}/bootstrap/fulda-gap/{forceMultiplier}`
+replicates the representative force packages from 1x through 100x, while
+`pnpm campaign:stress` creates and advances a fresh scaled campaign through the
+real service/journal path.
 
 At companion handshake the game advertises the exact player task-force ID and
 the bounded unit/variant/loadout profiles its runtime adapter can materialize.

@@ -367,6 +367,14 @@ the protocol story requires a real 30-quanta advance to populate and validate
 that telemetry. These measurements are operational evidence, not canonical
 inputs.
 
+The scaled Fulda bootstrap and `pnpm campaign:stress` now exercise 1x–100x force
+packages through the actual HTTP, kernel, SQLite journal, recovery, and telemetry
+path. On the Ryzen 9 9900X host, 20x (300 entities/180 groups) produced 1,866
+outcomes and sustained 35.9 quanta/s, passing the 30/s healthy target. 40x (600
+entities/360 groups) produced 3,891 outcomes at 18.5/s and is explicitly an
+overloaded envelope. Full measurements and caveats are in
+`docs/evidence/phase-5-load-evidence-2026-08-21.md`.
+
 ## Deferred hardening
 
 - Complete the stronger named-local-account pipe rejection proof when a

@@ -131,7 +131,8 @@ public sealed class CampaignCoordinator(
 
     public async Task<FuldaGapBootstrapResult> BootstrapFuldaGapAsync(
         CampaignId campaignId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int forceMultiplier = 1)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -142,7 +143,7 @@ public sealed class CampaignCoordinator(
                 throw new CampaignStoreConflict("campaign-not-empty", "Fulda Gap bootstrap requires an empty campaign.");
             }
 
-            var seed = FuldaGapCampaignSeed.Create(campaignId);
+            var seed = FuldaGapCampaignSeed.Create(campaignId, forceMultiplier);
             foreach (var region in seed.Regions)
             {
                 var neighbors = region.NeighborKeys.Select(key => seed.RegionIds[key]).ToArray();
@@ -223,6 +224,7 @@ public sealed class CampaignCoordinator(
             return new FuldaGapBootstrapResult(
                 campaignId.ToString(),
                 "Fulda Gap Gone Hot — September 1989",
+                seed.ForceMultiplier,
                 seed.BlueCoalitionId.ToString(),
                 seed.RedCoalitionId.ToString(),
                 seed.Regions.Count,
@@ -1318,6 +1320,7 @@ public sealed record CampaignBootstrapResult(
 public sealed record FuldaGapBootstrapResult(
     string CampaignId,
     string Title,
+    int ForceMultiplier,
     string BlueCoalitionId,
     string RedCoalitionId,
     int RegionCount,
