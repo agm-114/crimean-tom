@@ -316,6 +316,14 @@ internal static class RuntimeOwnedMutationAdapter
                 "taskforceId must resolve exactly to the current player task force.");
         }
 
+        var sourceCheckpointError = ValidateSourceCheckpoint(request);
+        if (sourceCheckpointError is not null)
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                sourceCheckpointError);
+        }
+
         if (OwnedEntities.TryGetValue(request.EntityId, out var retained))
         {
             return RematerializeRetained(request, requestJson, idempotencyRecordKey, retained);
@@ -330,6 +338,8 @@ internal static class RuntimeOwnedMutationAdapter
                 "The requested external entity already has a live or retained owned object.");
         }
 
+        var sourceCheckpoint = request.SourceCheckpoint;
+        var sourceUnit = sourceCheckpoint?.Unit;
         var predicted = new OwnedSurfaceUnitStatePayload
         {
             StableUnitId = $"campaign-unit:{request.EntityId}",
@@ -338,10 +348,11 @@ internal static class RuntimeOwnedMutationAdapter
             VariantId = request.VariantId,
             LoadoutId = request.LoadoutId,
             TaskforceId = request.TaskforceId,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
-            HeadingDegrees = NormalizeHeading(request.HeadingDegrees),
-            Telegraph = request.Telegraph,
+            Latitude = sourceUnit?.Latitude ?? request.Latitude,
+            Longitude = sourceUnit?.Longitude ?? request.Longitude,
+            HeadingDegrees = sourceUnit?.HeadingDegrees ?? NormalizeHeading(request.HeadingDegrees),
+            SpeedKnots = sourceUnit?.SpeedKnots,
+            Telegraph = sourceUnit?.Telegraph ?? request.Telegraph,
         };
         if (request.Context.DryRun)
         {
@@ -363,8 +374,8 @@ internal static class RuntimeOwnedMutationAdapter
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
-            var heading = new Vector3(0f, (float)NormalizeHeading(request.HeadingDegrees), 0f);
+            var position = new GeoPosition(predicted.Latitude!.Value, predicted.Longitude!.Value, 0d);
+            var heading = new Vector3(0f, (float)NormalizeHeading(predicted.HeadingDegrees!.Value), 0f);
             created = Singleton<ObjectsManager>.Instance.createShip(
                 request.VariantId,
                 request.LoadoutId,
@@ -372,7 +383,7 @@ internal static class RuntimeOwnedMutationAdapter
                 Singleton<ObjectsManager>.Instance._listOfAllObjects.Count + 1,
                 Singleton<SceneCreator>.Instance.GeoCenterPosition,
                 position,
-                request.Telegraph,
+                predicted.Telegraph,
                 heading,
                 taskforce,
                 loadAsync: false);
@@ -387,23 +398,39 @@ internal static class RuntimeOwnedMutationAdapter
             // only touch objects bearing this exact tag and present in OwnedEntities.
             created._campaignTag = request.EntityId;
             InjectFailure(request.FaultInjectionStep, "after-owned-tag");
-            created.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
-            created.transform.eulerAngles = heading;
-            created._geoPosition = position;
-            created.setTelegraph(request.Telegraph);
-            created._velocityInKnots = created.getSpeedForTelegraph(request.Telegraph);
-            created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
-            Physics.SyncTransforms();
+            if (sourceUnit is null)
+            {
+                created.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
+                created.transform.eulerAngles = heading;
+                created._geoPosition = position;
+                created.setTelegraph(request.Telegraph);
+                created._velocityInKnots = created.getSpeedForTelegraph(request.Telegraph);
+                created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
+                Physics.SyncTransforms();
+            }
+            else
+            {
+                ApplyPortableState(created, sourceUnit);
+            }
             InjectFailure(request.FaultInjectionStep, "after-state-apply");
 
             var initialStoresQuantity = StoreQuantity(created);
             var realized = Capture(created, request.TaskforceId, initialStoresQuantity);
-            AssertRealizedIdentity(request, realized);
+            if (sourceUnit is null)
+            {
+                AssertRealizedIdentity(request, realized);
+            }
+            else
+            {
+                AssertCheckpointRestored(sourceUnit, realized);
+            }
             var revision = request.Context.ExpectedRevision + 1;
             var result = new MaterializeOwnedSurfaceUnitResultPayload
             {
-                Outcome = "materialized",
-                Postcondition = "owned-surface-unit-materialized-and-read-back",
+                Outcome = sourceUnit is null ? "materialized" : "materialized-from-portable-checkpoint",
+                Postcondition = sourceUnit is null
+                    ? "owned-surface-unit-materialized-and-read-back"
+                    : "owned-surface-unit-reconstructed-from-imported-portable-checkpoint",
                 AssignmentId = request.Context.AssignmentId,
                 AuthorityEpoch = request.Context.AuthorityEpoch,
                 Revision = revision,
@@ -412,13 +439,15 @@ internal static class RuntimeOwnedMutationAdapter
                 RecoverableOwnedObject = true,
                 UnsupportedFields = UnsupportedFields(),
             };
-            OwnedEntities.Add(request.EntityId, new(
+            var ownedRecord = new OwnedEntityRecord(
                 request.Context.AssignmentId,
                 request.Context.AuthorityEpoch,
                 revision,
                 request.TaskforceId,
                 created,
-                initialStoresQuantity));
+                initialStoresQuantity);
+            ownedRecord.Checkpoint = sourceCheckpoint;
+            OwnedEntities.Add(request.EntityId, ownedRecord);
             InjectFailure(request.FaultInjectionStep, "after-registry-add");
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
@@ -630,28 +659,11 @@ internal static class RuntimeOwnedMutationAdapter
         }
         var unit = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
         var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var hash = CapabilityFingerprint.ComputeSha256(new[]
-        {
-            Field("schema-version", 1),
-            Field("assignment-id", record.AssignmentId),
-            Field("authority-epoch", record.AuthorityEpoch),
-            Field("revision", record.Revision),
-            Field("entity-id", unit.EntityId),
-            Field("unit-type", unit.UnitTypeId),
-            Field("variant", unit.VariantId),
-            Field("loadout", unit.LoadoutId),
-            Field("taskforce", unit.TaskforceId),
-            Field("latitude", unit.Latitude),
-            Field("longitude", unit.Longitude),
-            Field("heading", unit.HeadingDegrees),
-            Field("speed", unit.SpeedKnots),
-            Field("telegraph", unit.Telegraph),
-            Field("fuel-fraction-milliunits", unit.FuelFractionMilliunits),
-            Field("stores-fraction-milliunits", unit.StoresFractionMilliunits),
-            Field("damage-fraction-milliunits", unit.DamageFractionMilliunits),
-            Field("disabled", unit.IsDisabled),
-            Field("destroyed", unit.IsDestroyed),
-        });
+        var hash = ComputeCheckpointSha256(
+            record.AssignmentId,
+            record.AuthorityEpoch,
+            record.Revision,
+            unit);
         var checkpoint = new OwnedSurfaceCheckpointPayload
         {
             CheckpointId = $"checkpoint:{request.EntityId}:{record.Revision}:{hash[..12]}",
@@ -1292,6 +1304,96 @@ internal static class RuntimeOwnedMutationAdapter
         vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
         Physics.SyncTransforms();
     }
+
+    private static string? ValidateSourceCheckpoint(
+        MaterializeOwnedSurfaceUnitRequestPayload request)
+    {
+        var checkpoint = request.SourceCheckpoint;
+        if (checkpoint is null)
+        {
+            return null;
+        }
+        var unit = checkpoint.Unit;
+        if (checkpoint.SchemaVersion != 1
+            || string.IsNullOrWhiteSpace(checkpoint.CheckpointId)
+            || checkpoint.CheckpointId.Length > 256
+            || string.IsNullOrWhiteSpace(checkpoint.CheckpointSha256)
+            || checkpoint.CheckpointSha256.Length != 64
+            || !checkpoint.CheckpointSha256.All(Uri.IsHexDigit)
+            || !ValidScopedId(checkpoint.AssignmentId, "assignment:")
+            || checkpoint.AuthorityEpoch < 1
+            || checkpoint.AuthorityEpoch >= request.Context.AuthorityEpoch
+            || checkpoint.Revision < 0
+            || string.Equals(
+                checkpoint.AssignmentId,
+                request.Context.AssignmentId,
+                StringComparison.Ordinal))
+        {
+            return "The imported portable checkpoint identity or predecessor fence is invalid.";
+        }
+        if (unit is null
+            || !string.Equals(unit.StableUnitId, $"campaign-unit:{request.EntityId}", StringComparison.Ordinal)
+            || !string.Equals(unit.EntityId, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(unit.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
+            || !string.Equals(unit.VariantId, request.VariantId, StringComparison.Ordinal)
+            || !string.Equals(unit.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
+            || !string.Equals(unit.TaskforceId, request.TaskforceId, StringComparison.Ordinal)
+            || unit.Latitude is not double latitude
+            || unit.Longitude is not double longitude
+            || unit.HeadingDegrees is not double heading
+            || !ValidPosition(latitude, longitude, heading)
+            || unit.SpeedKnots is not double speed
+            || !double.IsFinite(speed)
+            || unit.Telegraph is < -1 or > 5
+            || unit.IsDisabled
+            || unit.IsDestroyed
+            || !ValidFraction(unit.FuelFractionMilliunits)
+            || !ValidFraction(unit.StoresFractionMilliunits)
+            || !ValidFraction(unit.DamageFractionMilliunits))
+        {
+            return "The imported portable checkpoint does not match the requested supported active surface identity.";
+        }
+        var computedHash = ComputeCheckpointSha256(
+            checkpoint.AssignmentId,
+            checkpoint.AuthorityEpoch,
+            checkpoint.Revision,
+            unit);
+        return string.Equals(
+            computedHash,
+            checkpoint.CheckpointSha256,
+            StringComparison.OrdinalIgnoreCase)
+            ? null
+            : "The imported portable checkpoint state hash is invalid.";
+    }
+
+    private static bool ValidFraction(long? value) => value is null or >= 0 and <= 1_000_000;
+
+    private static string ComputeCheckpointSha256(
+        string assignmentId,
+        long authorityEpoch,
+        long revision,
+        OwnedSurfaceUnitStatePayload unit) => CapabilityFingerprint.ComputeSha256(new[]
+        {
+            Field("schema-version", 1),
+            Field("assignment-id", assignmentId),
+            Field("authority-epoch", authorityEpoch),
+            Field("revision", revision),
+            Field("entity-id", unit.EntityId),
+            Field("unit-type", unit.UnitTypeId),
+            Field("variant", unit.VariantId),
+            Field("loadout", unit.LoadoutId),
+            Field("taskforce", unit.TaskforceId),
+            Field("latitude", unit.Latitude),
+            Field("longitude", unit.Longitude),
+            Field("heading", unit.HeadingDegrees),
+            Field("speed", unit.SpeedKnots),
+            Field("telegraph", unit.Telegraph),
+            Field("fuel-fraction-milliunits", unit.FuelFractionMilliunits),
+            Field("stores-fraction-milliunits", unit.StoresFractionMilliunits),
+            Field("damage-fraction-milliunits", unit.DamageFractionMilliunits),
+            Field("disabled", unit.IsDisabled),
+            Field("destroyed", unit.IsDestroyed),
+        });
 
     private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>? Validate(
         MaterializeOwnedSurfaceUnitRequestPayload request,

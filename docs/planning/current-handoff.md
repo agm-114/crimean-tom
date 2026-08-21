@@ -333,6 +333,16 @@ tie-breaker is stable client identity rather than connection time. The current
 capacity envelope remains campaign-global; explicit per-worker health and
 migration-overlap budgets are the next admission-control slice.
 
+New assignments now reference the latest durable checkpoint for their entity.
+The companion downloads that blob with campaign authentication and verifies its
+content SHA-256. A destination runtime then validates the checkpoint's own state
+hash, predecessor assignment/epoch fence, and exact entity/profile/task-force
+identity before reconstructing position, heading, speed, and telegraph. The
+solution builds without warnings and both broad integration stories pass. This
+is portable transfer plumbing, not live two-container migration evidence:
+fuel, stores, damage, sensors, formations, and hosted aircraft are still
+reported as unsupported and must continue to fence automatic movement.
+
 Tactical fidelity is now an achieved worker state rather than a scheduler label.
 The scheduler may project Tactical as desired, but leaves canonical fidelity at
 the lower level until a companion materializes the unit and publishes its first

@@ -313,6 +313,24 @@ This is session coexistence, placement affinity, event fan-out and publisher
 fencing. It is not yet evidence for destination-headroom admission, live
 checkpoint migration, rebalance cooldown or migration-storm suppression.
 
+## Portable checkpoint transfer plumbing
+
+A subsequent implementation slice now attaches the latest durable tactical
+checkpoint to a higher-epoch assignment. The destination companion downloads
+the content-addressed blob through the authenticated service endpoint, verifies
+the blob SHA-256, and supplies the decoded checkpoint to materialization. The
+runtime bridge separately rejects stale/same-assignment epochs, mismatched
+entity/profile/task-force identity, inactive surface state, and a mismatched
+internal checkpoint hash before it creates a new owned object.
+
+The full solution built with zero warnings, and the two existing broad stories
+passed: the deterministic campaign story in 5 seconds and the real-host protocol
+story in 42 seconds. Those checks cover the transfer path's contracts and
+service/companion integration; they are not a substitute for a live source and
+destination Sea Power process proof. Only position, heading, speed, and
+telegraph are currently applied during reconstruction. Fuel, stores, damage,
+sensors, formations, and hosted aircraft remain explicit unsupported fields.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,
@@ -323,5 +341,6 @@ checkpoint migration, rebalance cooldown or migration-storm suppression.
   test split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.
-- Add destination reserve accounting and then prove a fenced whole-island
-  checkpoint migration between two real tactical containers.
+- Add destination reserve/overlap accounting and fenced whole-island quiesce,
+  then prove this checkpoint reconstruction path between two real tactical
+  containers. Do not enable automatic migration for unsupported state families.

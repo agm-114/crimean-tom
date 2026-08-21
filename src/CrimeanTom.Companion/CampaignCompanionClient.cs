@@ -472,6 +472,10 @@ public sealed class CampaignCompanionClient(
                 throw new InvalidOperationException("Assignment pause, role, runtime, or catalog requirements are incompatible.");
             }
             await stateStore.SaveAssignmentAsync(assignment, cancellationToken);
+            var sourceCheckpoint = await DownloadCheckpointAsync(
+                assignment,
+                serviceToken,
+                cancellationToken);
 
             await RequireGameCommandAsync(
                 GameCommandTypes.SetExperimentalPauseState,
@@ -502,6 +506,7 @@ public sealed class CampaignCompanionClient(
                     Longitude = assignment.LongitudeMicrodegrees / 1_000_000d,
                     HeadingDegrees = assignment.HeadingMillidegrees / 1_000d,
                     Telegraph = assignment.Telegraph,
+                    SourceCheckpoint = sourceCheckpoint,
                 }, JsonOptions),
                 cancellationToken);
             var materialized = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitResultPayload>(result.ResultJson, JsonOptions)
@@ -716,6 +721,39 @@ public sealed class CampaignCompanionClient(
             new ByteArrayContent(content),
             cancellationToken);
         response.EnsureSuccessStatusCode();
+    }
+
+    private async Task<OwnedSurfaceCheckpointPayload?> DownloadCheckpointAsync(
+        TacticalAssignment assignment,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var hasHash = !string.IsNullOrWhiteSpace(assignment.CheckpointSha256);
+        var hasUri = !string.IsNullOrWhiteSpace(assignment.CheckpointUri);
+        if (!hasHash && !hasUri)
+        {
+            return null;
+        }
+        if (!hasHash || !hasUri
+            || assignment.CheckpointSha256.Length != 64
+            || !assignment.CheckpointSha256.All(Uri.IsHexDigit)
+            || !string.Equals(
+                assignment.CheckpointUri,
+                $"/content/{assignment.CheckpointSha256}",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The tactical assignment checkpoint reference is invalid.");
+        }
+        using var client = new HttpClient { BaseAddress = options.HttpUri };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var content = await client.GetByteArrayAsync(assignment.CheckpointUri, cancellationToken);
+        var actualHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+        if (!string.Equals(actualHash, assignment.CheckpointSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("The tactical assignment checkpoint content hash is invalid.");
+        }
+        return JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(content, JsonOptions)
+            ?? throw new InvalidDataException("The tactical assignment checkpoint was empty.");
     }
 
     private OwnedMutationContextPayload Context(string assignment, long epoch, long revision, string idempotency) => new()

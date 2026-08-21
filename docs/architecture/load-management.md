@@ -148,6 +148,16 @@ whole-island migration, destination/source overlap accounting, and bounded
 concurrent rebalance remain open work; this foundation must not be read as a
 completed migration controller.
 
+Assignment preparation now carries the entity's latest durable checkpoint when
+one exists. The companion authenticates the download and verifies its content
+hash; the destination bridge verifies checkpoint lineage and the canonical
+state hash before reconstructing the supported portable surface fields. This
+closes the checkpoint transport/reconstruction plumbing but does not by itself
+make an island migration-safe. Automatic moves remain disabled where fuel,
+stores, damage, sensors, formations, hosted aircraft, or other unsupported state
+would matter, and the coordinator still needs destination overlap budgets,
+quiesce fencing, cooldown, and bounded concurrent migration.
+
 The service automatically creates and queues deterministic, batch-linked
 Preparing assignments for a selected, fully representable island. Manual and
 automatic handoffs both stage Strategic entities at Operational before the

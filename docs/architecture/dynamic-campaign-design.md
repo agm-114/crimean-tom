@@ -233,6 +233,18 @@ namespace, an exact entity/profile/task-force match, and a healthy suspended
 checkpoint. It rebinds and enables the retained vessel atomically, or restores
 the prior suspension on failure.
 
+When the selected worker does not retain that process-local object, the service
+attaches the latest durable content-addressed checkpoint for the entity to the
+new higher-epoch assignment. The owning companion downloads the blob through
+the authenticated content endpoint, verifies its blob SHA-256, and passes the
+decoded payload to the runtime bridge. The bridge independently verifies the
+checkpoint's internal state hash, predecessor assignment and epoch, stable
+entity/profile/task-force identity, and active surface state before constructing
+a new owned object. The portable subset currently applied is position, heading,
+speed, and telegraph. Fuel, stores, damage, sensors, formations, and hosted
+aircraft remain explicitly unsupported; an island that depends on those fields
+is not yet eligible for automatic cross-worker migration.
+
 Each campaign heartbeat also carries a bounded tactical coupling projection.
 The bridge captures active launched weapons plus exact native sensor target and
 guidance ownership, home-base dependencies, runtime/temporary formations,

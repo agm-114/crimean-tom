@@ -768,6 +768,10 @@ public sealed class CampaignCoordinator(
                 "handoff-source-fidelity",
                 "A new tactical handoff must start from Strategic or Operational fidelity.");
         }
+        var sourceCheckpoint = await FindLatestEntityCheckpointAsync(
+            state,
+            entityId,
+            cancellationToken);
         state = await CommitAsync(state, Command(
             state,
             CampaignSubject.Assignment(assignmentId),
@@ -797,6 +801,10 @@ public sealed class CampaignCoordinator(
             IdempotencyKey = request.IdempotencyKey,
             RequiredRuntimeFingerprintSha256 = request.RequiredRuntimeFingerprintSha256,
             RequiredCatalogFingerprintSha256 = request.RequiredCatalogFingerprintSha256,
+            CheckpointSha256 = sourceCheckpoint?.Sha256 ?? string.Empty,
+            CheckpointUri = sourceCheckpoint is null
+                ? string.Empty
+                : $"/content/{sourceCheckpoint.Sha256}",
             UnitTypeId = request.UnitTypeId,
             VariantId = request.VariantId,
             LoadoutId = request.LoadoutId,
@@ -809,6 +817,29 @@ public sealed class CampaignCoordinator(
             InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
             InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
         });
+    }
+
+    private async Task<CampaignBlobReference?> FindLatestEntityCheckpointAsync(
+        CampaignState state,
+        EntityId entityId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var assignment in state.Assignments.Values
+            .Where(assignment => assignment.EntityId == entityId)
+            .OrderByDescending(assignment => assignment.AuthorityEpoch)
+            .ThenByDescending(assignment => assignment.AssignmentId))
+        {
+            var checkpoint = await journal.ReadLatestBlobReferenceAsync(
+                state.Metadata.CampaignId,
+                CampaignBlobPurpose.TacticalCheckpoint,
+                $"assignment:{assignment.AssignmentId}/",
+                cancellationToken);
+            if (checkpoint is not null)
+            {
+                return checkpoint;
+            }
+        }
+        return null;
     }
 
     public async Task<CampaignFallbackResult> ResolveExpiredAssignmentsAsync(

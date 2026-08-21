@@ -154,6 +154,7 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
+    public OwnedSurfaceCheckpointPayload? SourceCheckpoint { get; set; }
     public string FaultInjectionStep { get; set; } = string.Empty;
     public string FaultInjectionConfirmation { get; set; } = string.Empty;
 }
