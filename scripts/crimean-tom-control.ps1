@@ -237,7 +237,13 @@ function Start-Companion {
             $CampaignTokenFile = Join-Path $resolvedCampaignRunDirectory 'service.token'
         }
         if ([string]::IsNullOrWhiteSpace($CampaignStateDirectory)) {
-            $CampaignStateDirectory = Join-Path $resolvedCampaignRunDirectory 'companion-state'
+            $campaignStateName = if ([string]::IsNullOrWhiteSpace($CampaignId)) {
+                'companion-state'
+            }
+            else {
+                "companion-state-$CampaignId"
+            }
+            $CampaignStateDirectory = Join-Path $resolvedCampaignRunDirectory $campaignStateName
         }
     }
     $campaignSettings = @{

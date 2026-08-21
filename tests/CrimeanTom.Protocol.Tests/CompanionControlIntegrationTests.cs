@@ -601,7 +601,17 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("fidelity").GetString()));
 
             couplingState.SetActiveWeapon(batchLeadEntityId, batchWingEntityId);
-            await WaitForCampaignCouplingCountAsync(campaignClient, 1, testTimeout.Token);
+            couplingState.SetRelationship(
+                "plotting-track",
+                batchLeadEntityId,
+                batchWingEntityId,
+                "SearchRadar:Surface");
+            couplingState.SetRelationship(
+                "physical-dependency",
+                batchWingEntityId,
+                batchLeadEntityId,
+                "collision-avoidance");
+            await WaitForCampaignCouplingCountAsync(campaignClient, 3, testTimeout.Token);
             using var coupledInterestLoss = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
                 new
@@ -622,7 +632,11 @@ public sealed class CompanionControlIntegrationTests
                 && item.GetProperty("reason").GetString() == "active-coupling-fence"
                 && item.GetProperty("unsafeToSplit").GetBoolean()
                 && item.GetProperty("couplingReasons").EnumerateArray().Any(reason =>
-                    reason.GetString() == "active-weapon:SemiActiveRadarHoming"));
+                    reason.GetString() == "active-weapon:SemiActiveRadarHoming")
+                && item.GetProperty("couplingReasons").EnumerateArray().Any(reason =>
+                    reason.GetString() == "plotting-track:SearchRadar:Surface")
+                && item.GetProperty("couplingReasons").EnumerateArray().Any(reason =>
+                    reason.GetString() == "physical-dependency:collision-avoidance"));
             couplingState.Clear();
             await WaitForCampaignCouplingCountAsync(campaignClient, 0, testTimeout.Token);
 
@@ -2786,6 +2800,7 @@ public sealed class CompanionControlIntegrationTests
         private readonly object _gate = new();
         private string? _sourceEntityId;
         private string? _targetEntityId;
+        private readonly List<TacticalCouplingObservationPayload> _relationships = [];
 
         public void SetActiveWeapon(string sourceEntityId, string targetEntityId)
         {
@@ -2802,6 +2817,27 @@ public sealed class CompanionControlIntegrationTests
             {
                 _sourceEntityId = null;
                 _targetEntityId = null;
+                _relationships.Clear();
+            }
+        }
+
+        public void SetRelationship(
+            string kind,
+            string sourceEntityId,
+            string targetEntityId,
+            string detail)
+        {
+            lock (_gate)
+            {
+                _relationships.Add(new TacticalCouplingObservationPayload
+                {
+                    Kind = kind,
+                    SourceObjectId = $"campaign-unit:unit:crimean-tom:{sourceEntityId}",
+                    TargetObjectId = $"campaign-unit:unit:crimean-tom:{targetEntityId}",
+                    EvidenceId = $"{kind}:integration-coupling",
+                    Detail = detail,
+                    UnsafeToSplit = true,
+                });
             }
         }
 
@@ -2828,6 +2864,7 @@ public sealed class CompanionControlIntegrationTests
                                 IsDestroyed = false,
                             },
                         ],
+                    Relationships = _relationships.ToArray(),
                 };
             }
         }

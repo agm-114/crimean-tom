@@ -176,16 +176,18 @@ checkpoint. It rebinds and enables the retained vessel atomically, or restores
 the prior suspension on failure.
 
 Each campaign heartbeat also carries a bounded tactical coupling projection.
-The bridge captures active launched weapons on Unity's main thread, including
-their stable launch platform, intended target, and guidance mode. The companion
-maps campaign-owned endpoints back to canonical entity IDs and emits an unsafe
-relationship edge; an untargeted weapon produces a deliberate platform
-self-edge, because that entity is still unsafe to demote while its weapon is in
-flight. The service retains an edge across one missed heartbeat, unions hard
-edges into the interaction-island graph, and fences an already Tactical island
-with `active-coupling-fence` before ordinary interest or load shedding can
-drain it. The monitor exposes the fence and its evidence reason. Sensor, host,
-plotting, and physical-dependency capture remain subsequent coupling adapters.
+The bridge captures active launched weapons plus exact native sensor target and
+guidance ownership, home-base dependencies, runtime/temporary formations,
+plotting-table tracks, and collision-avoidance dependencies on Unity's main
+thread. Plot records collapse to stable source/target/sensor-kind edges instead
+of leaking short-lived ECS entity IDs. The companion maps campaign-owned
+endpoints back to canonical entity IDs and emits unsafe relationship edges; an
+untargeted weapon produces a deliberate platform self-edge, because that entity
+is still unsafe to demote while its weapon is in flight. The service retains an
+edge across one missed heartbeat, unions hard edges into the
+interaction-island graph, and fences an already Tactical island with
+`active-coupling-fence` before ordinary interest or load shedding can drain it.
+The monitor exposes the fence and its evidence reason.
 
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.
@@ -247,13 +249,15 @@ task force, aircraft package, missile engagement, or sensor/weapon bubble.
 Partitioning ships that exchange tightly coupled sensor and weapon state across
 different authorities would create more synchronization cost than it saves.
 
-The implemented P5 slice uses a conservative first coupling graph: a task force
-is indivisible, ungrouped entities are singleton islands, and opposing groups in
-a region with recent expenditure, damage, or destruction outcomes merge for a
-20-quanta interaction fence. Active tactical assignments and recently engaged
-tactical islands cannot be demoted by ordinary load pressure. This does not yet
-claim safe weapon/guidance, hosted-aircraft, or physical-dependency splitting;
-those boundaries remain fenced until live adapter evidence extends the graph.
+The implemented P5 slice uses a conservative coupling graph: a task force is
+indivisible, ungrouped entities begin as singleton islands, opposing groups in a
+region with recent expenditure, damage, or destruction outcomes merge for a
+20-quanta interaction fence, and live tactical hard edges union otherwise
+independent groups. Active tactical assignments and recently engaged or coupled
+tactical islands cannot be demoted by ordinary load pressure. Weapon and native
+collision-avoidance edges have live campaign evidence; sensor, host, plotting,
+formation, and temporary-refueling adapters are also captured but still require
+broader mixed-profile live fixtures before claiming calibrated split thresholds.
 
 ## Multiple replicas of the same unit
 

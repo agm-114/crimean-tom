@@ -317,14 +317,18 @@ internal static class GameCommandDispatcher
     private static TacticalCouplingStatePayload GetTacticalCouplingState()
     {
         var captureTimer = Stopwatch.StartNew();
-        var activeWeapons = Singleton<ObjectsManager>.InstanceExists()
+        var allObjects = Singleton<ObjectsManager>.InstanceExists()
             ? Singleton<ObjectsManager>.Instance._listOfAllObjects
-                .OfType<WeaponBase>()
-                .Where(weapon => weapon.isLaunched() && !weapon.IsDestroyed)
-                .Select(CaptureWeapon)
-                .OrderBy(weapon => weapon.GameUniqueId)
+                .Where(item => item is not null)
                 .ToArray()
             : [];
+        var activeWeapons = allObjects
+            .OfType<WeaponBase>()
+            .Where(weapon => weapon.isLaunched() && !weapon.IsDestroyed)
+            .Select(CaptureWeapon)
+            .OrderBy(weapon => weapon.GameUniqueId)
+            .ToArray();
+        var relationships = CaptureTacticalCouplingRelationships(allObjects);
         captureTimer.Stop();
         return new TacticalCouplingStatePayload
         {
@@ -333,7 +337,165 @@ internal static class GameCommandDispatcher
             MainThreadCaptureDurationMicroseconds =
                 captureTimer.ElapsedTicks * 1_000_000L / Stopwatch.Frequency,
             ActiveWeapons = activeWeapons,
+            Relationships = relationships,
         };
+    }
+
+    private static TacticalCouplingObservationPayload[] CaptureTacticalCouplingRelationships(
+        IReadOnlyList<ObjectBase> allObjects)
+    {
+        var observations = new List<TacticalCouplingObservationPayload>();
+        void Add(
+            string kind,
+            ObjectBase? source,
+            ObjectBase? target,
+            string evidenceId,
+            string detail,
+            bool unsafeToSplit = true)
+        {
+            var sourceId = ObjectSnapshotId(source);
+            var targetId = ObjectSnapshotId(target);
+            if (string.IsNullOrWhiteSpace(sourceId)
+                || string.IsNullOrWhiteSpace(targetId))
+            {
+                return;
+            }
+            observations.Add(new TacticalCouplingObservationPayload
+            {
+                Kind = kind,
+                SourceObjectId = sourceId,
+                TargetObjectId = targetId,
+                EvidenceId = evidenceId,
+                Detail = detail,
+                UnsafeToSplit = unsafeToSplit,
+            });
+        }
+
+        var units = allObjects
+            .Where(item => item.isUnit() && !item.IsDestroyed)
+            .OrderBy(item => item.UniqueID)
+            .ToArray();
+        foreach (var unit in units)
+        {
+            if (unit._homeBase is { } homeBase && !ReferenceEquals(unit, homeBase))
+            {
+                Add("host-dependency", unit, homeBase, $"host:{StableUnitId(unit)}", "home-base");
+            }
+
+            var leader = unit.Formation?.LeaderStation?.UnitObject;
+            if (unit.FollowingFormation && leader is not null && !ReferenceEquals(unit, leader))
+            {
+                Add("runtime-formation", unit, leader, $"formation:{StableUnitId(unit)}", "follow-leader");
+            }
+
+            if (unit is Aircraft aircraft
+                && aircraft.HasTemporaryFormationReference
+                && aircraft.TemporaryFormationLeader is { } temporaryLeader
+                && !ReferenceEquals(unit, temporaryLeader))
+            {
+                var detail = AerialRefuelingEquipment.TryGetCompatibleSystem(
+                    temporaryLeader,
+                    aircraft,
+                    out var refuelingSystem)
+                    ? $"aerial-refueling:{refuelingSystem}"
+                    : "temporary-formation";
+                Add(
+                    "physical-dependency",
+                    unit,
+                    temporaryLeader,
+                    $"physical:temporary-formation:{StableUnitId(unit)}",
+                    detail);
+            }
+
+            if (unit.CollisionAvoidance?.UnitToAvoid is { } collisionThreat
+                && !ReferenceEquals(unit, collisionThreat))
+            {
+                Add(
+                    "physical-dependency",
+                    unit,
+                    collisionThreat,
+                    $"physical:collision-avoidance:{StableUnitId(unit)}",
+                    "collision-avoidance");
+            }
+
+            var sensors = unit._obp?._sensorSystems;
+            if (sensors is null) continue;
+            for (var index = 0; index < sensors.Count; index++)
+            {
+                var sensor = sensors[index];
+                if (sensor is null) continue;
+                var evidenceId = $"sensor:{StableUnitId(unit)}:{index}:{sensor._systemName}";
+                var detail = sensor.GetType().Name;
+                foreach (var target in sensor._associatedTargets
+                    .Concat([sensor._targetObject, sensor._preLaunchTargetObject])
+                    .Where(item => item is not null)
+                    .Distinct())
+                {
+                    Add("sensor-track", unit, target, evidenceId, detail);
+                }
+                foreach (var weapon in sensor._associatedWeapons
+                    .Where(item => item is not null)
+                    .Distinct())
+                {
+                    Add("sensor-guidance", unit, weapon, evidenceId, detail);
+                }
+            }
+        }
+
+        if (Singleton<TaskforceManager>.InstanceExists()
+            && Unity.Entities.World.DefaultGameObjectInjectionWorld is { IsCreated: true } world)
+        {
+            var entityManager = world.EntityManager;
+            var objectsByEntity = units
+                .Where(item => item.Entity != Unity.Entities.Entity.Null)
+                .GroupBy(item => item.Entity)
+                .ToDictionary(group => group.Key, group => group.First());
+            var vehicles = Singleton<TaskforceManager>.Instance._taskForces
+                .Where(taskforce => taskforce?.PlottingTable is not null)
+                .SelectMany(taskforce => taskforce.PlottingTable.LocalVehicles.Values)
+                .Where(vehicle => vehicle is not null)
+                .Distinct()
+                .OrderBy(vehicle => vehicle.Id)
+                .ToArray();
+            foreach (var vehicle in vehicles)
+            {
+                foreach (var trackEntity in vehicle.CurrentTracks()
+                    .Where(entityManager.HasComponent<TrackComponent>))
+                {
+                    var track = entityManager.GetComponentData<TrackComponent>(trackEntity);
+                    if (!objectsByEntity.TryGetValue(track.Source, out var source)
+                        || !objectsByEntity.TryGetValue(track.DetectedObject, out var target)
+                        || ReferenceEquals(source, target))
+                    {
+                        continue;
+                    }
+                    Add(
+                        "plotting-track",
+                        source,
+                        target,
+                        $"track:{StableUnitId(source)}:{StableUnitId(target)}:{track.SensorType}:{track.Kind}",
+                        $"{track.SensorType}:{track.Kind}");
+                }
+            }
+        }
+
+        return observations
+            .GroupBy(item => string.Join('\n',
+                item.Kind,
+                item.SourceObjectId,
+                item.TargetObjectId,
+                item.Detail,
+                item.UnsafeToSplit))
+            .Select(group => group
+                .OrderBy(item => item.EvidenceId, StringComparer.Ordinal)
+                .First())
+            .OrderBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.SourceObjectId, StringComparer.Ordinal)
+            .ThenBy(item => item.TargetObjectId, StringComparer.Ordinal)
+            .ThenBy(item => item.Detail, StringComparer.Ordinal)
+            .ThenBy(item => item.EvidenceId, StringComparer.Ordinal)
+            .Take(4_096)
+            .ToArray();
     }
 
     private static SpatialDiagnosticsPayload CaptureSpatialDiagnostics(

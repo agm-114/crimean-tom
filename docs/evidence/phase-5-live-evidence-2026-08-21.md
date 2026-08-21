@@ -144,13 +144,43 @@ The heartbeat cache deliberately retains a hard edge across one missing sample;
 the broad protocol story proves the edge is removed after the second empty
 sample and normal drain hysteresis resumes.
 
+## Plotting and physical coupling graph
+
+Schema-v2 coupling is deployed in Sea Power `0.8.2-23444+s358`. In Red Sea
+Breakout the bridge observed stable formation plus Visual, SearchRadar, ESM,
+and PassiveSonar plotting edges. Collapsing repeated native track components by
+source, target, sensor type, and detection kind reduced the initial graph to 90
+relationships with zero duplicate graph keys. Capture cost was 1,339
+microseconds in that sample.
+
+Fresh 4x Fulda campaign `454e01816c934979a5c6c7b930d43c34`
+materialized four real `usn_ff_knox_84 / Variant13 / Default` hulls and reached
+four Active/Tactical assignments at commit 178. Two independently grouped
+campaign hulls were relocated head-on with the armed owned-object seam and run
+for two seconds. Sea Power's native `ObjectCollisionAvoidance.UnitToAvoid`
+reported reciprocal campaign-stable edges. The combined mission graph contained
+132 stable relationships and captured in 3,059 microseconds.
+
+The next heartbeat carried exactly two canonical `physical-dependency` edges
+with `collision-avoidance`, `unsafeToSplit=true`, and `missingSamples=0`. An
+interest-loss schedule at commit 179 joined the two independent groups into one
+two-entity Tactical island with coupling score 1,000, reason
+`active-coupling-fence`, and causal evidence
+`physical-dependency:collision-avoidance`. The live monitor is:
+
+`http://127.0.0.1:5081/monitor/?campaign=454e01816c934979a5c6c7b930d43c34`
+
+The same broad protocol story now exercises active-weapon, plotting, and
+physical relationships in one scheduler lifecycle. It remains the only
+protocol integration test; no narrow coupling unit-test family was added.
+
 ## Remaining gate
 
 - Measure tactical tick throughput and main-thread costs under active combat;
   the four-island materialize/drain burst baseline is now recorded.
 - Add safe profiles for more naval/air units before claiming mixed-island
   coverage.
-- Extend interaction islands with sensors, hosts, plotting, and physical
-  relationships, then test merge/split hysteresis live.
+- Exercise campaign-owned sensor, host, and temporary-refueling edges, then
+  test split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.

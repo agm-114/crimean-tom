@@ -554,7 +554,7 @@ public sealed class WorldSnapshotPayload
 
 public sealed class TacticalCouplingStatePayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -564,6 +564,24 @@ public sealed class TacticalCouplingStatePayload
 
     public WeaponSnapshotPayload[] ActiveWeapons { get; set; }
         = Array.Empty<WeaponSnapshotPayload>();
+
+    public TacticalCouplingObservationPayload[] Relationships { get; set; }
+        = Array.Empty<TacticalCouplingObservationPayload>();
+}
+
+public sealed class TacticalCouplingObservationPayload
+{
+    public string Kind { get; set; } = string.Empty;
+
+    public string SourceObjectId { get; set; } = string.Empty;
+
+    public string TargetObjectId { get; set; } = string.Empty;
+
+    public string EvidenceId { get; set; } = string.Empty;
+
+    public string Detail { get; set; } = string.Empty;
+
+    public bool UnsafeToSplit { get; set; } = true;
 }
 
 public sealed class ControlledTickExperimentRequestPayload

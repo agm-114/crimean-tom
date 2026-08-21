@@ -392,11 +392,27 @@ hosted monitor visibly reports `active-coupling-fence`,
 `ENGAGED // FENCED`, and `active-weapon:ActiveRadarHoming` at
 `http://127.0.0.1:5081/monitor/?campaign=d42468bb4c984e50bacecfd6f8f4cb57`.
 
-Next, extend coupling to sensor/host/plotting/physical relationships, implement
-hysteretic split and reserve-aware migration, measure live tactical combat
-tempo, and calibrate the operational resolver against tactical observation
-batches. Keep tactical projection and campaign commit separate: Sea Power
-remains a fenced client of the external authoritative kernel.
+Schema-v2 coupling now also captures exact native sensor targets/guided weapons,
+home bases, runtime and temporary formations/refueling, plotting tracks, and
+collision-avoidance targets. Native plotting records collapse to stable
+source/target/sensor-kind keys. In fresh 4x Fulda campaign
+`454e01816c934979a5c6c7b930d43c34`, four Knox hulls reached Active/Tactical at
+commit 178. Two campaign-stable hulls were placed head-on through the owned
+mutation seam; Sea Power emitted reciprocal physical collision-avoidance edges,
+the companion published both with zero missed samples, and commit 179 joined
+their independent groups into one unsafe two-unit Tactical island with
+`physical-dependency:collision-avoidance` and `active-coupling-fence`. The raw
+mixed mission graph captured 132 stable relationships in 3,059 microseconds.
+
+The companion launcher now derives `companion-state-<campaignId>` beneath a
+shared campaign run directory. Switching campaigns no longer reuses another
+campaign's durable cursor and silently prevents the gRPC session from opening.
+
+Next, implement hysteretic split and reserve-aware migration, measure live
+tactical combat tempo, exercise campaign-owned sensor/host/refueling edges, and
+calibrate the operational resolver against tactical observation batches. Keep
+tactical projection and campaign commit separate: Sea Power remains a fenced
+client of the external authoritative kernel.
 
 Campaign diagnostics and the monitor now expose process-local service uptime,
 managed/working-set memory, recovery latency, advance latency and quanta rate,

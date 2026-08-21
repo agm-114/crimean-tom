@@ -334,7 +334,46 @@ public sealed class CampaignCompanionClient(
                 }
             }
         }
-        return relationships;
+        foreach (var observation in state.Relationships
+            .Where(item => !string.IsNullOrWhiteSpace(item.Kind))
+            .OrderBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.EvidenceId, StringComparer.Ordinal))
+        {
+            var sources = new HashSet<string>(StringComparer.Ordinal);
+            var targets = new HashSet<string>(StringComparer.Ordinal);
+            ResolveCampaignParticipants(
+                observation.SourceObjectId,
+                weapons,
+                sources,
+                new HashSet<string>(StringComparer.Ordinal));
+            ResolveCampaignParticipants(
+                observation.TargetObjectId,
+                weapons,
+                targets,
+                new HashSet<string>(StringComparer.Ordinal));
+            foreach (var source in sources.OrderBy(item => item, StringComparer.Ordinal))
+            {
+                foreach (var target in targets.OrderBy(item => item, StringComparer.Ordinal))
+                {
+                    relationships.Add(Relationship(observation, source, target));
+                }
+            }
+        }
+        return relationships
+            .GroupBy(item => string.Join('\n',
+                item.Kind,
+                item.SourceEntityId,
+                item.TargetEntityId,
+                item.EvidenceId,
+                item.GuidanceType,
+                item.UnsafeToSplit))
+            .Select(group => group.First())
+            .OrderBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.SourceEntityId, StringComparer.Ordinal)
+            .ThenBy(item => item.TargetEntityId, StringComparer.Ordinal)
+            .ThenBy(item => item.EvidenceId, StringComparer.Ordinal)
+            .Take(4_096)
+            .ToArray();
     }
 
     private static TacticalCouplingRelationship Relationship(
@@ -348,6 +387,19 @@ public sealed class CampaignCompanionClient(
         EvidenceId = weapon.Id,
         GuidanceType = weapon.GuidanceType,
         UnsafeToSplit = true,
+    };
+
+    private static TacticalCouplingRelationship Relationship(
+        TacticalCouplingObservationPayload observation,
+        string sourceEntityId,
+        string targetEntityId) => new()
+    {
+        Kind = observation.Kind,
+        SourceEntityId = sourceEntityId,
+        TargetEntityId = targetEntityId,
+        EvidenceId = observation.EvidenceId,
+        GuidanceType = observation.Detail,
+        UnsafeToSplit = observation.UnsafeToSplit,
     };
 
     private static void ResolveCampaignParticipants(
