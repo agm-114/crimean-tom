@@ -142,6 +142,7 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     sessions = sessions.Snapshots(),
 }));
 app.MapGet("/durability-policy", () => Results.Ok(CampaignDurabilityPolicy.Current));
+app.MapGet("/supported-claims", () => Results.Ok(CampaignSupportedClaims.Current));
 app.MapGet("/active-campaign", async (
     SqliteCampaignJournal store,
     CampaignSessionRegistry sessions,

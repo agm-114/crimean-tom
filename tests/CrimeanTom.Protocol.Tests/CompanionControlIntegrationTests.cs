@@ -136,6 +136,24 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(
                 durabilityPolicy.RootElement.GetProperty("checkpointCommittedEffectFamilies").EnumerateArray(),
                 item => item.GetString() == "destruction");
+            using var supportedClaimsResponse = await campaignClient.GetAsync(
+                "/supported-claims",
+                testTimeout.Token);
+            supportedClaimsResponse.EnsureSuccessStatusCode();
+            using var supportedClaims = JsonDocument.Parse(
+                await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
+                supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
+            Assert.Equal(
+                "fail-closed-on-runtime-or-catalog-fingerprint-mismatch",
+                supportedClaims.RootElement.GetProperty("compatibilityPolicy").GetString());
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString() == "render-proxy-cannot-receive-simulation-authority");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
+                item => item.GetString() == "hot-shadow-failover");
             using var createdCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
                 new
