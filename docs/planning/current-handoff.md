@@ -330,21 +330,20 @@ connected matching campaign worker and full-island representability, reporting
 current Knox-only surface adapter therefore cannot misrepresent a mixed naval
 island as fully tactical.
 
-Scheduling a compatible singleton now creates its deterministic assignment and
-queues it to the connected companion without a separate handoff API call. The
-broad protocol story exercises this route through materialization, first
-checkpoint, atomic activation, command application, service restart, quiesce,
-and recovery. Strategic sources are promoted to Operational before Preparing.
-Multi-entity candidates explicitly stop at
-`atomic-island-activation-unavailable` until batch preparation and atomic island
-activation land.
+Scheduling a compatible island creates deterministic batch-linked assignments
+and queues them to the connected companion without separate handoff API calls.
+Individual checkpoints move members into Prepared; one journal event activates
+the entire island. Strategic sources are promoted to Operational before
+Preparing. The broad protocol story now proves a two-unit group cannot become
+partially Tactical and exposes batch identity, size, lifecycle, and authority
+epoch through diagnostics and the monitor.
 
-Scheduler-driven load shedding now closes the singleton loop: Active becomes
-Quiescing, the companion resolves its durably recorded game mutation revision,
-publishes a final checkpoint, suspends the owned unit, and the service releases
-authority and restores Operational fidelity. The broad protocol story now uses
-the scheduler for both promotion and drain; direct handoff/quiesce endpoints
-remain as explicit operator/debug seams.
+Scheduler-driven load shedding closes the whole-island loop: Active members
+become Quiescing, companions resolve durably recorded game mutation revisions,
+publish final checkpoints, and suspend owned units. Members hold Quiesced until
+one event releases every assignment and restores Operational fidelity across
+the batch. Direct handoff/quiesce endpoints remain explicit operator/debug
+seams.
 
 Next, carry these decisions through live Sea Power materialization/quiesce,
 extend coupling to weapon/guidance/host relationships, persist and hysteretically

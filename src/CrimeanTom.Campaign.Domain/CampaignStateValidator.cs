@@ -142,7 +142,9 @@ public static class CampaignStateValidator
             if (key != assignment.AssignmentId || assignment.Revision.Value <= 0
                 || assignment.AuthorityEpoch.Value <= 0 || assignment.EffectiveAt.Quanta < 0
                 || !state.Entities.ContainsKey(assignment.EntityId) || !Enum.IsDefined(assignment.Role)
-                || !Enum.IsDefined(assignment.Lifecycle))
+                || !Enum.IsDefined(assignment.Lifecycle) || assignment.BatchSize <= 0
+                || (string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize != 1)
+                || (!string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize < 2))
             {
                 throw Invalid("assignment", "An assignment identity, relationship, role, time, epoch, or revision is invalid.");
             }
@@ -153,9 +155,16 @@ public static class CampaignStateValidator
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
             }
             if (assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                    or AssignmentLifecycle.Quiesced
                 && state.Entities[assignment.EntityId].Fidelity != FidelityState.Tactical)
             {
                 throw Invalid("active-assignment-fidelity", "An active tactical assignment requires tactical entity fidelity.");
+            }
+            if (assignment.Lifecycle == AssignmentLifecycle.Prepared
+                && (string.IsNullOrWhiteSpace(assignment.BatchId)
+                    || state.Entities[assignment.EntityId].Fidelity == FidelityState.Tactical))
+            {
+                throw Invalid("prepared-assignment", "A prepared batch assignment requires a batch ID and a non-tactical canonical entity.");
             }
         }
 

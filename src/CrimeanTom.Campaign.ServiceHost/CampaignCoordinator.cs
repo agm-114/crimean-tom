@@ -45,7 +45,10 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             var combat = new EntityId(KeyedGuid(campaignId.Value, "combat"));
             var mismatch = new EntityId(KeyedGuid(campaignId.Value, "mismatch"));
             var crashBeforeCheckpoint = new EntityId(KeyedGuid(campaignId.Value, "crash-before-checkpoint"));
+            var batchLead = new EntityId(KeyedGuid(campaignId.Value, "batch-lead"));
+            var batchWing = new EntityId(KeyedGuid(campaignId.Value, "batch-wing"));
             var unrelated = new EntityId(KeyedGuid(campaignId.Value, "unrelated"));
+            var batchGroup = new GroupId(KeyedGuid(campaignId.Value, "batch-group"));
             var unrelatedGroup = new GroupId(KeyedGuid(campaignId.Value, "unrelated-group"));
             var resources = new Dictionary<ResourceKind, ResourceAmount>
             {
@@ -82,6 +85,16 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                     GeoCoordinate.FromMicrodegrees(44_260_000, 28_850_000), campaignBase, EntityLifecycle.Deployed,
                     FidelityState.Operational, resources, "PHASE4-CRASH-BEFORE-CHECKPOINT-TRUE"),
                 "bootstrap-crash-before-checkpoint"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(batchLead), EntityRevision.None,
+                new RegisterEntityCommand(batchLead, "USS Kirk", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_280_000, 28_900_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE5-BATCH-LEAD-TRUE"),
+                "bootstrap-batch-lead"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Entity(batchWing), EntityRevision.None,
+                new RegisterEntityCommand(batchWing, "USS Reasoner", "usn_ff_knox_84", blue, harbor,
+                    GeoCoordinate.FromMicrodegrees(44_300_000, 28_950_000), campaignBase, EntityLifecycle.Deployed,
+                    FidelityState.Operational, resources, "PHASE5-BATCH-WING-TRUE"),
+                "bootstrap-batch-wing"), cancellationToken);
             state = await CommitAsync(state, Command(state, CampaignSubject.Entity(unrelated), EntityRevision.None,
                 new RegisterEntityCommand(unrelated, "Unrelated patrol", "vmf_krivak", red, offshore,
                     GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), null, EntityLifecycle.Deployed,
@@ -89,6 +102,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             state = await CommitAsync(state, Command(state, CampaignSubject.Group(unrelatedGroup), EntityRevision.None,
                 new FormGroupCommand(unrelatedGroup, "Unrelated patrol group", red, [unrelated]),
                 "bootstrap-unrelated-group"), cancellationToken);
+            state = await CommitAsync(state, Command(state, CampaignSubject.Group(batchGroup), EntityRevision.None,
+                new FormGroupCommand(batchGroup, "Phase 5 atomic handoff group", blue, [batchLead, batchWing]),
+                "bootstrap-batch-group"), cancellationToken);
             return new CampaignBootstrapResult(
                 campaignId.ToString(),
                 primary.ToString(),
@@ -96,6 +112,8 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 combat.ToString(),
                 mismatch.ToString(),
                 crashBeforeCheckpoint.ToString(),
+                batchLead.ToString(),
+                batchWing.ToString(),
                 unrelated.ToString(),
                 harbor.ToString(),
                 offshore.ToString(),
@@ -397,7 +415,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 item.AuthorityEpoch.Value,
                 item.Lifecycle.ToString(),
                 item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
-                item.Revision.Value)).ToArray(),
+                item.Revision.Value,
+                item.BatchId,
+                item.BatchSize)).ToArray(),
             recovery.State.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
                 item.OutcomeId,
                 item.OccurredAt.Quanta,
@@ -440,7 +460,7 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                     }
                     if (state.Assignments.Values.Any(item => item.EntityId == entityId
                         && item.Lifecycle is AssignmentLifecycle.Preparing
-                            or AssignmentLifecycle.Active
+                            or AssignmentLifecycle.Prepared or AssignmentLifecycle.Active
                             or AssignmentLifecycle.Quiescing))
                     {
                         // Authority must checkpoint and release before the canonical
@@ -459,104 +479,127 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
             {
                 foreach (var island in evaluation.Islands
-                    .Where(item => item.DesiredFidelity == FidelityState.Tactical && item.EntityIds.Count == 1)
+                    .Where(item => item.DesiredFidelity == FidelityState.Tactical)
                     .OrderBy(item => item.IslandId, StringComparer.Ordinal))
                 {
-                    var entityId = island.EntityIds[0];
-                    if (state.Assignments.Values.Any(item => item.EntityId == entityId
-                        && item.Lifecycle != AssignmentLifecycle.Released))
+                    var liveAssignments = state.Assignments.Values
+                        .Where(item => island.EntityIds.Contains(item.EntityId)
+                            && item.Lifecycle != AssignmentLifecycle.Released)
+                        .ToArray();
+                    if (liveAssignments.Any(item => item.Lifecycle is AssignmentLifecycle.Active
+                        or AssignmentLifecycle.Quiescing))
                     {
                         continue;
                     }
-                    var entity = state.Entities[entityId];
-                    var profile = worker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
-                        item.UnitTypeId,
-                        entity.CatalogUnitId,
-                        StringComparison.Ordinal));
-                    if (profile is null || string.IsNullOrWhiteSpace(worker.PlayerTaskforceId))
+                    var batchSize = island.EntityIds.Count;
+                    var batchId = batchSize == 1
+                        ? string.Empty
+                        : liveAssignments.Select(item => item.BatchId)
+                            .FirstOrDefault(item => !string.IsNullOrEmpty(item))
+                            ?? $"island:{island.IslandId}:{liveAssignments.Length + 1}";
+                    foreach (var entityId in island.EntityIds.OrderBy(item => item))
                     {
-                        continue;
-                    }
-                    var attempt = state.Assignments.Values.Count(item => item.EntityId == entityId) + 1;
-                    var assignmentGuid = KeyedGuid(
-                        campaignId.Value,
-                        $"scheduler-assignment-{island.IslandId}-{entityId}-{attempt}");
-                    var authorityEpoch = state.Assignments.Values
-                        .Where(item => item.EntityId == entityId)
-                        .Select(item => item.AuthorityEpoch.Value)
-                        .DefaultIfEmpty(0)
-                        .Max() + 1;
-                    var idempotencyKey = $"scheduler-handoff-{island.IslandId}-{entityId}-{attempt}";
-                    var handoffRequest = new CampaignHandoffRequest(
-                        campaignId.ToString(),
-                        entityId.ToString(),
-                        $"unit:crimean-tom:{entityId}",
-                        $"assignment:{assignmentGuid:N}",
-                        authorityEpoch,
-                        idempotencyKey,
-                        worker.RuntimeFingerprintSha256,
-                        worker.CatalogFingerprintSha256,
-                        profile.UnitTypeId,
-                        profile.VariantId,
-                        profile.LoadoutId,
-                        worker.PlayerTaskforceId);
-                    var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
-                    state = prepared.State;
-                    if (sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                        if (liveAssignments.Any(item => item.EntityId == entityId))
                         {
-                            Assignment = prepared.Assignment,
-                        }))
-                    {
-                        continue;
+                            continue;
+                        }
+                        var entity = state.Entities[entityId];
+                        var profile = worker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
+                            item.UnitTypeId,
+                            entity.CatalogUnitId,
+                            StringComparison.Ordinal));
+                        if (profile is null || string.IsNullOrWhiteSpace(worker.PlayerTaskforceId))
+                        {
+                            continue;
+                        }
+                        var attempt = state.Assignments.Values.Count(item => item.EntityId == entityId) + 1;
+                        var assignmentGuid = KeyedGuid(
+                            campaignId.Value,
+                            $"scheduler-assignment-{island.IslandId}-{entityId}-{attempt}");
+                        var authorityEpoch = state.Assignments.Values
+                            .Where(item => item.EntityId == entityId)
+                            .Select(item => item.AuthorityEpoch.Value)
+                            .DefaultIfEmpty(0)
+                            .Max() + 1;
+                        var idempotencyKey = $"scheduler-handoff-{island.IslandId}-{entityId}-{attempt}";
+                        var handoffRequest = new CampaignHandoffRequest(
+                            campaignId.ToString(),
+                            entityId.ToString(),
+                            $"unit:crimean-tom:{entityId}",
+                            $"assignment:{assignmentGuid:N}",
+                            authorityEpoch,
+                            idempotencyKey,
+                            worker.RuntimeFingerprintSha256,
+                            worker.CatalogFingerprintSha256,
+                            profile.UnitTypeId,
+                            profile.VariantId,
+                            profile.LoadoutId,
+                            worker.PlayerTaskforceId,
+                            batchId,
+                            batchSize);
+                        var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
+                        state = prepared.State;
+                        if (sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                            {
+                                Assignment = prepared.Assignment,
+                            }))
+                        {
+                            continue;
+                        }
+                        var assignmentId = ParseScopedId(
+                            handoffRequest.AssignmentId,
+                            "assignment:",
+                            value => new AssignmentId(value));
+                        var assignment = state.Assignments[assignmentId];
+                        state = await CommitAsync(state, Command(
+                            state,
+                            CampaignSubject.Assignment(assignmentId),
+                            assignment.Revision,
+                            new SetAssignmentLifecycleCommand(
+                                assignmentId,
+                                assignment.AuthorityEpoch,
+                                AssignmentLifecycle.Released,
+                                state.Time),
+                            $"cancel-{idempotencyKey}-session-lost-before-queue"), cancellationToken);
                     }
-                    var assignmentId = ParseScopedId(
-                        handoffRequest.AssignmentId,
-                        "assignment:",
-                        value => new AssignmentId(value));
-                    var assignment = state.Assignments[assignmentId];
-                    state = await CommitAsync(state, Command(
-                        state,
-                        CampaignSubject.Assignment(assignmentId),
-                        assignment.Revision,
-                        new SetAssignmentLifecycleCommand(
-                            assignmentId,
-                            assignment.AuthorityEpoch,
-                            AssignmentLifecycle.Released,
-                            state.Time),
-                        $"cancel-{idempotencyKey}-session-lost-before-queue"), cancellationToken);
                 }
             }
             if (worker is not null
                 && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
             {
                 foreach (var island in evaluation.Islands
-                    .Where(item => item.DesiredFidelity != FidelityState.Tactical && item.EntityIds.Count == 1)
+                    .Where(item => item.DesiredFidelity != FidelityState.Tactical)
                     .OrderBy(item => item.IslandId, StringComparer.Ordinal))
                 {
-                    var entityId = island.EntityIds[0];
-                    var assignment = state.Assignments.Values.SingleOrDefault(item =>
-                        item.EntityId == entityId && item.Lifecycle == AssignmentLifecycle.Active);
-                    if (assignment is null)
+                    var activeAssignments = state.Assignments.Values
+                        .Where(item => island.EntityIds.Contains(item.EntityId)
+                            && item.Lifecycle == AssignmentLifecycle.Active)
+                        .OrderBy(item => item.AssignmentId)
+                        .ToArray();
+                    if (activeAssignments.Length == 0)
                     {
                         continue;
                     }
-                    var quiesceKey = $"scheduler-quiesce-{island.IslandId}-{assignment.AssignmentId}-{assignment.AuthorityEpoch.Value}";
-                    var quiesceRequest = new CampaignQuiesceRequest(
-                        campaignId.ToString(),
-                        $"assignment:{assignment.AssignmentId}",
-                        $"unit:crimean-tom:{entityId}",
-                        0,
-                        quiesceKey);
-                    var quiesced = await BeginQuiesceCoreAsync(
-                        state,
-                        quiesceRequest,
-                        resolveExpectedRevisionFromWorker: true,
-                        cancellationToken);
-                    state = quiesced.State;
-                    _ = sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                    foreach (var assignment in activeAssignments)
                     {
-                        Fence = quiesced.Fence,
-                    });
+                        var quiesceKey = $"scheduler-quiesce-{island.IslandId}-{assignment.AssignmentId}-{assignment.AuthorityEpoch.Value}";
+                        var quiesceRequest = new CampaignQuiesceRequest(
+                            campaignId.ToString(),
+                            $"assignment:{assignment.AssignmentId}",
+                            $"unit:crimean-tom:{assignment.EntityId}",
+                            0,
+                            quiesceKey);
+                        var quiesced = await BeginQuiesceCoreAsync(
+                            state,
+                            quiesceRequest,
+                            resolveExpectedRevisionFromWorker: true,
+                            cancellationToken);
+                        state = quiesced.State;
+                        _ = sessions.TryQueueForCampaign(campaignId.ToString(), new ServiceFrame
+                        {
+                            Fence = quiesced.Fence,
+                        });
+                    }
                 }
             }
             _schedulerRequests[campaignId] = request;
@@ -619,7 +662,9 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 entityId,
                 CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
                 new AuthorityEpoch(request.AuthorityEpoch),
-                state.Time),
+                state.Time,
+                request.BatchId,
+                request.BatchSize),
             $"{request.IdempotencyKey}-assignment"), cancellationToken);
         entity = state.Entities[entityId];
         return (state, new TacticalAssignment
@@ -784,6 +829,48 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
                 $"reject-{prepared.AssignmentId}-{prepared.AuthorityEpoch}"), cancellationToken);
             return;
         }
+        if (!string.IsNullOrEmpty(assignment.BatchId))
+        {
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Assignment(assignmentId),
+                assignment.Revision,
+                new SetAssignmentLifecycleCommand(
+                    assignmentId,
+                    assignment.AuthorityEpoch,
+                    AssignmentLifecycle.Prepared,
+                    state.Time),
+                $"prepared-{prepared.AssignmentId}-{prepared.AuthorityEpoch}"), cancellationToken);
+            assignment = state.Assignments[assignmentId];
+            var batch = state.Assignments.Values
+                .Where(item => string.Equals(item.BatchId, assignment.BatchId, StringComparison.Ordinal)
+                    && item.Lifecycle != AssignmentLifecycle.Released)
+                .OrderBy(item => item.AssignmentId)
+                .ToArray();
+            if (batch.Length != assignment.BatchSize
+                || batch.Any(item => item.BatchSize != assignment.BatchSize
+                    || item.Lifecycle != AssignmentLifecycle.Prepared))
+            {
+                return;
+            }
+            var members = batch.Select(item => new TacticalIslandActivationMember(
+                item.AssignmentId,
+                item.AuthorityEpoch,
+                item.Revision,
+                item.EntityId,
+                state.Entities[item.EntityId].Revision)).ToArray();
+            await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Campaign(campaignId),
+                state.CampaignRevision,
+                new ActivateTacticalIslandCommand(
+                    assignment.BatchId,
+                    members,
+                    state.Time,
+                    "complete-island-materialized-and-checkpointed"),
+                $"activate-island-{assignment.BatchId}"), cancellationToken);
+            return;
+        }
         var entity = state.Entities[assignment.EntityId];
         await CommitAsync(state, Command(
             state,
@@ -893,6 +980,48 @@ public sealed class CampaignCoordinator(SqliteCampaignJournal journal, CampaignS
             && proposal.Kind == TacticalEventKind.Checkpoint)
         {
             assignment = state.Assignments[assignmentId];
+            if (!string.IsNullOrEmpty(assignment.BatchId))
+            {
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Assignment(assignmentId),
+                    assignment.Revision,
+                    new SetAssignmentLifecycleCommand(
+                        assignmentId,
+                        assignment.AuthorityEpoch,
+                        AssignmentLifecycle.Quiesced,
+                        state.Time),
+                    $"quiesced-{proposal.IdempotencyKey}"), cancellationToken);
+                assignment = state.Assignments[assignmentId];
+                var batch = state.Assignments.Values
+                    .Where(item => string.Equals(item.BatchId, assignment.BatchId, StringComparison.Ordinal)
+                        && item.Lifecycle != AssignmentLifecycle.Released)
+                    .OrderBy(item => item.AssignmentId)
+                    .ToArray();
+                if (batch.Length != assignment.BatchSize
+                    || batch.Any(item => item.BatchSize != assignment.BatchSize
+                        || item.Lifecycle != AssignmentLifecycle.Quiesced))
+                {
+                    return;
+                }
+                var members = batch.Select(item => new TacticalIslandReleaseMember(
+                    item.AssignmentId,
+                    item.AuthorityEpoch,
+                    item.Revision,
+                    item.EntityId,
+                    state.Entities[item.EntityId].Revision)).ToArray();
+                await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Campaign(campaignId),
+                    state.CampaignRevision,
+                    new ReleaseTacticalIslandCommand(
+                        assignment.BatchId,
+                        members,
+                        state.Time,
+                        "complete-island-checkpointed-and-suspended"),
+                    $"release-island-{assignment.BatchId}"), cancellationToken);
+                return;
+            }
             state = await CommitAsync(state, Command(
                 state,
                 CampaignSubject.Assignment(assignmentId),
@@ -1095,7 +1224,9 @@ public sealed record CampaignHandoffRequest(
     string UnitTypeId,
     string VariantId,
     string LoadoutId,
-    string TaskforceId);
+    string TaskforceId,
+    string BatchId = "",
+    int BatchSize = 1);
 
 public sealed record CampaignQuiesceRequest(
     string CampaignId,
@@ -1111,6 +1242,8 @@ public sealed record CampaignBootstrapResult(
     string CombatEntityId,
     string MismatchEntityId,
     string CrashBeforeCheckpointEntityId,
+    string BatchLeadEntityId,
+    string BatchWingEntityId,
     string UnrelatedEntityId,
     string HarborRegionId,
     string OffshoreRegionId,
@@ -1208,7 +1341,9 @@ public sealed record CampaignAssignmentView(
     long AuthorityEpoch,
     string Lifecycle,
     long ResolveByQuanta,
-    long Revision);
+    long Revision,
+    string BatchId,
+    int BatchSize);
 
 public sealed record CampaignFallbackResult(
     long CommitPosition,

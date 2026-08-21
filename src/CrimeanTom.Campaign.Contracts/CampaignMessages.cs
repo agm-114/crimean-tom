@@ -72,6 +72,8 @@ public enum AssignmentLifecycle
     Active,
     Quiescing,
     Released,
+    Prepared,
+    Quiesced,
 }
 
 public enum IntelligenceConfidence
@@ -153,6 +155,8 @@ public sealed record InformationScope(CoalitionId CoalitionId, bool MayCommand, 
 [JsonDerivedType(typeof(SimulateCampaignCommand), "simulate-campaign/v1")]
 [JsonDerivedType(typeof(SetAssignmentLifecycleCommand), "set-assignment-lifecycle/v1")]
 [JsonDerivedType(typeof(ActivateTacticalAssignmentCommand), "activate-tactical-assignment/v1")]
+[JsonDerivedType(typeof(ActivateTacticalIslandCommand), "activate-tactical-island/v1")]
+[JsonDerivedType(typeof(ReleaseTacticalIslandCommand), "release-tactical-island/v1")]
 [JsonDerivedType(typeof(ApplyTacticalStateCommand), "apply-tactical-state/v1")]
 public abstract record CampaignCommandData;
 
@@ -206,7 +210,9 @@ public sealed record AssignAuthorityCommand(
     EntityId EntityId,
     AssignmentRole Role,
     AuthorityEpoch AuthorityEpoch,
-    CampaignTime EffectiveAt)
+    CampaignTime EffectiveAt,
+    string BatchId = "",
+    int BatchSize = 1)
     : CampaignCommandData;
 
 public sealed record ReportIntelligenceCommand(
@@ -244,6 +250,34 @@ public sealed record ActivateTacticalAssignmentCommand(
     AuthorityEpoch AuthorityEpoch,
     EntityId EntityId,
     EntityRevision ExpectedEntityRevision,
+    CampaignTime EffectiveAt,
+    string Reason)
+    : CampaignCommandData;
+
+public sealed record TacticalIslandActivationMember(
+    AssignmentId AssignmentId,
+    AuthorityEpoch AuthorityEpoch,
+    EntityRevision ExpectedAssignmentRevision,
+    EntityId EntityId,
+    EntityRevision ExpectedEntityRevision);
+
+public sealed record ActivateTacticalIslandCommand(
+    string BatchId,
+    IReadOnlyList<TacticalIslandActivationMember> Members,
+    CampaignTime EffectiveAt,
+    string Reason)
+    : CampaignCommandData;
+
+public sealed record TacticalIslandReleaseMember(
+    AssignmentId AssignmentId,
+    AuthorityEpoch AuthorityEpoch,
+    EntityRevision ExpectedAssignmentRevision,
+    EntityId EntityId,
+    EntityRevision ExpectedEntityRevision);
+
+public sealed record ReleaseTacticalIslandCommand(
+    string BatchId,
+    IReadOnlyList<TacticalIslandReleaseMember> Members,
     CampaignTime EffectiveAt,
     string Reason)
     : CampaignCommandData;
@@ -287,6 +321,8 @@ public sealed record CampaignCommand(
 [JsonDerivedType(typeof(CampaignSimulatedEvent), "campaign-simulated/v1")]
 [JsonDerivedType(typeof(AssignmentLifecycleChangedEvent), "assignment-lifecycle-changed/v1")]
 [JsonDerivedType(typeof(TacticalAssignmentActivatedEvent), "tactical-assignment-activated/v1")]
+[JsonDerivedType(typeof(TacticalIslandActivatedEvent), "tactical-island-activated/v1")]
+[JsonDerivedType(typeof(TacticalIslandReleasedEvent), "tactical-island-released/v1")]
 [JsonDerivedType(typeof(TacticalStateAppliedEvent), "tactical-state-applied/v1")]
 public abstract record CampaignEventData;
 
@@ -371,6 +407,10 @@ public sealed record CampaignSimulatedEvent(
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;
 
 public sealed record TacticalAssignmentActivatedEvent(ActivateTacticalAssignmentCommand Activation) : CampaignEventData;
+
+public sealed record TacticalIslandActivatedEvent(ActivateTacticalIslandCommand Activation) : CampaignEventData;
+
+public sealed record TacticalIslandReleasedEvent(ReleaseTacticalIslandCommand Release) : CampaignEventData;
 
 public sealed record TacticalStateAppliedEvent(ApplyTacticalStateCommand State) : CampaignEventData;
 

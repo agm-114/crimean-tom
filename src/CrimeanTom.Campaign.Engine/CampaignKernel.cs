@@ -43,6 +43,8 @@ public static class CampaignKernel
             SimulateCampaignCommand value => DecideSimulation(state, command, value, workerCount),
             SetAssignmentLifecycleCommand value => DecideAssignmentLifecycle(state, command, value),
             ActivateTacticalAssignmentCommand value => DecideTacticalAssignmentActivation(state, command, value),
+            ActivateTacticalIslandCommand value => DecideTacticalIslandActivation(state, command, value),
+            ReleaseTacticalIslandCommand value => DecideTacticalIslandRelease(state, command, value),
             ApplyTacticalStateCommand value => DecideTacticalState(state, command, value),
             _ => throw Violation("unknown-command", "The command payload is not supported."),
         };
@@ -92,6 +94,8 @@ public static class CampaignKernel
             CampaignSimulatedEvent value => ApplySimulation(state, value),
             AssignmentLifecycleChangedEvent value => ApplyAssignmentLifecycle(state, campaignEvent, value),
             TacticalAssignmentActivatedEvent value => ApplyTacticalAssignmentActivation(state, campaignEvent, value),
+            TacticalIslandActivatedEvent value => ApplyTacticalIslandActivation(state, campaignEvent, value),
+            TacticalIslandReleasedEvent value => ApplyTacticalIslandRelease(state, campaignEvent, value),
             TacticalStateAppliedEvent value => ApplyTacticalState(state, campaignEvent, value),
             _ => throw Violation("unknown-event", "The event payload is not supported."),
         };
@@ -243,6 +247,15 @@ public static class CampaignKernel
         {
             throw Violation("assignment-time-mismatch", "Assignment and command effective times must match.");
         }
+        if (!string.IsNullOrEmpty(value.BatchId))
+        {
+            CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
+        }
+        if (value.BatchSize <= 0 || (string.IsNullOrEmpty(value.BatchId) && value.BatchSize != 1)
+            || (!string.IsNullOrEmpty(value.BatchId) && value.BatchSize < 2))
+        {
+            throw Violation("invalid-assignment-batch", "Assignment batch size and identity are inconsistent.");
+        }
 
         if (value.Role == AssignmentRole.Primary
             && state.Assignments.Values.Any(item => item.EntityId == value.EntityId
@@ -350,10 +363,16 @@ public static class CampaignKernel
         }
         var validTransition = (assignment.Lifecycle, value.Lifecycle) switch
         {
+            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Prepared) => true,
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active) => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
+            (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Quiesced) => true,
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Released) => true,
+            (AssignmentLifecycle.Prepared, AssignmentLifecycle.Released) => true,
+            (AssignmentLifecycle.Quiesced, AssignmentLifecycle.Released)
+                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
+                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Released)
                 when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
                     + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
@@ -399,6 +418,83 @@ public static class CampaignKernel
             assignment.Revision.Next(),
             value.AssignmentId,
             value.AuthorityEpoch);
+    }
+
+    private static Decision DecideTacticalIslandActivation(
+        CampaignState state,
+        CampaignCommand command,
+        ActivateTacticalIslandCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Campaign(state.Metadata.CampaignId));
+        RequireRevision(command, state.CampaignRevision);
+        CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
+        CampaignInvariants.RequireText(value.Reason, nameof(value.Reason));
+        if (value.EffectiveAt != command.EffectiveAt || value.Members.Count < 2
+            || value.Members.Select(item => item.AssignmentId).Distinct().Count() != value.Members.Count
+            || value.Members.Select(item => item.EntityId).Distinct().Count() != value.Members.Count)
+        {
+            throw Violation("invalid-island-activation", "An island activation requires distinct members and matching effective time.");
+        }
+        foreach (var member in value.Members)
+        {
+            var assignment = state.Assignments.TryGetValue(member.AssignmentId, out var found)
+                ? found
+                : throw Violation("assignment-missing", "An island assignment does not exist.");
+            var entity = RequireEntity(state, member.EntityId);
+            if (assignment.EntityId != member.EntityId
+                || assignment.AuthorityEpoch != member.AuthorityEpoch
+                || assignment.Revision != member.ExpectedAssignmentRevision
+                || assignment.Lifecycle != AssignmentLifecycle.Prepared
+                || !string.Equals(assignment.BatchId, value.BatchId, StringComparison.Ordinal)
+                || entity.Revision != member.ExpectedEntityRevision
+                || entity.MaximumFidelity != FidelityState.Tactical
+                || entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+            {
+                throw Violation("island-activation-fenced", "A prepared island member is stale or cannot become tactical.");
+            }
+        }
+        return Decision.Create(
+            command.Subject,
+            new TacticalIslandActivatedEvent(value),
+            state.CampaignRevision.Next());
+    }
+
+    private static Decision DecideTacticalIslandRelease(
+        CampaignState state,
+        CampaignCommand command,
+        ReleaseTacticalIslandCommand value)
+    {
+        RequireSubject(command, CampaignSubject.Campaign(state.Metadata.CampaignId));
+        RequireRevision(command, state.CampaignRevision);
+        CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
+        CampaignInvariants.RequireText(value.Reason, nameof(value.Reason));
+        if (value.EffectiveAt != command.EffectiveAt || value.Members.Count < 2
+            || value.Members.Select(item => item.AssignmentId).Distinct().Count() != value.Members.Count
+            || value.Members.Select(item => item.EntityId).Distinct().Count() != value.Members.Count)
+        {
+            throw Violation("invalid-island-release", "An island release requires distinct members and matching effective time.");
+        }
+        foreach (var member in value.Members)
+        {
+            var assignment = state.Assignments.TryGetValue(member.AssignmentId, out var found)
+                ? found
+                : throw Violation("assignment-missing", "An island assignment does not exist.");
+            var entity = RequireEntity(state, member.EntityId);
+            if (assignment.EntityId != member.EntityId
+                || assignment.AuthorityEpoch != member.AuthorityEpoch
+                || assignment.Revision != member.ExpectedAssignmentRevision
+                || assignment.Lifecycle != AssignmentLifecycle.Quiesced
+                || !string.Equals(assignment.BatchId, value.BatchId, StringComparison.Ordinal)
+                || entity.Revision != member.ExpectedEntityRevision
+                || entity.Fidelity != FidelityState.Tactical)
+            {
+                throw Violation("island-release-fenced", "A quiesced island member is stale or cannot be released.");
+            }
+        }
+        return Decision.Create(
+            command.Subject,
+            new TacticalIslandReleasedEvent(value),
+            state.CampaignRevision.Next());
     }
 
     private static Decision DecideTacticalState(
@@ -493,7 +589,7 @@ public static class CampaignKernel
     {
         var data = value.Assignment;
         var entry = new AssignmentState(data.AssignmentId, data.EntityId, data.Role, data.AuthorityEpoch,
-            data.EffectiveAt, AssignmentLifecycle.Preparing, item.NewSubjectRevision);
+            data.EffectiveAt, AssignmentLifecycle.Preparing, item.NewSubjectRevision, data.BatchId, data.BatchSize);
         return state with { Assignments = state.Assignments.Add(entry.AssignmentId, entry) };
     }
 
@@ -531,6 +627,52 @@ public static class CampaignKernel
             Assignments = state.Assignments.SetItem(assignment.AssignmentId, assignment),
             Entities = state.Entities.SetItem(entity.EntityId, entity),
         };
+    }
+
+    private static CampaignState ApplyTacticalIslandActivation(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        TacticalIslandActivatedEvent value)
+    {
+        var assignments = state.Assignments;
+        var entities = state.Entities;
+        foreach (var member in value.Activation.Members)
+        {
+            assignments = assignments.SetItem(member.AssignmentId, assignments[member.AssignmentId] with
+            {
+                Lifecycle = AssignmentLifecycle.Active,
+                Revision = member.ExpectedAssignmentRevision.Next(),
+            });
+            entities = entities.SetItem(member.EntityId, entities[member.EntityId] with
+            {
+                Fidelity = FidelityState.Tactical,
+                Revision = member.ExpectedEntityRevision.Next(),
+            });
+        }
+        return state with { Assignments = assignments, Entities = entities };
+    }
+
+    private static CampaignState ApplyTacticalIslandRelease(
+        CampaignState state,
+        CommittedCampaignEvent item,
+        TacticalIslandReleasedEvent value)
+    {
+        var assignments = state.Assignments;
+        var entities = state.Entities;
+        foreach (var member in value.Release.Members)
+        {
+            assignments = assignments.SetItem(member.AssignmentId, assignments[member.AssignmentId] with
+            {
+                Lifecycle = AssignmentLifecycle.Released,
+                Revision = member.ExpectedAssignmentRevision.Next(),
+            });
+            entities = entities.SetItem(member.EntityId, entities[member.EntityId] with
+            {
+                Fidelity = FidelityState.Operational,
+                Revision = member.ExpectedEntityRevision.Next(),
+            });
+        }
+        return state with { Assignments = assignments, Entities = entities };
     }
 
     private static CampaignState ApplyTacticalState(

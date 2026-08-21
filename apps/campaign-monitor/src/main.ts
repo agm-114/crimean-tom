@@ -32,6 +32,10 @@ type Outcome = {
   actorEntityId: string; targetEntityId: string | null; munitionsExpendedMilliunits: number;
   damageInflictedMilliunits: number; detail: string;
 };
+type Assignment = {
+  assignmentId: string; entityId: string; authorityEpoch: number; lifecycle: string;
+  resolveByQuanta: number; revision: number; batchId: string; batchSize: number;
+};
 type InteractionIsland = {
   islandId: string; entityIds: string[]; groupIds: string[]; currentFidelity: string;
   desiredFidelity: string; engaged: boolean; couplingScoreMilliunits: number; reason: string;
@@ -44,7 +48,7 @@ type Scheduler = {
 type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
-  assignments: unknown[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
+  assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
 };
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -93,6 +97,7 @@ app.innerHTML = `
         <div class="state-cell"><div class="metric-label">Regions</div><div id="region-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Groups</div><div id="group-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
+        <div class="state-cell"><div class="metric-label">Authority</div><div id="authority-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
       </div>
     </aside>
@@ -262,6 +267,9 @@ function selectEntity(entityId: string): void {
   window.requestAnimationFrame(() => campaign && renderMap(campaign));
   const group = campaign.groups.find(item => item.memberEntityIds.includes(entityId));
   const island = campaign.scheduler.islands.find(item => item.entityIds.includes(entityId));
+  const assignment = [...campaign.assignments]
+    .filter(item => item.entityId === entityId)
+    .sort((left, right) => right.authorityEpoch - left.authorityEpoch)[0];
   const damage = (entity.damageMilliunits / 10_000).toFixed(1);
   byId("selection").innerHTML = `
     <div class="border-b border-[#3b3b3b] bg-[#e2e2e2] px-2 py-1 text-[10px] text-black">
@@ -274,6 +282,8 @@ function selectEntity(entityId: string): void {
       <dt>Desired</dt><dd class="${island && island.desiredFidelity !== entity.fidelity ? "warning" : ""}">${escapeHtml(island?.desiredFidelity ?? entity.fidelity)}${island?.desiredFidelity === "Tactical" && entity.fidelity !== "Tactical" ? " // AWAIT WORKER" : ""}</dd>
       <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
       <dt>Lifecycle</dt><dd>${escapeHtml(entity.lifecycle)}</dd>
+      <dt>Authority</dt><dd>${assignment ? `${escapeHtml(assignment.lifecycle)} / E${assignment.authorityEpoch}` : "OPERATIONAL KERNEL"}</dd>
+      <dt>Batch</dt><dd>${assignment?.batchId ? `${escapeHtml(assignment.batchId)} / ${assignment.batchSize}` : "SINGLE / NONE"}</dd>
       <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>
       <dt>Scheduler</dt><dd>${escapeHtml(island?.reason ?? "Not evaluated")}</dd>
       <dt>Coupling</dt><dd>${island?.couplingScoreMilliunits ?? 0} / 1000 ${island?.engaged ? "// ENGAGED" : "// QUIET"}</dd>
@@ -288,6 +298,7 @@ function renderPanels(data: Campaign): void {
   byId("region-count").textContent = data.regions.length.toString();
   byId("group-count").textContent = data.groups.length.toString();
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
+  byId("authority-count").textContent = data.assignments.filter(item => item.lifecycle !== "Released").length.toString();
   byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
   byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // ${data.scheduler.eligibility} // ${data.scheduler.loadAction}`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;

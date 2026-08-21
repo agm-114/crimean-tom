@@ -1004,6 +1004,32 @@ public sealed class SqliteCampaignJournal
                 activation.Activation.ExpectedEntityRevision.Next());
             yield break;
         }
+        if (campaignEvent.Data is TacticalIslandActivatedEvent island)
+        {
+            foreach (var member in island.Activation.Members)
+            {
+                yield return (
+                    CampaignSubject.Assignment(member.AssignmentId),
+                    member.ExpectedAssignmentRevision.Next());
+                yield return (
+                    CampaignSubject.Entity(member.EntityId),
+                    member.ExpectedEntityRevision.Next());
+            }
+            yield break;
+        }
+        if (campaignEvent.Data is TacticalIslandReleasedEvent releasedIsland)
+        {
+            foreach (var member in releasedIsland.Release.Members)
+            {
+                yield return (
+                    CampaignSubject.Assignment(member.AssignmentId),
+                    member.ExpectedAssignmentRevision.Next());
+                yield return (
+                    CampaignSubject.Entity(member.EntityId),
+                    member.ExpectedEntityRevision.Next());
+            }
+            yield break;
+        }
         if (campaignEvent.Data is not CampaignSimulatedEvent simulation)
         {
             yield break;

@@ -114,9 +114,11 @@ internal static class CampaignFidelityScheduler
             var islandAssignments = state.Assignments.Values
                 .Where(item => island.EntityIds.Contains(item.EntityId))
                 .ToArray();
-            var hasPreparingAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Preparing);
+            var hasPreparingAssignment = islandAssignments.Any(item =>
+                item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared);
             var hasActiveAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Active);
-            var hasQuiescingAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Quiescing);
+            var hasQuiescingAssignment = islandAssignments.Any(item =>
+                item.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
             var workerConnected = worker is not null
                 && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
@@ -189,11 +191,6 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Operational;
                 reason = "worker-materialization-ceiling";
-            }
-            else if (hasInterest && island.EntityIds.Count > 1)
-            {
-                desired = FidelityState.Operational;
-                reason = "atomic-island-activation-unavailable";
             }
             else if (hasInterest && island.EntityIds.Count <= remainingCapacity)
             {

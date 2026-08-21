@@ -112,21 +112,20 @@ for every entity in an interaction island before it can request Tactical
 fidelity. An offline worker, missing task force, or partially unsupported island
 stays Operational with an explicit diagnostic reason.
 
-For the first executable scheduler-to-game slice, a representable singleton
-island is durably reserved and queued to the companion directly by the schedule
-operation. A ready checkpoint then performs the existing atomic
-assignment/entity activation. Multi-entity islands currently report
-`atomic-island-activation-unavailable` and remain Operational; they will not be
-partially promoted while batch-ready state and one-event island activation are
-still being implemented.
+A representable interaction island is durably reserved and queued to the
+companion directly by the schedule operation. Singleton assignments activate
+through the assignment event. Multi-entity assignments enter durable `Prepared`
+state after their individual first checkpoints; only one campaign-scoped event
+can activate every assignment and entity in the batch. Operational simulation
+remains frozen during preparation and no member can become partially Tactical.
 
-The same schedule operation can now drain an active singleton under load or
-source-ineligibility. The companion durably tracks the current in-game mutation
-revision after materialization and each ordered update; an automatic authority
-fence explicitly resolves that worker-owned revision, captures the final
-checkpoint, suspends the owned object, and releases the entity back to
-Operational. Manual fences continue to require an exact revision from their
-caller.
+The same schedule operation drains a complete active island under load or
+source-ineligibility. The companion durably tracks each in-game mutation
+revision after materialization and ordered updates. Scheduler authority fences
+resolve those worker-owned revisions, capture final checkpoints, and suspend
+the owned objects. Group members enter `Quiesced`; one campaign event then
+releases all assignments and returns every entity to Operational together.
+Manual fences continue to require an exact caller-supplied revision.
 
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.

@@ -62,7 +62,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--focus); out
 .selection-grid > * { min-height: 22px; border-bottom: 1px solid var(--line-soft); padding: 5px 8px; }
 .selection-grid dt { color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
 .selection-grid dd { margin: 0; color: var(--bright); overflow-wrap: anywhere; }
-.state-bank { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
+.state-bank { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); }
 .state-cell { min-width: 0; border-right: 1px solid var(--line-soft); padding: 6px 4px; text-align: center; }
 .state-cell:last-child { border-right: 0; }
 

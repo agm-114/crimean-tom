@@ -128,22 +128,22 @@ loaded mission has no player task force, or any member lacks a supported
 profile. This prevents a surface-only adapter from silently promoting mixed
 surface/submarine or otherwise unsupported task forces.
 
-The service now automatically creates and queues a deterministic Preparing
-assignment for a selected, fully representable singleton island. Manual and
+The service automatically creates and queues deterministic, batch-linked
+Preparing assignments for a selected, fully representable island. Manual and
 automatic handoffs both stage Strategic entities at Operational before the
 reservation, so rejection or a pre-checkpoint crash has one safe fallback
-fidelity. Islands with multiple entities remain Operational with
-`atomic-island-activation-unavailable`; partial per-entity activation is not an
-accepted approximation of whole-island authority.
+fidelity. Each group member becomes Prepared independently, but a single
+campaign event changes the complete batch to Active and Tactical.
 
-Active singleton assignments now enter Quiescing when a connected worker is
+Active island assignments enter Quiescing when a connected worker is
 draining, ineligible, overloaded, quarantined, offline by policy, or transport
 backlog-saturated. The companion persists its game-side revision independently
 of campaign revision and resolves it only for scheduler-issued fences. This lets
 the automatic drain reuse the exact final-checkpoint and retained-suspension
-path without weakening manual expected-revision checks. A disconnected active
-worker remains fenced Tactical until reconnect or bounded expiry fallback; the
-service does not invent a checkpoint.
+path without weakening manual expected-revision checks. Batched assignments
+hold Tactical fidelity in Quiesced state until one event releases and demotes
+the entire island. A disconnected active worker remains fenced Tactical until
+reconnect or bounded expiry fallback; the service does not invent a checkpoint.
 
 The request envelope is retained only for the running service's diagnostic view;
 the resulting entity fidelity is durable. Persisted health history, hysteresis,

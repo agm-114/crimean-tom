@@ -130,6 +130,8 @@ public sealed class CompanionControlIntegrationTests
             var crashBeforeCheckpointEntityId = bootstrap.RootElement
                 .GetProperty("crashBeforeCheckpointEntityId")
                 .GetString()!;
+            var batchLeadEntityId = bootstrap.RootElement.GetProperty("batchLeadEntityId").GetString()!;
+            var batchWingEntityId = bootstrap.RootElement.GetProperty("batchWingEntityId").GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
             var fuldaCampaignId = Guid.Parse("10000000-0000-0000-0000-000000000005").ToString("N");
             using var createdFuldaCampaign = await campaignClient.PostAsJsonAsync(
@@ -539,6 +541,65 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(800_000, releasedPrimary.GetProperty("fuelMilliunits").GetInt64());
             Assert.Equal(300_000, releasedPrimary.GetProperty("storesMilliunits").GetInt64());
             Assert.Equal(250_000, releasedPrimary.GetProperty("damageMilliunits").GetInt32());
+
+            using var batchPromotion = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { batchLeadEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 2,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            batchPromotion.EnsureSuccessStatusCode();
+            using var activeBatchView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Count(item =>
+                    item.GetProperty("batchId").GetString() is { Length: > 0 }
+                    && item.GetProperty("lifecycle").GetString() == "Active") == 2,
+                testTimeout.Token);
+            var activeBatchAssignments = activeBatchView.RootElement.GetProperty("assignments")
+                .EnumerateArray()
+                .Where(item => item.GetProperty("batchId").GetString() is { Length: > 0 })
+                .ToArray();
+            Assert.Equal(2, activeBatchAssignments.Length);
+            Assert.Single(activeBatchAssignments.Select(item => item.GetProperty("batchId").GetString()).Distinct());
+            Assert.All(activeBatchAssignments, item => Assert.Equal(2, item.GetProperty("batchSize").GetInt32()));
+            var activeBatchEntities = activeBatchView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
+            Assert.All(new[] { batchLeadEntityId, batchWingEntityId }, entityId =>
+                Assert.Equal("Tactical", Assert.Single(activeBatchEntities,
+                    item => item.GetProperty("entityId").GetString() == entityId)
+                    .GetProperty("fidelity").GetString()));
+
+            using var batchDrain = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{campaignId}/schedule",
+                new
+                {
+                    observedEntityIds = new[] { batchLeadEntityId },
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Draining",
+                    eligibility = "DrainOnly",
+                    tacticalEntityCapacity = 2,
+                    backlogDepth = 0,
+                },
+                testTimeout.Token);
+            batchDrain.EnsureSuccessStatusCode();
+            using var releasedBatchView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("assignments").EnumerateArray().Count(item =>
+                    item.GetProperty("batchId").GetString() is { Length: > 0 }
+                    && item.GetProperty("lifecycle").GetString() == "Released") == 2,
+                testTimeout.Token);
+            var releasedBatchEntities = releasedBatchView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
+            Assert.All(new[] { batchLeadEntityId, batchWingEntityId }, entityId =>
+                Assert.Equal("Operational", Assert.Single(releasedBatchEntities,
+                    item => item.GetProperty("entityId").GetString() == entityId)
+                    .GetProperty("fidelity").GetString()));
 
             var mismatchAssignmentId = $"assignment:{Guid.Parse("40000000-0000-0000-0000-000000000006"):N}";
             using var mismatchHandoff = await campaignClient.PostAsJsonAsync(
@@ -1409,7 +1470,7 @@ public sealed class CompanionControlIntegrationTests
 
         var builderLoaded = false;
         var draftPending = false;
-        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 26; commandIndex++)
+        for (var commandIndex = 0; commandIndex < GameCommandTypes.AllCommands.Length + 40; commandIndex++)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
             Assert.Equal(MessageKinds.Command, command.Kind);

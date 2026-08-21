@@ -97,7 +97,7 @@ public static class CampaignCanonicalSerializer
                 ParseId(item.Id, value => new AssignmentId(value)), ParseId(item.EntityId, value => new EntityId(value)),
                 ParseEnum<AssignmentRole>(item.Role), new AuthorityEpoch(item.AuthorityEpoch),
                 new CampaignTime(item.EffectiveAt), ParseEnum<AssignmentLifecycle>(item.Lifecycle),
-                new EntityRevision(item.Revision)))
+                new EntityRevision(item.Revision), item.BatchId, item.BatchSize))
                 .ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
             ScheduledActivities = document.ScheduledActivities.Select(item => new ScheduledActivityState(
                 ParseId(item.Id, value => new ScheduledActivityId(value)),
@@ -359,6 +359,11 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("effectiveAt", item.EffectiveAt.Quanta);
             writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("revision", item.Revision.Value);
+            if (!string.IsNullOrEmpty(item.BatchId))
+            {
+                writer.WriteString("batchId", item.BatchId);
+                writer.WriteNumber("batchSize", item.BatchSize);
+            }
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -561,6 +566,8 @@ public static class CampaignCanonicalSerializer
         public required long EffectiveAt { get; init; }
         public required int Lifecycle { get; init; }
         public required long Revision { get; init; }
+        public string BatchId { get; init; } = string.Empty;
+        public int BatchSize { get; init; } = 1;
     }
 
     private sealed class ResourceDocument

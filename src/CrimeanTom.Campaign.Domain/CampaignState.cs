@@ -107,7 +107,9 @@ public sealed record AssignmentState(
     AuthorityEpoch AuthorityEpoch,
     CampaignTime EffectiveAt,
     AssignmentLifecycle Lifecycle,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    string BatchId = "",
+    int BatchSize = 1);
 
 public sealed record CampaignState
 {
