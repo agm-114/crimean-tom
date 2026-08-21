@@ -283,6 +283,36 @@ The live monitor for the schema-v5 campaign is:
 
 `http://127.0.0.1:5081/monitor/?campaign=e7ae56ae91be4138abf4af5c03fee6cd`
 
+## Schema-v6 multi-container ownership foundation
+
+Schema v6 persists the stable worker client instance ID on each new assignment.
+The service now keeps multiple campaign companion sessions concurrently, routes
+assignments and authority fences to the recorded owner, rejects inbound
+assignment traffic from a non-owner, and fans committed events out to every
+campaign worker. A backpressured recipient is disconnected for journal catch-up
+instead of stalling an already-durable canonical commit.
+
+The single broad protocol story connected a second authenticated gRPC worker to
+the same campaign while the real game companion remained selected and live. The
+health projection reported two sessions; closing the probe returned it to one
+without replacing the primary session. The complete 42-second story then passed
+promotion, checkpoint, batch activation, coupling, quiesce, restart catch-up,
+fallback and typed UI automation as before.
+
+Fresh representative campaign `ec4fb4931d2a46589092530202af3ad8`
+bootstrapped 32 regions, 31 bases, 60 entities and 34 groups under schema and
+algorithm version 6. Its 30-quanta advance reached commit 186 with 107 recent
+outcomes. The existing Sea Power process reconnected through one campaign
+worker. The hosted monitor reports the worker count and aggregate materialized,
+active and recovery-required resources, and rendered without browser warnings
+or errors at:
+
+`http://127.0.0.1:5081/monitor/?campaign=ec4fb4931d2a46589092530202af3ad8`
+
+This is session coexistence, placement affinity, event fan-out and publisher
+fencing. It is not yet evidence for destination-headroom admission, live
+checkpoint migration, rebalance cooldown or migration-storm suppression.
+
 ## Remaining gate
 
 - Expand the first exact-ASROC tactical throughput sample to mixed weapons,
@@ -293,3 +323,5 @@ The live monitor for the schema-v5 campaign is:
   test split hysteresis live.
 - Calibrate operational outcomes against repeatable Sea Power observation
   batches rather than treating this one mission as combat-model validation.
+- Add destination reserve accounting and then prove a fenced whole-island
+  checkpoint migration between two real tactical containers.

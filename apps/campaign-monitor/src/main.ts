@@ -43,6 +43,15 @@ type Outcome = {
 type Assignment = {
   assignmentId: string; entityId: string; authorityEpoch: number; lifecycle: string;
   resolveByQuanta: number; revision: number; batchId: string; batchSize: number;
+  workerClientInstanceId: string;
+};
+type Worker = {
+  sessionId: string; clientInstanceId: string; gameSessionId: string; connectedAt: string;
+  lastAppliedCommitPosition: number; receivedFrameCount: number;
+  runtimeFingerprintSha256: string; catalogFingerprintSha256: string; playerTaskforceId: string;
+  ownedMaterializedEntityCount: number; ownedActiveEntityCount: number;
+  ownedRetainedSuspendedEntityCount: number; ownedRecoveryRequiredEntityCount: number;
+  materializationProfileCount: number; couplingRelationshipCount: number;
 };
 type InteractionIsland = {
   islandId: string; entityIds: string[]; groupIds: string[]; currentFidelity: string;
@@ -72,7 +81,7 @@ type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
   assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
-  performance: Performance;
+  performance: Performance; workers: Worker[];
 };
 type CampaignSummary = {
   campaignId: string; name: string; commitPosition: number; catalogFingerprint: string;
@@ -114,6 +123,7 @@ app.innerHTML = `
       </div>
       <div class="section-rule px-2 py-1">
         <div id="connection-message" class="min-h-4 truncate text-[9px] text-[#a8a8a8]">SESSION CREDENTIAL HELD BY HOST</div>
+        <div id="worker-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">WORKERS / UNAVAILABLE</div>
         <div id="scheduler-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">SCHEDULER / UNAVAILABLE</div>
         <div id="performance-status" class="truncate text-[8px] uppercase tracking-[0.08em] text-[#626262]">PERF / UNAVAILABLE</div>
       </div>
@@ -133,6 +143,7 @@ app.innerHTML = `
         <div class="state-cell"><div class="metric-label">Groups</div><div id="group-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Tactical</div><div id="tactical-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Authority</div><div id="authority-count" class="metric-value">0</div></div>
+        <div class="state-cell"><div class="metric-label">Workers</div><div id="worker-count" class="metric-value">0</div></div>
         <div class="state-cell"><div class="metric-label">Tempo</div><div id="tempo" class="metric-value">—</div></div>
         <div class="state-cell"><div class="metric-label">Sim rate</div><div id="simulation-rate" class="metric-value">—</div></div>
       </div>
@@ -516,6 +527,7 @@ function selectEntity(entityId: string): void {
       <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
       <dt>Lifecycle</dt><dd>${escapeHtml(entity.lifecycle)}</dd>
       <dt>Authority</dt><dd>${assignment ? `${escapeHtml(assignment.lifecycle)} / E${assignment.authorityEpoch}` : "OPERATIONAL KERNEL"}</dd>
+      <dt>Worker</dt><dd>${assignment?.workerClientInstanceId ? escapeHtml(assignment.workerClientInstanceId.slice(0, 8).toUpperCase()) : "UNASSIGNED"}</dd>
       <dt>Batch</dt><dd>${assignment?.batchId ? `${escapeHtml(assignment.batchId)} / ${assignment.batchSize}` : "SINGLE / NONE"}</dd>
       <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>
       <dt>Scheduler</dt><dd>${escapeHtml(island?.reason ?? "Not evaluated")}</dd>
@@ -533,11 +545,20 @@ function renderPanels(data: Campaign): void {
   byId("group-count").textContent = data.groups.length.toString();
   byId("tactical-count").textContent = data.entities.filter(item => item.fidelity === "Tactical").length.toString();
   byId("authority-count").textContent = data.assignments.filter(item => item.lifecycle !== "Released").length.toString();
+  byId("worker-count").textContent = data.workers.length.toString();
   byId("tempo").textContent = data.scheduler.targetTicksPerWallSecond > 0 ? `${data.scheduler.targetTicksPerWallSecond}/s` : "—";
   byId("simulation-rate").textContent = data.performance.advance.lastWorkUnitsPerSecondMilliunits > 0
     ? `${(data.performance.advance.lastWorkUnitsPerSecondMilliunits / 1_000).toFixed(0)}/s`
     : "—";
   byId("scheduler-status").textContent = `SCHEDULER / ${data.scheduler.health} // LOAD ${data.scheduler.occupiedTacticalEntityCount}/${data.scheduler.tacticalEntityCapacity} // ACTIVE ${data.scheduler.activeTacticalEntityCount} // HELD ${data.scheduler.retainedSuspendedTacticalEntityCount} // RESERVE ${data.scheduler.tacticalReserveCapacity} // FREE ${data.scheduler.availableTacticalEntityCapacity} // ${data.scheduler.loadAction}`;
+  const workerMaterialized = data.workers.reduce((total, worker) => total + worker.ownedMaterializedEntityCount, 0);
+  const workerActive = data.workers.reduce((total, worker) => total + worker.ownedActiveEntityCount, 0);
+  const workerRecovery = data.workers.reduce((total, worker) => total + worker.ownedRecoveryRequiredEntityCount, 0);
+  const workerStatus = `WORKERS / ${data.workers.length} // MATERIALIZED ${workerMaterialized} // ACTIVE ${workerActive} // RECOVERY ${workerRecovery}`;
+  byId("worker-status").textContent = workerStatus;
+  byId("worker-status").title = data.workers.length
+    ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.playerTaskforceId || "NO TASKFORCE"}`).join(" + ")}`
+    : workerStatus;
   byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   renderOrderOfBattle(data);

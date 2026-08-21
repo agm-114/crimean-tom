@@ -459,6 +459,17 @@ seconds (59.5 ticks/s, 1.98x real time), and a following 1,800-tick batch held
 203 microseconds. This is the first valid active-combat load sample; mixed-island
 capacity and operational outcome calibration remain open.
 
+The first schema-v6 representative campaign is
+`ec4fb4931d2a46589092530202af3ad8`. Bootstrap and a real 30-quanta advance
+reached commit 186 with 32 regions, 31 bases, 60 entities, 34 groups and 107
+recent outcomes. The unchanged live Sea Power session reconnected through one
+worker, and diagnostics reported the exact worker/game session without exposing
+the service token. The monitor now shows worker count plus aggregate
+materialized, active and recovery debt, and selected-unit inspection reports
+the owning worker. A browser pass at the schema-v6 deep link rendered the world
+map and hierarchy with no warnings or errors:
+`http://127.0.0.1:5081/monitor/?campaign=ec4fb4931d2a46589092530202af3ad8`.
+
 The companion launcher now derives `companion-state-<campaignId>` beneath a
 shared campaign run directory. Switching campaigns no longer reuses another
 campaign's durable cursor and silently prevents the gRPC session from opening.
