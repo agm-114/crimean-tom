@@ -83,6 +83,25 @@ internal static class RuntimeUiAutomationSeamFingerprintProvider
                     RequiredMethod(typeof(MissionDebriefViewModel), "get_ExitCommand"),
                     RequiredMethod(typeof(MissionDebriefViewModel), "get_ConfirmExit"),
                 ]),
+            CaptureGroupSafe(
+                "camera-focus",
+                "",
+                [GameCommandTypes.FocusCameraOnUnit],
+                () =>
+                [
+                    RequiredMethod(typeof(RenderPosition), "switchToObject"),
+                    RequiredMethod(typeof(RenderPosition), "getSelectedObject"),
+                ]),
+            CaptureGroupSafe(
+                "tactical-hud-panel",
+                "",
+                [GameCommandTypes.SetTacticalHudPanel],
+                () =>
+                [
+                    RequiredMethod(typeof(MainGameViewModel), "ToggleMapOpen"),
+                    RequiredMethod(typeof(MainGameViewModel), "SetHudVisible"),
+                    RequiredMethod(typeof(PauseMenuViewModel), "get_ResumeCommand"),
+                ]),
         ];
     }
 

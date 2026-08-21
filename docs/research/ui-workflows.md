@@ -40,6 +40,25 @@ difficulty, narrative, briefing material, and an annotated map. The flow was:
 The second Play is important for automated smoke tests; reaching the briefing is
 not yet proof the tactical scene initialized.
 
+## Agent inspection without Computer Use
+
+Until Computer Use is available, inspect the live game through the authenticated
+companion instead of desktop screenshots:
+
+- `pnpm game:ui` / `GET /game/ui` reports scene, current window type, pause,
+  HUD/map/formation visibility, selected unit, and screen size.
+- `pnpm game:screenshot` / `POST /game/screenshot` captures the Unity framebuffer
+  after the current frame, writes `_CrimeanTomScreenshot.png` beside experimental
+  saves, and returns path/hash metadata. `GET /game/screenshot/image` serves that
+  PNG. The 256 KiB pipe never carries the image bytes.
+- `POST /game/automation/camera/focus` with `{ "unitId": "unit:42" }` calls
+  `RenderPosition.switchToObject`.
+- `POST /game/automation/hud` with `{ "panel": "map"|"formation"|"hud"|"pause-resume" }`
+  toggles those typed HUD surfaces.
+
+These tools are local-control only. Camera and HUD actions are inventoried seams
+and will pin method fingerprints on the next live build.
+
 ## Tactical screen
 
 The observed tactical screen contains:

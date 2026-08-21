@@ -1328,6 +1328,81 @@ public sealed class ScenarioAutomationStatePayload
     public bool GameMainAvailable { get; set; }
 }
 
+public sealed class UiInspectionPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string SceneName { get; set; } = string.Empty;
+
+    public string CurrentWindowType { get; set; } = string.Empty;
+
+    public bool GameMainAvailable { get; set; }
+
+    public bool MainGameViewAvailable { get; set; }
+
+    public bool IsPaused { get; set; }
+
+    public double? SimulationTimeSeconds { get; set; }
+
+    public double? TimeCompression { get; set; }
+
+    public bool MapVisible { get; set; }
+
+    public bool HudVisible { get; set; }
+
+    public bool FormationManagerVisible { get; set; }
+
+    public bool EventLogAvailable { get; set; }
+
+    public string SelectedUnitId { get; set; } = string.Empty;
+
+    public int ScreenWidth { get; set; }
+
+    public int ScreenHeight { get; set; }
+
+    public string PlayerTaskforceId { get; set; } = string.Empty;
+}
+
+public sealed class CaptureGameScreenshotRequestPayload
+{
+    public int MaxWidth { get; set; } = 1920;
+}
+
+public sealed class CaptureGameScreenshotResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string Action { get; set; } = GameCommandTypes.CaptureGameScreenshot;
+
+    public string Outcome { get; set; } = string.Empty;
+
+    public string Postcondition { get; set; } = string.Empty;
+
+    public string FileName { get; set; } = string.Empty;
+
+    public string FilePath { get; set; } = string.Empty;
+
+    public string Sha256 { get; set; } = string.Empty;
+
+    public int Width { get; set; }
+
+    public int Height { get; set; }
+
+    public string SceneName { get; set; } = string.Empty;
+
+    public long CapturedAtUnixMilliseconds { get; set; }
+}
+
+public sealed class FocusCameraOnUnitRequestPayload
+{
+    public string UnitId { get; set; } = string.Empty;
+}
+
+public sealed class SetTacticalHudPanelRequestPayload
+{
+    public string Panel { get; set; } = string.Empty;
+}
+
 public sealed class ExperimentalPauseRequestPayload
 {
     public bool IsPaused { get; set; }

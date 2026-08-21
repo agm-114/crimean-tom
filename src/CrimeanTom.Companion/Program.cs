@@ -196,6 +196,109 @@ app.MapGet("/game/campaign", (GamePipeBroker broker, CancellationToken cancellat
         CommandPriorities.Normal,
         cancellationToken));
 
+app.MapGet("/game/ui", (GamePipeBroker broker, CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetUiInspection,
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapPost("/game/screenshot", async (
+    CaptureGameScreenshotRequestPayload? request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var payload = request ?? new CaptureGameScreenshotRequestPayload();
+    var result = await broker.SendCommandAsync(
+        GameCommandTypes.CaptureGameScreenshot,
+        JsonSerializer.Serialize(payload, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken);
+    if (!result.Success)
+    {
+        return CommandFailure(result);
+    }
+
+    var scheduled = JsonSerializer.Deserialize<CaptureGameScreenshotResultPayload>(
+        result.ResultJson,
+        wireJsonOptions) ?? new CaptureGameScreenshotResultPayload();
+    var stableHash = await WaitForStableFileHashAsync(
+        scheduled.FilePath,
+        TimeSpan.FromSeconds(8),
+        cancellationToken);
+    if (string.IsNullOrEmpty(stableHash))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPostconditionFailed,
+            message = "The game scheduled a screenshot but no stable PNG materialized before the deadline.",
+        }, statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+
+    scheduled.Outcome = "completed";
+    scheduled.Postcondition = "screenshot-png-materialized";
+    scheduled.Sha256 = stableHash;
+    return Results.Ok(scheduled);
+});
+
+app.MapGet("/game/screenshot/image", (GamePipeBroker broker) =>
+{
+    var hello = broker.GameHello;
+    if (hello is null || string.IsNullOrWhiteSpace(hello.ExperimentalSaveDirectory))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No connected game has advertised an experimental save directory.",
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    var fileName = "_CrimeanTomScreenshot.png";
+    var fullPath = Path.GetFullPath(Path.Combine(hello.ExperimentalSaveDirectory, fileName));
+    var root = Path.GetFullPath(hello.ExperimentalSaveDirectory);
+    if (!fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(fullPath, Path.Combine(root, fileName), StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "Screenshot path escaped the experimental save directory.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    if (!File.Exists(fullPath))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No screenshot PNG is available yet. POST /game/screenshot first.",
+        }, statusCode: StatusCodes.Status404NotFound);
+    }
+
+    return Results.File(fullPath, "image/png", fileName);
+});
+
+app.MapPost("/game/automation/camera/focus", (
+    FocusCameraOnUnitRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.FocusCameraOnUnit,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapPost("/game/automation/hud", (
+    SetTacticalHudPanelRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.SetTacticalHudPanel,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/automation/task-force-builder", (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
