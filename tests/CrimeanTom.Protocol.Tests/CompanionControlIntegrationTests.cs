@@ -7,6 +7,8 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
@@ -112,6 +114,12 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "campaign-journal-commit",
                 durabilityPolicy.RootElement.GetProperty("canonicalDurabilityBoundary").GetString());
+            Assert.Equal(
+                "cold-checkpoint-or-operational; hot-shadow-unclaimed",
+                durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString());
+            Assert.Equal(
+                "never-majority; exact-match-or-unsafe-divergence-or-pending",
+                durabilityPolicy.RootElement.GetProperty("replicaHashRule").GetString());
             Assert.Equal(120, durabilityPolicy.RootElement.GetProperty("maximumRollbackQuanta").GetInt64());
             Assert.Contains(
                 durabilityPolicy.RootElement.GetProperty("provisionalEffectFamilies").EnumerateArray(),
@@ -3902,6 +3910,15 @@ public sealed class CompanionControlIntegrationTests
             preparedFrames,
             item => item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
                 && item.AssignmentPrepared.AssignmentId == sourceAssignmentId).AssignmentPrepared;
+        var sourceCheckpointFrames = await WaitForInboundFramesAsync(
+            serviceRunDirectory,
+            count: 1,
+            cancellationToken,
+            required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished
+                && item.CheckpointPublished.AssignmentId == sourceAssignmentId);
+        var sourceCheckpoint = sourceCheckpointFrames.Last(item =>
+            item.PayloadCase == CompanionFrame.PayloadOneofCase.CheckpointPublished
+            && item.CheckpointPublished.AssignmentId == sourceAssignmentId).CheckpointPublished;
         using var activeSource = await WaitForCampaignViewAsync(
             campaignClient,
             campaignId,
@@ -4037,6 +4054,78 @@ public sealed class CompanionControlIntegrationTests
             quiescedView.RootElement.GetProperty("assignments").EnumerateArray(),
             item => item.GetProperty("assignmentId").GetString() == sourceAssignment.GetProperty("assignmentId").GetString()
                 && item.GetProperty("lifecycle").GetString() == "Released");
+
+        var divergingBytes = Encoding.UTF8.GetBytes("replica-hash-disagreement");
+        var divergingHash = Convert.ToHexString(SHA256.HashData(divergingBytes)).ToLowerInvariant();
+        Assert.NotEqual(sourceCheckpoint.CheckpointSha256, divergingHash);
+        using (var putDiverging = await campaignClient.PutAsync(
+            $"/content/{divergingHash}",
+            new ByteArrayContent(divergingBytes),
+            cancellationToken))
+        {
+            Assert.True(
+                putDiverging.IsSuccessStatusCode,
+                await putDiverging.Content.ReadAsStringAsync(cancellationToken));
+        }
+        destinationSequence++;
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = destinationSequence,
+            CheckpointPublished = new CheckpointPublished
+            {
+                AssignmentId = queued.Assignment.AssignmentId,
+                EntityId = queued.Assignment.EntityId,
+                AuthorityEpoch = queued.Assignment.AuthorityEpoch,
+                EntityRevision = 2,
+                CheckpointSha256 = divergingHash,
+                CheckpointLength = divergingBytes.Length,
+            },
+        });
+        using var disagreedView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("replicaConvergence").GetProperty("entities").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("diagnosis").GetString() == "unsafe-divergence"),
+            cancellationToken);
+        Assert.Equal(
+            "never-majority; exact-match-or-unsafe-divergence-or-pending",
+            disagreedView.RootElement.GetProperty("replicaConvergence").GetProperty("majorityRule").GetString());
+        using var disagreedMigrate = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/migrate-tactical-island",
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-hash-disagree" },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, disagreedMigrate.StatusCode);
+        using var disagreedBody = JsonDocument.Parse(await disagreedMigrate.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal("replica-hash-disagreement", disagreedBody.RootElement.GetProperty("error").GetString());
+
+        destinationSequence++;
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = destinationSequence,
+            CheckpointPublished = new CheckpointPublished
+            {
+                AssignmentId = queued.Assignment.AssignmentId,
+                EntityId = queued.Assignment.EntityId,
+                AuthorityEpoch = queued.Assignment.AuthorityEpoch,
+                EntityRevision = sourceCheckpoint.EntityRevision,
+                CheckpointSha256 = sourceCheckpoint.CheckpointSha256,
+                CheckpointLength = sourceCheckpoint.CheckpointLength,
+            },
+        });
+        using var reconciledView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("replicaConvergence").GetProperty("entities").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("diagnosis").GetString() == "exact-match"),
+            cancellationToken);
+        Assert.Equal(
+            "exact-match",
+            Assert.Single(
+                reconciledView.RootElement.GetProperty("replicaConvergence").GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId)
+                .GetProperty("diagnosis").GetString());
 
         var cooldownProbeIsland = await PrepareCooldownProbeIslandForMigrationAsync(
             campaignClient,
