@@ -38,7 +38,9 @@ public static class CampaignDurabilityPolicy
         ],
         PresentationTimestampCoverage: "native-world-and-player-event-observation; exact-ui-audio-visual-emission-unavailable",
         FailoverClaim: "cold-checkpoint-or-operational; hot-shadow-unclaimed",
-        ReplicaHashRule: CampaignReplicaHashRegistry.MajorityRule);
+        ReplicaHashRule: CampaignReplicaHashRegistry.MajorityRule,
+        DeploymentTrustModel: "trusted-private-multiplayer; a-player-process-holding-full-opposing-truth-is-trusted",
+        PlayerProjectionTransport: "http-coalition-filtered; signalr-not-canonical-commit");
 }
 
 public sealed record CampaignDurabilityPolicyView(
@@ -54,4 +56,6 @@ public sealed record CampaignDurabilityPolicyView(
     IReadOnlyList<string> CheckpointCommittedEffectFamilies,
     string PresentationTimestampCoverage,
     string FailoverClaim,
-    string ReplicaHashRule);
+    string ReplicaHashRule,
+    string DeploymentTrustModel,
+    string PlayerProjectionTransport);

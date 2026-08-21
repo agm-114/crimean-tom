@@ -60,6 +60,8 @@ builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(monitorSession);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton<CampaignSessionRegistry>();
+builder.Services.AddSingleton<CampaignPlayerSessionRegistry>();
+builder.Services.AddSingleton<CampaignPlayerCommandSequencer>();
 builder.Services.AddSingleton<CampaignPerformanceTelemetry>();
 builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory, "inbound-spool")));
 builder.Services.AddSingleton<CampaignCoordinator>();
@@ -201,6 +203,78 @@ app.MapGet("/campaigns/{campaignId}", async (
     Guid.TryParseExact(campaignId, "N", out var parsed)
         ? Results.Ok(await coordinator.ViewAsync(new CampaignId(parsed), cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapGet("/campaigns/{campaignId}/projections/{coalitionId}", async (
+    string campaignId,
+    string coalitionId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsedCampaign)
+        || !Guid.TryParseExact(coalitionId, "N", out var parsedCoalition))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-or-coalition-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.ProjectCoalitionAsync(
+            new CampaignId(parsedCampaign),
+            new CoalitionId(parsedCoalition),
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/player-sessions", (
+    PlayerSessionIssueRequest request,
+    CampaignPlayerSessionRegistry playerSessions) =>
+{
+    try
+    {
+        return Results.Ok(playerSessions.Issue(request.CampaignId, request.PlayerId, request.CoalitionId));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/player-sessions/reconnect", (
+    PlayerSessionReconnectRequest request,
+    CampaignPlayerSessionRegistry playerSessions) =>
+{
+    try
+    {
+        return Results.Ok(playerSessions.Reconnect(request.ReconnectToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/campaigns/{campaignId}/player-commands", async (
+    string campaignId,
+    PlayerCommandRequest request,
+    CampaignCoordinator coordinator,
+    CampaignPlayerSessionRegistry playerSessions,
+    CampaignPlayerCommandSequencer commands,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        var session = playerSessions.Require(request.SessionId, campaignId, request.CoalitionId);
+        var view = await coordinator.ViewAsync(new CampaignId(parsed), cancellationToken);
+        return Results.Ok(commands.Submit(campaignId, view.TimeQuanta, session, request));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/handoffs", async (
     CampaignHandoffRequest request,
     CampaignCoordinator coordinator,
