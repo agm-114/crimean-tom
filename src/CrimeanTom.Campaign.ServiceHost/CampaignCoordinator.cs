@@ -32,6 +32,7 @@ public sealed class CampaignCoordinator(
     private readonly ConcurrentDictionary<string, StagedMigrationCheckpoint> _stagedCheckpoints = new(StringComparer.Ordinal);
     private readonly CampaignMigrationPolicyOptions _migrationPolicy = CampaignMigrationPolicyOptions.Load();
     private readonly CampaignMigrationAdmissionRegistry _migrationAdmission = new();
+    private readonly CampaignReplicaHashRegistry _replicaHashes = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<CampaignBootstrapResult> BootstrapAsync(
@@ -824,6 +825,9 @@ public sealed class CampaignCoordinator(
             }
 
             RequireLiveDestinationWorker(campaignId.ToString(), plan.DestinationClientInstanceId);
+            _replicaHashes.ThrowIfUnsafeDivergence(
+                state,
+                plan.Members.Select(item => item.Source.EntityId));
 
             orchestration = CreateMigrationOrchestrationLease(
                 campaignId,
@@ -1111,7 +1115,8 @@ public sealed class CampaignCoordinator(
                 worker,
                 Math.Max(0, scheduler.Request.TacticalEntityCapacity
                     - scheduler.Request.TacticalReserveCapacity))).ToArray(),
-            ToCalibrationView(recovery.State, scheduler));
+            ToCalibrationView(recovery.State, scheduler),
+            _replicaHashes.Diagnose(recovery.State));
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -2320,6 +2325,7 @@ public sealed class CampaignCoordinator(
             content,
             DateTimeOffset.UtcNow,
             cancellationToken);
+        _replicaHashes.Observe(campaignId, assignment, checkpoint.CheckpointSha256, checkpoint.EntityRevision);
     }
 
     private async Task CommitTacticalEventAsync(
@@ -3187,7 +3193,8 @@ public sealed record CampaignDiagnosticView(
     CampaignSchedulerView Scheduler,
     CampaignPerformanceView Performance,
     IReadOnlyList<CampaignWorkerView> Workers,
-    CampaignCalibrationReport Calibration);
+    CampaignCalibrationReport Calibration,
+    CampaignReplicaConvergenceReport ReplicaConvergence);
 
 public sealed record CampaignWorkerView(
     string SessionId,

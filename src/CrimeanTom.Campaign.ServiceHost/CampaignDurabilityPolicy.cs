@@ -36,7 +36,9 @@ public static class CampaignDurabilityPolicy
             "damage",
             "destruction",
         ],
-        PresentationTimestampCoverage: "native-world-and-player-event-observation; exact-ui-audio-visual-emission-unavailable");
+        PresentationTimestampCoverage: "native-world-and-player-event-observation; exact-ui-audio-visual-emission-unavailable",
+        FailoverClaim: "cold-checkpoint-or-operational; hot-shadow-unclaimed",
+        ReplicaHashRule: CampaignReplicaHashRegistry.MajorityRule);
 }
 
 public sealed record CampaignDurabilityPolicyView(
@@ -50,4 +52,6 @@ public sealed record CampaignDurabilityPolicyView(
     IReadOnlyList<string> ProvisionalEffectFamilies,
     IReadOnlyList<string> ContinuouslyProposedEffectFamilies,
     IReadOnlyList<string> CheckpointCommittedEffectFamilies,
-    string PresentationTimestampCoverage);
+    string PresentationTimestampCoverage,
+    string FailoverClaim,
+    string ReplicaHashRule);

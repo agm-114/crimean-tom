@@ -291,6 +291,17 @@ public static class CampaignKernel
         {
             throw Violation("invalid-assignment", "A Shadow assignment requires exact destination worker affinity.");
         }
+        if (value.Role == AssignmentRole.RenderProxy)
+        {
+            throw Violation(
+                "proxy-cannot-receive-simulation-authority",
+                "A RenderProxy assignment cannot receive Primary, Shadow, Observer, or other simulation authority.");
+        }
+        if (value.Role == AssignmentRole.Observer
+            && string.IsNullOrWhiteSpace(value.WorkerClientInstanceId))
+        {
+            throw Violation("invalid-assignment", "An Observer assignment requires exact worker affinity.");
+        }
 
         return Decision.Create(
             command.Subject,
@@ -391,7 +402,8 @@ public static class CampaignKernel
         var validTransition = (assignment.Lifecycle, value.Lifecycle) switch
         {
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Prepared) => true,
-            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active) => true,
+            (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active)
+                when assignment.Role == AssignmentRole.Primary => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Quiesced) => true,
@@ -431,6 +443,7 @@ public static class CampaignKernel
         if (assignment.EntityId != value.EntityId
             || assignment.AuthorityEpoch != value.AuthorityEpoch
             || assignment.Lifecycle != AssignmentLifecycle.Preparing
+            || assignment.Role != AssignmentRole.Primary
             || value.EffectiveAt != command.EffectiveAt
             || entity.Revision != value.ExpectedEntityRevision
             || entity.MaximumFidelity != FidelityState.Tactical
