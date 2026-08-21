@@ -79,7 +79,7 @@ internal static class CampaignFidelityScheduler
 
     public static SchedulerEvaluation Inspect(CampaignState state)
     {
-        var islands = BuildIslands(state, null).Select(island => new SchedulerIslandPlan(
+        var islands = BuildIslands(state, []).Select(island => new SchedulerIslandPlan(
             island.IslandId,
             island.EntityIds,
             island.GroupIds,
@@ -103,7 +103,7 @@ internal static class CampaignFidelityScheduler
     public static SchedulerEvaluation Evaluate(
         CampaignState state,
         CampaignSchedulerRequest request,
-        CampaignSessionSnapshot? worker,
+        IReadOnlyList<CampaignSessionSnapshot> workers,
         int stableSampleCount)
     {
         if (!Enum.IsDefined(request.Health) || !Enum.IsDefined(request.Eligibility)
@@ -119,9 +119,15 @@ internal static class CampaignFidelityScheduler
         var observed = ParseEntities(state, request.ObservedEntityIds, "observed");
         var controlled = ParseEntities(state, request.ControlledEntityIds, "controlled");
         var interested = observed.Concat(controlled).ToHashSet();
-        var workerConnected = worker is not null
-            && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal);
-        var islands = BuildIslands(state, worker).ToArray();
+        var campaignWorkers = (workers ?? [])
+            .Where(worker => string.Equals(
+                worker.CampaignId,
+                state.Metadata.CampaignId.ToString(),
+                StringComparison.Ordinal))
+            .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
+            .ToArray();
+        var workerConnected = campaignWorkers.Length > 0;
+        var islands = BuildIslands(state, campaignWorkers).ToArray();
         var campaignOccupiedEntities = state.Assignments.Values
             .Where(item => item.Lifecycle is AssignmentLifecycle.Preparing
                 or AssignmentLifecycle.Prepared or AssignmentLifecycle.Active
@@ -136,16 +142,14 @@ internal static class CampaignFidelityScheduler
             .ToHashSet();
         var occupiedTacticalEntityCount = Math.Max(
             campaignOccupiedEntities.Count,
-            workerConnected ? worker!.OwnedMaterializedEntityCount : 0);
+            campaignWorkers.Sum(worker => worker.OwnedMaterializedEntityCount));
         var activeTacticalEntityCount = Math.Max(
             campaignActiveEntities.Count,
-            workerConnected ? worker!.OwnedActiveEntityCount : 0);
-        var retainedSuspendedTacticalEntityCount = workerConnected
-            ? worker!.OwnedRetainedSuspendedEntityCount
-            : 0;
-        var recoveryRequiredTacticalEntityCount = workerConnected
-            ? worker!.OwnedRecoveryRequiredEntityCount
-            : 0;
+            campaignWorkers.Sum(worker => worker.OwnedActiveEntityCount));
+        var retainedSuspendedTacticalEntityCount = campaignWorkers.Sum(
+            worker => worker.OwnedRetainedSuspendedEntityCount);
+        var recoveryRequiredTacticalEntityCount = campaignWorkers.Sum(
+            worker => worker.OwnedRecoveryRequiredEntityCount);
         var safeTacticalCapacity = Math.Max(
             0,
             request.TacticalEntityCapacity - request.TacticalReserveCapacity);
@@ -189,12 +193,14 @@ internal static class CampaignFidelityScheduler
             var hasQuiescingAssignment = islandAssignments.Any(item =>
                 item.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
-            var workerHasTaskforce = workerConnected && !string.IsNullOrWhiteSpace(worker!.PlayerTaskforceId);
-            var workerCanMaterializeIsland = workerConnected && island.EntityIds.All(id =>
-                worker!.MaterializationProfiles.Any(profile => string.Equals(
+            var workerHasTaskforce = campaignWorkers.Any(worker =>
+                !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId));
+            var workerCanMaterializeIsland = campaignWorkers.Any(worker =>
+                !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+                && island.EntityIds.All(id => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
                     state.Entities[id].CatalogUnitId,
-                    StringComparison.Ordinal)));
+                    StringComparison.Ordinal))));
             var workerRequiresEvacuation = request.Health is SchedulerHealthState.Draining
                     or SchedulerHealthState.Quarantined or SchedulerHealthState.Offline
                 || request.Eligibility != SimulationSourceEligibility.Eligible;
@@ -389,7 +395,7 @@ internal static class CampaignFidelityScheduler
 
     private static IReadOnlyList<Island> BuildIslands(
         CampaignState state,
-        CampaignSessionSnapshot? worker)
+        IReadOnlyList<CampaignSessionSnapshot> workers)
     {
         var entityNodes = state.Entities.Keys.OrderBy(item => item).ToArray();
         if (entityNodes.Length == 0)
@@ -442,8 +448,10 @@ internal static class CampaignFidelityScheduler
         }
 
         var relationships = new List<ResolvedCouplingRelationship>();
-        if (worker is not null
-            && string.Equals(worker.CampaignId, state.Metadata.CampaignId.ToString(), StringComparison.Ordinal))
+        foreach (var worker in workers.Where(worker => string.Equals(
+            worker.CampaignId,
+            state.Metadata.CampaignId.ToString(),
+            StringComparison.Ordinal)))
         {
             foreach (var relationship in worker.CouplingRelationships)
             {

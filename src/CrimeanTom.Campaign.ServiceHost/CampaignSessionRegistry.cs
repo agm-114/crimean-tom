@@ -130,7 +130,6 @@ public sealed class CampaignSessionRegistry
             .OrderBy(item => string.IsNullOrWhiteSpace(item.Snapshot.PlayerTaskforceId) ? 1 : 0)
             .ThenBy(item => item.Snapshot.OwnedRecoveryRequiredEntityCount)
             .ThenBy(item => item.Snapshot.OwnedMaterializedEntityCount)
-            .ThenBy(item => item.Snapshot.ConnectedAt)
             .ThenBy(item => item.Snapshot.ClientInstanceId, StringComparer.Ordinal)
             .Select(item => item.Session)
             .FirstOrDefault();

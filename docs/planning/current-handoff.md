@@ -323,6 +323,16 @@ real game companion, then removes it while the primary session remains intact.
 This is placement and fencing infrastructure, not yet a claim of safe live
 whole-island migration or automatic rebalance.
 
+The scheduler no longer treats that session list as one selected worker. It
+aggregates resource debt and unsafe coupling across every campaign worker, and
+places each new complete island on one compatible least-loaded destination.
+Planned assignments count immediately, so several islands in one scheduling
+call can spread rather than concentrating before the next heartbeat. Existing
+batch ownership is sticky and conflicting live owners fail closed. The final
+tie-breaker is stable client identity rather than connection time. The current
+capacity envelope remains campaign-global; explicit per-worker health and
+migration-overlap budgets are the next admission-control slice.
+
 Tactical fidelity is now an achieved worker state rather than a scheduler label.
 The scheduler may project Tactical as desired, but leaves canonical fidelity at
 the lower level until a companion materializes the unit and publishes its first

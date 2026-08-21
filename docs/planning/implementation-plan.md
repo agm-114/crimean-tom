@@ -613,8 +613,12 @@ single-player prototype.
   events fan out to each campaign worker, assignment and fence delivery is
   owner-specific, and non-owner tactical returns are rejected. The broad
   protocol story proves that a second worker can connect and disconnect without
-  replacing the live game companion. Placement exists; migration, destination
-  reserve accounting, and rebalance cooldown are still open.
+  replacing the live game companion. Scheduler load and unsafe coupling now
+  aggregate across all connected campaign workers. Each complete island keeps
+  one owner and selects a compatible least-loaded destination using planned as
+  well as reported occupancy, the campaign-global safe capacity, and stable
+  client identity. Per-worker health/capacity declarations, migration overlap,
+  destination reserve accounting, and rebalance cooldown are still open.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies

@@ -137,9 +137,16 @@ to every connected worker for catch-up. A backpressured recipient is disconnecte
 and must replay from the durable journal; it cannot stall canonical commits or
 another worker. Diagnostics expose all connected worker
 sessions and their live resource envelopes. Worker selection is deterministic
-and load-aware, but whole-island migration, destination reserve accounting, and
-bounded concurrent rebalance remain open work; this foundation must not be read
-as a completed migration controller.
+and load-aware. Scheduler evaluation now aggregates materialized, active,
+retained and recovery-required counts plus coupling graphs across every campaign
+worker. New complete islands select one compatible least-loaded destination,
+preserve any existing island affinity, reserve the whole island against that
+destination before queuing, and use stable client ID as the final tie-breaker.
+The configured tactical budget remains campaign-global and each destination is
+conservatively bounded by its safe capacity. Per-worker health declarations,
+whole-island migration, destination/source overlap accounting, and bounded
+concurrent rebalance remain open work; this foundation must not be read as a
+completed migration controller.
 
 The service automatically creates and queues deterministic, batch-linked
 Preparing assignments for a selected, fully representable island. Manual and

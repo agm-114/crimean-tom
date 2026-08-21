@@ -401,12 +401,11 @@ public sealed class CampaignCoordinator(
         var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
         telemetry.Record(campaignId, CampaignOperationKind.Recovery, stopwatch.Elapsed);
         var workers = sessions.Snapshots(campaignId.ToString());
-        var worker = sessions.Snapshot(campaignId.ToString());
         var scheduler = recovery.State.SchedulerPolicy is { } policy
             ? CampaignFidelityScheduler.Evaluate(
                 recovery.State,
                 SchedulerRequest(policy),
-                worker,
+                workers,
                 policy.StableSampleCount)
             : CampaignFidelityScheduler.Inspect(recovery.State);
         return new CampaignDiagnosticView(
@@ -492,16 +491,16 @@ public sealed class CampaignCoordinator(
         try
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-            var worker = sessions.Snapshot(campaignId.ToString());
+            var workers = sessions.Snapshots(campaignId.ToString());
             var observed = (request.ObservedEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
             var controlled = (request.ControlledEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
-            var requestHash = SchedulerRequestHash(request, observed, controlled, worker);
+            var requestHash = SchedulerRequestHash(request, observed, controlled, workers);
             var stableSampleCount = state.SchedulerPolicy?.RequestHash == requestHash
                 ? Math.Min(state.SchedulerPolicy.StableSampleCount + 1, 1_000_000)
                 : 1;
-            var evaluation = CampaignFidelityScheduler.Evaluate(state, request, worker, stableSampleCount);
+            var evaluation = CampaignFidelityScheduler.Evaluate(state, request, workers, stableSampleCount);
             state = await CommitAsync(state, Command(
                 state,
                 CampaignSubject.Campaign(campaignId),
@@ -551,9 +550,25 @@ public sealed class CampaignCoordinator(
                         $"scheduler-{state.Time.Quanta}-{island.IslandId}-{entityId}-{entity.Revision.Value}-{island.DesiredFidelity}"), cancellationToken);
                 }
             }
-            if (worker is not null
-                && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
+            if (workers.Count > 0)
             {
+                var destinationCapacity = Math.Max(
+                    0,
+                    request.TacticalEntityCapacity - request.TacticalReserveCapacity);
+                var plannedWorkerLoads = workers.ToDictionary(
+                    worker => worker.ClientInstanceId,
+                    worker => Math.Max(
+                        worker.OwnedMaterializedEntityCount,
+                        state.Assignments.Values
+                            .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
+                                && string.Equals(
+                                    assignment.WorkerClientInstanceId,
+                                    worker.ClientInstanceId,
+                                    StringComparison.Ordinal))
+                            .Select(assignment => assignment.EntityId)
+                            .Distinct()
+                            .Count()),
+                    StringComparer.Ordinal);
                 foreach (var island in evaluation.Islands
                     .Where(item => item.DesiredFidelity == FidelityState.Tactical)
                     .OrderBy(item => item.IslandId, StringComparer.Ordinal))
@@ -564,6 +579,17 @@ public sealed class CampaignCoordinator(
                         .ToArray();
                     if (liveAssignments.Any(item => item.Lifecycle is AssignmentLifecycle.Active
                         or AssignmentLifecycle.Quiescing))
+                    {
+                        continue;
+                    }
+                    var islandWorker = SelectPlacementWorker(
+                        state,
+                        island.EntityIds,
+                        liveAssignments,
+                        workers,
+                        plannedWorkerLoads,
+                        destinationCapacity);
+                    if (islandWorker is null)
                     {
                         continue;
                     }
@@ -580,11 +606,11 @@ public sealed class CampaignCoordinator(
                             continue;
                         }
                         var entity = state.Entities[entityId];
-                        var profile = worker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
+                        var profile = islandWorker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
                             item.UnitTypeId,
                             entity.CatalogUnitId,
                             StringComparison.Ordinal));
-                        if (profile is null || string.IsNullOrWhiteSpace(worker.PlayerTaskforceId))
+                        if (profile is null)
                         {
                             continue;
                         }
@@ -605,25 +631,26 @@ public sealed class CampaignCoordinator(
                             $"assignment:{assignmentGuid:N}",
                             authorityEpoch,
                             idempotencyKey,
-                            worker.RuntimeFingerprintSha256,
-                            worker.CatalogFingerprintSha256,
+                            islandWorker.RuntimeFingerprintSha256,
+                            islandWorker.CatalogFingerprintSha256,
                             profile.UnitTypeId,
                             profile.VariantId,
                             profile.LoadoutId,
-                            worker.PlayerTaskforceId,
+                            islandWorker.PlayerTaskforceId,
                             batchId,
                             batchSize,
-                            worker.ClientInstanceId);
+                            islandWorker.ClientInstanceId);
                         var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
                         state = prepared.State;
                         if (sessions.TryQueueForClient(
                             campaignId.ToString(),
-                            worker.ClientInstanceId,
+                            islandWorker.ClientInstanceId,
                             new ServiceFrame
                             {
                                 Assignment = prepared.Assignment,
                             }))
                         {
+                            plannedWorkerLoads[islandWorker.ClientInstanceId]++;
                             continue;
                         }
                         var assignmentId = ParseScopedId(
@@ -644,8 +671,7 @@ public sealed class CampaignCoordinator(
                     }
                 }
             }
-            if (worker is not null
-                && string.Equals(worker.CampaignId, campaignId.ToString(), StringComparison.Ordinal))
+            if (workers.Count > 0)
             {
                 foreach (var island in evaluation.Islands
                     .Where(item => item.DesiredFidelity != FidelityState.Tactical)
@@ -685,7 +711,7 @@ public sealed class CampaignCoordinator(
                     }
                 }
             }
-            var applied = CampaignFidelityScheduler.Evaluate(state, request, worker, stableSampleCount) with
+            var applied = CampaignFidelityScheduler.Evaluate(state, request, workers, stableSampleCount) with
             {
                 LoadAction = evaluation.LoadAction,
                 Islands = evaluation.Islands,
@@ -1293,32 +1319,76 @@ public sealed class CampaignCoordinator(
         worker.MaterializationProfiles.Count,
         worker.CouplingRelationships.Count);
 
+    private static CampaignSessionSnapshot? SelectPlacementWorker(
+        CampaignState state,
+        IReadOnlyList<EntityId> islandEntityIds,
+        IReadOnlyList<AssignmentState> liveAssignments,
+        IReadOnlyList<CampaignSessionSnapshot> workers,
+        IReadOnlyDictionary<string, int> plannedWorkerLoads,
+        int destinationCapacity)
+    {
+        var existingOwners = liveAssignments
+            .Select(assignment => assignment.WorkerClientInstanceId)
+            .Where(owner => !string.IsNullOrWhiteSpace(owner))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (existingOwners.Length > 1)
+        {
+            throw new CampaignStoreConflict(
+                "island-worker-affinity-conflict",
+                "A tactical interaction island has live assignments on multiple workers.");
+        }
+        var missingEntityCount = islandEntityIds.Count - liveAssignments
+            .Select(assignment => assignment.EntityId)
+            .Distinct()
+            .Count();
+        return workers
+            .Where(worker => existingOwners.Length == 0 || string.Equals(
+                worker.ClientInstanceId,
+                existingOwners[0],
+                StringComparison.Ordinal))
+            .Where(worker => !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
+                && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
+                    profile.UnitTypeId,
+                    state.Entities[entityId].CatalogUnitId,
+                    StringComparison.Ordinal))))
+            .Where(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId) + missingEntityCount
+                <= destinationCapacity)
+            .OrderBy(worker => plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId))
+            .ThenBy(worker => worker.OwnedRecoveryRequiredEntityCount)
+            .ThenBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
     private static string SchedulerRequestHash(
         CampaignSchedulerRequest request,
         IReadOnlyList<EntityId> observedEntityIds,
         IReadOnlyList<EntityId> controlledEntityIds,
-        CampaignSessionSnapshot? worker)
+        IReadOnlyList<CampaignSessionSnapshot> workers)
     {
         var observed = string.Join(',', observedEntityIds.Select(id => id.ToString()));
         var controlled = string.Join(',', controlledEntityIds.Select(id => id.ToString()));
-        var coupling = worker is null
-            ? string.Empty
-            : string.Join('|', worker.CouplingRelationships
-                .Where(item => item.UnsafeToSplit)
-                .OrderBy(item => item.Kind, StringComparer.Ordinal)
-                .ThenBy(item => item.SourceEntityId, StringComparer.Ordinal)
-                .ThenBy(item => item.TargetEntityId, StringComparer.Ordinal)
-                .ThenBy(item => item.EvidenceId, StringComparer.Ordinal)
-                .Select(item => string.Join(':',
-                    item.Kind,
-                    item.SourceEntityId,
-                    item.TargetEntityId,
-                    item.EvidenceId,
-                    item.GuidanceType,
-                    item.MissingSamples)));
-        var resources = worker is null
-            ? string.Empty
-            : $"{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount}";
+        var coupling = string.Join('|', workers
+            .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
+            .SelectMany(worker => worker.CouplingRelationships.Select(relationship =>
+                (worker.ClientInstanceId, Relationship: relationship)))
+            .Where(item => item.Relationship.UnsafeToSplit)
+            .OrderBy(item => item.ClientInstanceId, StringComparer.Ordinal)
+            .ThenBy(item => item.Relationship.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.Relationship.SourceEntityId, StringComparer.Ordinal)
+            .ThenBy(item => item.Relationship.TargetEntityId, StringComparer.Ordinal)
+            .ThenBy(item => item.Relationship.EvidenceId, StringComparer.Ordinal)
+            .Select(item => string.Join(':',
+                item.ClientInstanceId,
+                item.Relationship.Kind,
+                item.Relationship.SourceEntityId,
+                item.Relationship.TargetEntityId,
+                item.Relationship.EvidenceId,
+                item.Relationship.GuidanceType,
+                item.Relationship.MissingSamples)));
+        var resources = string.Join('|', workers
+            .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
+            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount}"));
         var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
