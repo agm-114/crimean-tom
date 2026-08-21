@@ -316,8 +316,12 @@ internal static class RuntimeOwnedMutationAdapter
                 "taskforceId must resolve exactly to the current player task force.");
         }
 
-        if (OwnedEntities.ContainsKey(request.EntityId)
-            || Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
+        if (OwnedEntities.TryGetValue(request.EntityId, out var retained))
+        {
+            return RematerializeRetained(request, requestJson, idempotencyRecordKey, retained);
+        }
+
+        if (Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
                 candidate is not null
                 && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal)))
         {
@@ -447,6 +451,149 @@ internal static class RuntimeOwnedMutationAdapter
                 injected is null
                     ? null
                     : $"fault:materialize:{injected.Step}:recoverable-suspended-owned-object");
+        }
+        finally
+        {
+            stopwatch.Stop();
+        }
+    }
+
+    private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> RematerializeRetained(
+        MaterializeOwnedSurfaceUnitRequestPayload request,
+        string requestJson,
+        string idempotencyRecordKey,
+        OwnedEntityRecord record)
+    {
+        var vessel = record.Vessel;
+        var checkpoint = record.Checkpoint;
+        if (record.RecoveryRequired
+            || vessel is null
+            || !vessel.Disabled
+            || checkpoint?.Unit is null
+            || checkpoint.Unit.IsDisabled
+            || checkpoint.Unit.IsDestroyed
+            || request.Context.ExpectedRevision != 0
+            || request.Context.AuthorityEpoch <= record.AuthorityEpoch
+            || string.Equals(request.Context.AssignmentId, record.AssignmentId, StringComparison.Ordinal)
+            || !string.Equals(vessel._campaignTag, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.EntityId, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.VariantId, request.VariantId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.TaskforceId, request.TaskforceId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                "The retained owned object is not a checkpointed suspended predecessor of this higher-epoch assignment.");
+        }
+
+        var predicted = new OwnedSurfaceUnitStatePayload
+        {
+            StableUnitId = $"campaign-unit:{request.EntityId}",
+            EntityId = request.EntityId,
+            UnitTypeId = request.UnitTypeId,
+            VariantId = request.VariantId,
+            LoadoutId = request.LoadoutId,
+            TaskforceId = request.TaskforceId,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            HeadingDegrees = NormalizeHeading(request.HeadingDegrees),
+            Telegraph = request.Telegraph,
+        };
+        if (request.Context.DryRun)
+        {
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(new()
+            {
+                Outcome = "validated-retained-rematerialization",
+                Postcondition = "retained-owned-surface-unit-rematerialization-valid",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = request.Context.ExpectedRevision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                DryRun = true,
+                RealizedUnit = predicted,
+                RecoverableOwnedObject = true,
+                UnsupportedFields = UnsupportedFields(),
+            });
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var requestedState = new OwnedSurfaceUnitStatePayload
+            {
+                StableUnitId = checkpoint.Unit.StableUnitId,
+                GameUniqueId = checkpoint.Unit.GameUniqueId,
+                EntityId = checkpoint.Unit.EntityId,
+                UnitTypeId = checkpoint.Unit.UnitTypeId,
+                VariantId = checkpoint.Unit.VariantId,
+                LoadoutId = checkpoint.Unit.LoadoutId,
+                TaskforceId = checkpoint.Unit.TaskforceId,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                HeadingDegrees = NormalizeHeading(request.HeadingDegrees),
+                SpeedKnots = checkpoint.Unit.SpeedKnots,
+                Telegraph = request.Telegraph,
+                FuelFractionMilliunits = checkpoint.Unit.FuelFractionMilliunits,
+                StoresFractionMilliunits = checkpoint.Unit.StoresFractionMilliunits,
+                DamageFractionMilliunits = checkpoint.Unit.DamageFractionMilliunits,
+                IsDisabled = false,
+                IsDestroyed = false,
+            };
+            ApplyPortableState(vessel, requestedState);
+            if (vessel.Disabled)
+            {
+                vessel.Enable();
+            }
+            var realized = Capture(vessel, request.TaskforceId, record.InitialStoresQuantity);
+            AssertRealizedIdentity(request, realized);
+            var revision = request.Context.ExpectedRevision + 1;
+            record.AssignmentId = request.Context.AssignmentId;
+            record.AuthorityEpoch = request.Context.AuthorityEpoch;
+            record.Revision = revision;
+            record.TaskforceId = request.TaskforceId;
+            record.RecoveryRequired = false;
+            stopwatch.Stop();
+            var result = new MaterializeOwnedSurfaceUnitResultPayload
+            {
+                Outcome = "rematerialized-retained",
+                Postcondition = "retained-owned-surface-unit-reenabled-and-read-back",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = revision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                RealizedUnit = realized,
+                RecoverableOwnedObject = true,
+                SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch),
+                UnsupportedFields = UnsupportedFields(),
+            };
+            IdempotencyRecords.Add(idempotencyRecordKey, new(requestJson, Clone(result)));
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            var recovery = "source-suspension-restored";
+            try
+            {
+                ApplyPortableState(vessel, checkpoint.Unit);
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+            }
+            catch
+            {
+                recovery = "recoverable-suspended-owned-object";
+                record.RecoveryRequired = true;
+                if (!vessel.Disabled)
+                {
+                    vessel.Disable();
+                }
+            }
+            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"operation=rematerialize-retained; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
         }
         finally
         {
@@ -1492,8 +1639,8 @@ internal static class RuntimeOwnedMutationAdapter
         long initialStoresQuantity,
         bool recoveryRequired = false)
     {
-        public string AssignmentId { get; } = assignmentId;
-        public long AuthorityEpoch { get; } = authorityEpoch;
+        public string AssignmentId { get; set; } = assignmentId;
+        public long AuthorityEpoch { get; set; } = authorityEpoch;
         public long Revision { get; set; } = revision;
         public string TaskforceId { get; set; } = taskforceId;
         public long InitialStoresQuantity { get; } = initialStoresQuantity;

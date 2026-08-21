@@ -3,7 +3,9 @@
   "private": true,
   "packageManager": "pnpm@10.9.0",
   "scripts": {
-    "test": "pnpm monitor:build && dotnet test CrimeanTom.sln --configuration Debug",
+    "test": "pnpm monitor:build && pnpm test:campaign && pnpm test:protocol",
+    "test:campaign": "dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.IntegrationTests.csproj --configuration Debug --artifacts-path .run/test-artifacts/campaign",
+    "test:protocol": "dotnet test tests/CrimeanTom.Protocol.Tests/CrimeanTom.Protocol.Tests.csproj --configuration Debug --artifacts-path .run/test-artifacts/protocol",
     "build": "pnpm monitor:build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 build",
     "monitor:build": "pnpm --filter @crimean-tom/campaign-monitor build",
     "monitor:dev": "pnpm --filter @crimean-tom/campaign-monitor dev",

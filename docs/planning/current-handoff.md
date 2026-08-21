@@ -319,8 +319,7 @@ the lower level until a companion materializes the unit and publishes its first
 checkpoint. Handoff creates an Operational `Preparing` reservation; a ready
 response atomically promotes the entity and activates authority in one journal
 event, while rejection, lost queue ownership, or pre-checkpoint failure releases
-the reservation without phantom Tactical state. The remaining scheduler work is
-to queue and activate these handoffs for complete interaction islands.
+the reservation without phantom Tactical state.
 
 The handshake now reports the loaded player task-force ID plus exact supported
 materialization profiles. Scheduler projection gates Tactical selection on a
@@ -353,12 +352,19 @@ disappears and drains on the second matching sample; explicit drain and overload
 still act immediately. The broad protocol story proves both restart recovery and
 the two-sample whole-batch drain.
 
-Next, carry these decisions through live Sea Power materialization/quiesce,
-extend coupling to weapon/guidance/host relationships, measure capacity/tempo
-under stress, and calibrate the operational resolver against tactical
-observation batches. Keep tactical
-projection and campaign commit separate: Sea Power remains a fenced client of
-the external authoritative kernel.
+The live Phase 5 vertical slice now carries these decisions through Sea Power.
+Typed scenario and briefing actions loaded Red Sea Breakout without menu clicks;
+the Fulda scheduler promoted singleton GIUK picket USS Pharris, the companion
+materialized and checkpointed a real Knox, two healthy interest-loss samples
+quiesced and released it, and a later higher-epoch assignment re-enabled the
+retained checkpointed object. Campaign `37772898357347cd9c9c6fd724037d11`
+ended the proof at commit 85 with epoch 5 Active/Tactical and no bridge recovery
+debt. See `docs/evidence/phase-5-live-evidence-2026-08-21.md`.
+
+Next, extend coupling to weapon/guidance/host relationships, measure live
+tactical capacity/tempo, and calibrate the operational resolver against tactical
+observation batches. Keep tactical projection and campaign commit separate: Sea
+Power remains a fenced client of the external authoritative kernel.
 
 Campaign diagnostics and the monitor now expose process-local service uptime,
 managed/working-set memory, recovery latency, advance latency and quanta rate,

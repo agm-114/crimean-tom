@@ -312,6 +312,12 @@ public sealed class CampaignCompanionClient(
         }
         catch (Exception exception)
         {
+            logger.LogWarning(
+                exception,
+                "Tactical assignment {AssignmentId} epoch {AuthorityEpoch} for {EntityId} was rejected during preparation.",
+                assignment.AssignmentId,
+                assignment.AuthorityEpoch,
+                assignment.EntityId);
             return new AssignmentPreparation(
                 new AssignmentPrepared
                 {

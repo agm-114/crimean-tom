@@ -1,0 +1,83 @@
+# Phase 5 live scheduler evidence — 21 August 2026
+
+## Disposition
+
+The first representative Fulda Gap scheduler-to-Sea-Power lifecycle is working.
+The service selected a complete representable interaction island, queued the
+handoff to the connected companion, materialized a real Knox in Sea Power,
+activated Tactical authority only after the initial checkpoint, drained it
+after durable interest-loss hysteresis, and later re-promoted the retained
+checkpointed object under a higher authority epoch.
+
+This is a vertical lifecycle gate, not the complete Phase 5 capacity or fidelity
+gate. Weapon/guidance/host coupling, multi-profile islands, tactical load limits,
+and resolver calibration remain.
+
+## Runtime identity
+
+- Sea Power `0.8.2-23444+s358`, process 38168
+- runtime fingerprint `92f00eeb425ad14914e646705b5068f0225898e6b929ccb2715b2e6115794df5`
+- bridge assembly `679f4b476c15d5ce7eeaa4cd082d51cf9196a5994dd7d88aab48541159856371`
+- catalog `01d4650c0f0ddeb6a106b3e2ded8c79d27ebbcad51319e56470f45d7fa3183ea`
+- player task force `taskforce:Taskforce1`
+- load cache: 1,532 hits, one miss after the changed bridge deployment
+
+The game was launched through Steam and accepted a fresh AnchorChain health
+marker. Typed UI automation loaded
+`scenario:missions/intro/01 red sea breakout 1988` and continued the briefing;
+no menu coordinate clicks were used.
+
+## Representative campaign
+
+Campaign `37772898357347cd9c9c6fd724037d11` is a fresh deterministic Fulda Gap
+bootstrap with 12 regions, 15 entities, and 9 task forces. USS Pharris is a
+singleton GIUK surface picket using the adapter's exact
+`usn_ff_knox_84 / Variant13 / Default` profile. USS Providence belongs to the
+existing North Sea force, preserving both entity and task-force counts while
+preventing an unsupported submarine from making the demo island impossible.
+
+The hosted monitor is:
+
+`http://127.0.0.1:5081/monitor/?campaign=37772898357347cd9c9c6fd724037d11`
+
+The host issues its own HttpOnly browser session, so opening that URL does not
+require copying the service token into the browser.
+
+## Lifecycle observations
+
+The first live promotion reached campaign commit 63. USS Pharris changed from
+Operational to Tactical only after assignment epoch 1 materialized in Sea Power
+and published its initial content-addressed checkpoint. The runtime world placed
+the campaign-stable identity inside the exact player task force.
+
+Two identical healthy requests with no observation then produced:
+
+1. `scheduler-hysteresis-hold`, leaving the active island Tactical;
+2. `authority-quiescing`, followed by a final checkpoint and release.
+
+At commit 68 the campaign entity was Operational and the epoch-1 assignment was
+Released. Runtime resource diagnostics reported one `suspended-retained` object,
+one checkpoint, zero active objects, and zero recovery-required objects.
+
+The first attempt to promote that retained identity exposed a live-only defect:
+the bridge treated any retained record as a duplicate materialization. The
+runtime adapter now recognizes only a checkpointed, healthy, suspended
+predecessor with an exact entity/profile/task-force match and a strictly higher
+authority epoch. It rebinds and enables that object for the new assignment; a
+failure restores suspension instead of leaving ambiguous authority.
+
+After deploying the corrected bridge, a fresh promotion/drain/re-promotion
+sequence ended at campaign commit 85. Assignment epoch 5 is Active, USS Pharris
+is Tactical, and the bridge reports one active retained constructed object,
+checkpoint present, and no detached or recovery-required state. The live game
+record is game unique ID 398.
+
+## Remaining gate
+
+- Measure tactical island throughput, checkpoint bursts, and main-thread costs.
+- Add safe profiles for more naval/air units before claiming mixed-island
+  coverage.
+- Extend interaction islands with active weapons, guidance, sensors, hosts, and
+  plotting relationships, then test merge/split hysteresis live.
+- Calibrate operational outcomes against repeatable Sea Power observation
+  batches rather than treating this one mission as combat-model validation.

@@ -14,6 +14,8 @@ param(
 
     [string]$RunDirectory,
 
+    [string]$CompanionDllPath,
+
     [string]$GamePipeName,
 
     [string]$CampaignGrpcUrl,
@@ -97,7 +99,12 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'src\CrimeanTom.Companion\CrimeanTom.Companion.csproj'
-$companionDll = Join-Path $repoRoot "src\CrimeanTom.Companion\bin\$Configuration\net8.0\CrimeanTom.Companion.dll"
+$companionDll = if ([string]::IsNullOrWhiteSpace($CompanionDllPath)) {
+    Join-Path $repoRoot "src\CrimeanTom.Companion\bin\$Configuration\net8.0\CrimeanTom.Companion.dll"
+}
+else {
+    [System.IO.Path]::GetFullPath($CompanionDllPath)
+}
 $runDir = if ([string]::IsNullOrWhiteSpace($RunDirectory)) {
     Join-Path $repoRoot '.run'
 }

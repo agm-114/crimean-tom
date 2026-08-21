@@ -46,7 +46,7 @@ internal static class FuldaGapCampaignSeed
         var entityTemplates = new[]
         {
             Entity(campaignId, "pharris", "USS Pharris", "usn_ff_knox_84", blue, "giuk", 62_700_000, -15_000_000, "keflavik", "blue-giuk", SimulationDomain.Maritime),
-            Entity(campaignId, "los-angeles", "USS Providence", "usn_ssn_los_angeles", blue, "giuk", 63_100_000, -17_200_000, "keflavik", "blue-giuk", SimulationDomain.Maritime),
+            Entity(campaignId, "los-angeles", "USS Providence", "usn_ssn_los_angeles", blue, "giuk", 63_100_000, -17_200_000, "keflavik", "blue-north-sea", SimulationDomain.Maritime),
             Entity(campaignId, "yorktown", "USS Yorktown", "usn_cg_ticonderoga", blue, "nsea", 57_000_000, 3_000_000, "bremerhaven", "blue-north-sea", SimulationDomain.Maritime),
             Entity(campaignId, "spruance", "USS Spruance", "usn_dd_spruance", blue, "nsea", 57_100_000, 3_100_000, "bremerhaven", "blue-north-sea", SimulationDomain.Maritime),
             Entity(campaignId, "reforger", "REFORGER Convoy 261", "merchant_roro_convoy", blue, "midatl", 47_000_000, -31_000_000, "hampton", "blue-reforger", SimulationDomain.Logistics),

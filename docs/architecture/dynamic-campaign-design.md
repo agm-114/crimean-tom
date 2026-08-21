@@ -66,6 +66,12 @@ hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
 and uses stable campaign-derived IDs so the same campaign ID and content version
 reproduce the same world.
 
+The opening GIUK force keeps USS Pharris as a singleton surface picket that the
+current Knox adapter can materialize safely. USS Providence supports the
+existing North Sea group. This preserves the 15-entity/9-task-force load shape
+while giving the representative campaign one complete, currently representable
+interaction island; unsupported mixed groups continue to fail closed.
+
 ### Operator monitor
 
 The campaign service hosts a Tailwind CSS and Babylon.js monitor at `/monitor/`.
@@ -98,6 +104,11 @@ The backend watcher excludes generated static content and uses the SDK polling
 watcher on Windows. Vite owns that tree; polling also prevents an atomic
 production monitor build from overflowing a recursive directory-notification
 queue while ASP.NET refreshes the hosted copy.
+
+The two broad integration projects build into `.run/test-artifacts` through the
+root `pnpm test` command. Their host/companion launch helpers resolve those
+isolated binaries, so verification can run while the watched service keeps its
+normal output assemblies loaded.
 
 The current scheduler projection also shows health and simulation-source
 eligibility, backlog and tactical capacity, fixed-step target tempo, load action,
@@ -138,6 +149,13 @@ resolve those worker-owned revisions, capture final checkpoints, and suspend
 the owned objects. Group members enter `Quiesced`; one campaign event then
 releases all assignments and returns every entity to Operational together.
 Manual fences continue to require an exact caller-supplied revision.
+
+A later promotion may reuse a checkpointed suspended object instead of creating
+a duplicate. The bridge accepts that transfer only for a different assignment
+with a strictly higher authority epoch, a zero revision in the new assignment
+namespace, an exact entity/profile/task-force match, and a healthy suspended
+checkpoint. It rebinds and enables the retained vessel atomically, or restores
+the prior suspension on failure.
 
 The local named pipe is a trust and threading boundary. Pipe I/O happens away
 from Unity; every game read or mutation is marshalled onto Unity's main thread.

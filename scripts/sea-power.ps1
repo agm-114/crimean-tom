@@ -25,7 +25,11 @@ param(
 
     [string]$CampaignId,
 
-    [string]$CampaignRunDirectory
+    [string]$CampaignRunDirectory,
+
+    [string]$CampaignTokenFile,
+
+    [string]$CampaignStateDirectory
 )
 
 Set-StrictMode -Version Latest
@@ -259,6 +263,8 @@ function Start-SeaPowerAndVerify {
         CampaignHttpUrl = $CampaignHttpUrl
         CampaignId = $CampaignId
         CampaignRunDirectory = $CampaignRunDirectory
+        CampaignTokenFile = $CampaignTokenFile
+        CampaignStateDirectory = $CampaignStateDirectory
     }.GetEnumerator()) {
         if (-not [string]::IsNullOrWhiteSpace($setting.Value)) {
             $companionParameters[$setting.Key] = $setting.Value

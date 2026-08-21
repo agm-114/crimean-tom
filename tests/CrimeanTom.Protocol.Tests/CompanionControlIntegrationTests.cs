@@ -165,6 +165,11 @@ public sealed class CompanionControlIntegrationTests
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             Assert.Equal(30, fuldaEntities.Length);
+            var tacticalDemoGroup = Assert.Single(
+                fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
+                item => item.GetProperty("memberEntityIds").EnumerateArray()
+                    .Any(member => member.GetString() == tacticalDemoEntityId));
+            Assert.Single(tacticalDemoGroup.GetProperty("memberEntityIds").EnumerateArray());
             Assert.All(
                 fuldaEntities.Where(item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"),
                 item => Assert.Equal("Operational", item.GetProperty("maximumFidelity").GetString()));
@@ -2540,7 +2545,7 @@ public sealed class CompanionControlIntegrationTests
         string grpcUrl,
         string httpUrl)
     {
-        var hostPath = Path.Combine(
+        var normalHostPath = Path.Combine(
             repositoryRoot,
             "src",
             "CrimeanTom.Campaign.ServiceHost",
@@ -2548,6 +2553,8 @@ public sealed class CompanionControlIntegrationTests
             "Debug",
             "net8.0",
             "CrimeanTom.Campaign.ServiceHost.dll");
+        var artifactsHostPath = ResolveArtifactsProjectDll("CrimeanTom.Campaign.ServiceHost");
+        var hostPath = artifactsHostPath ?? normalHostPath;
         Assert.True(File.Exists(hostPath), $"Campaign service host was not built at {hostPath}.");
         var start = new ProcessStartInfo("dotnet")
         {
@@ -2758,6 +2765,11 @@ public sealed class CompanionControlIntegrationTests
         startInfo.ArgumentList.Add(controlUrl);
         startInfo.ArgumentList.Add("-GamePipeName");
         startInfo.ArgumentList.Add(gamePipeName);
+        if (ResolveArtifactsProjectDll("CrimeanTom.Companion") is { } companionDllPath)
+        {
+            startInfo.ArgumentList.Add("-CompanionDllPath");
+            startInfo.ArgumentList.Add(companionDllPath);
+        }
         if (skipBuild)
         {
             startInfo.ArgumentList.Add("-SkipBuild");
@@ -2788,6 +2800,18 @@ public sealed class CompanionControlIntegrationTests
         }
 
         return new ScriptResult(process.ExitCode);
+    }
+
+    private static string? ResolveArtifactsProjectDll(string projectName)
+    {
+        var path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            projectName,
+            "debug",
+            $"{projectName}.dll"));
+        return File.Exists(path) ? path : null;
     }
 
     private static string FindRepositoryRoot()
