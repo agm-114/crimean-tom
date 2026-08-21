@@ -69,7 +69,8 @@ app.Use(async (context, next) =>
 {
     var requestPath = context.Request.Path.Value;
     if (context.Request.Method == HttpMethods.Get
-        && requestPath is "/monitor" or "/monitor/" or "/monitor/index.html")
+        && context.Request.Path.StartsWithSegments("/monitor")
+        && !CampaignMonitorRouting.IsExistingMonitorAsset(webRoot, requestPath))
     {
         context.Response.Cookies.Append(
             CampaignMonitorSession.CookieName,
@@ -88,7 +89,8 @@ app.Use(async (context, next) =>
             sessions.Snapshots());
         var requestedCampaignId = context.Request.Query["campaign"].ToString();
         if (activeCampaignId is not null
-            && !CampaignMonitorRouting.MatchesActiveCampaign(requestedCampaignId, activeCampaignId))
+            && (!CampaignMonitorRouting.IsMonitorEntryPath(requestPath)
+                || !CampaignMonitorRouting.MatchesActiveCampaign(requestedCampaignId, activeCampaignId)))
         {
             context.Response.Redirect(CampaignMonitorRouting.MonitorLocation(activeCampaignId));
             return;

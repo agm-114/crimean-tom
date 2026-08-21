@@ -35,5 +35,25 @@ public static class CampaignMonitorRouting
         !string.IsNullOrWhiteSpace(requestedCampaignId)
         && string.Equals(requestedCampaignId, activeCampaignId, StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsMonitorEntryPath(string? requestPath) =>
+        requestPath is "/monitor" or "/monitor/" or "/monitor/index.html";
+
+    public static bool IsExistingMonitorAsset(string webRoot, string? requestPath)
+    {
+        if (string.IsNullOrEmpty(requestPath) || IsMonitorEntryPath(requestPath))
+        {
+            return false;
+        }
+
+        var relative = requestPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var root = Path.GetFullPath(webRoot);
+        var physical = Path.GetFullPath(Path.Combine(webRoot, relative));
+        var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return physical.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            && File.Exists(physical);
+    }
+
     public static string MonitorLocation(string campaignId) => $"/monitor/?campaign={campaignId}";
 }

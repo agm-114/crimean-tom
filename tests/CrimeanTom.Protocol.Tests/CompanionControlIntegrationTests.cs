@@ -405,6 +405,11 @@ public sealed class CompanionControlIntegrationTests
                     testTimeout.Token);
                 Assert.Equal(HttpStatusCode.Redirect, staleMonitor.StatusCode);
                 Assert.Equal(expectedMonitorLocation, staleMonitor.Headers.Location?.OriginalString);
+                using var malformedMonitor = await monitorRedirectClient.GetAsync(
+                    "/monitor/it",
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Redirect, malformedMonitor.StatusCode);
+                Assert.Equal(expectedMonitorLocation, malformedMonitor.Headers.Location?.OriginalString);
                 using var currentMonitor = await monitorRedirectClient.GetAsync(
                     expectedMonitorLocation,
                     testTimeout.Token);
