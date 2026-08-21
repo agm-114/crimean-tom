@@ -816,6 +816,7 @@ public sealed class CampaignCoordinator(
             GloballyPaused = true,
             InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
             InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+            InitialDamageMilliunits = entity.DamageMilliUnits,
         });
     }
 

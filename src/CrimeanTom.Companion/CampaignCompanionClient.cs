@@ -680,7 +680,10 @@ public sealed class CampaignCompanionClient(
                 StoresMilliunits = ScaleResource(
                     assignment.InitialStoresMilliunits,
                     unit.StoresFractionMilliunits),
-                DamageMilliunits = Math.Clamp(unit.DamageFractionMilliunits ?? 0, 0, 1_000_000),
+                DamageMilliunits = ApplyDamageBaseline(
+                    assignment.InitialDamageMilliunits,
+                    unit.DamageFractionMilliunits,
+                    unit.IsDestroyed),
                 Destroyed = unit.IsDestroyed,
                 CheckpointSha256 = checkpointHash,
             },
@@ -770,6 +773,14 @@ public sealed class CampaignCompanionClient(
 
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
+
+    private static long ApplyDamageBaseline(long baseline, long? observed, bool destroyed) =>
+        destroyed
+            ? 1_000_000
+            : Math.Clamp(
+                baseline + Math.Clamp(observed ?? 0, 0, 1_000_000),
+                0,
+                1_000_000);
 
     private static string DeterministicId(string identity, string idempotencyKey)
     {

@@ -135,6 +135,7 @@ message TacticalAssignment {
   string canonical_entity_id = 23;
   int64 initial_fuel_milliunits = 24;
   int64 initial_stores_milliunits = 25;
+  int64 initial_damage_milliunits = 26;
 }
 
 message AssignmentPrepared {
