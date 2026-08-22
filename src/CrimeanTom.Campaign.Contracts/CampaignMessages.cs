@@ -194,7 +194,7 @@ public sealed record AnalogueTacticalCondition(
     int PortIntegrityMilliUnits = 1_000,
     int StarboardIntegrityMilliUnits = 1_000,
     int EcmMilliUnits = 0,
-    int CountermeasureMilliUnits = 0,
+    int CountermeasureMilliUnits = 1_000,
     int WeaponReadyMilliUnits = 1_000,
     int HostedAircraft = 0,
     int SnorkelCycle = 0)

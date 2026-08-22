@@ -46,6 +46,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Single(projection.Contacts);
         Assert.StartsWith("track:", projection.Contacts[0].TrackId, StringComparison.Ordinal);
         Assert.Equal(Ids.BlackSea, projection.Contacts[0].EstimatedRegionId);
+        var projectedEstimate = first.State.Intelligence[new IntelligenceKey(Ids.BlueCoalition, Ids.RedKrivak)];
+        Assert.Equal(projectedEstimate.Channel, projection.Contacts[0].Channel);
+        Assert.Equal(projectedEstimate.Quality, projection.Contacts[0].Quality);
         Assert.DoesNotContain(projection.FriendlyEntities, item => item.EntityId == Ids.RedKrivak);
 
         var projectionJson = JsonSerializer.Serialize(projection);
@@ -107,6 +110,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Channel));
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Quality));
         Assert.Equal(RulesOfEngagement.WeaponsTight, simulated.Entities[Ids.RedKrivak].Analogue.Roe);
+        Assert.Equal(350, simulated.Entities[Ids.RedKrivak].Analogue.WeaponReadyMilliUnits);
         Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.WeaponIntegrityMilliUnits <= 1_000);
         Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.CrewMilliUnits <= 1_000);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
@@ -163,9 +167,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("240c5c0a9f0abfb8c99e8e3902ce9f7b45add4cec0486b2fb778ca697fad47e3", longHorizon.Hash);
+        Assert.Equal("0dd774861ac0c91deab70b73a4d3e33b0c86449dbc0371aa341b539e5d761a1e", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("aeb365672c2a4df02265cae616303fab3be47e1eb2baf1d7d9ffc0ec1ff8689a", migrated.Hash);
+        Assert.Equal("2b0bc22dd3e832516565e3414e03dedc0cf7e80c85b36d6dda422835079caa5e", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -361,6 +365,22 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             && item.Detail is not null
             && item.Detail.StartsWith("abstract-corps-fires employment", StringComparison.Ordinal));
 
+        var weaponsHold = abstractLand with
+        {
+            Entities = abstractLand.Entities.SetItem(Ids.BlueKnox,
+                abstractLand.Entities[Ids.BlueKnox] with
+                {
+                    Analogue = abstractLand.Entities[Ids.BlueKnox].Analogue with
+                    {
+                        Roe = RulesOfEngagement.WeaponsHold,
+                    },
+                }),
+        };
+        var heldByDoctrine = SimulateForTest(weaponsHold, 103, new CampaignTime(20));
+        Assert.DoesNotContain(heldByDoctrine.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == Ids.BlueKnox);
+
         var splitGroup = state with
         {
             Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with { RegionId = Ids.Bosporus }),
@@ -534,6 +554,71 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             InFlight = [tacticalRound with { ShooterCoalitionId = Ids.BlueCoalition }],
         };
         Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(spoofedRound));
+
+        var torpedoTarget = sameRegionWithoutIntel.Entities[Ids.BlueOiler] with
+        {
+            Coordinate = sameRegionWithoutIntel.Entities[Ids.RedKrivak].Coordinate,
+            Analogue = sameRegionWithoutIntel.Entities[Ids.BlueOiler].Analogue with
+            {
+                CountermeasureMilliUnits = 1_000,
+            },
+        };
+        var torpedoState = sameRegionWithoutIntel with
+        {
+            Entities = sameRegionWithoutIntel.Entities.SetItem(Ids.BlueOiler, torpedoTarget),
+            InFlight =
+            [
+                new InFlightOrdnance(
+                    "countermeasure-round",
+                    Ids.RedKrivak,
+                    Ids.BlueOiler,
+                    Ids.RedCoalition,
+                    "synthetic-torpedo",
+                    ContactClassification.Surface,
+                    torpedoTarget.Coordinate,
+                    0,
+                    OrdnanceFlightStage.Terminal,
+                    OrdnanceGuidance.Active,
+                    100,
+                    25_000,
+                    0,
+                    state.Time,
+                    OrdnanceKind.Torpedo),
+            ],
+        };
+        var countered = SimulateForTest(torpedoState, 104, new CampaignTime(20));
+        Assert.Equal(900, countered.Entities[Ids.BlueOiler].Analogue.CountermeasureMilliUnits);
+        Assert.Contains(countered.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.Countermeasure
+            && item.ActorEntityId == Ids.BlueOiler);
+
+        var passiveShooter = torpedoState.Entities[Ids.RedKrivak] with
+        {
+            Analogue = torpedoState.Entities[Ids.RedKrivak].Analogue with { Emcon = EmconState.Passive },
+        };
+        var guidanceState = torpedoState with
+        {
+            Entities = torpedoState.Entities.SetItem(Ids.RedKrivak, passiveShooter),
+            InFlight =
+            [
+                torpedoState.InFlight[0] with
+                {
+                    OrdnanceId = "external-guidance-round",
+                    AmmunitionId = "synthetic-command-missile",
+                    Kind = OrdnanceKind.Missile,
+                    Guidance = OrdnanceGuidance.Command,
+                    RemainingMeters = 150_000,
+                    SpeedMetersPerTick = 100_000,
+                },
+            ],
+        };
+        var guidanceInterrupted = SimulateForTest(guidanceState, 105, new CampaignTime(20));
+        Assert.Equal(1, Assert.Single(guidanceInterrupted.InFlight).LostGuidanceTicks);
+        var guidanceLost = SimulateForTest(guidanceInterrupted, 106, new CampaignTime(30));
+        Assert.Empty(guidanceLost.InFlight);
+        Assert.Contains(guidanceLost.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.SeekerLost
+            && item.Detail.Contains("External guidance lost", StringComparison.Ordinal));
     }
 
     private static CampaignState SimulateForTest(CampaignState state, int sequence, CampaignTime target)

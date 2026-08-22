@@ -90,7 +90,7 @@ public static class CampaignStateValidator
                 || entity.Analogue.HostedAircraft is < 0 or > 64
                 || entity.Analogue.SnorkelCycle is < 0 or > 9)
             {
-                throw Invalid("entity-condition", "Entity readiness or damage is outside its canonical range.");
+                throw Invalid("entity-condition", "An entity condition is outside its canonical range.");
             }
             if (entity.HomeBaseId is { } homeBaseId
                 && (!state.Bases.TryGetValue(homeBaseId, out var homeBase) || homeBase.CoalitionId != entity.CoalitionId))
