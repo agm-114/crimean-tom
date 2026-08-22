@@ -499,9 +499,13 @@ public sealed class SceneStatePayload
 
 public sealed class WorldSnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 11;
+    public int SchemaVersion { get; set; } = 12;
 
     public string SceneName { get; set; } = string.Empty;
+
+    public string ScenarioId { get; set; } = string.Empty;
+
+    public string ScenarioPath { get; set; } = string.Empty;
 
     public string IdentityScope { get; set; } = "loaded-scene";
 
