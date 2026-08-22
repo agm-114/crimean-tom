@@ -130,6 +130,11 @@ order events.
 | Catalog builder | Local/versioned tool | Normalize installed game data and compute fingerprints | Live campaign mutation |
 | Campaign client UI | Separate app or web UI | Theater map, orders, health, diagnostics, administration | Direct game mutation |
 
+The Operational worker is specified as a **campaign-owned standalone process**
+in [Standalone simulation workers](standalone-sim-worker.md). It is not
+implemented yet. It is not a headless Sea Power instance. Until it exists,
+unattended Operational islands run in-process in the campaign service.
+
 ## Technology and packaging baseline
 
 The in-game bridge and the external application deliberately have different

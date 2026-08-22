@@ -1127,6 +1127,7 @@ These are deliberately uncommitted constants or mechanisms, not missing plan:
 | Public/untrusted trust model | Threat model and independent validation cost | P9 release scope |
 | Need for PostgreSQL/external object storage | SQLite WAL and local blob benchmarks plus coordinator availability objective | P8 scale profile |
 | Need for raw WebSockets, extra streams/connections, or QUIC/UDP | gRPC/Protobuf and UI SignalR latency, allocation, loss, reconnect, and control-starvation benchmarks | P7/P8 network tuning |
+| Campaign-owned standalone sim worker | Spawn/stop a Sea-Power-free Operational worker, then optionally an unattended Unity farm. Plan: [standalone-sim-worker.md](../architecture/standalone-sim-worker.md). Sea Power is not headless. | Before unattended Tactical islands leave the in-process kernel |
 
 Every item has a phase deadline; none may silently become a hard-coded default
 before its evidence exists.
