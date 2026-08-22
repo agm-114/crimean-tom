@@ -120,6 +120,12 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "never-majority; exact-match-or-unsafe-divergence-or-pending",
                 durabilityPolicy.RootElement.GetProperty("replicaHashRule").GetString());
+            Assert.Equal(
+                "trusted-private-multiplayer; a-player-process-holding-full-opposing-truth-is-trusted",
+                durabilityPolicy.RootElement.GetProperty("deploymentTrustModel").GetString());
+            Assert.Equal(
+                "http-coalition-filtered; signalr-not-canonical-commit",
+                durabilityPolicy.RootElement.GetProperty("playerProjectionTransport").GetString());
             Assert.Equal(120, durabilityPolicy.RootElement.GetProperty("maximumRollbackQuanta").GetInt64());
             Assert.Contains(
                 durabilityPolicy.RootElement.GetProperty("provisionalEffectFamilies").EnumerateArray(),
@@ -179,6 +185,8 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(120, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
             Assert.Equal(4, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
             var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
+            var blueCoalitionId = fuldaBootstrap.RootElement.GetProperty("blueCoalitionId").GetString()!;
+            var redCoalitionId = fuldaBootstrap.RootElement.GetProperty("redCoalitionId").GetString()!;
             using var fuldaViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{fuldaCampaignId}",
                 testTimeout.Token);
@@ -220,6 +228,175 @@ public sealed class CompanionControlIntegrationTests
                 fuldaCalibration.GetProperty("maximumRangeRatioMilliunits").GetInt32()
                 <= fuldaCalibration.GetProperty("envelopeMaximumRangeRatioMilliunits").GetInt32());
             Assert.Equal(10, fuldaCalibration.GetProperty("maximumTacticalCompressionTimes").GetInt32());
+            using var blueProjectionResponse = await campaignClient.GetAsync(
+                $"/campaigns/{fuldaCampaignId}/projections/{blueCoalitionId}",
+                testTimeout.Token);
+            blueProjectionResponse.EnsureSuccessStatusCode();
+            using var blueProjection = JsonDocument.Parse(
+                await blueProjectionResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(blueCoalitionId, blueProjection.RootElement.GetProperty("coalitionId").GetString());
+            Assert.Equal(
+                "coalition-filtered; no-classified-truth; render-proxy-is-not-a-contact",
+                blueProjection.RootElement.GetProperty("trustBoundary").GetString());
+            var redNames = advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray()
+                .Where(item => item.GetProperty("coalitionId").GetString() == redCoalitionId)
+                .Select(item => item.GetProperty("name").GetString()!)
+                .ToArray();
+            Assert.NotEmpty(redNames);
+            var blueFriendly = blueProjection.RootElement.GetProperty("friendlyEntities").EnumerateArray().ToArray();
+            Assert.NotEmpty(blueFriendly);
+            var blueNames = advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray()
+                .Where(item => item.GetProperty("coalitionId").GetString() == blueCoalitionId)
+                .Select(item => item.GetProperty("name").GetString()!)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.All(
+                blueFriendly,
+                item => Assert.Contains(item.GetProperty("name").GetString()!, blueNames));
+            var blueProjectionJson = blueProjection.RootElement.GetRawText();
+            Assert.All(redNames, name => Assert.DoesNotContain(name, blueProjectionJson, StringComparison.Ordinal));
+            Assert.DoesNotContain("ClassifiedTruth", blueProjectionJson, StringComparison.OrdinalIgnoreCase);
+            using var issuedSessionResponse = await campaignClient.PostAsJsonAsync(
+                "/control/player-sessions",
+                new { campaignId = fuldaCampaignId, playerId = "player-blue-1", coalitionId = blueCoalitionId },
+                testTimeout.Token);
+            issuedSessionResponse.EnsureSuccessStatusCode();
+            using var issuedSession = JsonDocument.Parse(
+                await issuedSessionResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var playerSessionId = issuedSession.RootElement.GetProperty("sessionId").GetString()!;
+            var playerReconnectToken = issuedSession.RootElement.GetProperty("reconnectToken").GetString()!;
+            using var reconnectResponse = await campaignClient.PostAsJsonAsync(
+                "/control/player-sessions/reconnect",
+                new { reconnectToken = playerReconnectToken },
+                testTimeout.Token);
+            reconnectResponse.EnsureSuccessStatusCode();
+            using var reconnected = JsonDocument.Parse(
+                await reconnectResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(playerSessionId, reconnected.RootElement.GetProperty("sessionId").GetString());
+            var playerSessionGeneration = reconnected.RootElement.GetProperty("generation").GetInt32();
+            Assert.Equal(2, playerSessionGeneration);
+            Assert.NotEqual(playerReconnectToken, reconnected.RootElement.GetProperty("reconnectToken").GetString());
+            using var staleGenerationCommand = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                new
+                {
+                    sessionId = playerSessionId,
+                    coalitionId = blueCoalitionId,
+                    predictionId = "pred-stale-generation",
+                    kind = "observe",
+                    generation = 1,
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, staleGenerationCommand.StatusCode);
+            using var staleGenerationBody = JsonDocument.Parse(
+                await staleGenerationCommand.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("player-session-mismatch", staleGenerationBody.RootElement.GetProperty("error").GetString());
+            using var firstCommand = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                new
+                {
+                    sessionId = playerSessionId,
+                    coalitionId = blueCoalitionId,
+                    predictionId = "pred-observe-1",
+                    kind = "observe",
+                    generation = playerSessionGeneration,
+                },
+                testTimeout.Token);
+            firstCommand.EnsureSuccessStatusCode();
+            using var firstCommandBody = JsonDocument.Parse(await firstCommand.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.True(firstCommandBody.RootElement.GetProperty("accepted").GetBoolean());
+            Assert.Equal(1, firstCommandBody.RootElement.GetProperty("order").GetInt32());
+            using var secondCommand = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                new
+                {
+                    sessionId = playerSessionId,
+                    coalitionId = blueCoalitionId,
+                    predictionId = "pred-transfer-1",
+                    kind = "transfer-control",
+                    generation = playerSessionGeneration,
+                },
+                testTimeout.Token);
+            secondCommand.EnsureSuccessStatusCode();
+            using var secondCommandBody = JsonDocument.Parse(
+                await secondCommand.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(2, secondCommandBody.RootElement.GetProperty("order").GetInt32());
+            using var duplicateCommand = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                new
+                {
+                    sessionId = playerSessionId,
+                    coalitionId = blueCoalitionId,
+                    predictionId = "pred-observe-1",
+                    kind = "observe",
+                    generation = playerSessionGeneration,
+                },
+                testTimeout.Token);
+            duplicateCommand.EnsureSuccessStatusCode();
+            using var duplicateBody = JsonDocument.Parse(
+                await duplicateCommand.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(1, duplicateBody.RootElement.GetProperty("order").GetInt32());
+            using var rejectedCommand = await campaignClient.PostAsJsonAsync(
+                $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                new
+                {
+                    sessionId = playerSessionId,
+                    coalitionId = blueCoalitionId,
+                    predictionId = "pred-fire-1",
+                    kind = "fire-weapon",
+                    generation = playerSessionGeneration,
+                },
+                testTimeout.Token);
+            rejectedCommand.EnsureSuccessStatusCode();
+            using var rejectedBody = JsonDocument.Parse(
+                await rejectedCommand.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.False(rejectedBody.RootElement.GetProperty("accepted").GetBoolean());
+            Assert.Equal("unsupported-player-command", rejectedBody.RootElement.GetProperty("status").GetString());
+            using var invalidCoalitionSession = await campaignClient.PostAsJsonAsync(
+                "/control/player-sessions",
+                new
+                {
+                    campaignId = fuldaCampaignId,
+                    playerId = "player-invalid-coalition",
+                    coalitionId = Guid.NewGuid().ToString("N"),
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, invalidCoalitionSession.StatusCode);
+            using var invalidCoalitionBody = JsonDocument.Parse(
+                await invalidCoalitionSession.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("coalition-missing", invalidCoalitionBody.RootElement.GetProperty("error").GetString());
+
+            var raceIssueTasks = Enumerable.Range(0, 2).Select(_ => campaignClient.PostAsJsonAsync(
+                "/control/player-sessions",
+                new { campaignId = fuldaCampaignId, playerId = "player-race", coalitionId = blueCoalitionId },
+                testTimeout.Token)).ToArray();
+            var raceIssues = await Task.WhenAll(raceIssueTasks);
+            using var raceIssueFirst = raceIssues[0];
+            using var raceIssueSecond = raceIssues[1];
+            raceIssueFirst.EnsureSuccessStatusCode();
+            raceIssueSecond.EnsureSuccessStatusCode();
+            using var raceSessionFirst = JsonDocument.Parse(
+                await raceIssueFirst.Content.ReadAsStringAsync(testTimeout.Token));
+            using var raceSessionSecond = JsonDocument.Parse(
+                await raceIssueSecond.Content.ReadAsStringAsync(testTimeout.Token));
+            var raceCommands = new[] { raceSessionFirst, raceSessionSecond }
+                .Select((session, index) => campaignClient.PostAsJsonAsync(
+                    $"/control/campaigns/{fuldaCampaignId}/player-commands",
+                    new
+                    {
+                        sessionId = session.RootElement.GetProperty("sessionId").GetString(),
+                        coalitionId = blueCoalitionId,
+                        predictionId = $"pred-race-{index}",
+                        kind = "observe",
+                        generation = 1,
+                    },
+                    testTimeout.Token))
+                .ToArray();
+            var raceCommandResponses = await Task.WhenAll(raceCommands);
+            using var raceCommandFirst = raceCommandResponses[0];
+            using var raceCommandSecond = raceCommandResponses[1];
+            Assert.Equal(
+                new[] { HttpStatusCode.OK, HttpStatusCode.Conflict },
+                new[] { raceCommandFirst.StatusCode, raceCommandSecond.StatusCode }.Order().ToArray());
             var landEntityId = Assert.Single(
                 advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray(),
                 item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"
