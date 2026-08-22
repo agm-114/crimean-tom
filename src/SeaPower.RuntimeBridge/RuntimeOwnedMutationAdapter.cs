@@ -1863,6 +1863,7 @@ internal static class RuntimeOwnedMutationAdapter
     private static string[] UnsupportedFields() =>
     [
         "damage-state-application",
+        "fuel-state-application",
         "magazine-state-application",
         "sensor-state-application",
         "formation-state-application",
