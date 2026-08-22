@@ -40,3 +40,17 @@ diagnosis beyond the standard loop.
 
 Read [references/ui-testing.md](references/ui-testing.md) only when the task
 requires player-visible menu, mission, campaign, or editor verification.
+
+## Assembly research timeouts
+
+`ilspycmd --list` against `Seapower-Scripts.dll` can appear hung while it dumps
+every type. Always wrap it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/invoke-with-timeout.ps1 `
+  -TimeoutSeconds 60 `
+  -Command 'ilspycmd "C:\Program Files (x86)\Steam\steamapps\common\Sea Power\Sea Power_Data\Managed\Seapower-Scripts.dll" --list c --disable-updatecheck | Select-String -Pattern CameraManager'
+```
+
+Treat exit code `124` / `COMMAND_TIMEOUT` as failure. Full decompile already uses
+the same wrapper with a 600s bound per assembly.
