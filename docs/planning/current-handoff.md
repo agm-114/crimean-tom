@@ -358,10 +358,13 @@ path now has live cold-restart evidence in campaign
 owned records and reconstructed epoch-2 Pharris as game object 126 from durable
 checkpoint `df7f9f6a...3983f4a7`, reaching commit 242 with no recovery debt.
 Canonical damage 146,715 survived the lifecycle after a live-found baseline
-overwrite defect was fixed. This is not simultaneous two-container migration:
-fuel, stores, damage, sensors, formations, and hosted aircraft are still
-reported as unsupported and must continue to fence automatic movement. The
-Unity hull is pristine even while external canonical damage remains 146,715.
+overwrite defect was fixed. This is not simultaneous two-container migration.
+Restore has a guarded write/readback path for a non-null fuel fraction, but the
+live catalog-correct `Variant43` Knox exposes no positive native fuel capacity
+and captures `null`; fuel, stores, damage, sensors, formations, and hosted
+aircraft therefore remain unsupported and must continue to fence automatic
+movement where those fields matter. The Unity hull is still pristine for damage
+even while external canonical damage remains 146,715.
 
 Tactical fidelity is now an achieved worker state rather than a scheduler label.
 The scheduler may project Tactical as desired, but leaves canonical fidelity at

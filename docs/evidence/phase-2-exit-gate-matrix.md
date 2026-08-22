@@ -3,7 +3,7 @@
 Pinned game build: `0.8.2-23444+s358`.
 
 This matrix closes Phase 2 for the first and only supported entity family,
-`usn_ff_knox_84` / `Variant13` / `Default`. It does not promote formation,
+`usn_ff_knox_84` / `Variant43` / `Default`. It does not promote formation,
 aircraft, submarine, land, active-weapon, or currently unsupported surface
 state families.
 
@@ -14,7 +14,7 @@ state families.
 | Stale revision/epoch and unsupported catalog fail closed | HTTP 422 `stale-revision`, HTTP 422 `stale-authority-epoch`, companion rejection of a Ticonderoga tuple, and plugin rejection of an unowned scoped ID | pass |
 | Injected failure leaves source state or one recoverable owned Unity object | Eleven live injection boundaries: materialize 3, update 3, suspension 2, restore 3. Update/suspension/restore retained their source revision and exact canonical hash; materialize failures produced one tagged suspended recovery object each | pass |
 | Cleanup cannot affect scenario/user objects | Failed construction left all 18 scenario units active and zero fault objects in the world reader. Registry release required the exact owned record, assignment, epoch, revision, detached Unity state, recovery flag, and absence of a checkpoint; a foreign release failed | pass |
-| Unsupported loss is explicit and blocks unsafe promotion | Every checkpoint/materialization reports damage, fuel, magazine, sensor, formation, and hosted-aircraft application as unsupported; runtime authority remains false | pass for the narrow family; expansion remains separately gated |
+| Unsupported loss is explicit and blocks unsafe promotion | Every checkpoint/materialization reports damage, fuel, magazine, sensor, formation, and hosted-aircraft application as unsupported. The current `Variant43` Knox exposes no positive native fuel capacity, so its captured fraction is null and the guarded write is not promoted. Runtime authority remains false. | pass for the narrow family; expansion remains separately gated |
 | Suspension and deeper removal meet separate safety/resource claims | Native suspension removes active registrations and ECS updates while the resource snapshot continues counting retained objects. Native destruction/pooling inspection rejected deeper quiet removal, and the architecture makes no memory-reclamation claim | pass under the documented narrowed lifecycle |
 | Synchronous cost and tolerances are published for scheduling | Observed fresh constructors/rematerializers took 102,216–159,178 µs in the live fixtures; update and retained lifecycle operations were sub-millisecond to low-millisecond. The resource endpoint reports active, retained-suspended, detached, recovery-required, and retained-constructed counts with `memoryReclamationSupported=false` | pass |
 
