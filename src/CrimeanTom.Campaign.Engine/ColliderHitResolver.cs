@@ -55,9 +55,14 @@ public static class ColliderHitResolver
         }
 
         var lengthSquared = direction.LengthSquared();
-        if (lengthSquared < 1e-8f || maximumT <= 0)
+        if (!IsFinite(origin)
+            || !IsFinite(direction)
+            || !float.IsFinite(maximumT)
+            || !float.IsFinite(lengthSquared)
+            || lengthSquared < 1e-8f
+            || maximumT <= 0)
         {
-            return new ColliderRayHit(false, 0, string.Empty);
+            return new ColliderRayHit(false, 0, string.Empty, Performed: false);
         }
 
         var pool = new BufferPool();
@@ -99,18 +104,22 @@ public static class ColliderHitResolver
 
     private static bool TryAdd(Simulation simulation, ColliderPrimitivePayload primitive)
     {
-        if (!primitive.Enabled || primitive.IsTrigger)
+        if (primitive is null || !primitive.Enabled || primitive.IsTrigger)
         {
             return false;
         }
 
         var center = Vec3(primitive.Center);
         var rotation = Quat(primitive.Rotation);
+        if (!IsFinite(center) || !IsFinite(rotation))
+        {
+            return false;
+        }
         var kind = primitive.Kind ?? string.Empty;
         TypedIndex shape;
         if (kind.Equals("sphere", StringComparison.OrdinalIgnoreCase))
         {
-            if (primitive.Radius <= 0)
+            if (!float.IsFinite(primitive.Radius) || primitive.Radius <= 0)
             {
                 return false;
             }
@@ -119,7 +128,11 @@ public static class ColliderHitResolver
         }
         else if (kind.Equals("capsule", StringComparison.OrdinalIgnoreCase))
         {
-            if (primitive.Radius <= 0 || primitive.Height <= 0)
+            if (!float.IsFinite(primitive.Radius)
+                || !float.IsFinite(primitive.Height)
+                || primitive.Radius <= 0
+                || primitive.Height <= 0
+                || primitive.Direction is < 0 or > 2)
             {
                 return false;
             }
@@ -134,7 +147,7 @@ public static class ColliderHitResolver
             || kind.Equals("bounds", StringComparison.OrdinalIgnoreCase))
         {
             var size = Vec3(primitive.Size);
-            if (size.X <= 0 || size.Y <= 0 || size.Z <= 0)
+            if (!IsFinite(size) || size.X <= 0 || size.Y <= 0 || size.Z <= 0)
             {
                 return false;
             }
@@ -174,12 +187,30 @@ public static class ColliderHitResolver
             : Quaternion.Normalize(quaternion);
     }
 
+    private static bool IsFinite(Vector3 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+
+    private static bool IsFinite(Quaternion value) =>
+        float.IsFinite(value.X)
+        && float.IsFinite(value.Y)
+        && float.IsFinite(value.Z)
+        && float.IsFinite(value.W);
+
     private static double EastMeters(GeoCoordinate origin, GeoCoordinate destination)
     {
         var meanLatitude = (origin.LatitudeMicrodegrees + destination.LatitudeMicrodegrees) / 2d / 1_000_000d
             * (Math.PI / 180d);
-        var deltaLon = (destination.LongitudeMicrodegrees - origin.LongitudeMicrodegrees) / 1_000_000d
-            * (Math.PI / 180d);
+        var deltaLongitudeDegrees =
+            (destination.LongitudeMicrodegrees - origin.LongitudeMicrodegrees) / 1_000_000d;
+        if (deltaLongitudeDegrees > 180d)
+        {
+            deltaLongitudeDegrees -= 360d;
+        }
+        else if (deltaLongitudeDegrees < -180d)
+        {
+            deltaLongitudeDegrees += 360d;
+        }
+        var deltaLon = deltaLongitudeDegrees * (Math.PI / 180d);
         return deltaLon * MeanEarthRadiusMeters * Math.Cos(meanLatitude);
     }
 

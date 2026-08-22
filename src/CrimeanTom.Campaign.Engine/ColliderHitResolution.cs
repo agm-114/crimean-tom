@@ -60,7 +60,6 @@ public static class ColliderHitResolution
         var cache = new ColliderGeometryCache(
             ColliderGeometryCache.CatalogHome(
                 Environment.GetEnvironmentVariable("CRIMEAN_TOM_COLLIDER_CACHE_DIR")));
-        cache.RefreshFromDisk();
         if (cache.MemoryCount == 0)
         {
             return null;

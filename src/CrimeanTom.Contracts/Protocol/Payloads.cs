@@ -1487,7 +1487,7 @@ public sealed class ColliderPrimitivePayload
 
 public sealed class ColliderUnitGeometryPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     public string GameVersion { get; set; } = string.Empty;
 
@@ -1525,7 +1525,7 @@ public sealed class ColliderCatalogEntryPayload
 
 public sealed class CaptureColliderCatalogResultPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     public string CacheDirectory { get; set; } = string.Empty;
 
@@ -1546,7 +1546,7 @@ public sealed class CaptureColliderCatalogResultPayload
 
 public sealed class GetColliderCatalogResultPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     public string CacheDirectory { get; set; } = string.Empty;
 
