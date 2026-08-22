@@ -6,11 +6,16 @@ if ([string]::IsNullOrWhiteSpace($inputJson)) {
 }
 
 $payload = $inputJson | ConvertFrom-Json
-$output = ''
-if ($payload.tool_output) { $output = [string]$payload.tool_output }
-elseif ($payload.output) { $output = [string]$payload.output }
+$chunks = @()
+foreach ($name in @('tool_output', 'output', 'result', 'tool_result')) {
+    $value = $payload.$name
+    if ($value) {
+        $chunks += [string]$value
+    }
+}
+$output = $chunks -join [Environment]::NewLine
 
-if ($output -notmatch 'COMMAND_TIMEOUT') {
+if ($output -notmatch '(?m)^COMMAND_TIMEOUT after \d+s') {
     exit 0
 }
 
