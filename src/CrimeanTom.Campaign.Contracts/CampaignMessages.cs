@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 8;
-    public const int AlgorithmVersion = 9;
+    public const int Version = 9;
+    public const int AlgorithmVersion = 10;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -56,6 +56,9 @@ public enum OrderKind
     Refit,
     Reinforce,
     Withdraw,
+    Intercept,
+    Cap,
+    Asw,
 }
 
 public enum AssignmentRole
@@ -109,6 +112,8 @@ public enum OperationalOutcomeKind
     Launch,
     PointDefense,
     SeekerLost,
+    Countermeasure,
+    SecondaryExplosion,
 }
 
 public enum SensorChannel
@@ -117,6 +122,37 @@ public enum SensorChannel
     Radar,
     Sonar,
     Esm,
+    Mad,
+    Laser,
+    Ecm,
+}
+
+public enum TrackQuality
+{
+    Detected,
+    Classified,
+    Identified,
+}
+
+public enum EmconState
+{
+    Radiate,
+    Passive,
+    Silent,
+}
+
+public enum RulesOfEngagement
+{
+    WeaponsHold,
+    WeaponsTight,
+    WeaponsFree,
+}
+
+public enum AlertState
+{
+    Routine,
+    Warning,
+    General,
 }
 
 public enum OrdnanceFlightStage
@@ -131,6 +167,15 @@ public enum OrdnanceGuidance
     Inertial,
     Active,
     SemiActive,
+    Command,
+}
+
+public enum OrdnanceKind
+{
+    Missile,
+    Torpedo,
+    Bomb,
+    Decoy,
 }
 
 public sealed record AnalogueTacticalCondition(
@@ -139,7 +184,20 @@ public sealed record AnalogueTacticalCondition(
     int FloodMilliUnits = 0,
     int PropulsionIntegrityMilliUnits = 1_000,
     int SensorIntegrityMilliUnits = 1_000,
-    int WeaponIntegrityMilliUnits = 1_000)
+    int WeaponIntegrityMilliUnits = 1_000,
+    EmconState Emcon = EmconState.Radiate,
+    RulesOfEngagement Roe = RulesOfEngagement.WeaponsTight,
+    AlertState Alert = AlertState.Routine,
+    int MagazineIntegrityMilliUnits = 1_000,
+    int FlightDeckIntegrityMilliUnits = 1_000,
+    int CrewMilliUnits = 1_000,
+    int PortIntegrityMilliUnits = 1_000,
+    int StarboardIntegrityMilliUnits = 1_000,
+    int EcmMilliUnits = 0,
+    int CountermeasureMilliUnits = 0,
+    int WeaponReadyMilliUnits = 1_000,
+    int HostedAircraft = 0,
+    int SnorkelCycle = 0)
 {
     public static AnalogueTacticalCondition Healthy { get; } = new();
 }
@@ -158,7 +216,10 @@ public sealed record InFlightOrdnance(
     long RemainingMeters,
     long SpeedMetersPerTick,
     int InsDriftMilliUnits,
-    CampaignTime LaunchedAt);
+    CampaignTime LaunchedAt,
+    OrdnanceKind Kind = OrdnanceKind.Missile,
+    int SeekerDelayTicks = 0,
+    int LostGuidanceTicks = 0);
 
 public enum CampaignActivityKind
 {
@@ -471,7 +532,10 @@ public sealed record SimulatedIntelligenceUpdate(
     int UncertaintyRadiusMeters,
     ContactClassification Classification,
     EntityRevision Revision,
-    SensorChannel Channel = SensorChannel.Visual);
+    SensorChannel Channel = SensorChannel.Visual,
+    TrackQuality Quality = TrackQuality.Detected,
+    int ObservedHeadingMilliDegrees = 0,
+    int ObservedSpeedMetersPerTick = 0);
 
 public sealed record OperationalOutcome(
     string OutcomeId,

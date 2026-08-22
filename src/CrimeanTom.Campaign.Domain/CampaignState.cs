@@ -94,7 +94,10 @@ public sealed record IntelligenceEstimate(
     int UncertaintyRadiusMeters,
     ContactClassification Classification,
     EntityRevision Revision,
-    SensorChannel Channel = SensorChannel.Visual);
+    SensorChannel Channel = SensorChannel.Visual,
+    TrackQuality Quality = TrackQuality.Detected,
+    int ObservedHeadingMilliDegrees = 0,
+    int ObservedSpeedMetersPerTick = 0);
 
 public sealed record WeatherState(
     RegionId RegionId,
