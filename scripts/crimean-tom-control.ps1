@@ -174,7 +174,7 @@ function Stop-Companion {
     }
 }
 
-function Invoke-ControlRequest([string]$Path, [string]$Method = 'Get', $Body = $null) {
+function Invoke-ControlRequest([string]$Path, [string]$Method = 'Get', $Body = $null, [int]$TimeoutSec = 8) {
     if (-not (Test-Path -LiteralPath $tokenFile)) {
         throw "Companion control token not found at $tokenFile."
     }
@@ -182,7 +182,7 @@ function Invoke-ControlRequest([string]$Path, [string]$Method = 'Get', $Body = $
     $token = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
     $headers = @{ 'X-Crimean-Tom-Token' = $token }
     if ($null -eq $Body) {
-        Invoke-RestMethod -Method $Method -Uri "$ControlUrl$Path" -Headers $headers -TimeoutSec 8
+        Invoke-RestMethod -Method $Method -Uri "$ControlUrl$Path" -Headers $headers -TimeoutSec $TimeoutSec
     }
     else {
         Invoke-RestMethod `
@@ -191,7 +191,7 @@ function Invoke-ControlRequest([string]$Path, [string]$Method = 'Get', $Body = $
             -Headers $headers `
             -ContentType 'application/json' `
             -Body ($Body | ConvertTo-Json -Compress -Depth 12) `
-            -TimeoutSec 8
+            -TimeoutSec $TimeoutSec
     }
 }
 
@@ -595,7 +595,7 @@ switch ($Action) {
     'catalog-files' { Show-Json (Invoke-ControlRequest '/game/catalog/references?kind=files&offset=0&limit=25') }
     'campaign' { Show-Json (Invoke-ControlRequest '/game/campaign') }
     'ui' { Show-Json (Invoke-ControlRequest '/game/ui') }
-    'screenshot' { Show-Json (Invoke-ControlRequest '/game/screenshot' 'Post') }
+    'screenshot' { Show-Json (Invoke-ControlRequest '/game/screenshot' 'Post' -TimeoutSec 20) }
     'focus-camera' {
         Show-Json (Invoke-ControlRequest `
             '/game/automation/camera/focus' `

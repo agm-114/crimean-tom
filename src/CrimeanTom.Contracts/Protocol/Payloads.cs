@@ -1401,6 +1401,8 @@ public sealed class FocusCameraOnUnitRequestPayload
 public sealed class SetTacticalHudPanelRequestPayload
 {
     public string Panel { get; set; } = string.Empty;
+
+    public bool? Visible { get; set; }
 }
 
 public sealed class ExperimentalPauseRequestPayload
