@@ -734,7 +734,8 @@ public static class CampaignKernel
                 .OrderBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
                 .ThenBy(weapon => weapon.TargetClassification)
                 .ToImmutableArray(),
-            item.NewSubjectRevision);
+            item.NewSubjectRevision,
+            AnalogueTacticalCondition.Healthy);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
 
@@ -1005,6 +1006,7 @@ public static class CampaignKernel
                 DamageMilliUnits = update.DamageMilliUnits,
                 Heading = HeadingMilliDegrees.FromMilliDegrees(update.HeadingMilliDegrees),
                 Telegraph = update.Telegraph,
+                Analogue = update.Analogue ?? current.Analogue,
                 Revision = update.Revision,
             });
         }
@@ -1055,7 +1057,8 @@ public static class CampaignKernel
                 update.ObservedAt,
                 update.UncertaintyRadiusMeters,
                 update.Classification,
-                update.Revision));
+                update.Revision,
+                update.Channel));
         }
 
         var scheduled = value.PendingActivities.Select(item => new ScheduledActivityState(
@@ -1075,6 +1078,7 @@ public static class CampaignKernel
             Intelligence = intelligence,
             ScheduledActivities = scheduled,
             RecentOperationalOutcomes = [.. value.Outcomes],
+            InFlight = [.. (value.InFlight ?? []).OrderBy(item => item.OrdnanceId, StringComparer.Ordinal)],
         };
         CampaignStateValidator.Validate(updated);
         return updated;

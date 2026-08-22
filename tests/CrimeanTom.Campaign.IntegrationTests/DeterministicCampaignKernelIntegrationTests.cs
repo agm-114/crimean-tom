@@ -104,11 +104,17 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
         Assert.True(simulated.Intelligence.Count >= 2);
+        Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Channel));
+        Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.WeaponIntegrityMilliUnits <= 1_000);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
         Assert.Equal(900_000, simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Launch);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item =>
+            item.Kind is OperationalOutcomeKind.Damage
+                or OperationalOutcomeKind.PointDefense
+                or OperationalOutcomeKind.SeekerLost);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
         Assert.Contains(simulated.RecentOperationalOutcomes, item =>
             item.Kind == OperationalOutcomeKind.WeaponExpenditure
@@ -154,9 +160,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("a01da1fda488c356ca0fb7528c5637a8393142ad2f93effc692d4c2c7d382635", longHorizon.Hash);
+        Assert.Equal("6399119d32116608ad4b7093e7c6a698b2f41fb3c0f3253d89d25e097576aed6", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("3e6ac1067a6535d45e8bd8047eb16c0e7d737252bd4922f7e077a4502c468803", migrated.Hash);
+        Assert.Equal("e6cefa4933feff5cc308c7b6dd1ba2733d30d9cf8b55529a6ea4c75634836a5e", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -486,6 +492,45 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var polarCoordinate = polarMoved.Entities[Ids.BlueOiler].Coordinate;
         Assert.InRange(polarCoordinate.LatitudeMicrodegrees, -90_000_000, 90_000_000);
         Assert.InRange(polarCoordinate.LongitudeMicrodegrees, -180_000_000, 179_999_999);
+
+        var tacticalRound = new InFlightOrdnance(
+            "tactical-fence-round",
+            Ids.RedKrivak,
+            Ids.BlueKnox,
+            Ids.RedCoalition,
+            "synthetic-catalog-anti-surface-missile",
+            ContactClassification.Surface,
+            state.Entities[Ids.RedKrivak].Coordinate,
+            0,
+            OrdnanceFlightStage.Cruise,
+            OrdnanceGuidance.Active,
+            50_000,
+            100_000,
+            0,
+            state.Time);
+        var tacticallyOwned = state with
+        {
+            Assignments = state.Assignments.SetItem(Ids.Assignment,
+                state.Assignments[Ids.Assignment] with { Lifecycle = AssignmentLifecycle.Active }),
+            InFlight = [tacticalRound],
+        };
+        CampaignStateValidator.Validate(tacticallyOwned);
+        var roundTrip = CampaignCanonicalSerializer.Deserialize(
+            CampaignCanonicalSerializer.Serialize(tacticallyOwned));
+        Assert.Equal(tacticalRound, Assert.Single(roundTrip.InFlight));
+        var tacticalDamage = tacticallyOwned.Entities[Ids.BlueKnox].DamageMilliUnits;
+        var fencedRound = SimulateForTest(tacticallyOwned, 102, new CampaignTime(20));
+        Assert.Empty(fencedRound.InFlight);
+        Assert.Equal(tacticalDamage, fencedRound.Entities[Ids.BlueKnox].DamageMilliUnits);
+        Assert.Contains(fencedRound.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.SeekerLost
+            && item.TargetEntityId == Ids.BlueKnox);
+
+        var spoofedRound = tacticallyOwned with
+        {
+            InFlight = [tacticalRound with { ShooterCoalitionId = Ids.BlueCoalition }],
+        };
+        Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(spoofedRound));
     }
 
     private static CampaignState SimulateForTest(CampaignState state, int sequence, CampaignTime target)
@@ -503,8 +548,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(7, CampaignSchema.Version);
-        Assert.Equal(8, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(8, CampaignSchema.Version);
+        Assert.Equal(9, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

@@ -66,7 +66,8 @@ public static class CampaignCanonicalSerializer
                     weapon.AmmunitionId,
                     ParseEnum<ContactClassification>(weapon.TargetClassification),
                     DistanceMeters.FromMeters(weapon.MaximumRangeMeters))).ToImmutableArray(),
-                new EntityRevision(item.Revision)))
+                new EntityRevision(item.Revision),
+                ReadAnalogue(item)))
                 .ToImmutableSortedDictionary(item => item.EntityId, item => item),
             Groups = document.Groups.Select(item => new GroupState(
                 ParseId(item.Id, value => new GroupId(value)), item.Name,
@@ -91,7 +92,8 @@ public static class CampaignCanonicalSerializer
                     new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
                     ParseEnum<IntelligenceConfidence>(item.Confidence), new CampaignTime(item.ObservedAt),
                     item.UncertaintyRadiusMeters, ParseEnum<ContactClassification>(item.Classification),
-                    new EntityRevision(item.Revision));
+                    new EntityRevision(item.Revision),
+                    ParseEnum<SensorChannel>(item.Channel));
             }).ToImmutableSortedDictionary(item => item.Key, item => item),
             Weather = document.Weather.Select(item => new WeatherState(
                 ParseId(item.RegionId, value => new RegionId(value)), new HeadingMilliDegrees(item.WindDirectionMilliDegrees),
@@ -135,6 +137,21 @@ public static class CampaignCanonicalSerializer
                 item.MunitionsExpendedMilliUnits,
                 item.DamageInflictedMilliUnits,
                 item.Detail)).ToImmutableArray(),
+            InFlight = (document.InFlight ?? []).Select(item => new InFlightOrdnance(
+                item.OrdnanceId,
+                ParseId(item.ShooterEntityId, value => new EntityId(value)),
+                ParseId(item.TargetEntityId, value => new EntityId(value)),
+                ParseId(item.ShooterCoalitionId, value => new CoalitionId(value)),
+                item.AmmunitionId,
+                ParseEnum<ContactClassification>(item.TargetClassification),
+                new GeoCoordinate(item.LatitudeMicrodegrees, item.LongitudeMicrodegrees),
+                item.HeadingMilliDegrees,
+                ParseEnum<OrdnanceFlightStage>(item.Stage),
+                ParseEnum<OrdnanceGuidance>(item.Guidance),
+                item.RemainingMeters,
+                item.SpeedMetersPerTick,
+                item.InsDriftMilliUnits,
+                new CampaignTime(item.LaunchedAt))).ToImmutableArray(),
         };
         CampaignStateValidator.Validate(state);
         return state;
@@ -163,6 +180,7 @@ public static class CampaignCanonicalSerializer
         WriteSchedulerPolicy(writer, state);
         WriteScheduledActivities(writer, state);
         WriteOperationalOutcomes(writer, state);
+        WriteInFlight(writer, state);
         writer.WriteEndObject();
     }
 
@@ -245,6 +263,12 @@ public static class CampaignCanonicalSerializer
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
+            writer.WriteNumber("altitudeOrDepthMeters", item.Analogue.AltitudeOrDepthMeters);
+            writer.WriteNumber("fireMilliUnits", item.Analogue.FireMilliUnits);
+            writer.WriteNumber("floodMilliUnits", item.Analogue.FloodMilliUnits);
+            writer.WriteNumber("propulsionIntegrityMilliUnits", item.Analogue.PropulsionIntegrityMilliUnits);
+            writer.WriteNumber("sensorIntegrityMilliUnits", item.Analogue.SensorIntegrityMilliUnits);
+            writer.WriteNumber("weaponIntegrityMilliUnits", item.Analogue.WeaponIntegrityMilliUnits);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -327,6 +351,7 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("observedAt", item.ObservedAt.Quanta);
             writer.WriteNumber("uncertaintyRadiusMeters", item.UncertaintyRadiusMeters);
             writer.WriteNumber("classification", (int)item.Classification);
+            writer.WriteNumber("channel", (int)item.Channel);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -355,6 +380,31 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("munitionsExpendedMilliUnits", item.MunitionsExpendedMilliUnits);
             writer.WriteNumber("damageInflictedMilliUnits", item.DamageInflictedMilliUnits);
             writer.WriteString("detail", item.Detail);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteInFlight(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("inFlight");
+        foreach (var item in state.InFlight.OrderBy(entry => entry.OrdnanceId, StringComparer.Ordinal))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("ordnanceId", item.OrdnanceId);
+            writer.WriteString("shooterEntityId", item.ShooterEntityId.ToString());
+            writer.WriteString("targetEntityId", item.TargetEntityId.ToString());
+            writer.WriteString("shooterCoalitionId", item.ShooterCoalitionId.ToString());
+            writer.WriteString("ammunitionId", item.AmmunitionId);
+            writer.WriteNumber("targetClassification", (int)item.TargetClassification);
+            WriteCoordinate(writer, item.Coordinate);
+            writer.WriteNumber("headingMilliDegrees", item.HeadingMilliDegrees);
+            writer.WriteNumber("stage", (int)item.Stage);
+            writer.WriteNumber("guidance", (int)item.Guidance);
+            writer.WriteNumber("remainingMeters", item.RemainingMeters);
+            writer.WriteNumber("speedMetersPerTick", item.SpeedMetersPerTick);
+            writer.WriteNumber("insDriftMilliUnits", item.InsDriftMilliUnits);
+            writer.WriteNumber("launchedAt", item.LaunchedAt.Quanta);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -536,6 +586,7 @@ public static class CampaignCanonicalSerializer
         public SchedulerPolicyDocument? SchedulerPolicy { get; init; }
         public required ScheduledActivityDocument[] ScheduledActivities { get; init; }
         public required OperationalOutcomeDocument[] RecentOperationalOutcomes { get; init; }
+        public InFlightDocument[] InFlight { get; init; } = [];
     }
 
     private sealed class RegionDocument
@@ -580,6 +631,12 @@ public static class CampaignCanonicalSerializer
         public required int DamageMilliUnits { get; init; }
         public required string ClassifiedTruthTag { get; init; }
         public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
+        public int AltitudeOrDepthMeters { get; init; }
+        public int FireMilliUnits { get; init; }
+        public int FloodMilliUnits { get; init; }
+        public int PropulsionIntegrityMilliUnits { get; init; } = 1_000;
+        public int SensorIntegrityMilliUnits { get; init; } = 1_000;
+        public int WeaponIntegrityMilliUnits { get; init; } = 1_000;
         public required long Revision { get; init; }
     }
 
@@ -623,6 +680,7 @@ public static class CampaignCanonicalSerializer
         public required long ObservedAt { get; init; }
         public required int UncertaintyRadiusMeters { get; init; }
         public required int Classification { get; init; }
+        public int Channel { get; init; }
         public required long Revision { get; init; }
     }
 
@@ -693,4 +751,31 @@ public static class CampaignCanonicalSerializer
         public required int DamageInflictedMilliUnits { get; init; }
         public required string Detail { get; init; }
     }
+
+    private sealed class InFlightDocument
+    {
+        public required string OrdnanceId { get; init; }
+        public required string ShooterEntityId { get; init; }
+        public required string TargetEntityId { get; init; }
+        public required string ShooterCoalitionId { get; init; }
+        public required string AmmunitionId { get; init; }
+        public required int TargetClassification { get; init; }
+        public required int LatitudeMicrodegrees { get; init; }
+        public required int LongitudeMicrodegrees { get; init; }
+        public required int HeadingMilliDegrees { get; init; }
+        public required int Stage { get; init; }
+        public required int Guidance { get; init; }
+        public required long RemainingMeters { get; init; }
+        public required long SpeedMetersPerTick { get; init; }
+        public required int InsDriftMilliUnits { get; init; }
+        public required long LaunchedAt { get; init; }
+    }
+
+    private static AnalogueTacticalCondition ReadAnalogue(EntityDocument item) => new(
+        item.AltitudeOrDepthMeters,
+        item.FireMilliUnits,
+        item.FloodMilliUnits,
+        item.PropulsionIntegrityMilliUnits,
+        item.SensorIntegrityMilliUnits,
+        item.WeaponIntegrityMilliUnits);
 }

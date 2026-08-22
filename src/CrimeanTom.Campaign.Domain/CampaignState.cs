@@ -47,7 +47,8 @@ public sealed record EntityState(
     int DamageMilliUnits,
     string ClassifiedTruthTag,
     ImmutableArray<OperationalWeaponCapability> OperationalWeapons,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    AnalogueTacticalCondition Analogue);
 
 public sealed record GroupState(
     GroupId GroupId,
@@ -92,7 +93,8 @@ public sealed record IntelligenceEstimate(
     CampaignTime ObservedAt,
     int UncertaintyRadiusMeters,
     ContactClassification Classification,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    SensorChannel Channel = SensorChannel.Visual);
 
 public sealed record WeatherState(
     RegionId RegionId,
@@ -144,6 +146,7 @@ public sealed record CampaignState
     public SchedulerPolicyState? SchedulerPolicy { get; init; }
     public ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> ScheduledActivities { get; init; } = ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState>.Empty;
     public ImmutableArray<OperationalOutcome> RecentOperationalOutcomes { get; init; } = [];
+    public ImmutableArray<InFlightOrdnance> InFlight { get; init; } = [];
 
     public static CampaignState Create(CampaignMetadata metadata)
     {
