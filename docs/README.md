@@ -86,6 +86,9 @@ The folders separate evidence from design commitments:
 26. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
     records the in-progress WAL journal, writer-epoch, transactional append,
     idempotency, and durable replay slice.
+27. [Live two-container migrate driver](evidence/phase-5-live-migrate-driver-2026-08-22.md)
+    records the operator path that pins source preparation across named workers.
+    It does not claim a successful live migrate.
 
 ## Evidence labels
 
