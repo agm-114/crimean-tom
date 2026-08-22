@@ -98,10 +98,17 @@ service reads each unit's selected Sea Power loadout, magazines and hardpoints,
 resolves date-based 1989 ammunition, and snapshots each weapon's native target
 class and launch, projectile, or endurance range into canonical campaign state.
 Operational combat can select only a compatible snapshotted weapon whose range
-contains the rounded great-circle separation. Missing or unrecognized catalog
-data fails closed. The only authored exception is the explicitly labelled
-`abstract-corps-fires` envelope for campaign-only land formations, which cannot
-be represented by Sea Power at Tactical fidelity.
+contains the rounded great-circle separation. Fire is not limited to the same
+region: any in-range hostile is eligible, but the kernel holds fire without a
+visual or classified intelligence solution (Possible contacts require a damaged
+or unready shooter; Unknown contacts are never used to select weapons). Hit
+chance, expenditure, and damage scale with range and
+ammunition class; units steer toward orders, face contacts, evade when hit, and
+withdraw on bingo, winchester, or heavy damage. This is a deterministic
+Operational analogue, not Sea Power physics, sensors, or projectiles. Missing or
+unrecognized catalog data fails closed. The only authored exception is the
+explicitly labelled `abstract-corps-fires` envelope for campaign-only land
+formations, which cannot be represented by Sea Power at Tactical fidelity.
 
 The repository also ships **Crimean Tom - Tactical Worker Container**, a
 non-resolving Sea Power mission shell. It has no campaign objectives, victory

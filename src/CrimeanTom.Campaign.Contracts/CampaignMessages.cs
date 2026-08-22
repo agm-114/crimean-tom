@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 6;
-    public const int AlgorithmVersion = 6;
+    public const int Version = 7;
+    public const int AlgorithmVersion = 7;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -387,7 +387,9 @@ public sealed record SimulatedEntityUpdate(
     IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
     int ReadinessMilliUnits,
     int DamageMilliUnits,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    int HeadingMilliDegrees = 0,
+    int Telegraph = 0);
 
 public sealed record SimulatedBaseUpdate(
     BaseId BaseId,
