@@ -178,6 +178,7 @@ public sealed class CampaignCompanionSession
         Hello = hello.Clone();
         SessionId = Guid.NewGuid().ToString("N");
         ConnectedAt = DateTimeOffset.UtcNow;
+        _lastHeartbeatAt = ConnectedAt;
         _gameSessionId = hello.GameSessionId;
         _runtimeFingerprintSha256 = hello.RuntimeFingerprintSha256;
         _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
