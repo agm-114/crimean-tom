@@ -21,13 +21,15 @@ public sealed class ColliderGeometryCache
     private readonly object _sync = new();
     private readonly Dictionary<string, ColliderUnitGeometryPayload> _memory =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _paths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, long> _writeTicks = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _root;
 
     public ColliderGeometryCache(string rootDirectory)
     {
         _root = Path.GetFullPath(rootDirectory);
         Directory.CreateDirectory(_root);
-        LoadFilesIntoMemory();
+        ImportTree();
     }
 
     public string Root => _root;
@@ -43,20 +45,32 @@ public sealed class ColliderGeometryCache
         }
     }
 
-    public static string ResolveRoot(string? configuredDirectory, string? persistentDataPath, string gameVersion)
+    public static string CatalogHome(string? configuredDirectory)
     {
-        var version = SanitizeFileToken(string.IsNullOrWhiteSpace(gameVersion) ? "unknown" : gameVersion);
         if (!string.IsNullOrWhiteSpace(configuredDirectory))
         {
-            return Path.Combine(Path.GetFullPath(configuredDirectory), version);
+            return Path.GetFullPath(configuredDirectory);
         }
 
-        var basePath = string.IsNullOrWhiteSpace(persistentDataPath)
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "CrimeanTom")
-            : persistentDataPath;
-        return Path.Combine(basePath, "CrimeanTom", DirectoryName, version);
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CrimeanTom",
+            DirectoryName);
+    }
+
+    public static string ResolveRoot(string? configuredDirectory, string gameVersion)
+    {
+        var version = SanitizeFileToken(string.IsNullOrWhiteSpace(gameVersion) ? "unknown" : gameVersion);
+        return Path.Combine(CatalogHome(configuredDirectory), version);
+    }
+
+    public int RefreshFromDisk()
+    {
+        lock (_sync)
+        {
+            ImportTree();
+            return _memory.Count;
+        }
     }
 
     public bool TryGet(string unitTypeId, out ColliderUnitGeometryPayload geometry)
@@ -108,6 +122,14 @@ public sealed class ColliderGeometryCache
         lock (_sync)
         {
             _memory[key] = geometry;
+            _paths[key] = path;
+            try
+            {
+                _writeTicks[path] = File.GetLastWriteTimeUtc(path).Ticks;
+            }
+            catch (IOException)
+            {
+            }
         }
 
         return geometry;
@@ -126,15 +148,44 @@ public sealed class ColliderGeometryCache
 
     public string FilePathFor(string unitTypeId) => FilePath(NormalizeKey(unitTypeId));
 
-    private void LoadFilesIntoMemory()
+    private void ImportTree()
     {
+        ImportDirectory(_root);
         if (!Directory.Exists(_root))
         {
             return;
         }
 
-        foreach (var path in Directory.GetFiles(_root, "*.json"))
+        foreach (var directory in Directory.GetDirectories(_root))
         {
+            ImportDirectory(directory);
+        }
+    }
+
+    private void ImportDirectory(string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.GetFiles(directory, "*.json"))
+        {
+            long ticks;
+            try
+            {
+                ticks = File.GetLastWriteTimeUtc(path).Ticks;
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (_writeTicks.TryGetValue(path, out var known) && known == ticks)
+            {
+                continue;
+            }
+
             try
             {
                 var json = File.ReadAllText(path);
@@ -152,10 +203,18 @@ public sealed class ColliderGeometryCache
                     geometry.Sha256 = ComputeSha256(geometry);
                 }
 
-                lock (_sync)
+                if (_memory.ContainsKey(key)
+                    && _paths.TryGetValue(key, out var existingPath)
+                    && _writeTicks.TryGetValue(existingPath, out var existingTicks)
+                    && existingTicks > ticks)
                 {
-                    _memory[key] = geometry;
+                    _writeTicks[path] = ticks;
+                    continue;
                 }
+
+                _memory[key] = geometry;
+                _paths[key] = path;
+                _writeTicks[path] = ticks;
             }
             catch (JsonException)
             {
@@ -174,7 +233,9 @@ public sealed class ColliderGeometryCache
             ColliderCount = geometry.ColliderCount,
             Sha256 = geometry.Sha256,
             InMemory = inMemory,
-            FilePath = FilePath(geometry.UnitTypeId),
+            FilePath = _paths.TryGetValue(geometry.UnitTypeId, out var stored)
+                ? stored
+                : FilePath(geometry.UnitTypeId),
         };
 
     private string FilePath(string key) => Path.Combine(_root, $"{SanitizeFileToken(key)}.json");

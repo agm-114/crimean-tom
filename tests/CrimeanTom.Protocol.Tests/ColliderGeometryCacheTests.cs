@@ -75,10 +75,59 @@ public sealed class ColliderGeometryCacheTests
     }
 
     [Fact]
+    public void RefreshFromDiskPicksUpVersionedFilesWithoutANewProcess()
+    {
+        var home = Path.Combine(
+            Path.GetTempPath(),
+            "crimean-tom-collider-cache",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+        try
+        {
+            var catalog = new ColliderGeometryCache(home);
+            Assert.Equal(0, catalog.MemoryCount);
+
+            var versioned = new ColliderGeometryCache(ColliderGeometryCache.ResolveRoot(home, "0.8.2"));
+            versioned.Upsert(new ColliderUnitGeometryPayload
+            {
+                GameVersion = "0.8.2",
+                UnitTypeId = "usn_ff_knox_84",
+                ClassName = "Knox",
+                Source = "test",
+                Colliders =
+                [
+                    new ColliderPrimitivePayload
+                    {
+                        Kind = "sphere",
+                        Name = "hull",
+                        Enabled = true,
+                        Radius = 12f,
+                    },
+                ],
+            });
+
+            Assert.Equal(1, catalog.RefreshFromDisk());
+            Assert.True(catalog.TryGet("usn_ff_knox_84", out var loaded));
+            Assert.Equal("sphere", loaded.Colliders[0].Kind);
+            Assert.Contains(
+                Path.DirectorySeparatorChar + "0.8.2" + Path.DirectorySeparatorChar,
+                catalog.List()[0].FilePath,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(home))
+            {
+                Directory.Delete(home, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void ResolveRootNestsCacheUnderGameVersion()
     {
         var configured = Path.Combine(Path.GetTempPath(), "crimean-tom-collider-root");
-        var resolved = ColliderGeometryCache.ResolveRoot(configured, persistentDataPath: null, "1.0.9f1");
+        var resolved = ColliderGeometryCache.ResolveRoot(configured, "1.0.9f1");
         Assert.Equal(
             Path.GetFullPath(Path.Combine(configured, "1.0.9f1")),
             resolved);
