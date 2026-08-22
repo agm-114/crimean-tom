@@ -1690,7 +1690,7 @@ public sealed class CampaignCoordinator(
                 worker.ClientInstanceId,
                 destinationClientInstanceId,
                 StringComparison.Ordinal));
-        if (destination is null || CampaignWorkerHealth.MustEvacuate(destination))
+        if (destination is null || !CampaignWorkerHealth.CanReceiveNewAssignments(destination))
         {
             throw new CampaignStoreConflict(
                 "migration-destination-ineligible",

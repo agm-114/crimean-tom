@@ -66,9 +66,10 @@ public sealed class CampaignCompanionClient(
         ulong nextSequence = 1;
         var pending = new ConcurrentDictionary<ulong, string>();
         var capabilities = await ReadCapabilitiesAsync(cancellationToken);
+        var helloResources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
         var helloHealth = CompanionWorkerHealthClassifier.Classify(
             capabilities,
-            new OwnedSurfaceResourceStatePayload(),
+            helloResources,
             options.TacticalEntityCapacity,
             options.TacticalReserveCapacity);
         await call.RequestStream.WriteAsync(new CompanionFrame
