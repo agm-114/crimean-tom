@@ -741,7 +741,7 @@ switch ($Action) {
                 }
                 entityId = $EntityId
                 unitTypeId = 'usn_ff_knox_84'
-                variantId = 'Variant13'
+                variantId = 'Variant43'
                 loadoutId = 'Default'
                 taskforceId = $TaskforceId
                 latitude = $Latitude

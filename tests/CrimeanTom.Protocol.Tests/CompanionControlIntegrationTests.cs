@@ -5262,7 +5262,9 @@ public sealed class CompanionControlIntegrationTests
             ? Directory.EnumerateFiles(spool, "*.*", SearchOption.AllDirectories)
                 .Where(path => Path.GetExtension(path) is ".frame" or ".processed")
                 .OrderBy(path => path, StringComparer.Ordinal)
-                .Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path)))
+                .Select(TryReadInboundFrame)
+                .Where(frame => frame is not null)
+                .Select(frame => frame!)
                 .Where(frame => frame.PayloadCase is
                     CompanionFrame.PayloadOneofCase.AssignmentPrepared
                     or CompanionFrame.PayloadOneofCase.CheckpointPublished
@@ -5270,6 +5272,27 @@ public sealed class CompanionControlIntegrationTests
                     or CompanionFrame.PayloadOneofCase.FinalCheckpointStaged)
                 .ToArray()
             : [];
+    }
+
+    private static CompanionFrame? TryReadInboundFrame(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return CompanionFrame.Parser.ParseFrom(stream);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 
     private static void AssertOwnedMutationRecoveryContracts(

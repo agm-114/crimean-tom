@@ -50,6 +50,7 @@ internal static class RuntimeOwnedMutationAdapter
     private const double PositionToleranceDegrees = 0.000000001d;
     private const double HeadingToleranceDegrees = 0.001d;
     private const double SpeedToleranceKnots = 0.001d;
+    private const long FuelFractionToleranceMilliunits = 2_000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -1443,7 +1444,25 @@ internal static class RuntimeOwnedMutationAdapter
         vessel.setTelegraph(state.Telegraph);
         vessel._velocityInKnots = (float)state.SpeedKnots!.Value;
         vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
+        ApplyFuel(vessel, state.FuelFractionMilliunits);
         Physics.SyncTransforms();
+    }
+
+    private static void ApplyFuel(Vessel vessel, long? fuelFractionMilliunits)
+    {
+        if (fuelFractionMilliunits is not long fuel)
+        {
+            return;
+        }
+
+        var parameters = vessel._obp;
+        if (parameters is null || parameters._maxFuel <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The owned surface vessel has no native fuel capacity to restore.");
+        }
+
+        parameters._currentFuelMass = (float)(fuel / 1_000_000d * parameters._maxFuel);
     }
 
     private static string? ValidateSourceCheckpoint(
@@ -1794,6 +1813,10 @@ internal static class RuntimeOwnedMutationAdapter
             || !Within(realized.HeadingDegrees, expected.HeadingDegrees, HeadingToleranceDegrees)
             || !Within(realized.SpeedKnots, expected.SpeedKnots, SpeedToleranceKnots)
             || realized.Telegraph != expected.Telegraph
+            || !WithinOptionalMilliunits(
+                realized.FuelFractionMilliunits,
+                expected.FuelFractionMilliunits,
+                FuelFractionToleranceMilliunits)
             || realized.IsDestroyed
             || realized.IsDisabled != expectedDisabled)
         {
@@ -1806,6 +1829,17 @@ internal static class RuntimeOwnedMutationAdapter
         actual is double actualValue
         && expected is double expectedValue
         && Math.Abs(actualValue - expectedValue) <= tolerance;
+
+    private static bool WithinOptionalMilliunits(long? actual, long? expected, long tolerance)
+    {
+        if (expected is null)
+        {
+            return true;
+        }
+
+        return actual is long actualValue
+            && Math.Abs(actualValue - expected.Value) <= tolerance;
+    }
 
     private static MaterializeOwnedSurfaceUnitResultPayload Clone(
         MaterializeOwnedSurfaceUnitResultPayload value) =>

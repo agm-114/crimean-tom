@@ -1112,7 +1112,7 @@ These are deliberately uncommitted constants or mechanisms, not missing plan:
 | --- | --- | --- |
 | Campaign time quantum | Sea Power timing instrumentation and engine benchmark | Before P3 clock contract freezes |
 | Checkpoint cadence/size | Extraction cost, drift, bandwidth, recovery objective | Before P4 tactical events |
-| Exact portable damage/store fields | Read/write round trips per platform class | Each P2 type gate |
+| Exact portable damage/store fields | Read/write round trips per platform class. A non-null fuel fraction has a guarded `_currentFuelMass` write/readback path, but the pinned `Variant43` Knox captures null native fuel capacity; fuel, damage, magazines, sensors, formations, and hosted aircraft remain fenced. | Each P2 type gate |
 | Suspension/dematerialization support | Native Disable/Enable, then optional deeper removal, with no loss event, dangling relationship, child loss, save corruption, or unmeasured retained cost | Before P2 lifecycle exit |
 | Active-weapon handoff support | Native mid-flight save/load plus portable extraction/reconstruction experiment | Before P5 island split/migration |
 | Tactical session bubble | Floating-origin relocation and distant-island sensor/physics/terrain benchmark. Native radii (67 km rebase, instantiated-set kinematics, ~500 nmi campaign pull-in) are recorded in [tactical-bubble.md](../research/tactical-bubble.md). `get-world-snapshot` now reports geodetic maxima and objects/weapons whose tiles are not loaded; a qualified combat/terrain radius is still unmeasured. | Before P4 session contract freezes |
