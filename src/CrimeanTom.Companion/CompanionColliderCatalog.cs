@@ -39,9 +39,9 @@ public sealed class CompanionColliderCatalog
             {
                 SchemaVersion = ColliderGeometryCache.SchemaVersion,
                 CacheDirectory = _home,
-                GameVersion = geometry?.GameVersion ?? string.Empty,
+                GameVersion = geometry?.GameVersion ?? _cache.NewestGameVersion,
                 MemoryCount = _cache.MemoryCount,
-                FileCount = entries.Count,
+                FileCount = _cache.FileCount,
                 Entries = entries.ToArray(),
                 Geometry = geometry,
                 Source = "file-cache",
