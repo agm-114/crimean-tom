@@ -90,6 +90,32 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(2, simulated.Intelligence.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        var calibration = CampaignCalibration.Evaluate(
+            simulated.RecentOperationalOutcomes,
+            CampaignCalibration.HealthyTicksPerWallSecond,
+            observedFencedIslandCount: 0,
+            demotedFencedIslandCount: 0);
+        Assert.True(calibration.InEnvelope);
+        Assert.Equal(0, calibration.ObservedRangeViolationCount);
+        Assert.True(calibration.ObservedWeaponExpenditureCount > 0);
+        Assert.True(calibration.MaximumRangeRatioMilliunits <= CampaignCalibration.EnvelopeMaximumRangeRatioMilliunits);
+        var boundaryViolation = CampaignCalibration.Evaluate(
+            [simulated.RecentOperationalOutcomes.First(item =>
+                item.Kind == OperationalOutcomeKind.WeaponExpenditure) with
+            {
+                OutcomeId = "boundary-range-violation",
+                Detail = "test employment at 1000001 m (catalog max 1000000 m)",
+            }],
+            CampaignCalibration.HealthyTicksPerWallSecond
+                * CampaignCalibration.MaximumTacticalCompressionTimes + 1,
+            observedFencedIslandCount: 1,
+            demotedFencedIslandCount: 1);
+        Assert.False(boundaryViolation.InEnvelope);
+        Assert.Equal(1, boundaryViolation.ObservedRangeViolationCount);
+        Assert.Equal(1_001, boundaryViolation.MaximumRangeRatioMilliunits);
+        Assert.Contains(boundaryViolation.Disagreements,
+            item => item.StartsWith("tactical-compression-exceeds-10x:", StringComparison.Ordinal));
+        Assert.Contains("fenced-island-demoted:1", boundaryViolation.Disagreements);
         Assert.True(simulated.Entities[Ids.RedKrivak].Resources[ResourceKind.Munitions].MilliUnits < 700_000);
 
         var simulatedProjection = CampaignProjectionBuilder.ForCoalition(simulated, Ids.BlueCoalition);

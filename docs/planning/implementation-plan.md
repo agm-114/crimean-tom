@@ -687,12 +687,15 @@ single-player prototype.
   organized coalition -> formation -> unit rather than as a flat track list.
   Singleton formations are flattened to avoid redundant hierarchy rows.
 - The unattended resolver now performs deterministic region-level detection,
-  uncertainty degradation, damage, destruction, and whole-task-force
-  withdrawal. Weapon employment is additionally fenced by the actor's exact
-  loadout-derived Sea Power ammunition target class and native range snapshot;
-  missing catalog data fails closed. Coalition projections receive opaque track
-  IDs instead of hostile canonical entity IDs. These mechanics are functional
-  but remain uncalibrated until compared with measured Sea Power batches.
+uncertainty degradation, damage, destruction, and whole-task-force
+withdrawal. Weapon employment is additionally fenced by the actor's exact
+loadout-derived Sea Power ammunition target class and native range snapshot;
+missing catalog data fails closed. Coalition projections receive opaque track
+IDs instead of hostile canonical entity IDs. Campaign diagnostics now score
+those outcomes against a documented calibration envelope: catalog range ratio
+must stay at or below 1.000, tactical compression remains capped at 10x of the
+healthy 30 ticks/wall-second step, and fenced coupling islands cannot be
+demoted. Disagreement is visible on the campaign view rather than hidden.
 - The first non-resolving tactical worker container now loads live with one
   process-local anchor, no hostile force, and no campaign objective or victory
   trigger. Typed bridge automation selects it and reports a paused mission,
@@ -729,8 +732,9 @@ single-player prototype.
   island while Sea Power actively avoided their collision. The schema-v2 bridge
   also captures sensor, host, formation, temporary-refueling, and stable
   plotting relationships. Reserve-aware whole-island load shedding now includes
-  retained and recovery-required runtime objects. This is not yet the full P5
-  gate: mixed-island tactical performance targets and calibration remain. The external-kernel
+  retained and recovery-required runtime objects. Operational shot range is
+  scored against a documented envelope (catalog ratio <= 1.000, tactical
+  compression <= 10x), and fenced mixed-island coupling cannot be demoted. The external-kernel
   large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
   600 entities measures 18.5/s and is explicitly an overloaded envelope. The
   first live independent-surface burst reaches four Active Knox assignments in

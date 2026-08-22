@@ -3,6 +3,7 @@ using System.Text;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
+using CrimeanTom.Campaign.Engine;
 using CrimeanTom.Campaign.Service;
 
 namespace CrimeanTom.Campaign.ServiceHost;
@@ -366,6 +367,9 @@ internal static class CampaignFidelityScheduler
             SchedulerHealthState.Pressured or SchedulerHealthState.Healthy => 20,
             _ => 10,
         };
+        var maximumTicks = checked(
+            CampaignCalibration.HealthyTicksPerWallSecond * CampaignCalibration.MaximumTacticalCompressionTimes);
+        tempo = Math.Clamp(tempo, 0, maximumTicks);
         var capacityPressure = excessOccupiedCapacity > 0;
         var action = request.Health == SchedulerHealthState.Healthy && request.BacklogDepth < 96
             && !capacityPressure

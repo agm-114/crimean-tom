@@ -1110,7 +1110,8 @@ public sealed class CampaignCoordinator(
                 recovery.State,
                 worker,
                 Math.Max(0, scheduler.Request.TacticalEntityCapacity
-                    - scheduler.Request.TacticalReserveCapacity))).ToArray());
+                    - scheduler.Request.TacticalReserveCapacity))).ToArray(),
+            ToCalibrationView(recovery.State, scheduler));
     }
 
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
@@ -2651,6 +2652,26 @@ public sealed class CampaignCoordinator(
             worker.CouplingRelationships.Count);
     }
 
+    private static CampaignCalibrationReport ToCalibrationView(
+        CampaignState state,
+        CampaignFidelityScheduler.SchedulerEvaluation evaluation)
+    {
+        var fenced = evaluation.Islands.Count(island => island.UnsafeToSplit || island.Engaged);
+        var demoted = evaluation.Islands.Count(island =>
+            (island.UnsafeToSplit || island.Engaged)
+            && island.EntityIds.Any(entityId =>
+                state.Entities[entityId].Fidelity != FidelityState.Tactical)
+            && state.Assignments.Values.Any(assignment =>
+                island.EntityIds.Contains(assignment.EntityId)
+                && assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                && assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing));
+        return CampaignCalibration.Evaluate(
+            state.RecentOperationalOutcomes,
+            evaluation.TargetTicksPerWallSecond,
+            fenced,
+            demoted);
+    }
+
     private static CampaignSessionSnapshot? SelectPlacementWorker(
         CampaignState state,
         IReadOnlyList<EntityId> islandEntityIds,
@@ -3165,7 +3186,8 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
     CampaignSchedulerView Scheduler,
     CampaignPerformanceView Performance,
-    IReadOnlyList<CampaignWorkerView> Workers);
+    IReadOnlyList<CampaignWorkerView> Workers,
+    CampaignCalibrationReport Calibration);
 
 public sealed record CampaignWorkerView(
     string SessionId,
