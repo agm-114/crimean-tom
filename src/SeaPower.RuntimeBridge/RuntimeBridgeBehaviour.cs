@@ -85,6 +85,10 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
             {
                 StartCoroutine(RunDeferredAction(deferredAction));
             }
+            if (GameCommandDispatcher.TakeEndOfFrameAction() is { } endOfFrameAction)
+            {
+                StartCoroutine(RunEndOfFrameAction(endOfFrameAction));
+            }
             processed++;
         }
     }
@@ -92,6 +96,12 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     private static IEnumerator RunDeferredAction(Action action)
     {
         yield return new WaitForSecondsRealtime(0.25f);
+        action();
+    }
+
+    private static IEnumerator RunEndOfFrameAction(Action action)
+    {
+        yield return new WaitForEndOfFrame();
         action();
     }
 

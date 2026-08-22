@@ -196,6 +196,142 @@ app.MapGet("/game/campaign", (GamePipeBroker broker, CancellationToken cancellat
         CommandPriorities.Normal,
         cancellationToken));
 
+app.MapGet("/game/ui", (GamePipeBroker broker, CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetUiInspection,
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapPost("/game/screenshot", async (
+    CaptureGameScreenshotRequestPayload? request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var hello = broker.GameHello;
+    if (hello is null || string.IsNullOrWhiteSpace(hello.ExperimentalSaveDirectory))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No connected game has advertised an experimental save directory.",
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    var screenshotPath = Path.GetFullPath(Path.Combine(
+        hello.ExperimentalSaveDirectory,
+        "_CrimeanTomScreenshot.png"));
+    var previousHash = await TryHashFileAsync(screenshotPath, cancellationToken);
+    var previousLastWriteTimeUtc = File.Exists(screenshotPath)
+        ? File.GetLastWriteTimeUtc(screenshotPath)
+        : (DateTime?)null;
+
+    var payload = request ?? new CaptureGameScreenshotRequestPayload();
+    var result = await broker.SendCommandAsync(
+        GameCommandTypes.CaptureGameScreenshot,
+        JsonSerializer.Serialize(payload, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken);
+    if (!result.Success)
+    {
+        return CommandFailure(result);
+    }
+
+    var scheduled = JsonSerializer.Deserialize<CaptureGameScreenshotResultPayload>(
+        result.ResultJson,
+        wireJsonOptions) ?? new CaptureGameScreenshotResultPayload();
+    if (string.IsNullOrWhiteSpace(scheduled.FilePath)
+        || !string.Equals(
+            Path.GetFullPath(scheduled.FilePath),
+            screenshotPath,
+            StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The game returned an unexpected screenshot path.",
+        }, statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    var stableHash = await WaitForStableFileHashAsync(
+        screenshotPath,
+        TimeSpan.FromSeconds(15),
+        cancellationToken,
+        excludeHash: previousHash,
+        excludeLastWriteTimeUtc: previousLastWriteTimeUtc);
+    if (string.IsNullOrEmpty(stableHash))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPostconditionFailed,
+            message = "The game scheduled a screenshot but no stable PNG materialized before the deadline.",
+        }, statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+
+    scheduled.Outcome = "completed";
+    scheduled.Postcondition = "screenshot-png-materialized";
+    scheduled.Sha256 = stableHash;
+    return Results.Ok(scheduled);
+});
+
+app.MapGet("/game/screenshot/image", (GamePipeBroker broker) =>
+{
+    var hello = broker.GameHello;
+    if (hello is null || string.IsNullOrWhiteSpace(hello.ExperimentalSaveDirectory))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No connected game has advertised an experimental save directory.",
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    var fileName = "_CrimeanTomScreenshot.png";
+    var fullPath = Path.GetFullPath(Path.Combine(hello.ExperimentalSaveDirectory, fileName));
+    var root = Path.GetFullPath(hello.ExperimentalSaveDirectory);
+    if (!fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(fullPath, Path.Combine(root, fileName), StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "Screenshot path escaped the experimental save directory.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    if (!File.Exists(fullPath))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No screenshot PNG is available yet. POST /game/screenshot first.",
+        }, statusCode: StatusCodes.Status404NotFound);
+    }
+
+    return Results.File(fullPath, "image/png", fileName);
+});
+
+app.MapPost("/game/automation/camera/focus", (
+    FocusCameraOnUnitRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.FocusCameraOnUnit,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapPost("/game/automation/hud", (
+    SetTacticalHudPanelRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.SetTacticalHudPanel,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/automation/task-force-builder", (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
@@ -848,10 +984,41 @@ static int ReadBoundedInteger(
     return parsed;
 }
 
+static async Task<string?> TryHashFileAsync(string path, CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+    {
+        return null;
+    }
+
+    try
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (stream.Length <= 0)
+        {
+            return null;
+        }
+
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+    }
+    catch (IOException)
+    {
+        return null;
+    }
+}
+
 static async Task<string> WaitForStableFileHashAsync(
     string path,
     TimeSpan timeout,
-    CancellationToken cancellationToken)
+    CancellationToken cancellationToken,
+    string? excludeHash = null,
+    DateTime? excludeLastWriteTimeUtc = null)
 {
     if (string.IsNullOrWhiteSpace(path))
     {
@@ -878,7 +1045,17 @@ static async Task<string> WaitForStableFileHashAsync(
                 var hash = Convert.ToHexString(await SHA256.HashDataAsync(
                     stream,
                     cancellationToken)).ToLowerInvariant();
-                if (hash == priorHash && stream.Length > 0)
+                var lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
+                var isUnchangedExcludedFile = !string.IsNullOrEmpty(excludeHash)
+                    && string.Equals(hash, excludeHash, StringComparison.Ordinal)
+                    && (!excludeLastWriteTimeUtc.HasValue
+                        || lastWriteTimeUtc <= excludeLastWriteTimeUtc.Value);
+                if (isUnchangedExcludedFile)
+                {
+                    priorHash = hash;
+                    consecutiveMatches = 0;
+                }
+                else if (hash == priorHash && stream.Length > 0)
                 {
                     consecutiveMatches++;
                     if (consecutiveMatches >= 2)

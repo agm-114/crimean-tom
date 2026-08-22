@@ -68,6 +68,8 @@ pnpm game:ping          # prove a Unity-main-thread round trip
 pnpm game:capabilities  # negotiate the currently safe command surface
 pnpm game:scene         # read active scene and manager/object counts
 pnpm game:world         # read live task forces and canonical unit state
+pnpm game:ui            # inspect current window, HUD, pause, and selection
+pnpm game:screenshot    # capture the Unity framebuffer to a PNG
 pnpm game:control-test  # exercise and validate all of the above
 ```
 

@@ -129,7 +129,7 @@ function Assert-DeployedDllMatchesBuild {
         throw "Built DLL not found at $builtDll. Run pnpm build first."
     }
     if (-not (Test-Path -LiteralPath $deployedDll)) {
-        throw "Deployed DLL not found at $deployedDll. Run pnpm build or pnpm deploy first."
+        throw "Deployed DLL not found at $deployedDll. Run pnpm build or pnpm run deploy first."
     }
 
     $builtHash = Get-HashValue $builtDll
