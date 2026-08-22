@@ -874,6 +874,12 @@ public sealed class CampaignCompanionClient(
     {
         if (stateStore.HasSupersededActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
+            logger.LogInformation(
+                "Activation grant for assignment {AssignmentId} epoch {AuthorityEpoch} remains superseded ({Reason}).",
+                grant.AssignmentId,
+                grant.AuthorityEpoch,
+                stateStore.TryReadSupersededActivationGrantReason(grant.AssignmentId, grant.AuthorityEpoch)
+                    ?? "campaign-assignment-superseded");
             return;
         }
 
@@ -882,10 +888,39 @@ public sealed class CampaignCompanionClient(
             return;
         }
 
-        var liveAssignment = await TryResolveLiveCampaignAssignmentAsync(
-            grant,
-            serviceToken,
-            cancellationToken);
+        CampaignAssignmentLookup lookup;
+        try
+        {
+            lookup = await TryResolveLiveCampaignAssignmentAsync(
+                grant,
+                serviceToken,
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or TaskCanceledException
+            && !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                exception,
+                "Campaign view was unreachable while resolving activation grant for assignment {AssignmentId} epoch {AuthorityEpoch}.",
+                grant.AssignmentId,
+                grant.AuthorityEpoch);
+            return;
+        }
+
+        if (lookup.Status != CampaignViewStatus.Ready)
+        {
+            logger.LogInformation(
+                "Campaign view was not authoritative for activation grant {AssignmentId} epoch {AuthorityEpoch} ({Status}, viewCommit={ViewCommit}, migrationCommit={MigrationCommit}).",
+                grant.AssignmentId,
+                grant.AuthorityEpoch,
+                lookup.Status,
+                lookup.ViewCommitPosition,
+                grant.MigrationCommitPosition);
+            return;
+        }
+
+        var liveAssignment = lookup.Assignment;
         if (liveAssignment is null
             || !string.Equals(liveAssignment.Role, "Primary", StringComparison.Ordinal)
             || !string.Equals(liveAssignment.Lifecycle, "Active", StringComparison.Ordinal)
@@ -895,7 +930,9 @@ public sealed class CampaignCompanionClient(
                 ? "campaign-assignment-missing"
                 : liveAssignment.Lifecycle is "Released"
                     ? "campaign-assignment-released"
-                    : "campaign-assignment-not-active-primary";
+                    : liveAssignment.AuthorityEpoch != grant.AuthorityEpoch
+                        ? "campaign-assignment-epoch-mismatch"
+                        : "campaign-assignment-not-active-primary";
             await stateStore.SaveSupersededActivationGrantAsync(
                 grant.AssignmentId,
                 grant.AuthorityEpoch,
@@ -1322,17 +1359,26 @@ public sealed class CampaignCompanionClient(
         return result;
     }
 
-    private async Task<CampaignAssignmentView?> TryResolveLiveCampaignAssignmentAsync(
+    private async Task<CampaignAssignmentLookup> TryResolveLiveCampaignAssignmentAsync(
         ActivationGrant grant,
         string token,
         CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { BaseAddress = options.HttpUri };
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var client = CreateCampaignHttpClient(token);
+        client.Timeout = TimeSpan.FromSeconds(5);
         using var response = await client.GetAsync($"/campaigns/{options.CampaignId}", cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var viewCommitPosition = document.RootElement.TryGetProperty("commitPosition", out var commitPosition)
+            && commitPosition.TryGetInt64(out var parsedCommit)
+            ? parsedCommit
+            : 0L;
+        if (viewCommitPosition < grant.MigrationCommitPosition)
+        {
+            return new CampaignAssignmentLookup(CampaignViewStatus.Stale, viewCommitPosition, Assignment: null);
+        }
+
         var grantAssignmentId = NormalizeScopedAssignmentId(grant.AssignmentId);
         foreach (var item in document.RootElement.GetProperty("assignments").EnumerateArray())
         {
@@ -1342,17 +1388,17 @@ public sealed class CampaignCompanionClient(
                 continue;
             }
 
-            return new CampaignAssignmentView(
-                assignmentId,
-                item.GetProperty("role").GetString() ?? string.Empty,
-                item.GetProperty("lifecycle").GetString() ?? string.Empty,
-                item.GetProperty("authorityEpoch").GetInt64(),
-                item.TryGetProperty("workerClientInstanceId", out var worker)
-                    ? worker.GetString() ?? string.Empty
-                    : string.Empty);
+            return new CampaignAssignmentLookup(
+                CampaignViewStatus.Ready,
+                viewCommitPosition,
+                new CampaignAssignmentView(
+                    assignmentId,
+                    item.GetProperty("role").GetString() ?? string.Empty,
+                    item.GetProperty("lifecycle").GetString() ?? string.Empty,
+                    item.GetProperty("authorityEpoch").GetInt64()));
         }
 
-        return null;
+        return new CampaignAssignmentLookup(CampaignViewStatus.Ready, viewCommitPosition, Assignment: null);
     }
 
     private static string NormalizeScopedAssignmentId(string assignmentId) =>
@@ -1360,12 +1406,22 @@ public sealed class CampaignCompanionClient(
             ? assignmentId["assignment:".Length..]
             : assignmentId;
 
+    private enum CampaignViewStatus
+    {
+        Stale,
+        Ready,
+    }
+
+    private readonly record struct CampaignAssignmentLookup(
+        CampaignViewStatus Status,
+        long ViewCommitPosition,
+        CampaignAssignmentView? Assignment);
+
     private sealed record CampaignAssignmentView(
         string AssignmentId,
         string Role,
         string Lifecycle,
-        long AuthorityEpoch,
-        string WorkerClientInstanceId);
+        long AuthorityEpoch);
 
     private async Task UploadCheckpointAsync(
         string sha256,
