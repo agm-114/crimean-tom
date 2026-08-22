@@ -19,6 +19,8 @@ public sealed class GameHelloPayload
     public string GameVersion { get; set; } = string.Empty;
 
     public string InitialScene { get; set; } = string.Empty;
+
+    public string ColliderCacheDirectory { get; set; } = string.Empty;
 }
 
 public sealed class HandshakeResponsePayload
@@ -1555,4 +1557,6 @@ public sealed class GetColliderCatalogResultPayload
     public ColliderCatalogEntryPayload[] Entries { get; set; } = Array.Empty<ColliderCatalogEntryPayload>();
 
     public ColliderUnitGeometryPayload? Geometry { get; set; }
+
+    public string Source { get; set; } = "file-cache";
 }

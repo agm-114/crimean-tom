@@ -41,6 +41,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
             ProcessId = Process.GetCurrentProcess().Id,
             GameVersion = Application.version,
             InitialScene = SceneManager.GetActiveScene().name ?? string.Empty,
+            ColliderCacheDirectory = RuntimeColliderCatalog.CurrentRoot(),
         };
 
         _pipeClient = new PipeGameClient(

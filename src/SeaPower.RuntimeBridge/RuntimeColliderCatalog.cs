@@ -104,6 +104,7 @@ internal static class RuntimeColliderCatalog
             FileCount = entries.Count,
             Entries = entries.ToArray(),
             Geometry = geometry,
+            Source = "plugin-memory",
         };
     }
 
@@ -128,6 +129,8 @@ internal static class RuntimeColliderCatalog
         };
     }
 
+    public static string CurrentRoot() => Cache().Root;
+
     private static ColliderGeometryCache Cache()
     {
         lock (Sync)
@@ -142,7 +145,7 @@ internal static class RuntimeColliderCatalog
             _gameVersion = gameVersion;
             var configured = System.Environment.GetEnvironmentVariable("CRIMEAN_TOM_COLLIDER_CACHE_DIR");
             _cache = new ColliderGeometryCache(
-                ColliderGeometryCache.ResolveRoot(configured, Application.persistentDataPath, gameVersion));
+                ColliderGeometryCache.ResolveRoot(configured, gameVersion));
             return _cache;
         }
     }

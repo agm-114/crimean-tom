@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
+using CrimeanTom.LoadAcceleration;
 using CrimeanTom.Protocol;
 
 using Google.Protobuf;
@@ -47,6 +48,7 @@ public sealed class CompanionControlIntegrationTests
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
+        var colliderCacheDir = Path.Combine(runDirectory, "collider-cache");
         var controlUrl = $"http://127.0.0.1:{GetUnusedLoopbackPort()}";
         var gamePipeName = $"CrimeanTom.Tests.{Guid.NewGuid():N}";
         var probeSavePath = Path.Combine(runDirectory, "_CrimeanTomPhase1Probe.sav");
@@ -672,6 +674,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(start.ExitCode == 0, start.FormatFailure("start"));
 
@@ -1369,13 +1372,38 @@ public sealed class CompanionControlIntegrationTests
                 colliderCapture.RootElement.GetProperty("postcondition").GetString());
             Assert.Equal(0, colliderCapture.RootElement.GetProperty("memoryCount").GetInt32());
 
+            new ColliderGeometryCache(ColliderGeometryCache.ResolveRoot(colliderCacheDir, "integration"))
+                .Upsert(new ColliderUnitGeometryPayload
+                {
+                    GameVersion = "integration",
+                    UnitTypeId = "usn_ff_knox_84",
+                    ClassName = "Knox",
+                    Source = "test",
+                    Colliders =
+                    [
+                        new ColliderPrimitivePayload
+                        {
+                            Kind = "box",
+                            Name = "hull",
+                            Enabled = true,
+                            Size = [10f, 4f, 20f],
+                        },
+                    ],
+                });
+
             using var colliderCatalog = await GetAuthorizedJsonAsync(
                 client,
                 token,
                 "/game/colliders?unitTypeId=usn_ff_knox_84",
                 testTimeout.Token);
-            Assert.Equal(0, colliderCatalog.RootElement.GetProperty("memoryCount").GetInt32());
-            Assert.Equal(JsonValueKind.Null, colliderCatalog.RootElement.GetProperty("geometry").ValueKind);
+            Assert.Equal("file-cache", colliderCatalog.RootElement.GetProperty("source").GetString());
+            Assert.Equal(1, colliderCatalog.RootElement.GetProperty("memoryCount").GetInt32());
+            Assert.Equal(
+                "usn_ff_knox_84",
+                colliderCatalog.RootElement.GetProperty("geometry").GetProperty("unitTypeId").GetString());
+            Assert.Equal(
+                "box",
+                colliderCatalog.RootElement.GetProperty("geometry").GetProperty("colliders")[0].GetProperty("kind").GetString());
 
             using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
                 client,
@@ -2045,6 +2073,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(restartedCompanion.ExitCode == 0, restartedCompanion.FormatFailure("start-after-fallback"));
             token = (await File.ReadAllTextAsync(tokenPath, testTimeout.Token)).Trim();
@@ -4705,6 +4734,7 @@ public sealed class CompanionControlIntegrationTests
                 ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                 ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
                 ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+                ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = Path.Combine(destinationRunDirectory, "collider-cache"),
             });
         Assert.True(destinationStart.ExitCode == 0, destinationStart.FormatFailure("destination-start"));
         var destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
@@ -4764,6 +4794,7 @@ public sealed class CompanionControlIntegrationTests
                 ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                 ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
                 ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+                ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = Path.Combine(destinationRunDirectory, "collider-cache"),
             });
         Assert.True(destinationRestart.ExitCode == 0, destinationRestart.FormatFailure("destination-restart"));
         destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
