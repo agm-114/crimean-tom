@@ -28,7 +28,7 @@ launch without that marker as a failure.
 ## Choose the narrowest command
 
 - `pnpm build`: compile and automatically deploy, then compare hashes.
-- `pnpm deploy`: stop the game if needed and redeploy an existing build.
+- `pnpm run deploy`: stop the game if needed and redeploy an existing build.
 - `pnpm launch`: launch and require a fresh plugin health marker.
 - `pnpm verify`: compare hashes and inspect the current log without launching.
 - `pnpm logs`: show relevant recent runtime diagnostics.
