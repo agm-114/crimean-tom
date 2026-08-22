@@ -1,9 +1,11 @@
 # Runtime architecture
 
-Observations are against Sea Power `0.8.2-23444+s358`. Paths are relative to
+Observations are against Sea Power `0.8.2-23444+s358` (Steam app `1286220`,
+depot buildid `24297410`, Unity `6000.0.67f1`). Paths are relative to
 `decompiled/game/Seapower-Scripts/`, which is git-ignored — regenerate with
 `pnpm decompile`. Line references drift between builds; the type and member names
-are the stable part.
+are the stable part. ILSpy `--list` namespaces are `SeaPower.*`; the checked-in
+path convention below follows the `--project` folder names.
 
 ## Process and loader boundary
 
@@ -76,7 +78,9 @@ code evidence from `GameMain`, `GameFixedUpdater`, `GameUpdater`, and
    `TaskforceManager.OnFixedUpdate` → `AircraftManager.OnFixedUpdate` when that
    singleton exists.
 3. Every registered object's `OnFixedUpdate()`, iterated **backwards** over
-   `GameMain._objects`, removing null entries as it goes.
+   `GameMain._objects`, removing null entries as it goes. Off-camera and
+   off-map units that are still registered keep running; there is no view-frustum
+   or distance cull on this loop. See [Tactical bubble](tactical-bubble.md).
 4. `JobPerformer.StartFixedUpdateJobs()` — schedules the next
    `ObjectCalculationsJobScheduler` and `CollisionAvoidanceJobScheduler` batch,
    each only if its previous job has completed.
@@ -193,6 +197,21 @@ Three properties of this path constrain any runtime materialization:
   `ResourceLoader.ResourceBatch` completion callback calls `setInitialized()`.
   Failure partway leaves a partially built object.
 
+### Identity
+
+`ObjectBase.UniqueID` is a scene-local `int`. New objects get
+`SceneCreator.GenerateUid()`, which is `Interlocked.Increment` of a static
+`_UID`. Mission files restore `UniqueID` and also persist `File/CurrentUid` so
+later allocations do not collide inside that scene. ECS `SPObjectRef.ObjectUID`
+and save cross-links for spotted/processed contacts use this value. It is **not**
+a campaign entity ID and will collide across missions and after a fresh load.
+
+`ObjectBase._campaignTag` is a separate string, written as `CampaignTag` when
+non-empty. The Runtime Bridge `CaptureUnit` reports `GameUniqueId`,
+`CampaignTag`, and `IdentityProvenance` (`game-unique-id` vs `campaign-tag`).
+Crimean Tom's durable identity remains the external entity ID; treat `UniqueID`
+as a session-local handle. See [Tactical bubble](tactical-bubble.md).
+
 ### Disable, enable, and destruction
 
 `ObjectBase.Disable()` is a native reversible suspension path. It sets
@@ -235,7 +254,8 @@ and GameObjects rather than call `destroyObject`.
 ## World coordinates and the floating origin
 
 This is the part of the runtime with the least resemblance to a plain Unity
-scene, and it is not documented anywhere else in this repository.
+scene. Relocation, instantiated-set size, and native campaign mission pull-in
+are three different radii; they are compared in [Tactical bubble](tactical-bubble.md).
 
 ### Geodetic position is the relocation/persistence representation
 
@@ -593,6 +613,7 @@ continuous-campaign boundary.
 - Avoid retaining raw `ObjectBase`, `Entity`, or view-model references across
   scene, load, materialization, or mission transitions.
 - Use stable external IDs and re-resolve game objects after loads/transitions.
+  Do not key durable campaign state on `ObjectBase.UniqueID`.
 - Prefer `GeoPosition` over Unity transforms when recording or comparing
   position; a transform is only meaningful with its centre tile.
 - Expect relocation events to move every transform without any object having
