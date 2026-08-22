@@ -28,7 +28,7 @@ interpreting any Unity transform.
 | `Globals` | `Seapower/Globals.cs` | `_currentCenterTile`, `_rebaseToOrigin`, `_useAssetBundles`, shared sensor-echo pools, and the three global RNG streams. |
 | `RenderPosition` | `Seapower/RenderPosition.cs` | Camera geo position, `setGlobalCurrentTilePos`, and `checkAndPerformRelocation` — the floating-origin trigger. |
 | `RelocationHandler` | `Seapower/RelocationHandler.cs` | The world-shift itself: objects, projectiles, trails, terrain, clouds, autogen, subscribers. |
-| `SceneCreator` | `Seapower/SceneCreator.cs` | Mission map centre, initial centre tile, `_missionStartTime`, and initial unit placement. |
+| `SceneCreator` | `Seapower/SceneCreator.cs` | Mission map centre, initial centre tile, `_missionStartTime`, `GenerateUid` / `_UID`, background land, and initial unit placement. |
 | `OptionsManager` | `Seapower/OptionsManager.cs` | Where `RebaseToOrigin`, `UseAssetBundles`, and other world/general settings are read. |
 
 ## Data and object creation
@@ -38,7 +38,9 @@ interpreting any Unity transform.
 | `FileManager` | `Seapower/FileManager.cs` | Search directories, Workshop, enable/order persistence, overrides. |
 | `IniHandler` | `Seapower/IniHandler.cs` | INI parsing, writing, caching, special files. |
 | `ObjectsManager` | `Seapower/ObjectsManager.cs` | Live registries and factories. |
-| `ObjectBase` | `Seapower/ObjectBase.cs` | Common tactical unit state and interfaces. |
+| `ObjectBase` | `Seapower/ObjectBase.cs` | Common tactical unit state, scene-local `UniqueID`, and `_campaignTag`. |
+| `LandUnit` | `Seapower/LandUnit.cs` | Tactical land `ObjectBase`: fire, mobile `Rigidbody` motion, disable path. |
+| `LandUnitParameters` | `Seapower/LandUnitParameters.cs` | `LandUnitSubType` (AirBase, SAM, Port, …). |
 | `ObjectBaseLoader` | `Seapower/ObjectBaseLoader.cs` | Mesh/system/damage/weapon/sensor construction. |
 | type loaders | `Seapower/*Loader.cs` | Ship/sub/air/helicopter/land specialization. |
 | `EncyclopedicDataManager` | `Seapower/EncyclopedicDataManager.cs` | Cross-unit catalog and system/ammunition reads. |
@@ -100,8 +102,9 @@ interpreting any Unity transform.
 | `LinearCampaign` | `Seapower/LinearCampaign.cs` | Authored mission/event campaign and persistent data. |
 | `LinearCampaignTaskForceSaveManager` | `Seapower/LinearCampaignTaskForceSaveManager.cs` | Persistent roster, tactical snapshots, loss/store/damage carryover. |
 | task-force view models | `SeapowerUI.ViewModels/LinearCampaignTaskForce*.cs` | Economy, repairs, generation, crew progression, UI workflow. |
-| `CampaignMain` | `Seapower/CampaignMain.cs` | Dynamic map graph, groups, templates, and tactical materialization seam. |
-| `CampaignUpdater` | `Seapower/CampaignUpdater.cs` | Strategic update and parallel movement. |
+| `CampaignMain` | `Seapower/CampaignMain.cs` | Dynamic map graph, groups, templates; `SetupGroupsForTacticalMission` (~500 nmi pull-in) and `StartMission` generated-mission seam. Empty `SceneManager_sceneLoaded`. |
+| `CampaignUpdater` | `Seapower/CampaignUpdater.cs` | Strategic update and Burst parallel movement. |
+| `UpdateLocationParallelForJob` | `Seapower/UpdateLocationParallelForJob.cs` | Knots × 0.514444 m/s `float2` graph step. |
 | `CampaignMission` | `Seapower/CampaignMission.cs` | Mission generation, logistics, capture, transit. |
 | `CampaignObjective` | `Seapower/CampaignObjective.cs` | Take/Hold/Interdict model and incomplete lifecycle. |
 
@@ -137,6 +140,7 @@ time on them; re-check after a game update, since any of them could be revived.
 | `GameUpdater.lazyUpdate` | `Seapower/GameUpdater.cs` | Empty body; there is no global lazy tier. |
 | `CampaignFixedUpdater`, `CampaignLateUpdater` | `Seapower/Campaign*Updater.cs` | Empty. |
 | `CampaignObjective` lifecycle methods | `Seapower/CampaignObjective.cs` | Several decompile as empty; the dynamic campaign is a partial prototype. |
+| `CampaignMain` pause save/exit | `Seapower/CampaignMain.cs` | Throws `NotImplementedException` on this build. |
 
 ## Large generated files
 

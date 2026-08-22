@@ -78,6 +78,13 @@ Type-specific loaders add ship, submarine, aircraft, helicopter, land-unit, or
 biologic behavior. A strategic unit definition should therefore reference the
 game's unit/variant/loadout IDs rather than duplicate every tactical parameter.
 
+Tactical land is not a stub: `LandUnit` subtypes cover airbases, installations,
+mobile units, AAA, SAM, missile sites, radar, ports, bridges, and oil rigs.
+Missions can also instantiate background land from city, airport, port, and
+installation background INIs. Abstract campaign land (`LandAbstract` in Crimean
+Tom) is a different family and must not be conflated with these objects. See
+[Tactical bubble](tactical-bubble.md).
+
 ## Weapons and sensors as registries
 
 System definitions are shared registries. Unit INIs reference systems; the
