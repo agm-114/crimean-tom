@@ -27,6 +27,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(first.State.Head.Value, first.State.CampaignRevision.Value);
         Assert.Equal(FidelityState.Tactical, first.State.Entities[Ids.BlueKnox].Fidelity);
         Assert.Equal(AssignmentRole.Primary, first.State.Assignments[Ids.Assignment].Role);
+        ProveSimulationRoleFences(first.State);
 
         var firstBytes = CampaignCanonicalSerializer.Serialize(first.State);
         var secondBytes = CampaignCanonicalSerializer.Serialize(second.State);
@@ -967,6 +968,70 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         }
     }
 
+    private static void ProveSimulationRoleFences(CampaignState state)
+    {
+        var proxy = Command(
+            91,
+            CampaignSubject.Assignment(Ids.ProxyAssignment),
+            EntityRevision.None,
+            new AssignAuthorityCommand(
+                Ids.ProxyAssignment,
+                Ids.BlueKnox,
+                AssignmentRole.RenderProxy,
+                new AuthorityEpoch(91),
+                state.Time),
+            effectiveAt: state.Time);
+        var proxyError = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(state, proxy));
+        Assert.Equal("proxy-cannot-receive-simulation-authority", proxyError.Code);
+
+        var observer = Command(
+            92,
+            CampaignSubject.Assignment(Ids.ObserverAssignment),
+            EntityRevision.None,
+            new AssignAuthorityCommand(
+                Ids.ObserverAssignment,
+                Ids.BlueKnox,
+                AssignmentRole.Observer,
+                new AuthorityEpoch(92),
+                state.Time,
+                WorkerClientInstanceId: "observer-worker"),
+            effectiveAt: state.Time);
+        var observed = CampaignKernel.Commit(state, observer);
+        var observerAssignment = observed.Assignments[Ids.ObserverAssignment];
+        Assert.Equal(AssignmentRole.Observer, observerAssignment.Role);
+        Assert.Equal(AssignmentLifecycle.Preparing, observerAssignment.Lifecycle);
+
+        var activate = Command(
+            93,
+            CampaignSubject.Assignment(Ids.ObserverAssignment),
+            observerAssignment.Revision,
+            new ActivateTacticalAssignmentCommand(
+                Ids.ObserverAssignment,
+                observerAssignment.AuthorityEpoch,
+                Ids.BlueKnox,
+                observed.Entities[Ids.BlueKnox].Revision,
+                observed.Time,
+                "promote-observer-without-complete-state"),
+            effectiveAt: observed.Time);
+        var activateError = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(observed, activate));
+        Assert.Equal("assignment-activation-fenced", activateError.Code);
+
+        var lifecycle = Command(
+            94,
+            CampaignSubject.Assignment(Ids.ObserverAssignment),
+            observerAssignment.Revision,
+            new SetAssignmentLifecycleCommand(
+                Ids.ObserverAssignment,
+                observerAssignment.AuthorityEpoch,
+                AssignmentLifecycle.Active,
+                observed.Time),
+            effectiveAt: observed.Time);
+        var lifecycleError = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(observed, lifecycle));
+        Assert.Equal("assignment-transition", lifecycleError.Code);
+        Assert.False(state.Assignments.ContainsKey(Ids.ObserverAssignment));
+        Assert.False(state.Assignments.ContainsKey(Ids.ProxyAssignment));
+    }
+
     private static CampaignCommand Command(
         int sequence,
         CampaignSubject subject,
@@ -1022,6 +1087,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
         public static readonly AssignmentId Assignment = new(Guid.Parse("90000000-0000-0000-0000-000000000001"));
         public static readonly AssignmentId ShadowAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000002"));
+        public static readonly AssignmentId ProxyAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000099"));
+        public static readonly AssignmentId ObserverAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000098"));
         public const string BlueTruth = "BLUE-TRUE-STATE-SENTINEL";
         public const string RedTruth = "RED-TRUE-STATE-SENTINEL";
     }
