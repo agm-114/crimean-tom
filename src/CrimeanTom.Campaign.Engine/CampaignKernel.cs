@@ -988,9 +988,12 @@ public static class CampaignKernel
         foreach (var update in value.Entities)
         {
             var current = entities[update.EntityId];
-            if (update.Telegraph is < -1 or > 5)
+            if (update.HeadingMilliDegrees is < 0 or >= 360_000
+                || update.Telegraph is < -1 or > 5)
             {
-                throw Violation("invalid-simulated-entity", "Simulated telegraph is outside the canonical range.");
+                throw Violation(
+                    "invalid-simulated-entity",
+                    "Simulated heading or telegraph is outside the canonical range.");
             }
             entities = entities.SetItem(update.EntityId, current with
             {

@@ -63,6 +63,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var conflict = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(first.State, stale));
         Assert.Equal("revision-conflict", conflict.Code);
         Assert.Equal(first.Hash, CampaignCanonicalSerializer.ComputeHash(first.State));
+        ProveOperationalAnalogueFences(first.State);
 
         var simulate = Command(
             17,
@@ -75,6 +76,21 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(
             CampaignContractJson.Serialize(singleWorkerEvent),
             CampaignContractJson.Serialize(parallelWorkerEvent));
+        var simulationData = Assert.IsType<CampaignSimulatedEvent>(singleWorkerEvent.Data);
+        var invalidHeadingEvent = singleWorkerEvent with
+        {
+            Data = simulationData with
+            {
+                Entities =
+                [
+                    simulationData.Entities[0] with { HeadingMilliDegrees = 360_000 },
+                    .. simulationData.Entities.Skip(1),
+                ],
+            },
+        };
+        var invalidHeading = Assert.Throws<CampaignRuleViolation>(() =>
+            CampaignKernel.Apply(first.State, invalidHeadingEvent));
+        Assert.Equal("invalid-simulated-entity", invalidHeading.Code);
         var simulated = CampaignKernel.Apply(first.State, singleWorkerEvent);
         var parallel = CampaignKernel.Apply(second.State, parallelWorkerEvent);
         Assert.Equal(CampaignCanonicalSerializer.Serialize(simulated), CampaignCanonicalSerializer.Serialize(parallel));
@@ -88,9 +104,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(800_000, simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits);
         Assert.Equal(1_000, simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
-        Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits < 900_000);
+        Assert.Equal(900_000, simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
         Assert.Equal(2, simulated.Intelligence.Count);
+        Assert.DoesNotContain(simulated.Intelligence.Keys, item =>
+            item.ObserverCoalitionId == Ids.RedCoalition && item.ContactEntityId == Ids.BlueKnox);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
@@ -138,9 +156,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("c3f9977e97b522f55c4685231b447036b296818a402b737b7c845e45f0657fd9", longHorizon.Hash);
+        Assert.Equal("9b554b3742c1f3e31a4af2d356d40f239d49d7eafb4e7ae27211e0944a2f6022", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("27f19bd6efda8ae803a5e46eec4da1376dbd1b9fcbaef33c6f10f74b30045c19", migrated.Hash);
+        Assert.Equal("fc50c497a5568ffcd74c75ae0be38efcd8772e94aab6ad927583be8708a49039", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -172,7 +190,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 Resources(reverseCollectionInputs, (ResourceKind.Fuel, 5_000_000), (ResourceKind.Stores, 2_000_000)))), commands, events);
         state = Commit(state, Command(5, CampaignSubject.Base(Ids.RedBase), EntityRevision.None,
             new RegisterBaseCommand(Ids.RedBase, "Sevastopol", Ids.RedCoalition, Ids.BlackSea,
-                GeoCoordinate.FromMicrodegrees(44_600_000, 33_530_000),
+                GeoCoordinate.FromMicrodegrees(44_440_000, 32_470_000),
                 Resources(reverseCollectionInputs, (ResourceKind.SpareParts, 900_000), (ResourceKind.Fuel, 4_000_000)))), commands, events);
 
         state = Commit(state, Command(6, CampaignSubject.Entity(Ids.BlueKnox), EntityRevision.None,
@@ -189,7 +207,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 "BLUE-LOGISTICS-EXACT")), commands, events);
         state = Commit(state, Command(8, CampaignSubject.Entity(Ids.RedKrivak), EntityRevision.None,
             new RegisterEntityCommand(Ids.RedKrivak, "Rezkiy", "vmf_krivak", Ids.RedCoalition, Ids.Bosporus,
-                GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000), Ids.RedBase, EntityLifecycle.Deployed,
+                GeoCoordinate.FromMicrodegrees(44_440_000, 32_470_000), Ids.RedBase, EntityLifecycle.Deployed,
                 FidelityState.Operational,
                 Resources(reverseCollectionInputs, (ResourceKind.Munitions, 700_000), (ResourceKind.Fuel, 750_000)),
                 Ids.RedTruth,
@@ -248,6 +266,164 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         commands.Add(commandCopy);
         events.Add(eventCopy);
         return CampaignKernel.Apply(state, eventCopy);
+    }
+
+    private static void ProveOperationalAnalogueFences(CampaignState state)
+    {
+        var oiler = state.Entities[Ids.BlueOiler];
+        var red = state.Entities[Ids.RedKrivak];
+        var sameRegionWithoutIntel = state with
+        {
+            Entities = state.Entities
+                .SetItem(Ids.BlueOiler, oiler with
+                {
+                    RegionId = Ids.BlackSea,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 33_300_000),
+                })
+                .SetItem(Ids.RedKrivak, red with
+                {
+                    RegionId = Ids.BlackSea,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 32_000_000),
+                }),
+            Groups = state.Groups.Clear(),
+            Orders = state.Orders.Clear(),
+        };
+        var heldFire = SimulateForTest(sameRegionWithoutIntel, 94, new CampaignTime(20));
+        Assert.DoesNotContain(heldFire.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == Ids.RedKrivak);
+
+        var badEstimateKey = new IntelligenceKey(Ids.RedCoalition, Ids.BlueOiler);
+        var badEstimate = sameRegionWithoutIntel with
+        {
+            Intelligence = sameRegionWithoutIntel.Intelligence.Add(
+                badEstimateKey,
+                new IntelligenceEstimate(
+                    badEstimateKey,
+                    Ids.Odessa,
+                    GeoCoordinate.FromMicrodegrees(-40_000_000, -150_000_000),
+                    IntelligenceConfidence.Probable,
+                    CampaignTime.Origin,
+                    25_000,
+                    ContactClassification.Surface,
+                    new EntityRevision(1))),
+        };
+        var heldForEstimate = SimulateForTest(badEstimate, 95, new CampaignTime(20));
+        Assert.DoesNotContain(heldForEstimate.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == Ids.RedKrivak);
+
+        var withinRegion = state with
+        {
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with
+            {
+                RegionId = Ids.Odessa,
+                Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000),
+            }),
+            Orders = state.Orders.SetItem(Ids.TransitOrder, state.Orders[Ids.TransitOrder] with
+            {
+                DestinationRegionId = Ids.Odessa,
+            }),
+        };
+        var moved = SimulateForTest(withinRegion, 96, new CampaignTime(20));
+        Assert.Equal(Ids.TransitOrder, moved.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Null(moved.Orders[Ids.TransitOrder].CompletedAt);
+        Assert.Equal(7_975_000, moved.Entities[Ids.BlueOiler].Resources[ResourceKind.Fuel].MilliUnits);
+
+        var damaged = state with
+        {
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with { DamageMilliUnits = 650_000 }),
+        };
+        var withdrawing = SimulateForTest(damaged, 97, new CampaignTime(20));
+        var withdrawalOrderId = Assert.IsType<OrderId>(withdrawing.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.NotEqual(Ids.TransitOrder, withdrawalOrderId);
+        Assert.Equal(OrderKind.Withdraw, withdrawing.Orders[withdrawalOrderId].Kind);
+        Assert.Equal(new CampaignTime(20), withdrawing.Orders[Ids.TransitOrder].CompletedAt);
+
+        var homeDamaged = state with
+        {
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with
+            {
+                RegionId = Ids.Odessa,
+                Coordinate = state.Bases[Ids.BlueBase].Coordinate,
+                DamageMilliUnits = 650_000,
+            }),
+            Orders = state.Orders.SetItem(Ids.TransitOrder, state.Orders[Ids.TransitOrder] with
+            {
+                DestinationRegionId = Ids.Odessa,
+            }),
+        };
+        var holdingAtHome = SimulateForTest(homeDamaged, 100, new CampaignTime(20));
+        Assert.Null(holdingAtHome.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Contains(holdingAtHome.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.Withdrawal
+            && item.Detail is not null
+            && item.Detail.Contains("holding at home base", StringComparison.Ordinal));
+
+        var destroyed = state with
+        {
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with
+            {
+                RegionId = Ids.Bosporus,
+                Coordinate = GeoCoordinate.FromMicrodegrees(44_440_000, 32_470_001),
+                Lifecycle = EntityLifecycle.Destroyed,
+            }),
+        };
+        var destroyedObserved = SimulateForTest(destroyed, 98, new CampaignTime(20));
+        Assert.DoesNotContain(destroyedObserved.Intelligence.Keys, item =>
+            item.ObserverCoalitionId == Ids.RedCoalition && item.ContactEntityId == Ids.BlueOiler);
+
+        var neutralObserver = oiler with
+        {
+            EntityId = Ids.NeutralObserver,
+            Name = "Distant neutral observer",
+            CoalitionId = Ids.NeutralCoalition,
+            RegionId = Ids.Odessa,
+            Coordinate = GeoCoordinate.FromMicrodegrees(-40_000_000, -150_000_000),
+            HomeBaseId = null,
+            OperationalWeapons = [],
+            ClassifiedTruthTag = "NEUTRAL-TRUE-STATE-SENTINEL",
+        };
+        var observed = SimulateForTest(state with
+        {
+            Entities = state.Entities.Add(neutralObserver.EntityId, neutralObserver),
+        }, 99, new CampaignTime(30));
+        Assert.DoesNotContain(observed.Intelligence.Keys, item =>
+            item.ObserverCoalitionId == Ids.NeutralCoalition);
+
+        var polarMovement = state with
+        {
+            Bases = state.Bases.SetItem(Ids.BlueBase, state.Bases[Ids.BlueBase] with
+            {
+                Coordinate = GeoCoordinate.FromMicrodegrees(89_900_000, -179_900_000),
+            }),
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with
+            {
+                RegionId = Ids.Odessa,
+                Coordinate = GeoCoordinate.FromMicrodegrees(89_900_000, 179_900_000),
+            }),
+            Orders = state.Orders.SetItem(Ids.TransitOrder, state.Orders[Ids.TransitOrder] with
+            {
+                DestinationRegionId = Ids.Odessa,
+            }),
+        };
+        var polarMoved = SimulateForTest(polarMovement, 101, new CampaignTime(20));
+        var polarCoordinate = polarMoved.Entities[Ids.BlueOiler].Coordinate;
+        Assert.InRange(polarCoordinate.LatitudeMicrodegrees, -90_000_000, 90_000_000);
+        Assert.InRange(polarCoordinate.LongitudeMicrodegrees, -180_000_000, 179_999_999);
+    }
+
+    private static CampaignState SimulateForTest(CampaignState state, int sequence, CampaignTime target)
+    {
+        var command = Command(
+            sequence,
+            CampaignSubject.Campaign(Ids.Campaign),
+            state.CampaignRevision,
+            new SimulateCampaignCommand(target),
+            effectiveAt: target);
+        return CampaignKernel.Apply(
+            state,
+            CampaignKernel.Decide(state, command, state.Head.Next(), workerCount: 4));
     }
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
@@ -1080,6 +1256,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly CampaignId Campaign = new(Guid.Parse("10000000-0000-0000-0000-000000000001"));
         public static readonly CoalitionId BlueCoalition = new(Guid.Parse("20000000-0000-0000-0000-000000000001"));
         public static readonly CoalitionId RedCoalition = new(Guid.Parse("20000000-0000-0000-0000-000000000002"));
+        public static readonly CoalitionId NeutralCoalition = new(Guid.Parse("20000000-0000-0000-0000-000000000003"));
         public static readonly PlayerId Player = new(Guid.Parse("30000000-0000-0000-0000-000000000001"));
         public static readonly RegionId Odessa = new(Guid.Parse("40000000-0000-0000-0000-000000000001"));
         public static readonly RegionId BlackSea = new(Guid.Parse("40000000-0000-0000-0000-000000000002"));
@@ -1089,6 +1266,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly EntityId BlueKnox = new(Guid.Parse("60000000-0000-0000-0000-000000000001"));
         public static readonly EntityId BlueOiler = new(Guid.Parse("60000000-0000-0000-0000-000000000002"));
         public static readonly EntityId RedKrivak = new(Guid.Parse("60000000-0000-0000-0000-000000000003"));
+        public static readonly EntityId NeutralObserver = new(Guid.Parse("60000000-0000-0000-0000-000000000004"));
         public static readonly GroupId BlueGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000001"));
         public static readonly GroupId RedGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000002"));
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
