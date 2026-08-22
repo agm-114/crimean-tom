@@ -1119,6 +1119,27 @@ public sealed class CampaignCoordinator(
             _replicaHashes.Diagnose(recovery.State));
     }
 
+    public async Task<long> ReadTimeQuantaAsync(CampaignId campaignId, CancellationToken cancellationToken)
+    {
+        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        return recovery.State.Time.Quanta;
+    }
+
+    public async Task<CampaignCoalitionProjectionView> ProjectCoalitionAsync(
+        CampaignId campaignId,
+        CoalitionId coalitionId,
+        CancellationToken cancellationToken)
+    {
+        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        if (!recovery.State.Entities.Values.Any(item => item.CoalitionId == coalitionId)
+            && !recovery.State.Bases.Values.Any(item => item.CoalitionId == coalitionId))
+        {
+            throw new CampaignStoreConflict("coalition-missing", "The coalition is not present in this campaign.");
+        }
+
+        return CampaignCoalitionProjectionHttp.From(recovery.State, coalitionId);
+    }
+
     public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
         CampaignId campaignId,
         CampaignSchedulerRequest request,
