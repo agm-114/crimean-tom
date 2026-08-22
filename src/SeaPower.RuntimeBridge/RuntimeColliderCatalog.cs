@@ -285,8 +285,8 @@ internal static class RuntimeColliderCatalog
         return new ColliderPrimitivePayload
         {
             Kind = "box",
-            Center = Vec(root.InverseTransformPoint(worldCenter)),
-            Size = Vec(ToRootLocalSize(root, new Vector3(
+            Center = Vec(ToRootOrientedMeters(root, worldCenter)),
+            Size = Vec(ToMeters(new Vector3(
                 Mathf.Abs(box.size.x * scale.x),
                 Mathf.Abs(box.size.y * scale.y),
                 Mathf.Abs(box.size.z * scale.z)))),
@@ -302,8 +302,8 @@ internal static class RuntimeColliderCatalog
         return new ColliderPrimitivePayload
         {
             Kind = "sphere",
-            Center = Vec(root.InverseTransformPoint(worldCenter)),
-            Radius = ToRootLocalLength(root, radius),
+            Center = Vec(ToRootOrientedMeters(root, worldCenter)),
+            Radius = ToMeters(radius),
         };
     }
 
@@ -327,10 +327,10 @@ internal static class RuntimeColliderCatalog
         return new ColliderPrimitivePayload
         {
             Kind = "capsule",
-            Center = Vec(root.InverseTransformPoint(worldCenter)),
+            Center = Vec(ToRootOrientedMeters(root, worldCenter)),
             Rotation = Quat(localRotation),
-            Radius = ToRootLocalLength(root, capsule.radius * radiusScale),
-            Height = ToRootLocalLength(root, capsule.height * heightScale),
+            Radius = ToMeters(capsule.radius * radiusScale),
+            Height = ToMeters(capsule.height * heightScale),
             Direction = capsule.direction,
         };
     }
@@ -350,8 +350,8 @@ internal static class RuntimeColliderCatalog
         return new ColliderPrimitivePayload
         {
             Kind = "meshBounds",
-            Center = Vec(root.InverseTransformPoint(worldCenter)),
-            Size = Vec(ToRootLocalSize(root, new Vector3(
+            Center = Vec(ToRootOrientedMeters(root, worldCenter)),
+            Size = Vec(ToMeters(new Vector3(
                 Mathf.Abs(bounds.size.x * scale.x),
                 Mathf.Abs(bounds.size.y * scale.y),
                 Mathf.Abs(bounds.size.z * scale.z)))),
@@ -375,7 +375,7 @@ internal static class RuntimeColliderCatalog
                 (index & 1) == 0 ? min.x : max.x,
                 (index & 2) == 0 ? min.y : max.y,
                 (index & 4) == 0 ? min.z : max.z);
-            var local = root.InverseTransformPoint(corner);
+            var local = ToRootOrientedMeters(root, corner);
             localMin = Vector3.Min(localMin, local);
             localMax = Vector3.Max(localMax, local);
         }
@@ -391,27 +391,15 @@ internal static class RuntimeColliderCatalog
         };
     }
 
-    private static Vector3 ToRootLocalSize(Transform root, Vector3 worldSize)
-    {
-        var scale = root.lossyScale;
-        return new Vector3(
-            DivideAbs(worldSize.x, scale.x),
-            DivideAbs(worldSize.y, scale.y),
-            DivideAbs(worldSize.z, scale.z));
-    }
+    private static Vector3 ToRootOrientedMeters(Transform root, Vector3 worldPoint) =>
+        ToMeters(Quaternion.Inverse(root.rotation) * (worldPoint - root.position));
 
-    private static float ToRootLocalLength(Transform root, float worldLength)
-    {
-        var scale = root.lossyScale;
-        var max = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
-        return DivideAbs(worldLength, max);
-    }
+    private static Vector3 ToMeters(Vector3 unityUnits) => new(
+        Utils.unityHeightToMeter(unityUnits.x),
+        Utils.unityHeightToMeter(unityUnits.y),
+        Utils.unityHeightToMeter(unityUnits.z));
 
-    private static float DivideAbs(float value, float scale)
-    {
-        var abs = Mathf.Abs(scale);
-        return abs < 1e-8f ? Mathf.Abs(value) : Mathf.Abs(value) / abs;
-    }
+    private static float ToMeters(float unityUnits) => Utils.unityHeightToMeter(unityUnits);
 
     private static float[] Vec(Vector3 value) => new[] { value.x, value.y, value.z };
 

@@ -66,6 +66,79 @@ public sealed class ColliderHitResolverTests
     }
 
     [Fact]
+    public void RotatesGeodeticOffsetByHullHeading()
+    {
+        var origin = GeoCoordinate.FromMicrodegrees(44_000_000, 34_000_000);
+        var east = GeoCoordinate.FromMicrodegrees(44_000_000, 34_001_000);
+        var local = ColliderHitResolver.ToHullLocal(
+            east,
+            0,
+            origin,
+            0,
+            hullHeadingMilliDegrees: 90_000);
+
+        Assert.InRange(local.X, -5, 5);
+        Assert.True(local.Z > 50, local.ToString());
+    }
+
+    [Fact]
+    public void UsesTheShortLongitudeArcAcrossTheDateLine()
+    {
+        var westOfLine = GeoCoordinate.FromMicrodegrees(0, 179_999_500);
+        var eastOfLine = GeoCoordinate.FromMicrodegrees(0, -179_999_500);
+        var local = ColliderHitResolver.ToHullLocal(
+            eastOfLine,
+            0,
+            westOfLine,
+            0,
+            hullHeadingMilliDegrees: 0);
+
+        Assert.InRange(local.X, 100, 120);
+        Assert.InRange(local.Z, -1, 1);
+    }
+
+    [Fact]
+    public void InvalidRayDoesNotClaimThatGeometryWasTested()
+    {
+        var hit = ColliderHitResolver.Cast(
+            KnoxBox("usn_knox"),
+            Vector3.Zero,
+            new Vector3(float.NaN, 0, 1),
+            maximumT: 1.5f);
+
+        Assert.False(hit.Performed);
+        Assert.False(hit.DidHit);
+    }
+
+    [Fact]
+    public void HonorsUnityCapsuleAxisDirection()
+    {
+        var hull = new ColliderUnitGeometryPayload
+        {
+            UnitTypeId = "capsule",
+            Colliders =
+            [
+                new ColliderPrimitivePayload
+                {
+                    Kind = "capsule",
+                    Enabled = true,
+                    Center = [0f, 0f, 0f],
+                    Radius = 1f,
+                    Height = 10f,
+                    Direction = 0,
+                },
+            ],
+        };
+
+        var hit = ColliderHitResolver.Cast(
+            hull,
+            new Vector3(4, 0, -10),
+            new Vector3(0, 0, 20),
+            maximumT: 1f);
+        Assert.True(hit.DidHit);
+    }
+
+    [Fact]
     public void CatalogOverrideDoesNotChangeDefaultTheaterHashPath()
     {
         ColliderHitResolution.ResetEnvironmentCatalog();

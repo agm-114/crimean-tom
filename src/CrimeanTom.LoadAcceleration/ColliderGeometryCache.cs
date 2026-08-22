@@ -8,7 +8,9 @@ namespace CrimeanTom.LoadAcceleration;
 
 public sealed class ColliderGeometryCache
 {
-    public const int SchemaVersion = 1;
+    // Schema 2 stores collider centers and dimensions in root-oriented meters.
+    // Schema 1 used model-root units and cannot be raycast against geodetic meters.
+    public const int SchemaVersion = 2;
     public const string DirectoryName = "collider-catalog";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
