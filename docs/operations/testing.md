@@ -221,7 +221,15 @@ with per-process Steam app context, two named workers coexist on the live host:
 root returned `LIVE_PROOF_SUCCEEDED`. **Coexistence of two real runtime+companion
 workers is proven** on this host. **Cross-worker tactical-island migration remains
 unproven** — do not claim two-container migration or automatic rebalance until
-`pnpm worker:migration-proof -Execute` succeeds.
+`pnpm worker:live-migrate -Execute` (or `pnpm worker:migration-proof -Execute`)
+succeeds with destination Primary Active and source Primary Released.
+
+Closed-loop driver (22 August 2026): `pnpm worker:live-migrate` pins
+`prepare-source` onto `-SourceWorkerId`, then reuses the migration-proof
+preflight/execute path. Optional `-CreateCampaign` allocates a new journal and
+bootstraps the Phase 4 Knox set; named workers must then reconnect to that
+campaign ID with a loaded player task force before `-Execute`. See
+`docs/evidence/phase-5-live-migrate-driver-2026-08-22.md`.
 
 Cross-worker migration driver (implementation landed 21 Aug 2026):
 
