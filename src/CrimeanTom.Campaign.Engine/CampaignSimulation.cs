@@ -10,8 +10,11 @@ namespace CrimeanTom.Campaign.Engine;
 
 /// <summary>
 /// Deterministic Operational analogue of tactical employment: geodetic weapon range,
-/// domain-aware sensors, fire doctrine, heading/telegraph, and bingo/winchester withdrawal.
-/// This is not Sea Power <c>ObjectBase</c> physics, per-sensor arcs, or projectile simulation.
+/// domain-aware sensors, fire doctrine, heading/telegraph, analogue loadouts,
+/// task-force weapon allocation, and bingo/winchester withdrawal.
+/// Units stay in this resolver unless a live Sea Power assignment is Active or
+/// Quiescing. This is not Sea Power <c>ObjectBase</c> physics, per-sensor arcs,
+/// or projectile simulation.
 /// </summary>
 internal static class CampaignSimulation
 {
@@ -120,18 +123,59 @@ internal static class CampaignSimulation
             }
 
             var first = activeMembers[0];
+            var requiresRecovery = ShouldWithdraw(activeMembers)
+                || activeMembers.Max(item => item.DamageMilliUnits) >= 400_000;
+            var homeRegions = activeMembers
+                .Select(item => item.HomeBaseId)
+                .Where(item => item is not null)
+                .Select(item => state.Bases[item!.Value].RegionId)
+                .Distinct()
+                .OrderBy(item => item)
+                .ToArray();
+            if (requiresRecovery && homeRegions.Contains(first.RegionId))
+            {
+                // Leave the group idle so sustainment can repair and replenish it this tick.
+                continue;
+            }
+            var intercepts = state.Intelligence.Values
+                .Where(item => item.Key.ObserverCoalitionId == group.CoalitionId
+                    && item.Confidence >= IntelligenceConfidence.Probable
+                    && item.EstimatedRegionId != first.RegionId)
+                .Select(item => item.EstimatedRegionId)
+                .Distinct()
+                .OrderBy(item => item)
+                .ToArray();
             var neighbors = Neighbors(state, first.RegionId);
-            if (neighbors.Count == 0)
+            var home = homeRegions.FirstOrDefault(item => item != first.RegionId);
+            var safeRecoveryNeighbors = neighbors
+                .Where(candidate => !state.Entities.Values.Any(item => item.RegionId == candidate
+                    && item.CoalitionId != group.CoalitionId && CanBeAttacked(state, item)))
+                .ToArray();
+            if ((requiresRecovery && home == default && safeRecoveryNeighbors.Length == 0)
+                || (!requiresRecovery && neighbors.Count == 0 && intercepts.Length == 0))
             {
                 continue;
             }
 
-            var destination = neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count];
+            var destination = requiresRecovery
+                ? home != default
+                    ? home
+                    : safeRecoveryNeighbors[
+                        KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-recovery")
+                        % safeRecoveryNeighbors.Length]
+                : !requiresRecovery && intercepts.Length > 0
+                    ? intercepts[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-intercept") % intercepts.Length]
+                    : neighbors.Count > 0
+                        ? neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count]
+                        : intercepts[0];
+            var kind = requiresRecovery ? OrderKind.Withdraw
+                : intercepts.Length > 0 ? OrderKind.Transit
+                : OrderKind.Patrol;
             var orderId = new OrderId(KeyedGuid(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-order"));
             var order = new OrderState(
                 orderId,
                 group.GroupId,
-                OrderKind.Patrol,
+                kind,
                 destination,
                 dueAt,
                 new CampaignTime(checked(dueAt.Quanta + 30)),
@@ -179,9 +223,6 @@ internal static class CampaignSimulation
                 []);
         }
 
-        var origin = activeMembers[0].RegionId;
-        var next = NextRegion(state, origin, order.DestinationRegionId);
-        var moved = next != origin;
         var destination = RegionAnchor(state, order.DestinationRegionId, activeMembers[0].CoalitionId, activeMembers[0].Coordinate);
         var entityUpdates = group.Members.Select(id =>
         {
@@ -190,12 +231,15 @@ internal static class CampaignSimulation
             {
                 return entity;
             }
+            var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
+            var moved = next != entity.RegionId;
             var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
             var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
             var desired = hostileAhead && remaining > StandoffMeters
                 ? remaining - StandoffMeters
                 : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
-            var hop = Math.Min(MetersPerRegionHop, desired);
+            var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank : TelegraphCruise;
+            var hop = Math.Min(HopMeters(entity, movementTelegraph), desired);
             var resources = entity.Resources;
             if (hop > 0)
             {
@@ -233,15 +277,20 @@ internal static class CampaignSimulation
                 : entity;
         }).ToArray();
 
-        var arrived = next == order.DestinationRegionId
-            && activeMembers.All(entity =>
+        var arrived = activeMembers.All(entity =>
             {
+                var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
+                if (next != order.DestinationRegionId)
+                {
+                    return false;
+                }
                 var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
                 var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
                 var desired = hostileAhead && remaining > StandoffMeters
                     ? remaining - StandoffMeters
                     : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
-                return desired <= MetersPerRegionHop;
+                var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank : TelegraphCruise;
+                return desired <= HopMeters(entity, movementTelegraph);
             });
         if (!arrived)
         {
@@ -308,7 +357,13 @@ internal static class CampaignSimulation
             var randomDamage = KeyedValue(state.Metadata.Seed, entity.EntityId.Value, dueAt, "attrition") % 1_000 < 25
                 ? 25_000
                 : 0;
-            damage = Math.Min(1_000_000, checked(damage + shortageDamage + randomDamage));
+            var flooding = damage >= 200_000
+                && damage < 800_000
+                && home is null
+                && lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed)
+                ? 8_000
+                : 0;
+            damage = Math.Min(1_000_000, checked(damage + shortageDamage + randomDamage + flooding));
             if (damage >= 1_000_000)
             {
                 lifecycle = EntityLifecycle.Destroyed;
@@ -363,41 +418,80 @@ internal static class CampaignSimulation
         var orders = state.Orders;
         var outcomes = new List<OperationalOutcome>();
 
+        var liveState = state with { Entities = entities };
+        var bids = new List<(
+            EntityState Actor,
+            EntityState Entity,
+            OperationalWeaponCapability Weapon,
+            long ActualDistanceMeters,
+            long TargetingDistanceMeters,
+            GeoCoordinate TargetingCoordinate,
+            int Priority)>();
         foreach (var originalActor in entities.Values.OrderBy(item => item.EntityId))
         {
             var actor = entities[originalActor.EntityId];
-            if (!CanAttack(state with { Entities = entities }, actor)
-                || actor.SimulationDomain == SimulationDomain.Logistics)
+            if (!CanAttack(liveState, actor))
             {
                 continue;
             }
 
-            var liveState = state with { Entities = entities };
-            var targets = entities.Values
+            var selected = entities.Values
                 .Where(item => item.CoalitionId != actor.CoalitionId && CanBeAttacked(liveState, item))
                 .Select(item => SelectOperationalWeapon(liveState, actor, item))
                 .Where(item => item is not null)
                 .Select(item => item!.Value)
                 .Where(item => HasFireSolution(liveState, actor, item.Entity, item.ActualDistanceMeters))
-                .OrderByDescending(item => TargetPriority(
-                    liveState, actor, item.Entity, item.TargetingDistanceMeters, item.Weapon))
+                .Select(item => (
+                    Actor: actor,
+                    item.Entity,
+                    item.Weapon,
+                    item.ActualDistanceMeters,
+                    item.TargetingDistanceMeters,
+                    item.TargetingCoordinate,
+                    Priority: TargetPriority(
+                        liveState, actor, item.Entity, item.TargetingDistanceMeters, item.Weapon)))
+                .OrderByDescending(item => item.Priority)
                 .ThenBy(item => item.Entity.EntityId)
-                .ToArray();
-            if (targets.Length == 0)
+                .FirstOrDefault();
+            if (selected.Entity is not null)
+            {
+                bids.Add(selected);
+            }
+        }
+
+        var claimedActors = new HashSet<EntityId>();
+        var claimedTargets = new HashSet<EntityId>();
+        foreach (var bid in bids
+            .OrderByDescending(item => item.Priority)
+            .ThenBy(item => item.Actor.EntityId)
+            .ThenBy(item => item.Entity.EntityId))
+        {
+            if (claimedActors.Contains(bid.Actor.EntityId) || claimedTargets.Contains(bid.Entity.EntityId))
             {
                 continue;
             }
 
-            var selected = targets[0];
-            var target = selected.Entity;
+            var actor = entities[bid.Actor.EntityId];
+            var target = entities[bid.Entity.EntityId];
+            if (!CanAttack(state with { Entities = entities }, actor) || !CanBeAttacked(state with { Entities = entities }, target))
+            {
+                claimedActors.Remove(actor.EntityId);
+                claimedTargets.Remove(target.EntityId);
+                continue;
+            }
+
+            claimedActors.Add(actor.EntityId);
+            claimedTargets.Add(target.EntityId);
             var available = Get(actor.Resources, ResourceKind.Munitions);
-            var expenditure = Math.Min(available, WeaponExpenditure(selected.Weapon, actor.SimulationDomain));
+            var expenditure = Math.Min(available, WeaponExpenditure(bid.Weapon, actor.SimulationDomain));
             if (expenditure <= 0)
             {
+                claimedActors.Remove(actor.EntityId);
+                claimedTargets.Remove(target.EntityId);
                 continue;
             }
 
-            var interceptHeading = HeadingToward(actor.Coordinate, selected.TargetingCoordinate, actor.Heading);
+            var interceptHeading = HeadingToward(actor.Coordinate, bid.TargetingCoordinate, actor.Heading);
             actor = actor with
             {
                 Resources = Set(actor.Resources, ResourceKind.Munitions, available - expenditure),
@@ -408,22 +502,23 @@ internal static class CampaignSimulation
             entities = entities.SetItem(actor.EntityId, actor);
             outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.WeaponExpenditure, actor.RegionId,
                 actor.EntityId, target.EntityId, expenditure, 0,
-                $"{selected.Weapon.AmmunitionId} employment at {selected.ActualDistanceMeters} m "
-                + $"(catalog max {selected.Weapon.MaximumRange.Value} m)"));
+                $"{bid.Weapon.AmmunitionId} employment at {bid.ActualDistanceMeters} m "
+                + $"(catalog max {bid.Weapon.MaximumRange.Value} m)"));
 
-            var rangeRatio = selected.Weapon.MaximumRange.Value <= 0
+            var rangeRatio = bid.Weapon.MaximumRange.Value <= 0
                 ? 1_000
-                : (int)Math.Min(1_000, selected.ActualDistanceMeters * 1_000L / selected.Weapon.MaximumRange.Value);
+                : (int)Math.Min(1_000, bid.ActualDistanceMeters * 1_000L / bid.Weapon.MaximumRange.Value);
             var weatherPenalty = HitWeatherPenalty(state, target.RegionId);
             var subsurfacePenalty = Classify(target) == ContactClassification.Subsurface
-                && actor.SimulationDomain != SimulationDomain.Maritime ? 120 : 0;
+                && Classify(actor) != ContactClassification.Subsurface ? 120 : 0;
             var hitChance = Math.Clamp(
                 280 + actor.ReadinessMilliUnits / 2
                 - target.ReadinessMilliUnits / 8
                 + (actor.SimulationDomain == SimulationDomain.Air ? 80 : 0)
                 - rangeRatio / 4
                 - weatherPenalty
-                - subsurfacePenalty,
+                - subsurfacePenalty
+                - PointDefensePenalty(target, bid.ActualDistanceMeters),
                 80,
                 900);
             var roll = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-hit-{target.EntityId}") % 1_000;
@@ -434,7 +529,11 @@ internal static class CampaignSimulation
 
             var rangeDamage = 40_000 + (1_000 - rangeRatio) * 80
                 + KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-damage-{target.EntityId}") % 90_001;
-            var applied = Math.Min(rangeDamage, 1_000_000 - target.DamageMilliUnits);
+            var applied = Math.Min(rangeDamage, 800_000 - target.DamageMilliUnits);
+            if (applied <= 0)
+            {
+                continue;
+            }
             var totalDamage = target.DamageMilliUnits + applied;
             var lifecycle = totalDamage >= 1_000_000
                 ? EntityLifecycle.Destroyed
@@ -454,7 +553,7 @@ internal static class CampaignSimulation
             entities = entities.SetItem(target.EntityId, target);
             outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Damage, actor.RegionId,
                 actor.EntityId, target.EntityId, 0, applied,
-                $"Operational combat damage at {selected.ActualDistanceMeters} m"));
+                $"Operational combat damage at {bid.ActualDistanceMeters} m"));
             if (lifecycle == EntityLifecycle.Destroyed)
             {
                 outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Destruction, actor.RegionId,
@@ -682,8 +781,28 @@ internal static class CampaignSimulation
     private static bool CanAttack(CampaignState state, EntityState entity) =>
         IsOperational(state, entity)
         && entity.SimulationDomain != SimulationDomain.Logistics
-        && entity.OperationalWeapons.Length > 0
+        && EffectiveWeapons(entity).Length > 0
         && Get(entity.Resources, ResourceKind.Munitions) > 0;
+
+    private static ImmutableArray<OperationalWeaponCapability> EffectiveWeapons(EntityState entity)
+    {
+        if (entity.OperationalWeapons.Length > 0)
+        {
+            return entity.OperationalWeapons;
+        }
+
+        return entity.SimulationDomain switch
+        {
+            SimulationDomain.LandAbstract =>
+            [
+                new OperationalWeaponCapability(
+                    "abstract-corps-fires",
+                    ContactClassification.LandFormation,
+                    DistanceMeters.FromMeters(80_000)),
+            ],
+            _ => [],
+        };
+    }
 
     private static (
         EntityState Entity,
@@ -709,7 +828,7 @@ internal static class CampaignSimulation
         }
         var targetingCoordinate = visual ? target.Coordinate : estimate!.EstimatedCoordinate;
         var targetingDistanceMeters = RoundedGreatCircleDistanceMeters(actor.Coordinate, targetingCoordinate);
-        var weapon = actor.OperationalWeapons
+        var weapon = EffectiveWeapons(actor)
             .Where(item => OperationalWeaponTargets(item.TargetClassification, classification))
             .Where(item => actualDistanceMeters <= item.MaximumRange.Value)
             .Where(item => targetingDistanceMeters <= item.MaximumRange.Value)
@@ -834,7 +953,7 @@ internal static class CampaignSimulation
         || members.Any(item => item.SimulationDomain == SimulationDomain.Air
             && Get(item.Resources, ResourceKind.Fuel) < 150_000)
         || members.Any(item => item.SimulationDomain == SimulationDomain.Air
-            && item.OperationalWeapons.Length > 0
+            && EffectiveWeapons(item).Length > 0
             && Get(item.Resources, ResourceKind.Munitions) == 0)
         || members.Any(item => Classify(item) == ContactClassification.Subsurface
             && item.DamageMilliUnits >= 250_000)
@@ -849,7 +968,7 @@ internal static class CampaignSimulation
             return "Bingo fuel; task force ordered to withdraw";
         }
         if (members.Any(item => item.SimulationDomain == SimulationDomain.Air
-            && item.OperationalWeapons.Length > 0
+            && EffectiveWeapons(item).Length > 0
             && Get(item.Resources, ResourceKind.Munitions) == 0))
         {
             return "Winchester; task force ordered to withdraw";
@@ -1037,6 +1156,29 @@ internal static class CampaignSimulation
         return checked((int)longitudeMicrodegrees);
     }
 
+    private static long HopMeters(EntityState entity, int telegraph)
+    {
+        var cruise = entity.SimulationDomain switch
+        {
+            SimulationDomain.Air => 280_000L,
+            SimulationDomain.LandAbstract => 80_000L,
+            SimulationDomain.Logistics => 140_000L,
+            _ when Classify(entity) == ContactClassification.Subsurface => 90_000L,
+            _ => MetersPerRegionHop,
+        };
+        return telegraph == TelegraphFlank ? cruise + cruise / 5 : cruise;
+    }
+
+    private static int PointDefensePenalty(EntityState target, long distanceMeters)
+    {
+        if (distanceMeters > 25_000)
+        {
+            return 0;
+        }
+
+        return EffectiveWeapons(target).Any(item => item.MaximumRange.Value <= 40_000) ? 140 : 0;
+    }
+
     private static long RoundedGreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
     {
         const double microdegreesPerDegree = 1_000_000d;
@@ -1055,7 +1197,7 @@ internal static class CampaignSimulation
     }
 
     private static bool CanBeAttacked(CampaignState state, EntityState entity) =>
-        entity.Lifecycle is not (EntityLifecycle.Destroyed or EntityLifecycle.Retired)
+        entity.Lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired)
         && entity.Fidelity != FidelityState.Suspended
         && !HasActiveTacticalAuthority(state, entity.EntityId);
 
@@ -1074,6 +1216,14 @@ internal static class CampaignSimulation
         if (score == 0)
         {
             return 0;
+        }
+        if (sensor.Telegraph == TelegraphStop)
+        {
+            score -= 90;
+        }
+        if (target.Telegraph is TelegraphFlank or TelegraphIntercept)
+        {
+            score += 70;
         }
         if (sensor.SimulationDomain == SimulationDomain.Air)
         {
@@ -1173,8 +1323,8 @@ internal static class CampaignSimulation
     private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
         state.Assignments.Values.Any(item => item.EntityId == entityId
             && !CampaignAssignmentKinds.IsOperationalSim(item)
-            && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared
-                or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
+            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                or AssignmentLifecycle.Quiesced);
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)
