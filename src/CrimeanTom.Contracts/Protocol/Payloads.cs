@@ -1452,3 +1452,107 @@ public sealed class ExperimentalPauseResultPayload
 
     public string Postcondition { get; set; } = string.Empty;
 }
+
+public sealed class CaptureColliderCatalogRequestPayload
+{
+    public bool ForceRefresh { get; set; }
+
+    public string? UnitTypeId { get; set; }
+}
+
+public sealed class ColliderPrimitivePayload
+{
+    public string Kind { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public bool IsTrigger { get; set; }
+
+    public bool Enabled { get; set; }
+
+    public float[] Center { get; set; } = Array.Empty<float>();
+
+    public float[] Size { get; set; } = Array.Empty<float>();
+
+    public float[] Rotation { get; set; } = Array.Empty<float>();
+
+    public float Radius { get; set; }
+
+    public float Height { get; set; }
+
+    public int Direction { get; set; }
+}
+
+public sealed class ColliderUnitGeometryPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string GameVersion { get; set; } = string.Empty;
+
+    public string UnitTypeId { get; set; } = string.Empty;
+
+    public string ClassName { get; set; } = string.Empty;
+
+    public string Source { get; set; } = "live-objectbase";
+
+    public long CapturedAtUnixMilliseconds { get; set; }
+
+    public int ColliderCount { get; set; }
+
+    public string Sha256 { get; set; } = string.Empty;
+
+    public ColliderPrimitivePayload[] Colliders { get; set; } = Array.Empty<ColliderPrimitivePayload>();
+}
+
+public sealed class ColliderCatalogEntryPayload
+{
+    public string UnitTypeId { get; set; } = string.Empty;
+
+    public string ClassName { get; set; } = string.Empty;
+
+    public int ColliderCount { get; set; }
+
+    public string Sha256 { get; set; } = string.Empty;
+
+    public bool InMemory { get; set; }
+
+    public string FilePath { get; set; } = string.Empty;
+}
+
+public sealed class CaptureColliderCatalogResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string CacheDirectory { get; set; } = string.Empty;
+
+    public string GameVersion { get; set; } = string.Empty;
+
+    public int ScannedObjectCount { get; set; }
+
+    public int CapturedUnitCount { get; set; }
+
+    public int MemoryCount { get; set; }
+
+    public int FileCount { get; set; }
+
+    public string Postcondition { get; set; } = string.Empty;
+
+    public ColliderCatalogEntryPayload[] Entries { get; set; } = Array.Empty<ColliderCatalogEntryPayload>();
+}
+
+public sealed class GetColliderCatalogResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string CacheDirectory { get; set; } = string.Empty;
+
+    public string GameVersion { get; set; } = string.Empty;
+
+    public int MemoryCount { get; set; }
+
+    public int FileCount { get; set; }
+
+    public ColliderCatalogEntryPayload[] Entries { get; set; } = Array.Empty<ColliderCatalogEntryPayload>();
+
+    public ColliderUnitGeometryPayload? Geometry { get; set; }
+}

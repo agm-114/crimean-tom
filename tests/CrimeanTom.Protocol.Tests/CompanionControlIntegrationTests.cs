@@ -1359,6 +1359,24 @@ public sealed class CompanionControlIntegrationTests
                 screenshotHash,
                 repeatedScreenshot.RootElement.GetProperty("sha256").GetString());
 
+            using var colliderCapture = await PostAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders/capture",
+                testTimeout.Token);
+            Assert.Equal(
+                "no-unit-colliders-captured",
+                colliderCapture.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(0, colliderCapture.RootElement.GetProperty("memoryCount").GetInt32());
+
+            using var colliderCatalog = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders?unitTypeId=usn_ff_knox_84",
+                testTimeout.Token);
+            Assert.Equal(0, colliderCatalog.RootElement.GetProperty("memoryCount").GetInt32());
+            Assert.Equal(JsonValueKind.Null, colliderCatalog.RootElement.GetProperty("geometry").ValueKind);
+
             using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -2461,6 +2479,12 @@ public sealed class CompanionControlIntegrationTests
                         CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     },
                     JsonOptions),
+                GameCommandTypes.CaptureColliderCatalog => JsonSerializer.Serialize(
+                    CreateEmptyColliderCapture(probeSavePath),
+                    JsonOptions),
+                GameCommandTypes.GetColliderCatalog => JsonSerializer.Serialize(
+                    CreateEmptyColliderCatalog(probeSavePath),
+                    JsonOptions),
                 GameCommandTypes.FocusCameraOnUnit => JsonSerializer.Serialize(
                     new UiAutomationActionResultPayload
                     {
@@ -3003,6 +3027,34 @@ public sealed class CompanionControlIntegrationTests
             Unit = unit,
         };
     }
+
+    private static CaptureColliderCatalogResultPayload CreateEmptyColliderCapture(string probeSavePath)
+    {
+        var catalog = CreateEmptyColliderCatalog(probeSavePath);
+        return new CaptureColliderCatalogResultPayload
+        {
+            SchemaVersion = catalog.SchemaVersion,
+            CacheDirectory = catalog.CacheDirectory,
+            GameVersion = catalog.GameVersion,
+            ScannedObjectCount = 0,
+            CapturedUnitCount = 0,
+            MemoryCount = catalog.MemoryCount,
+            FileCount = catalog.FileCount,
+            Postcondition = "no-unit-colliders-captured",
+            Entries = catalog.Entries,
+        };
+    }
+
+    private static GetColliderCatalogResultPayload CreateEmptyColliderCatalog(string probeSavePath) =>
+        new()
+        {
+            SchemaVersion = 1,
+            CacheDirectory = Path.Combine(Path.GetDirectoryName(probeSavePath) ?? ".", "collider-catalog"),
+            GameVersion = "integration",
+            MemoryCount = 0,
+            FileCount = 0,
+            Entries = [],
+        };
 
     private static WorldSnapshotPayload CreateWorldSnapshot()
     {
@@ -5499,6 +5551,8 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.GetWorldSnapshot
                 or GameCommandTypes.GetUiInspection
                 or GameCommandTypes.CaptureGameScreenshot
+                or GameCommandTypes.CaptureColliderCatalog
+                or GameCommandTypes.GetColliderCatalog
                 or GameCommandTypes.FocusCameraOnUnit
                 or GameCommandTypes.SetTacticalHudPanel)
             {

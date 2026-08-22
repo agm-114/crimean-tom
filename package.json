@@ -40,6 +40,8 @@
     "game:campaign": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 campaign",
     "game:ui": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 ui",
     "game:screenshot": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 screenshot",
+    "game:colliders": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 colliders",
+    "game:colliders:capture": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 colliders-capture",
     "game:open-task-force-builder": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 open-task-force-builder",
     "game:control-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 test",
     "inventory:determinism": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/determinism-inventory.ps1",

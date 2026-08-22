@@ -84,6 +84,8 @@ public static class GameCommandTypes
     public const string GetCampaignManagementState = "get-campaign-management-state";
     public const string GetUiInspection = "get-ui-inspection";
     public const string CaptureGameScreenshot = "capture-game-screenshot";
+    public const string CaptureColliderCatalog = "capture-collider-catalog";
+    public const string GetColliderCatalog = "get-collider-catalog";
     public const string FocusCameraOnUnit = "focus-camera-on-unit";
     public const string SetTacticalHudPanel = "set-tactical-hud-panel";
     public const string OpenTaskForceBuilder = "open-task-force-builder";
@@ -122,6 +124,8 @@ public static class GameCommandTypes
         GetCampaignManagementState,
         GetUiInspection,
         CaptureGameScreenshot,
+        CaptureColliderCatalog,
+        GetColliderCatalog,
     };
 
     public static readonly string[] UiAutomationCommands =
@@ -174,6 +178,8 @@ public static class GameCommandTypes
         GetCampaignManagementState,
         GetUiInspection,
         CaptureGameScreenshot,
+        CaptureColliderCatalog,
+        GetColliderCatalog,
         FocusCameraOnUnit,
         SetTacticalHudPanel,
         OpenTaskForceBuilder,
