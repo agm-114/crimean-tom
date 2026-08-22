@@ -100,8 +100,9 @@ class and launch, projectile, or endurance range into canonical campaign state.
 Operational combat can select only a compatible snapshotted weapon whose range
 contains the rounded great-circle separation. Fire is not limited to the same
 region: any in-range hostile is eligible, but the kernel holds fire without a
-visual or intelligence solution (Unknown/Possible contacts require a damaged or
-unready shooter). Hit chance, expenditure, and damage scale with range and
+visual or classified intelligence solution (Possible contacts require a damaged
+or unready shooter; Unknown contacts are never used to select weapons). Hit
+chance, expenditure, and damage scale with range and
 ammunition class; units steer toward orders, face contacts, evade when hit, and
 withdraw on bingo, winchester, or heavy damage. This is a deterministic
 Operational analogue, not Sea Power physics, sensors, or projectiles. Missing or

@@ -477,25 +477,23 @@ internal static class CampaignFidelityScheduler
             }
         }
 
-        var recentCombatRegions = state.RecentOperationalOutcomes
+        var recentCombatOutcomes = state.RecentOperationalOutcomes
             .Where(item => state.Time.Quanta - item.OccurredAt.Quanta <= InteractionFenceQuanta
                 && item.Kind is OperationalOutcomeKind.WeaponExpenditure or OperationalOutcomeKind.Damage
                     or OperationalOutcomeKind.Destruction)
-            .Select(item => item.RegionId)
+            .ToArray();
+        var recentCombatEntities = recentCombatOutcomes
+            .SelectMany(item => item.TargetEntityId is { } targetId
+                ? new[] { item.ActorEntityId, targetId }
+                : [item.ActorEntityId])
             .ToHashSet();
-        for (var left = 0; left < groupNodes.Length; left++)
+        foreach (var outcome in recentCombatOutcomes)
         {
-            for (var right = left + 1; right < groupNodes.Length; right++)
+            if (outcome.TargetEntityId is { } targetId
+                && entityIndexes.TryGetValue(outcome.ActorEntityId, out var actorIndex)
+                && entityIndexes.TryGetValue(targetId, out var targetIndex))
             {
-                if (groupNodes[left].CoalitionId == groupNodes[right].CoalitionId) continue;
-                var leftRegions = groupNodes[left].Members.Select(id => state.Entities[id].RegionId).ToHashSet();
-                var rightRegions = groupNodes[right].Members.Select(id => state.Entities[id].RegionId).ToHashSet();
-                if (leftRegions.Intersect(rightRegions).Any(recentCombatRegions.Contains))
-                {
-                    Union(
-                        entityIndexes[groupNodes[left].Members.Min],
-                        entityIndexes[groupNodes[right].Members.Min]);
-                }
+                Union(actorIndex, targetIndex);
             }
         }
 
@@ -542,7 +540,7 @@ internal static class CampaignFidelityScheduler
                     .Where(item => members.Contains(item.SourceEntityId)
                         && members.Contains(item.TargetEntityId))
                     .ToArray();
-                return CreateIsland(state, entityIds, groupIds, recentCombatRegions, coupling);
+                return CreateIsland(state, entityIds, groupIds, recentCombatEntities, coupling);
             })
             .OrderBy(item => item.IslandId, StringComparer.Ordinal)
             .ToArray();
@@ -552,12 +550,12 @@ internal static class CampaignFidelityScheduler
         CampaignState state,
         IReadOnlyList<EntityId> entityIds,
         IReadOnlyList<GroupId> groupIds,
-        IReadOnlySet<RegionId> combatRegions,
+        IReadOnlySet<EntityId> combatEntities,
         IReadOnlyList<ResolvedCouplingRelationship> relationships)
     {
         var unsafeToSplit = relationships.Any(item => item.Relationship.UnsafeToSplit);
         var engaged = unsafeToSplit
-            || entityIds.Any(id => combatRegions.Contains(state.Entities[id].RegionId));
+            || entityIds.Any(combatEntities.Contains);
         var grouped = groupIds.SelectMany(id => state.Groups[id].Members).ToHashSet();
         var material = string.Join(':', groupIds.Select(id => id.Value.ToString("N"))
             .Concat(entityIds.Where(id => !grouped.Contains(id))
