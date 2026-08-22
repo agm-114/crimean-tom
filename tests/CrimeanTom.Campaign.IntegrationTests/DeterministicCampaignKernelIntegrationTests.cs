@@ -81,6 +81,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(new CampaignTime(30), simulated.Time);
         Assert.Equal(Ids.Odessa, simulated.Entities[Ids.BlueKnox].RegionId);
         Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueOiler].RegionId);
+        Assert.NotEqual(0, simulated.Entities[Ids.BlueOiler].Heading.Value);
+        Assert.True(simulated.Entities[Ids.BlueOiler].Telegraph is 2 or 3 or 4);
         Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
         Assert.Equal(800_000, simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits);
@@ -91,6 +93,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(2, simulated.Intelligence.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.Detail is not null
+            && item.Detail.Contains("catalog max", StringComparison.Ordinal));
         var calibration = CampaignCalibration.Evaluate(
             simulated.RecentOperationalOutcomes,
             CampaignCalibration.HealthyTicksPerWallSecond,
@@ -131,9 +138,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("845cb503d344c094f1af692c0f29fd2aa251e150cf37b117ccd839934a4c07fa", longHorizon.Hash);
+        Assert.Equal("c3f9977e97b522f55c4685231b447036b296818a402b737b7c845e45f0657fd9", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("c4605852499091e553e2c057493ee254e5d25f9f8be0e3e47dd270eafe88644d", migrated.Hash);
+        Assert.Equal("27f19bd6efda8ae803a5e46eec4da1376dbd1b9fcbaef33c6f10f74b30045c19", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -245,8 +252,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(6, CampaignSchema.Version);
-        Assert.Equal(6, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(7, CampaignSchema.Version);
+        Assert.Equal(7, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
