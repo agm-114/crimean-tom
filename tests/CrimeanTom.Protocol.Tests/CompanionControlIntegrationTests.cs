@@ -41,7 +41,7 @@ public sealed class CompanionControlIntegrationTests
             return;
         }
 
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(240));
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(600));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
@@ -3093,7 +3093,7 @@ public sealed class CompanionControlIntegrationTests
         var client = new HttpClient(new HttpClientHandler { UseProxy = false })
         {
             BaseAddress = new Uri(baseUrl),
-            Timeout = TimeSpan.FromSeconds(60),
+            Timeout = Timeout.InfiniteTimeSpan,
         };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;

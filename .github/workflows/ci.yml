@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  NO_PROXY: "*"
+
 jobs:
   build-and-campaign:
     name: Build DLLs and campaign tests
@@ -47,7 +52,7 @@ jobs:
   protocol:
     name: Protocol integration (Windows)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

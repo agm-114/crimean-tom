@@ -54,7 +54,10 @@ public sealed class CampaignCompanionClient(
     private async Task ConnectOnceAsync(CancellationToken cancellationToken)
     {
         var token = (await File.ReadAllTextAsync(options.TokenFile, cancellationToken)).Trim();
-        using var channel = GrpcChannel.ForAddress(options.GrpcUri);
+        using var channel = GrpcChannel.ForAddress(options.GrpcUri, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+        });
         var client = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
         using var call = client.Connect(headers, cancellationToken: cancellationToken);
