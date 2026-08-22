@@ -93,7 +93,10 @@ public static class CampaignCanonicalSerializer
                     ParseEnum<IntelligenceConfidence>(item.Confidence), new CampaignTime(item.ObservedAt),
                     item.UncertaintyRadiusMeters, ParseEnum<ContactClassification>(item.Classification),
                     new EntityRevision(item.Revision),
-                    ParseEnum<SensorChannel>(item.Channel));
+                    ParseEnum<SensorChannel>(item.Channel),
+                    ParseEnum<TrackQuality>(item.Quality),
+                    item.ObservedHeadingMilliDegrees,
+                    item.ObservedSpeedMetersPerTick);
             }).ToImmutableSortedDictionary(item => item.Key, item => item),
             Weather = document.Weather.Select(item => new WeatherState(
                 ParseId(item.RegionId, value => new RegionId(value)), new HeadingMilliDegrees(item.WindDirectionMilliDegrees),
@@ -151,7 +154,10 @@ public static class CampaignCanonicalSerializer
                 item.RemainingMeters,
                 item.SpeedMetersPerTick,
                 item.InsDriftMilliUnits,
-                new CampaignTime(item.LaunchedAt))).ToImmutableArray(),
+                new CampaignTime(item.LaunchedAt),
+                ParseEnum<OrdnanceKind>(item.Kind),
+                item.SeekerDelayTicks,
+                item.LostGuidanceTicks)).ToImmutableArray(),
         };
         CampaignStateValidator.Validate(state);
         return state;
@@ -269,6 +275,19 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("propulsionIntegrityMilliUnits", item.Analogue.PropulsionIntegrityMilliUnits);
             writer.WriteNumber("sensorIntegrityMilliUnits", item.Analogue.SensorIntegrityMilliUnits);
             writer.WriteNumber("weaponIntegrityMilliUnits", item.Analogue.WeaponIntegrityMilliUnits);
+            writer.WriteNumber("emcon", (int)item.Analogue.Emcon);
+            writer.WriteNumber("roe", (int)item.Analogue.Roe);
+            writer.WriteNumber("alert", (int)item.Analogue.Alert);
+            writer.WriteNumber("magazineIntegrityMilliUnits", item.Analogue.MagazineIntegrityMilliUnits);
+            writer.WriteNumber("flightDeckIntegrityMilliUnits", item.Analogue.FlightDeckIntegrityMilliUnits);
+            writer.WriteNumber("crewMilliUnits", item.Analogue.CrewMilliUnits);
+            writer.WriteNumber("portIntegrityMilliUnits", item.Analogue.PortIntegrityMilliUnits);
+            writer.WriteNumber("starboardIntegrityMilliUnits", item.Analogue.StarboardIntegrityMilliUnits);
+            writer.WriteNumber("ecmMilliUnits", item.Analogue.EcmMilliUnits);
+            writer.WriteNumber("countermeasureMilliUnits", item.Analogue.CountermeasureMilliUnits);
+            writer.WriteNumber("weaponReadyMilliUnits", item.Analogue.WeaponReadyMilliUnits);
+            writer.WriteNumber("hostedAircraft", item.Analogue.HostedAircraft);
+            writer.WriteNumber("snorkelCycle", item.Analogue.SnorkelCycle);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -352,6 +371,9 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("uncertaintyRadiusMeters", item.UncertaintyRadiusMeters);
             writer.WriteNumber("classification", (int)item.Classification);
             writer.WriteNumber("channel", (int)item.Channel);
+            writer.WriteNumber("quality", (int)item.Quality);
+            writer.WriteNumber("observedHeadingMilliDegrees", item.ObservedHeadingMilliDegrees);
+            writer.WriteNumber("observedSpeedMetersPerTick", item.ObservedSpeedMetersPerTick);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -405,6 +427,9 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("speedMetersPerTick", item.SpeedMetersPerTick);
             writer.WriteNumber("insDriftMilliUnits", item.InsDriftMilliUnits);
             writer.WriteNumber("launchedAt", item.LaunchedAt.Quanta);
+            writer.WriteNumber("kind", (int)item.Kind);
+            writer.WriteNumber("seekerDelayTicks", item.SeekerDelayTicks);
+            writer.WriteNumber("lostGuidanceTicks", item.LostGuidanceTicks);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -637,6 +662,19 @@ public static class CampaignCanonicalSerializer
         public int PropulsionIntegrityMilliUnits { get; init; } = 1_000;
         public int SensorIntegrityMilliUnits { get; init; } = 1_000;
         public int WeaponIntegrityMilliUnits { get; init; } = 1_000;
+        public int Emcon { get; init; }
+        public int Roe { get; init; } = (int)RulesOfEngagement.WeaponsTight;
+        public int Alert { get; init; }
+        public int MagazineIntegrityMilliUnits { get; init; } = 1_000;
+        public int FlightDeckIntegrityMilliUnits { get; init; } = 1_000;
+        public int CrewMilliUnits { get; init; } = 1_000;
+        public int PortIntegrityMilliUnits { get; init; } = 1_000;
+        public int StarboardIntegrityMilliUnits { get; init; } = 1_000;
+        public int EcmMilliUnits { get; init; }
+        public int CountermeasureMilliUnits { get; init; } = 1_000;
+        public int WeaponReadyMilliUnits { get; init; } = 1_000;
+        public int HostedAircraft { get; init; }
+        public int SnorkelCycle { get; init; }
         public required long Revision { get; init; }
     }
 
@@ -681,6 +719,9 @@ public static class CampaignCanonicalSerializer
         public required int UncertaintyRadiusMeters { get; init; }
         public required int Classification { get; init; }
         public int Channel { get; init; }
+        public int Quality { get; init; }
+        public int ObservedHeadingMilliDegrees { get; init; }
+        public int ObservedSpeedMetersPerTick { get; init; }
         public required long Revision { get; init; }
     }
 
@@ -769,6 +810,9 @@ public static class CampaignCanonicalSerializer
         public required long SpeedMetersPerTick { get; init; }
         public required int InsDriftMilliUnits { get; init; }
         public required long LaunchedAt { get; init; }
+        public int Kind { get; init; }
+        public int SeekerDelayTicks { get; init; }
+        public int LostGuidanceTicks { get; init; }
     }
 
     private static AnalogueTacticalCondition ReadAnalogue(EntityDocument item) => new(
@@ -777,5 +821,18 @@ public static class CampaignCanonicalSerializer
         item.FloodMilliUnits,
         item.PropulsionIntegrityMilliUnits,
         item.SensorIntegrityMilliUnits,
-        item.WeaponIntegrityMilliUnits);
+        item.WeaponIntegrityMilliUnits,
+        ParseEnum<EmconState>(item.Emcon),
+        ParseEnum<RulesOfEngagement>(item.Roe),
+        ParseEnum<AlertState>(item.Alert),
+        item.MagazineIntegrityMilliUnits,
+        item.FlightDeckIntegrityMilliUnits,
+        item.CrewMilliUnits,
+        item.PortIntegrityMilliUnits,
+        item.StarboardIntegrityMilliUnits,
+        item.EcmMilliUnits,
+        item.CountermeasureMilliUnits,
+        item.WeaponReadyMilliUnits,
+        item.HostedAircraft,
+        item.SnorkelCycle);
 }

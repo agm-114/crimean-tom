@@ -33,7 +33,9 @@ public sealed record ContactProjection(
     int UncertaintyRadiusMeters,
     ContactClassification Classification,
     CampaignTime ObservedAt,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    SensorChannel Channel,
+    TrackQuality Quality);
 
 public sealed record CoalitionCampaignProjection(
     CampaignId CampaignId,
@@ -84,7 +86,9 @@ public static class CampaignProjectionBuilder
                 estimate.UncertaintyRadiusMeters,
                 estimate.Classification,
                 estimate.ObservedAt,
-                estimate.Revision))
+                estimate.Revision,
+                estimate.Channel,
+                estimate.Quality))
             .ToArray();
 
         return new CoalitionCampaignProjection(
