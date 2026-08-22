@@ -2184,7 +2184,12 @@ internal static class GameCommandDispatcher
 
     private static Texture2D ScaleTexture(Texture2D source, int width, int height)
     {
-        var render = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            var render = RenderTexture.GetTemporary(
+                width,
+                height,
+                0,
+                RenderTextureFormat.ARGB32,
+                RenderTextureReadWrite.Linear);
         var previous = RenderTexture.active;
         try
         {
@@ -2235,7 +2240,10 @@ internal static class GameCommandDispatcher
                 $"Unit ID '{requestedId}' resolved to {matches.Length} live objects.");
         }
 
-        Singleton<RenderPosition>.Instance.switchToObject(matches[0], performSmoothMove: false);
+        Singleton<RenderPosition>.Instance.switchToObject(
+            matches[0],
+            performSmoothMove: false,
+            checkAirLeader: false);
         var selected = Singleton<RenderPosition>.Instance.getSelectedObject();
         var selectedId = selected is not null && selected.isUnit()
             ? StableUnitId(selected)
@@ -2274,19 +2282,48 @@ internal static class GameCommandDispatcher
         switch (panel)
         {
             case "map":
-                main!.ToggleMapOpen();
+            {
+                var before = main!.MapVisible;
+                if (request.Visible is { } already && already == before)
+                {
+                    postcondition = already ? "tactical-map-visible" : "tactical-map-hidden";
+                    break;
+                }
+
+                main.ToggleMapOpen();
+                if (main.MapVisible == before)
+                {
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPostconditionFailed,
+                        "Tactical map toggle did not change MapVisible.");
+                }
+
+                if (request.Visible is { } wanted && main.MapVisible != wanted)
+                {
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPostconditionFailed,
+                        "Tactical map did not reach the requested visibility.");
+                }
+
                 postcondition = main.MapVisible ? "tactical-map-visible" : "tactical-map-hidden";
                 break;
+            }
             case "formation":
-                main!.ShowFormationManager = !main.ShowFormationManager;
+            {
+                var desired = request.Visible ?? !main!.ShowFormationManager;
+                main!.ShowFormationManager = desired;
                 postcondition = main.ShowFormationManager
                     ? "formation-manager-visible"
                     : "formation-manager-hidden";
                 break;
+            }
             case "hud":
-                MainGameViewModel.SetHudVisible(!MainGameViewModel.GetHudVisible());
+            {
+                var desired = request.Visible ?? !MainGameViewModel.GetHudVisible();
+                MainGameViewModel.SetHudVisible(desired);
                 postcondition = MainGameViewModel.GetHudVisible() ? "hud-visible" : "hud-hidden";
                 break;
+            }
             case "pause-resume":
                 var currentWindow = Singleton<MenuSystemViewModel>.InstanceExists()
                     ? Singleton<MenuSystemViewModel>.Instance.CurrentWindow

@@ -222,10 +222,12 @@ app.MapPost("/game/screenshot", async (
     var scheduled = JsonSerializer.Deserialize<CaptureGameScreenshotResultPayload>(
         result.ResultJson,
         wireJsonOptions) ?? new CaptureGameScreenshotResultPayload();
+    var previousHash = await TryHashFileAsync(scheduled.FilePath, cancellationToken);
     var stableHash = await WaitForStableFileHashAsync(
         scheduled.FilePath,
-        TimeSpan.FromSeconds(8),
-        cancellationToken);
+        TimeSpan.FromSeconds(15),
+        cancellationToken,
+        excludeHash: previousHash);
     if (string.IsNullOrEmpty(stableHash))
     {
         return Results.Json(new
@@ -951,10 +953,40 @@ static int ReadBoundedInteger(
     return parsed;
 }
 
+static async Task<string?> TryHashFileAsync(string path, CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+    {
+        return null;
+    }
+
+    try
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (stream.Length <= 0)
+        {
+            return null;
+        }
+
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+    }
+    catch (IOException)
+    {
+        return null;
+    }
+}
+
 static async Task<string> WaitForStableFileHashAsync(
     string path,
     TimeSpan timeout,
-    CancellationToken cancellationToken)
+    CancellationToken cancellationToken,
+    string? excludeHash = null)
 {
     if (string.IsNullOrWhiteSpace(path))
     {
@@ -981,7 +1013,13 @@ static async Task<string> WaitForStableFileHashAsync(
                 var hash = Convert.ToHexString(await SHA256.HashDataAsync(
                     stream,
                     cancellationToken)).ToLowerInvariant();
-                if (hash == priorHash && stream.Length > 0)
+                if (!string.IsNullOrEmpty(excludeHash)
+                    && string.Equals(hash, excludeHash, StringComparison.Ordinal))
+                {
+                    priorHash = hash;
+                    consecutiveMatches = 0;
+                }
+                else if (hash == priorHash && stream.Length > 0)
                 {
                     consecutiveMatches++;
                     if (consecutiveMatches >= 2)
