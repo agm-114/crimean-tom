@@ -483,6 +483,8 @@ public sealed class CompanionControlIntegrationTests
             var activeWorker = Assert.Single(activeCampaign.RootElement.GetProperty("workers").EnumerateArray());
             Assert.Equal(4, activeWorker.GetProperty("tacticalEntityCapacity").GetInt32());
             Assert.Equal(1, activeWorker.GetProperty("tacticalReserveCapacity").GetInt32());
+            Assert.Equal("Healthy", activeWorker.GetProperty("health").GetString());
+            Assert.Equal("Eligible", activeWorker.GetProperty("eligibility").GetString());
             Assert.Equal(1, activeWorker.GetProperty("occupiedTacticalEntityCount").GetInt32());
             Assert.Equal(0, activeWorker.GetProperty("promotionHeadroom").GetInt32());
             Assert.Equal(1, activeWorker.GetProperty("migrationOverlapHeadroom").GetInt32());
@@ -3565,6 +3567,73 @@ public sealed class CompanionControlIntegrationTests
         });
         Assert.True(await call.ResponseStream.MoveNext(cancellationToken));
         Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, call.ResponseStream.Current.PayloadCase);
+        await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
+
+        const string quarantinedClientId = "30000000000000000000000000000003";
+        using var quarantinedCall = transport.Connect(
+            new Metadata { { "authorization", $"Bearer {campaignToken}" } },
+            cancellationToken: cancellationToken);
+        await quarantinedCall.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 1,
+            Hello = new CompanionHello
+            {
+                ProtocolVersion = 1,
+                ClientInstanceId = quarantinedClientId,
+                GameSessionId = "quarantined-destination-worker",
+                CampaignId = campaignId,
+                ReconnectCommitPosition = 0,
+                RuntimeFingerprintSha256 = new string('f', 64),
+                CatalogFingerprintSha256 = new string('1', 64),
+                PlayerTaskforceId = "taskforce:Blue",
+                TacticalEntityCapacity = 4,
+                TacticalReserveCapacity = 1,
+                Health = "Quarantined",
+                Eligibility = "Quarantined",
+                MaterializationProfiles =
+                {
+                    new TacticalMaterializationProfile
+                    {
+                        UnitTypeId = "usn_ff_knox_84",
+                        VariantId = "Variant43",
+                        LoadoutId = "Default",
+                    },
+                },
+            },
+        });
+        Assert.True(await quarantinedCall.ResponseStream.MoveNext(cancellationToken));
+        Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, quarantinedCall.ResponseStream.Current.PayloadCase);
+        await WaitForCampaignSessionCountAsync(campaignClient, 3, cancellationToken);
+
+        using var quarantinedView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);
+        quarantinedView.EnsureSuccessStatusCode();
+        using var quarantinedViewBody = JsonDocument.Parse(
+            await quarantinedView.Content.ReadAsStringAsync(cancellationToken));
+        var quarantinedWorker = Assert.Single(
+            quarantinedViewBody.RootElement.GetProperty("workers").EnumerateArray(),
+            item => item.GetProperty("clientInstanceId").GetString() == quarantinedClientId);
+        Assert.Equal("Quarantined", quarantinedWorker.GetProperty("health").GetString());
+        Assert.Equal("Quarantined", quarantinedWorker.GetProperty("eligibility").GetString());
+
+        using var quarantinedPreferred = await campaignClient.PostAsJsonAsync(
+            $"/control/campaigns/{campaignId}/prepare-shadow",
+            new
+            {
+                campaignId,
+                canonicalEntityId = primaryEntityId,
+                preferredDestinationClientInstanceId = quarantinedClientId,
+                idempotencyKey = "shadow-quarantined-pref",
+            },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, quarantinedPreferred.StatusCode);
+        using var quarantinedPreferredBody = JsonDocument.Parse(
+            await quarantinedPreferred.Content.ReadAsStringAsync(cancellationToken));
+        Assert.Equal(
+            "shadow-destination-mismatch",
+            quarantinedPreferredBody.RootElement.GetProperty("error").GetString());
+
+        await quarantinedCall.RequestStream.CompleteAsync();
+        quarantinedCall.Dispose();
         await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
 
         using var sourceView = await campaignClient.GetAsync($"/campaigns/{campaignId}", cancellationToken);

@@ -340,9 +340,9 @@ server-side admission policy now exposes occupied count, ordinary promotion
 headroom and the protected reserve still physically available for temporary
 migration overlap. Placement and the monitor use those server-derived values,
 so the UI cannot overstate headroom from a stale materialized count. The overlap
-value is diagnostic only: explicit per-worker health and a durable
-non-publishing destination-preparation state remain prerequisites for spending
-it without violating the one-Primary fence.
+value remains an admission envelope, not a second publisher. Worker hello and
+heartbeat now carry explicit health and eligibility, and Shadow/promotion
+admission refuse unhealthy destinations.
 
 New assignments now reference the latest durable checkpoint for their entity.
 The companion downloads that blob with campaign authentication and verifies its
