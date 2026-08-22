@@ -137,6 +137,14 @@ effects, guidance, and damage. Until that exists, do not claim a qualified
 tactical radius larger than the 67.2 km relocation trigger plus the Phase 1
 kinematics observation.
 
+`get-world-snapshot` now reports geodetic maxima, objects whose tiles are not
+in `TerrainManager.TerrainChunkDictionary`, and launched weapons on those
+unloaded tiles (`SpatialDiagnostics` schema 2). `pnpm game:bubble-probe`
+samples `/game/world` twice and writes that envelope only after a tactical
+mission and its initial terrain load are ready. A non-zero
+`activeWeaponCountBeyondLoadedTerrain` is a hint, not a qualified combat
+radius. A zero count is not proof that such combat is impossible.
+
 ## Related notes
 
 - [Runtime architecture](runtime-architecture.md) — origin, time, disable/destroy.
