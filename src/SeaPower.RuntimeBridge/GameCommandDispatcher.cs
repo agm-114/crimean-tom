@@ -2126,6 +2126,13 @@ internal static class GameCommandDispatcher
         var maxWidth = request.MaxWidth < 320 ? 1920 : Math.Min(request.MaxWidth, 3840);
         var path = RuntimeInstanceConfiguration.Current.GetExperimentalSavePath(ScreenshotFileName);
         var sceneName = SceneManager.GetActiveScene().name ?? string.Empty;
+        var width = Screen.width;
+        var height = Screen.height;
+        if (width > maxWidth && width > 0)
+        {
+            height = Math.Max(1, height * maxWidth / width);
+            width = maxWidth;
+        }
         _endOfFrameAction = () => WriteScreenshotPng(path, maxWidth);
         return Success(new CaptureGameScreenshotResultPayload
         {
@@ -2133,6 +2140,8 @@ internal static class GameCommandDispatcher
             Postcondition = "screenshot-capture-scheduled",
             FileName = ScreenshotFileName,
             FilePath = path,
+            Width = width,
+            Height = height,
             SceneName = sceneName,
             CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         });
