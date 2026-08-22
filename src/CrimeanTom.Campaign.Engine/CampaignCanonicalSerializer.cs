@@ -671,7 +671,7 @@ public static class CampaignCanonicalSerializer
         public int PortIntegrityMilliUnits { get; init; } = 1_000;
         public int StarboardIntegrityMilliUnits { get; init; } = 1_000;
         public int EcmMilliUnits { get; init; }
-        public int CountermeasureMilliUnits { get; init; }
+        public int CountermeasureMilliUnits { get; init; } = 1_000;
         public int WeaponReadyMilliUnits { get; init; } = 1_000;
         public int HostedAircraft { get; init; }
         public int SnorkelCycle { get; init; }

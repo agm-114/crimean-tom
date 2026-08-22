@@ -100,7 +100,7 @@ internal static class CampaignSimulation
         }
 
         var movedState = withIntent with { Entities = entities, Groups = groups, Orders = orders };
-        movedState = ApplyCollisionAvoidance(movedState);
+        movedState = ApplyCollisionAvoidance(withIntent, movedState);
         var sustained = ResolveSustainmentAndAttrition(movedState, dueAt);
         var engagement = ResolveOperationalEngagements(sustained, dueAt);
         var ordnance = ResolveInFlightOrdnance(engagement.State, dueAt, engagement.Outcomes);
@@ -315,7 +315,10 @@ internal static class CampaignSimulation
             var snorkel = Classify(entity) == ContactClassification.Subsurface
                 ? (entity.Analogue.SnorkelCycle + 1) % 10
                 : 0;
-            var snorkeling = Classify(entity) == ContactClassification.Subsurface && snorkel == 0;
+            var snorkeling = Classify(entity) == ContactClassification.Subsurface
+                && snorkel == 0
+                && inbound.Length == 0
+                && telegraph != TelegraphFlank;
             var analogue = entity.Analogue with
             {
                 AltitudeOrDepthMeters = entity.SimulationDomain == SimulationDomain.Air
@@ -429,7 +432,7 @@ internal static class CampaignSimulation
         }).ToArray();
     }
 
-    private static CampaignState ApplyCollisionAvoidance(CampaignState state)
+    private static CampaignState ApplyCollisionAvoidance(CampaignState beforeMovement, CampaignState state)
     {
         var entities = state.Entities;
         var ordered = entities.Values
@@ -439,11 +442,19 @@ internal static class CampaignSimulation
         for (var index = 1; index < ordered.Length; index++)
         {
             var entity = entities[ordered[index].EntityId];
+            if (entity.Coordinate == beforeMovement.Entities[entity.EntityId].Coordinate)
+            {
+                continue;
+            }
             for (var prior = 0; prior < index; prior++)
             {
                 var other = entities[ordered[prior].EntityId];
+                if (!CanCollide(entity, other))
+                {
+                    continue;
+                }
                 var distance = RoundedGreatCircleDistanceMeters(entity.Coordinate, other.Coordinate);
-                if (distance == 0 || distance >= 400)
+                if (distance >= 400)
                 {
                     continue;
                 }
@@ -459,6 +470,34 @@ internal static class CampaignSimulation
             }
         }
         return state with { Entities = entities };
+    }
+
+    private static bool CanCollide(EntityState first, EntityState second)
+    {
+        if (first.RegionId != second.RegionId)
+        {
+            return false;
+        }
+        if (first.SimulationDomain == SimulationDomain.Air
+            || second.SimulationDomain == SimulationDomain.Air)
+        {
+            return first.SimulationDomain == SimulationDomain.Air
+                && second.SimulationDomain == SimulationDomain.Air
+                && Math.Abs(first.Analogue.AltitudeOrDepthMeters
+                    - second.Analogue.AltitudeOrDepthMeters) < 300;
+        }
+        if (first.SimulationDomain == SimulationDomain.LandAbstract
+            || second.SimulationDomain == SimulationDomain.LandAbstract)
+        {
+            return first.SimulationDomain == SimulationDomain.LandAbstract
+                && second.SimulationDomain == SimulationDomain.LandAbstract;
+        }
+        var firstSubsurface = Classify(first) == ContactClassification.Subsurface;
+        var secondSubsurface = Classify(second) == ContactClassification.Subsurface;
+        return firstSubsurface == secondSubsurface
+            && (!firstSubsurface
+                || Math.Abs(first.Analogue.AltitudeOrDepthMeters
+                    - second.Analogue.AltitudeOrDepthMeters) < 30);
     }
 
     private static CampaignState ResolveSustainmentAndAttrition(CampaignState state, CampaignTime dueAt)
@@ -1212,6 +1251,12 @@ internal static class CampaignSimulation
             {
                 entities = entities.SetItem(updated.EntityId, updated);
             }
+            else if (hit.Outcomes.Count == 0)
+            {
+                outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SeekerLost, target.RegionId,
+                    round.ShooterEntityId, target.EntityId, 0, 0,
+                    $"Terminal analogue round {round.OrdnanceId} missed"));
+            }
         }
 
         return new TickResult(
@@ -1334,10 +1379,15 @@ internal static class CampaignSimulation
     }
 
     private static bool IsBallisticGun(OperationalWeaponCapability weapon) =>
-        weapon.MaximumRange.Value < 40_000
-        || ContainsToken(weapon.AmmunitionId, "gun")
+        ContainsToken(weapon.AmmunitionId, "gun")
         || ContainsToken(weapon.AmmunitionId, "shell")
-        || ContainsToken(weapon.AmmunitionId, "ciws");
+        || ContainsToken(weapon.AmmunitionId, "ciws")
+        || weapon.MaximumRange.Value < 40_000
+            && !ContainsToken(weapon.AmmunitionId, "torpedo")
+            && !ContainsToken(weapon.AmmunitionId, "bomb")
+            && !ContainsToken(weapon.AmmunitionId, "missile")
+            && !ContainsToken(weapon.AmmunitionId, "rocket")
+            && !ContainsToken(weapon.AmmunitionId, "sam");
 
     private static long OrdnanceSpeedMetersPerTick(OperationalWeaponCapability weapon) =>
         ContainsToken(weapon.AmmunitionId, "torpedo") ? 25_000
@@ -1370,13 +1420,15 @@ internal static class CampaignSimulation
         && CanIlluminate(state, shooter, target);
 
     private static OrdnanceGuidance OrdnanceGuidanceFor(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "bomb") || ContainsToken(weapon.AmmunitionId, "decoy")
+        ContainsToken(weapon.AmmunitionId, "bomb")
+            || ContainsToken(weapon.AmmunitionId, "decoy")
+            || ContainsToken(weapon.AmmunitionId, "chaff")
             ? OrdnanceGuidance.Inertial
+            : ContainsToken(weapon.AmmunitionId, "command")
+                ? OrdnanceGuidance.Command
             : ContainsToken(weapon.AmmunitionId, "sam") || ContainsToken(weapon.AmmunitionId, "aa")
                 ? OrdnanceGuidance.SemiActive
-                : ContainsToken(weapon.AmmunitionId, "command")
-                    ? OrdnanceGuidance.Command
-                    : OrdnanceGuidance.Active;
+                : OrdnanceGuidance.Active;
 
     private static bool CanAttack(CampaignState state, EntityState entity) =>
         IsOperational(state, entity)
@@ -1462,7 +1514,7 @@ internal static class CampaignSimulation
     {
         if (distanceMeters <= VisualContactMeters)
         {
-            return actor.Analogue.Roe != RulesOfEngagement.WeaponsHold || IsDesperate(actor);
+            return actor.Analogue.Roe != RulesOfEngagement.WeaponsHold;
         }
 
         if (actor.Analogue.Roe == RulesOfEngagement.WeaponsHold)
@@ -1527,13 +1579,6 @@ internal static class CampaignSimulation
         }
 
         var ammunition = weapon.AmmunitionId;
-        if (ContainsToken(ammunition, "gun")
-            || ContainsToken(ammunition, "shell")
-            || ContainsToken(ammunition, "ciws")
-            || weapon.MaximumRange.Value < 40_000)
-        {
-            return 8_000;
-        }
         if (ContainsToken(ammunition, "torpedo"))
         {
             return 22_000;
@@ -1541,6 +1586,13 @@ internal static class CampaignSimulation
         if (ContainsToken(ammunition, "bomb"))
         {
             return 18_000;
+        }
+        if (ContainsToken(ammunition, "gun")
+            || ContainsToken(ammunition, "shell")
+            || ContainsToken(ammunition, "ciws")
+            || weapon.MaximumRange.Value < 40_000)
+        {
+            return 8_000;
         }
         return 30_000;
     }
@@ -1666,9 +1718,20 @@ internal static class CampaignSimulation
         {
             return SensorChannel.Visual;
         }
-        return Classify(contact) == ContactClassification.Subsurface
-            ? SensorChannel.Sonar
-            : SensorChannel.Radar;
+        if (Classify(contact) == ContactClassification.Subsurface)
+        {
+            return sensor?.SimulationDomain == SimulationDomain.Air
+                ? SensorChannel.Mad
+                : SensorChannel.Sonar;
+        }
+        if (contact.Analogue.EcmMilliUnits > 0)
+        {
+            return SensorChannel.Ecm;
+        }
+        return sensor?.Analogue.Emcon == EmconState.Passive
+            && contact.Analogue.Emcon == EmconState.Radiate
+                ? SensorChannel.Esm
+                : SensorChannel.Radar;
     }
 
     private static GeoCoordinate RegionAnchor(
@@ -1953,8 +2016,12 @@ internal static class CampaignSimulation
         var horizon = SensorHorizonMeters(sensor, target);
         return sensor.Analogue.Emcon switch
         {
+            EmconState.Silent when Classify(target) == ContactClassification.Subsurface => horizon,
             EmconState.Silent => Math.Min(horizon, VisualContactMeters),
-            EmconState.Passive when Classify(target) != ContactClassification.Subsurface => Math.Min(horizon, 45_000),
+            EmconState.Passive when Classify(target) != ContactClassification.Subsurface
+                && target.Analogue.Emcon == EmconState.Radiate => Math.Min(horizon, 45_000),
+            EmconState.Passive when Classify(target) != ContactClassification.Subsurface =>
+                Math.Min(horizon, VisualContactMeters),
             _ => horizon,
         };
     }
