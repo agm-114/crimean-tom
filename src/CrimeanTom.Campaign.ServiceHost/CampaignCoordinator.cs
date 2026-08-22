@@ -1119,6 +1119,12 @@ public sealed class CampaignCoordinator(
             _replicaHashes.Diagnose(recovery.State));
     }
 
+    public async Task<long> ReadTimeQuantaAsync(CampaignId campaignId, CancellationToken cancellationToken)
+    {
+        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        return recovery.State.Time.Quanta;
+    }
+
     public async Task<CampaignCoalitionProjectionView> ProjectCoalitionAsync(
         CampaignId campaignId,
         CoalitionId coalitionId,
