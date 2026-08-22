@@ -37,6 +37,20 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public bool CloseClient(string clientInstanceId, string reason)
+    {
+        lock (_gate)
+        {
+            if (!_activeByClient.Remove(clientInstanceId, out var session))
+            {
+                return false;
+            }
+
+            session.Complete(reason);
+            return true;
+        }
+    }
+
     public CampaignSessionSnapshot? Snapshot(string? campaignId = null)
     {
         lock (_gate)
@@ -165,11 +179,15 @@ public sealed class CampaignCompanionSession
     private int _ownedActiveEntityCount;
     private int _ownedRetainedSuspendedEntityCount;
     private int _ownedRecoveryRequiredEntityCount;
+    private int _ownedOperationalEntityCount;
     private int _tacticalEntityCapacity;
     private int _tacticalReserveCapacity;
+    private int _operationalEntityCapacity;
+    private int _operationalReserveCapacity;
     private string _health = CampaignWorkerHealth.Healthy;
     private string _eligibility = CampaignWorkerHealth.Eligible;
     private DateTimeOffset _lastHeartbeatAt;
+    private string _workerKind;
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
@@ -179,12 +197,24 @@ public sealed class CampaignCompanionSession
         SessionId = Guid.NewGuid().ToString("N");
         ConnectedAt = DateTimeOffset.UtcNow;
         _lastHeartbeatAt = ConnectedAt;
+        _workerKind = CampaignWorkerKind.TryValidate(hello.WorkerKind, out var kind)
+            ? kind
+            : CampaignWorkerKind.SeaPower;
         _gameSessionId = hello.GameSessionId;
         _runtimeFingerprintSha256 = hello.RuntimeFingerprintSha256;
         _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
         _playerTaskforceId = hello.PlayerTaskforceId;
         _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
-        ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
+        if (CampaignWorkerKind.IsOperational(_workerKind))
+        {
+            ObserveOperationalCapacity(
+                hello.OperationalEntityCapacity,
+                hello.OperationalReserveCapacity);
+        }
+        else
+        {
+            ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
+        }
         ObserveHealth(hello.Health, hello.Eligibility);
     }
 
@@ -213,19 +243,60 @@ public sealed class CampaignCompanionSession
         else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.Heartbeat)
         {
             Interlocked.Exchange(ref _lastAppliedCommitPosition, frame.Heartbeat.ObservedCommitPosition);
+            var operationalHeartbeat = CampaignWorkerKind.IsOperational(_workerKind)
+                || CampaignWorkerKind.IsOperational(frame.Heartbeat.WorkerKind);
             lock (_capabilityGate)
             {
                 _lastHeartbeatAt = DateTimeOffset.UtcNow;
-                if (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
-                    && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
-                    && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
+                var mixedCapacityNamespace = operationalHeartbeat
+                    ? frame.Heartbeat.TacticalEntityCapacity != 0
+                        || frame.Heartbeat.TacticalReserveCapacity != 0
+                        || frame.Heartbeat.OwnedMaterializedEntityCount != 0
+                        || frame.Heartbeat.OwnedActiveEntityCount != 0
+                        || frame.Heartbeat.OwnedRetainedSuspendedEntityCount != 0
+                        || frame.Heartbeat.OwnedRecoveryRequiredEntityCount != 0
+                    : frame.Heartbeat.OperationalEntityCapacity != 0
+                        || frame.Heartbeat.OperationalReserveCapacity != 0
+                        || frame.Heartbeat.OwnedOperationalEntityCount != 0;
+                if (mixedCapacityNamespace)
                 {
-                    _gameSessionId = frame.Heartbeat.GameSessionId;
-                    _runtimeFingerprintSha256 = frame.Heartbeat.RuntimeFingerprintSha256;
-                    _catalogFingerprintSha256 = frame.Heartbeat.CatalogFingerprintSha256;
-                    _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
-                    _materializationProfiles = frame.Heartbeat.MaterializationProfiles
-                        .Select(item => item.Clone()).ToArray();
+                    ObserveHealth(CampaignWorkerHealth.Quarantined, CampaignWorkerHealth.Quarantined);
+                    return;
+                }
+                if (operationalHeartbeat
+                    || (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
+                        && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
+                        && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256)))
+                {
+                    if (!string.IsNullOrWhiteSpace(frame.Heartbeat.WorkerKind)
+                        && CampaignWorkerKind.TryValidate(frame.Heartbeat.WorkerKind, out var heartbeatKind)
+                        && !string.Equals(heartbeatKind, _workerKind, StringComparison.Ordinal))
+                    {
+                        ObserveHealth(CampaignWorkerHealth.Quarantined, CampaignWorkerHealth.Quarantined);
+                        return;
+                    }
+
+                    if (!operationalHeartbeat)
+                    {
+                        _gameSessionId = frame.Heartbeat.GameSessionId;
+                        _runtimeFingerprintSha256 = frame.Heartbeat.RuntimeFingerprintSha256;
+                        _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
+                        _materializationProfiles = frame.Heartbeat.MaterializationProfiles
+                            .Select(item => item.Clone()).ToArray();
+                        ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
+                    }
+                    else
+                    {
+                        _ownedOperationalEntityCount = Math.Max(
+                            0,
+                            frame.Heartbeat.OwnedOperationalEntityCount);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
+                    {
+                        _catalogFingerprintSha256 = frame.Heartbeat.CatalogFingerprintSha256;
+                    }
+
                     _ownedActiveEntityCount = Math.Max(0, frame.Heartbeat.OwnedActiveEntityCount);
                     _ownedRetainedSuspendedEntityCount = Math.Max(
                         0,
@@ -236,10 +307,18 @@ public sealed class CampaignCompanionSession
                     _ownedRecoveryRequiredEntityCount = Math.Max(
                         0,
                         frame.Heartbeat.OwnedRecoveryRequiredEntityCount);
-                    ObserveCapacity(
-                        frame.Heartbeat.TacticalEntityCapacity,
-                        frame.Heartbeat.TacticalReserveCapacity);
-                    ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
+                    if (operationalHeartbeat)
+                    {
+                        ObserveOperationalCapacity(
+                            frame.Heartbeat.OperationalEntityCapacity,
+                            frame.Heartbeat.OperationalReserveCapacity);
+                    }
+                    else
+                    {
+                        ObserveCapacity(
+                            frame.Heartbeat.TacticalEntityCapacity,
+                            frame.Heartbeat.TacticalReserveCapacity);
+                    }
                 }
 
                 ObserveHealth(frame.Heartbeat.Health, frame.Heartbeat.Eligibility, replaceEmptyWithHealthy: false);
@@ -282,8 +361,11 @@ public sealed class CampaignCompanionSession
                 _ownedActiveEntityCount,
                 _ownedRetainedSuspendedEntityCount,
                 _ownedRecoveryRequiredEntityCount,
+                _ownedOperationalEntityCount,
                 _tacticalEntityCapacity,
                 _tacticalReserveCapacity,
+                _operationalEntityCapacity,
+                _operationalReserveCapacity,
                 health,
                 eligibility,
                 _couplingRelationships.Values
@@ -295,7 +377,9 @@ public sealed class CampaignCompanionSession
                         item.Relationship.EvidenceId,
                         item.Relationship.GuidanceType,
                         item.Relationship.UnsafeToSplit,
-                        item.MissingSamples)).ToArray());
+                        item.MissingSamples)).ToArray(),
+                _workerKind,
+                CampaignWorkerKind.PlayerSessionBound(_workerKind));
         }
     }
 
@@ -333,6 +417,19 @@ public sealed class CampaignCompanionSession
         }
         _tacticalEntityCapacity = capacity;
         _tacticalReserveCapacity = reserve;
+    }
+
+    private void ObserveOperationalCapacity(int capacity, int reserve)
+    {
+        if (capacity is < 1 or > 10_000 || reserve < 0 || reserve > capacity)
+        {
+            _operationalEntityCapacity = 0;
+            _operationalReserveCapacity = 0;
+            return;
+        }
+
+        _operationalEntityCapacity = capacity;
+        _operationalReserveCapacity = reserve;
     }
 
     private void ObserveHealth(string health, string eligibility, bool replaceEmptyWithHealthy = true)
@@ -397,11 +494,16 @@ public sealed record CampaignSessionSnapshot(
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,
     int OwnedRecoveryRequiredEntityCount,
+    int OwnedOperationalEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    int OperationalEntityCapacity,
+    int OperationalReserveCapacity,
     string Health,
     string Eligibility,
-    IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships);
+    IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships,
+    string WorkerKind,
+    bool PlayerSessionBound);
 
 public sealed record CampaignMaterializationProfile(
     string UnitTypeId,

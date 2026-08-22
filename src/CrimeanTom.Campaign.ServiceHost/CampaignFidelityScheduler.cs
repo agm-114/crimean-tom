@@ -5,6 +5,7 @@ using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Engine;
 using CrimeanTom.Campaign.Service;
+using CrimeanTom.Campaign.Transport.V1;
 
 namespace CrimeanTom.Campaign.ServiceHost;
 
@@ -127,29 +128,34 @@ internal static class CampaignFidelityScheduler
                 StringComparison.Ordinal))
             .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
             .ToArray();
-        var workerConnected = campaignWorkers.Length > 0;
+        var tacticalWorkers = campaignWorkers
+            .Where(worker => !CampaignWorkerKind.IsOperational(worker.WorkerKind))
+            .ToArray();
+        var workerConnected = tacticalWorkers.Length > 0;
         var islands = BuildIslands(state, campaignWorkers).ToArray();
         var campaignOccupiedEntities = state.Assignments.Values
             .Where(item => item.Lifecycle is AssignmentLifecycle.Preparing
                 or AssignmentLifecycle.Prepared or AssignmentLifecycle.Active
-                or AssignmentLifecycle.Quiescing)
+                or AssignmentLifecycle.Quiescing
+                && !CampaignAssignmentKinds.IsOperationalSim(item))
             .Select(item => item.EntityId)
             .Distinct()
             .ToHashSet();
         var campaignActiveEntities = state.Assignments.Values
-            .Where(item => item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing)
+            .Where(item => item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                && !CampaignAssignmentKinds.IsOperationalSim(item))
             .Select(item => item.EntityId)
             .Distinct()
             .ToHashSet();
         var occupiedTacticalEntityCount = Math.Max(
             campaignOccupiedEntities.Count,
-            campaignWorkers.Sum(worker => worker.OwnedMaterializedEntityCount));
+            tacticalWorkers.Sum(worker => worker.OwnedMaterializedEntityCount));
         var activeTacticalEntityCount = Math.Max(
             campaignActiveEntities.Count,
-            campaignWorkers.Sum(worker => worker.OwnedActiveEntityCount));
-        var retainedSuspendedTacticalEntityCount = campaignWorkers.Sum(
+            tacticalWorkers.Sum(worker => worker.OwnedActiveEntityCount));
+        var retainedSuspendedTacticalEntityCount = tacticalWorkers.Sum(
             worker => worker.OwnedRetainedSuspendedEntityCount);
-        var recoveryRequiredTacticalEntityCount = campaignWorkers.Sum(
+        var recoveryRequiredTacticalEntityCount = tacticalWorkers.Sum(
             worker => worker.OwnedRecoveryRequiredEntityCount);
         var safeTacticalCapacity = Math.Max(
             0,
@@ -164,7 +170,8 @@ internal static class CampaignFidelityScheduler
                 .Where(item => !item.UnsafeToSplit && !item.Engaged
                     && state.Assignments.Values.Any(assignment =>
                         item.EntityIds.Contains(assignment.EntityId)
-                        && assignment.Lifecycle == AssignmentLifecycle.Active))
+                        && assignment.Lifecycle == AssignmentLifecycle.Active
+                        && !CampaignAssignmentKinds.IsOperationalSim(assignment)))
                 .OrderBy(item => item.EntityIds.Any(controlled.Contains) ? 2
                     : item.EntityIds.Any(observed.Contains) ? 1 : 0)
                 .ThenBy(item => item.IslandId, StringComparer.Ordinal))
@@ -189,15 +196,25 @@ internal static class CampaignFidelityScheduler
                 .Where(item => island.EntityIds.Contains(item.EntityId))
                 .ToArray();
             var hasPreparingAssignment = islandAssignments.Any(item =>
-                item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared);
-            var hasActiveAssignment = islandAssignments.Any(item => item.Lifecycle == AssignmentLifecycle.Active);
+                !CampaignAssignmentKinds.IsOperationalSim(item)
+                && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared);
+            var hasActiveAssignment = islandAssignments.Any(item =>
+                !CampaignAssignmentKinds.IsOperationalSim(item)
+                && item.Lifecycle == AssignmentLifecycle.Active);
             var hasQuiescingAssignment = islandAssignments.Any(item =>
-                item.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
+                !CampaignAssignmentKinds.IsOperationalSim(item)
+                && item.Lifecycle is AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
+            var hasLiveOperationalAssignment = islandAssignments.Any(item =>
+                CampaignAssignmentKinds.IsOperationalSim(item)
+                && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared
+                    or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
             var tacticalCapable = island.EntityIds.All(id => state.Entities[id].MaximumFidelity == FidelityState.Tactical);
             var workerHasTaskforce = campaignWorkers.Any(worker =>
-                !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId));
+                !CampaignWorkerKind.IsOperational(worker.WorkerKind)
+                && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId));
             var compatibleWorkers = campaignWorkers.Where(worker =>
-                CampaignWorkerHealth.CanReceiveNewAssignments(worker)
+                !CampaignWorkerKind.IsOperational(worker.WorkerKind)
+                && CampaignWorkerHealth.CanReceiveNewAssignments(worker)
                 && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
                 && island.EntityIds.All(id => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
@@ -209,7 +226,7 @@ internal static class CampaignFidelityScheduler
                     .CanAdmitPromotion(island.EntityIds.Count));
             var owningWorkers = islandAssignments
                 .Where(item => item.Lifecycle != AssignmentLifecycle.Released
-                    && item.Role == AssignmentRole.Primary)
+                    && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary)
                 .Select(item => item.WorkerClientInstanceId)
                 .Where(owner => !string.IsNullOrWhiteSpace(owner))
                 .Distinct(StringComparer.Ordinal)
@@ -281,6 +298,12 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Tactical;
                 reason = workerConnected ? "active-authority-fence" : "active-authority-worker-offline";
+            }
+            else if (hasLiveOperationalAssignment && hasInterest && tacticalCapable
+                && workerCanMaterializeIsland && workerCanAdmitIsland)
+            {
+                desired = FidelityState.Tactical;
+                reason = "player-interest-preempts-operational-worker";
             }
             else if (current == FidelityState.Tactical && island.Engaged)
             {

@@ -20,7 +20,37 @@
     <ProjectReference Include="..\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
     <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
     <ProjectReference Include="..\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj" />
+    <ProjectReference Include="..\CrimeanTom.Campaign.OperationalWorker\CrimeanTom.Campaign.OperationalWorker.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
+
+  <Target Name="CopyOperationalWorker" AfterTargets="Build">
+    <PropertyGroup>
+      <_OperationalWorkerOutput>$(MSBuildThisFileDirectory)..\CrimeanTom.Campaign.OperationalWorker\bin\$(Configuration)\$(TargetFramework)\</_OperationalWorkerOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <_OperationalWorkerFiles Include="$(_OperationalWorkerOutput)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_OperationalWorkerFiles)"
+      DestinationFolder="$(OutputPath)operational-worker\%(RecursiveDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyOperationalWorkerToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_OperationalWorkerPublishSource>$(MSBuildThisFileDirectory)..\CrimeanTom.Campaign.OperationalWorker\bin\$(Configuration)\$(TargetFramework)\</_OperationalWorkerPublishSource>
+    </PropertyGroup>
+    <ItemGroup>
+      <_OperationalWorkerPublishFiles Include="$(_OperationalWorkerPublishSource)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_OperationalWorkerPublishFiles)"
+      DestinationFolder="$(PublishDir)operational-worker\%(RecursiveDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
 
   <!-- Vite owns this generated tree during development. DotNetWatchContentFiles
        keeps generated chunks out of the watched MSBuild input; Vite also updates

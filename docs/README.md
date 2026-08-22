@@ -51,9 +51,10 @@ The folders separate evidence from design commitments:
     replicas, authority leases, health checks, reconciliation, and failover.
 12. [Load management](architecture/load-management.md) defines stress signals, client
     simulation eligibility, island migration, degradation, and global tempo.
-13. [Standalone simulation workers](architecture/standalone-sim-worker.md) plans
-    campaign-spawned .NET workers for islands no player Sea Power owns. It is
-    not a headless Sea Power process and is not implemented in this layer.
+13. [Standalone simulation workers](architecture/standalone-sim-worker.md) is the
+    Track A Operational worker the campaign can spawn for islands no player Sea
+    Power owns. It is not a headless Sea Power process. Track B is not
+    implemented.
 14. [Adversarial review disposition](planning/adversarial-review-disposition-2026-08-20.md)
     records which review findings were accepted, corrected, or left as gates.
 15. [Implementation plan](planning/implementation-plan.md) defines the critical path,
