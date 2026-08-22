@@ -61,7 +61,14 @@ public sealed class ColliderGeometryCache
     public static string ResolveRoot(string? configuredDirectory, string gameVersion)
     {
         var version = SanitizeFileToken(string.IsNullOrWhiteSpace(gameVersion) ? "unknown" : gameVersion);
-        return Path.Combine(CatalogHome(configuredDirectory), version);
+        var home = CatalogHome(configuredDirectory);
+        var leaf = Path.GetFileName(home.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.Equals(leaf, version, StringComparison.OrdinalIgnoreCase))
+        {
+            return home;
+        }
+
+        return Path.Combine(home, version);
     }
 
     public int RefreshFromDisk()

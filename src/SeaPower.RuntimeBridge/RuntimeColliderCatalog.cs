@@ -11,6 +11,8 @@ namespace SeaPowerRuntimeBridge;
 
 internal static class RuntimeColliderCatalog
 {
+    internal const int MaximumPipeCatalogEntries = 64;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -102,7 +104,7 @@ internal static class RuntimeColliderCatalog
             GameVersion = _gameVersion,
             MemoryCount = cache.MemoryCount,
             FileCount = entries.Count,
-            Entries = entries.ToArray(),
+            Entries = PipeEntries(entries, request.UnitTypeId),
             Geometry = geometry,
             Source = "plugin-memory",
         };
@@ -125,8 +127,23 @@ internal static class RuntimeColliderCatalog
             MemoryCount = cache.MemoryCount,
             FileCount = entries.Count,
             Postcondition = postcondition,
-            Entries = entries.ToArray(),
+            Entries = PipeEntries(entries, unitTypeId: null),
         };
+    }
+
+    private static ColliderCatalogEntryPayload[] PipeEntries(
+        IReadOnlyList<ColliderCatalogEntryPayload> entries,
+        string? unitTypeId)
+    {
+        IEnumerable<ColliderCatalogEntryPayload> selected = entries;
+        if (!string.IsNullOrWhiteSpace(unitTypeId))
+        {
+            var wanted = unitTypeId.Trim();
+            selected = selected.Where(item =>
+                string.Equals(item.UnitTypeId, wanted, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return selected.Take(MaximumPipeCatalogEntries).ToArray();
     }
 
     public static string CurrentRoot() => Cache().Root;

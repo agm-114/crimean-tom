@@ -132,4 +132,12 @@ public sealed class ColliderGeometryCacheTests
             Path.GetFullPath(Path.Combine(configured, "1.0.9f1")),
             resolved);
     }
+
+    [Fact]
+    public void ResolveRootDoesNotNestWhenConfiguredDirectoryIsAlreadyTheVersionLeaf()
+    {
+        var configured = Path.Combine(Path.GetTempPath(), "crimean-tom-collider-root", "1.0.9f1");
+        var resolved = ColliderGeometryCache.ResolveRoot(configured, "1.0.9f1");
+        Assert.Equal(Path.GetFullPath(configured), resolved);
+    }
 }
