@@ -505,6 +505,27 @@ function Test-WorkerHasActiveMaterialization($Worker) {
         SuspendedRetainedObjectCount = [int]$resources.suspendedRetainedObjectCount
         OwnedRecordCount = [int]$resources.ownedRecordCount
         Error = ''
+        ObservedEntities = @()
+    }
+}
+
+function New-WorkerAssignmentMaterializationFailure(
+    [bool]$SchemaValid,
+    [string]$ErrorMessage,
+    $ObservedEntities = @()) {
+    return [pscustomobject]@{
+        Proven = $false
+        SchemaValid = $SchemaValid
+        AssignmentId = ''
+        EntityId = ''
+        LifecycleState = ''
+        AuthorityEpoch = 0L
+        Revision = 0L
+        ActiveObjectCount = 0
+        SuspendedRetainedObjectCount = 0
+        OwnedRecordCount = 0
+        Error = $ErrorMessage
+        ObservedEntities = @($ObservedEntities)
     }
 }
 
@@ -519,19 +540,11 @@ function Test-WorkerAssignmentMaterialization(
         $resources = Get-WorkerSurfaceResources $Worker
     }
     catch {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $false
-            Error = $_.Exception.Message
-        }
+        return New-WorkerAssignmentMaterializationFailure $false $_.Exception.Message
     }
 
     if (-not ($resources.PSObject.Properties.Name -contains 'entities')) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $false
-            Error = 'surface-resources payload is missing entities[]'
-        }
+        return New-WorkerAssignmentMaterializationFailure $false 'surface-resources payload is missing entities[]'
     }
 
     $entities = @($resources.entities)
@@ -553,12 +566,10 @@ function Test-WorkerAssignmentMaterialization(
                 revision = $revision
             }
         })
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $true
-            Error = "expected exactly one ${ExpectedLifecycleState} surface entity for assignment '$scopedAssignmentId' and game entity '$GameEntityId'"
-            ObservedEntities = $observedEntities
-        }
+        return New-WorkerAssignmentMaterializationFailure `
+            $true `
+            "expected exactly one ${ExpectedLifecycleState} surface entity for assignment '$scopedAssignmentId' and game entity '$GameEntityId'" `
+            $observedEntities
     }
 
     $entry = $match[0]
@@ -568,40 +579,20 @@ function Test-WorkerAssignmentMaterialization(
         (-not ($entry.PSObject.Properties.Name -contains 'authorityEpoch')) -or
         (-not ($entry.PSObject.Properties.Name -contains 'revision'))
     if ($missingSchema) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $false
-            Error = 'surface-resources entity entry is missing assignmentId, entityId, lifecycleState, authorityEpoch, or revision'
-        }
+        return New-WorkerAssignmentMaterializationFailure $false 'surface-resources entity entry is missing assignmentId, entityId, lifecycleState, authorityEpoch, or revision'
     }
 
     if ([string]$entry.assignmentId -ne $scopedAssignmentId) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $true
-            Error = "assignmentId mismatch: expected '$scopedAssignmentId', observed '$($entry.assignmentId)'"
-        }
+        return New-WorkerAssignmentMaterializationFailure $true "assignmentId mismatch: expected '$scopedAssignmentId', observed '$($entry.assignmentId)'"
     }
     if ([string]$entry.entityId -ne $GameEntityId) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $true
-            Error = "entityId mismatch: expected '$GameEntityId', observed '$($entry.entityId)'"
-        }
+        return New-WorkerAssignmentMaterializationFailure $true "entityId mismatch: expected '$GameEntityId', observed '$($entry.entityId)'"
     }
     if ([long]$entry.authorityEpoch -ne $expectedAuthorityEpoch) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $true
-            Error = "authorityEpoch mismatch: expected $expectedAuthorityEpoch, observed $($entry.authorityEpoch)"
-        }
+        return New-WorkerAssignmentMaterializationFailure $true "authorityEpoch mismatch: expected $expectedAuthorityEpoch, observed $($entry.authorityEpoch)"
     }
     if ([long]$entry.revision -le 0) {
-        return [pscustomobject]@{
-            Proven = $false
-            SchemaValid = $true
-            Error = "revision must be positive; observed $($entry.revision)"
-        }
+        return New-WorkerAssignmentMaterializationFailure $true "revision must be positive; observed $($entry.revision)"
     }
 
     return [pscustomobject]@{
