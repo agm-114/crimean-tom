@@ -325,7 +325,9 @@ Do not treat screen coordinates as constants. Desktop input is the fallback,
 not the target interface: capture the current window before every remaining
 desktop action, act once, and capture again. When Computer Use is unavailable,
 use `pnpm game:screenshot` and `pnpm game:ui` plus typed bridge actions instead
-of coordinate clicks. When a test repeatedly encounters a stable game
+of coordinate clicks. `pnpm game:bubble-probe` samples `/game/world` twice and
+records rebase, geodetic, and loaded-terrain occupancy; it does not qualify a
+combat radius. When a test repeatedly encounters a stable game
 command/view-model seam, automate it in the bridge as part of that feature's
 work rather than maintaining a coordinate script.
 
