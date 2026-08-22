@@ -7,7 +7,9 @@ stacked implementation. Phases 0-4 have live Sea Power evidence. Phases 5-9 are
 covered by the broad kernel and protocol integration stories plus
 [supported claims](supported-claims.md). Hot-shadow failover, untrusted public
 play, and authenticated two-container live Sea Power migration remain
-unsupported.
+unsupported. Campaign-owned standalone simulation workers are planned in
+[standalone-sim-worker.md](../architecture/standalone-sim-worker.md) and are
+not implemented; they are not headless Sea Power.
 
 The game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
