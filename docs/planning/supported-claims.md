@@ -43,8 +43,9 @@ it is not a claimed live two-process Sea Power recovery objective.
 
 Soak campaigns, a clean-machine install/update/export runbook, and independent
 hostile-client review are not claimed. Resource exhaustion and catalog fuzzing
-remain follow-on work. Campaign-spawned standalone simulation workers are
-planned, not implemented; they are not headless Sea Power. Documentation here
+remain follow-on work. Campaign-spawned Track A Operational workers can be
+spawned, hello'd, and assigned; Operational ticks are still resolved in-process.
+They are not headless Sea Power. Documentation here
 is limited to behavior covered by the
 broad kernel and protocol integration stories plus the live evidence already on
 disk under `docs/evidence/`.

@@ -38,8 +38,8 @@ assignment leases, authority epochs, and committed events. It can run abstract
 entities much faster and more cheaply than Unity. Unattended islands that no
 player Sea Power owns should eventually run in campaign-spawned [standalone
 simulation workers](standalone-sim-worker.md), not in a hidden game window.
-That worker is not implemented; today that work stays in-process in the
-service. The in-game DLL should contain
+Track A workers exist for placement and fencing; Operational ticks are still
+resolved in-process. The in-game DLL should contain
 only protocol handling, stable-ID mapping, state extraction, and carefully
 bounded Unity commands. Networking, persistence, scheduling, reconciliation,
 and most validation belong in the companion or service.
