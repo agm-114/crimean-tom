@@ -233,12 +233,15 @@ internal static class GameCommandDispatcher
     {
         var captureTimer = Stopwatch.StartNew();
         var scene = SceneManager.GetActiveScene();
+        var scenario = GetScenarioAutomationState();
         if (!Singleton<ObjectsManager>.InstanceExists()
             || !Singleton<TaskforceManager>.InstanceExists())
         {
             var emptySnapshot = new WorldSnapshotPayload
             {
                 SceneName = scene.name ?? string.Empty,
+                ScenarioId = scenario.ScenarioId,
+                ScenarioPath = scenario.ScenarioPath,
                 CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 SimulationTimeSeconds = Finite(GameTime.time),
                 TimeCompression = Finite(GameTime.TimeCompression),
@@ -293,6 +296,8 @@ internal static class GameCommandDispatcher
         var snapshot = new WorldSnapshotPayload
         {
             SceneName = scene.name ?? string.Empty,
+            ScenarioId = scenario.ScenarioId,
+            ScenarioPath = scenario.ScenarioPath,
             CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             SimulationTimeSeconds = Finite(GameTime.time),
             TimeCompression = Finite(GameTime.TimeCompression),

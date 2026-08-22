@@ -9,9 +9,17 @@ processes, same scenario, compare clocks and canonical hashes over wall time):
 - pnpm wrapper: `pnpm worker:divergence-sample`
 
 World snapshots now include engine `timeScale`, `fixedDeltaTime`,
-`unscaledDeltaTime`, and a measured FPS (`WorldSnapshot` schema 11). Those
+`unscaledDeltaTime`, and a measured FPS (`WorldSnapshot` schema 12). Those
 clocks are **not** mixed into `CanonicalSha256`, so frame-rate noise cannot
 look like a simulation hash mismatch.
+
+Schema 12 also carries the normalized scenario ID/path. The sampler requires
+distinct process/session identities, matching ready runtime/content
+fingerprints, the same tactical scenario and clock mode, and non-empty hashes.
+Sequential request/capture skew is recorded.
+Hash agreement or disagreement is classified only when the samples are within
+the configured logical-time delta; otherwise the run records clock drift and
+exits `2` without pretending the hashes describe the same simulation moment.
 
 ## Preconditions
 
@@ -28,6 +36,7 @@ pnpm worker:divergence-sample -- `
   -DestinationWorkerId worker-b `
   -SampleCount 8 `
   -SampleIntervalSeconds 5 `
+  -MaximumComparableSimulationTimeDeltaSeconds 0.05 `
   -EvidencePath .run/evidence/e1a-divergence.json
 ```
 
@@ -37,6 +46,7 @@ same-machine divergence is small.
 
 ## Claim status
 
-**Hot-shadow failover remains unsupported.** A mismatch is enough to keep that
-non-claim. A match is not D0–D5 adapter validation and is not a recovery-time
-objective.
+**Hot-shadow failover remains unsupported.** A logically comparable mismatch is
+enough to keep that non-claim. A raw mismatch at different simulation times is
+not a divergence result. A match is not D0–D5 adapter validation and is not a
+recovery-time objective.

@@ -233,8 +233,11 @@ that campaign ID with a loaded player task force before preflight. See
 `docs/evidence/phase-5-live-migrate-driver-2026-08-22.md`.
 
 Two-process divergence sampler (22 August 2026): `pnpm worker:divergence-sample`
-polls both workers' `/game/world` clocks and hashes. It never claims hot-shadow
-failover. See `docs/evidence/e1a-divergence-sampler-2026-08-22.md`.
+polls both workers' `/game/world` clocks and hashes. It requires the same
+scenario, clock mode, and runtime/content fingerprint, records sequential
+capture skew, and classifies hashes only inside the configured logical-time
+delta. It never claims hot-shadow failover. See
+`docs/evidence/e1a-divergence-sampler-2026-08-22.md`.
 
 Cross-worker migration driver (implementation landed 21 Aug 2026):
 
