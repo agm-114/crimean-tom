@@ -123,6 +123,20 @@ internal static class CampaignSimulation
             }
 
             var first = activeMembers[0];
+            var requiresRecovery = ShouldWithdraw(activeMembers)
+                || activeMembers.Max(item => item.DamageMilliUnits) >= 400_000;
+            var homeRegions = activeMembers
+                .Select(item => item.HomeBaseId)
+                .Where(item => item is not null)
+                .Select(item => state.Bases[item!.Value].RegionId)
+                .Distinct()
+                .OrderBy(item => item)
+                .ToArray();
+            if (requiresRecovery && homeRegions.Contains(first.RegionId))
+            {
+                // Leave the group idle so sustainment can repair and replenish it this tick.
+                continue;
+            }
             var intercepts = state.Intelligence.Values
                 .Where(item => item.Key.ObserverCoalitionId == group.CoalitionId
                     && item.Confidence >= IntelligenceConfidence.Probable
@@ -132,26 +146,30 @@ internal static class CampaignSimulation
                 .OrderBy(item => item)
                 .ToArray();
             var neighbors = Neighbors(state, first.RegionId);
-            var home = activeMembers
-                .Select(item => item.HomeBaseId)
-                .Where(item => item is not null)
-                .Select(item => state.Bases[item!.Value].RegionId)
-                .FirstOrDefault(item => item != first.RegionId);
-            var battered = activeMembers.Max(item => item.DamageMilliUnits) >= 400_000;
-            if (neighbors.Count == 0 && intercepts.Length == 0 && home == default)
+            var home = homeRegions.FirstOrDefault(item => item != first.RegionId);
+            var safeRecoveryNeighbors = neighbors
+                .Where(candidate => !state.Entities.Values.Any(item => item.RegionId == candidate
+                    && item.CoalitionId != group.CoalitionId && CanBeAttacked(state, item)))
+                .ToArray();
+            if ((requiresRecovery && home == default && safeRecoveryNeighbors.Length == 0)
+                || (!requiresRecovery && neighbors.Count == 0 && intercepts.Length == 0))
             {
                 continue;
             }
 
-            var destination = battered && home != default
-                ? home
-                : !battered && intercepts.Length > 0
+            var destination = requiresRecovery
+                ? home != default
+                    ? home
+                    : safeRecoveryNeighbors[
+                        KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-recovery")
+                        % safeRecoveryNeighbors.Length]
+                : !requiresRecovery && intercepts.Length > 0
                     ? intercepts[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-intercept") % intercepts.Length]
                     : neighbors.Count > 0
                         ? neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count]
                         : intercepts[0];
-            var kind = battered ? OrderKind.Withdraw
-                : intercepts.Length > 0 && !battered ? OrderKind.Transit
+            var kind = requiresRecovery ? OrderKind.Withdraw
+                : intercepts.Length > 0 ? OrderKind.Transit
                 : OrderKind.Patrol;
             var orderId = new OrderId(KeyedGuid(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-order"));
             var order = new OrderState(
@@ -205,9 +223,6 @@ internal static class CampaignSimulation
                 []);
         }
 
-        var origin = activeMembers[0].RegionId;
-        var next = NextRegion(state, origin, order.DestinationRegionId);
-        var moved = next != origin;
         var destination = RegionAnchor(state, order.DestinationRegionId, activeMembers[0].CoalitionId, activeMembers[0].Coordinate);
         var entityUpdates = group.Members.Select(id =>
         {
@@ -216,6 +231,8 @@ internal static class CampaignSimulation
             {
                 return entity;
             }
+            var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
+            var moved = next != entity.RegionId;
             var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
             var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
             var desired = hostileAhead && remaining > StandoffMeters
@@ -260,9 +277,13 @@ internal static class CampaignSimulation
                 : entity;
         }).ToArray();
 
-        var arrived = next == order.DestinationRegionId
-            && activeMembers.All(entity =>
+        var arrived = activeMembers.All(entity =>
             {
+                var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
+                if (next != order.DestinationRegionId)
+                {
+                    return false;
+                }
                 var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
                 var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
                 var desired = hostileAhead && remaining > StandoffMeters
@@ -772,47 +793,14 @@ internal static class CampaignSimulation
 
         return entity.SimulationDomain switch
         {
-            SimulationDomain.Logistics => [],
             SimulationDomain.LandAbstract =>
             [
                 new OperationalWeaponCapability(
-                    "kernel-analogue-corps-fires",
+                    "abstract-corps-fires",
                     ContactClassification.LandFormation,
                     DistanceMeters.FromMeters(80_000)),
             ],
-            SimulationDomain.Air =>
-            [
-                new OperationalWeaponCapability(
-                    "kernel-analogue-aa",
-                    ContactClassification.Air,
-                    DistanceMeters.FromMeters(40_000)),
-                new OperationalWeaponCapability(
-                    "kernel-analogue-asu",
-                    ContactClassification.Surface,
-                    DistanceMeters.FromMeters(80_000)),
-            ],
-            _ when Classify(entity) == ContactClassification.Subsurface =>
-            [
-                new OperationalWeaponCapability(
-                    "kernel-analogue-torpedo",
-                    ContactClassification.Surface,
-                    DistanceMeters.FromMeters(15_000)),
-                new OperationalWeaponCapability(
-                    "kernel-analogue-torpedo-asw",
-                    ContactClassification.Subsurface,
-                    DistanceMeters.FromMeters(15_000)),
-            ],
-            _ =>
-            [
-                new OperationalWeaponCapability(
-                    "kernel-analogue-naval-gun",
-                    ContactClassification.Surface,
-                    DistanceMeters.FromMeters(20_000)),
-                new OperationalWeaponCapability(
-                    "kernel-analogue-sam",
-                    ContactClassification.Air,
-                    DistanceMeters.FromMeters(25_000)),
-            ],
+            _ => [],
         };
     }
 
@@ -1335,7 +1323,8 @@ internal static class CampaignSimulation
     private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
         state.Assignments.Values.Any(item => item.EntityId == entityId
             && !CampaignAssignmentKinds.IsOperationalSim(item)
-            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing);
+            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                or AssignmentLifecycle.Quiesced);
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)

@@ -252,7 +252,7 @@ public sealed class CompanionControlIntegrationTests
             var fuldaOutcomes = advancedFuldaView.RootElement.GetProperty("recentOperationalOutcomes")
                 .EnumerateArray().ToArray();
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");
-            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Damage");
+            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Detection");
             var fuldaCalibration = advancedFuldaView.RootElement.GetProperty("calibration");
             Assert.True(fuldaCalibration.GetProperty("inEnvelope").GetBoolean());
             Assert.Equal(0, fuldaCalibration.GetProperty("observedRangeViolationCount").GetInt32());

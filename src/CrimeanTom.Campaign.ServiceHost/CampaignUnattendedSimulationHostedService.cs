@@ -31,7 +31,9 @@ internal sealed record CampaignUnattendedSimulationOptions(
             return true;
         }
 
-        return value is "1" or "true" or "TRUE" or "yes" or "YES";
+        return value == "1"
+            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || bool.TryParse(value, out var enabled) && enabled;
     }
 
     private static int ParsePositiveInt(string? value, int fallback) =>
@@ -94,10 +96,17 @@ internal sealed class CampaignUnattendedSimulationHostedService(
 
                     var target = new CampaignTime(
                         checked(recovered.State.Time.Quanta + _options.QuantaPerTick));
-                    _ = await coordinator.AdvanceAsync(campaignId, target, stoppingToken);
+                    _ = await coordinator.ResolveExpiredAssignmentsAsync(
+                        campaignId,
+                        target,
+                        stoppingToken);
                 }
-                catch (CampaignStoreConflict)
+                catch (CampaignStoreConflict exception)
                 {
+                    logger.LogDebug(
+                        exception,
+                        "Unattended simulation deferred campaign {CampaignId}.",
+                        campaign.CampaignId);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
