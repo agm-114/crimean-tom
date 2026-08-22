@@ -316,6 +316,36 @@ public sealed class CampaignCompanionClient(
                 catch (Exception exception)
                 {
                     logger.LogDebug(exception, "Campaign heartbeat capability refresh was skipped.");
+                    try
+                    {
+                        await writeGate.WaitAsync(heartbeatToken);
+                        try
+                        {
+                            await call.RequestStream.WriteAsync(new CompanionFrame
+                            {
+                                Sequence = ++nextSequence,
+                                Heartbeat = new CompanionHeartbeat
+                                {
+                                    ObservedCommitPosition = stateStore.ReadCursor(),
+                                    SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                    GameSessionId = CurrentGameSessionId(),
+                                    Health = "Offline",
+                                    Eligibility = "Disabled",
+                                },
+                            });
+                        }
+                        finally
+                        {
+                            writeGate.Release();
+                        }
+                    }
+                    catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch
+                    {
+                    }
                 }
             }
         }

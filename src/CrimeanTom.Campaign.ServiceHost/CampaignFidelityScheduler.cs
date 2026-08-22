@@ -207,6 +207,8 @@ internal static class CampaignFidelityScheduler
                 CampaignWorkerAdmissionPolicy.Calculate(state, worker, safeTacticalCapacity)
                     .CanAdmitPromotion(island.EntityIds.Count));
             var owningWorkers = islandAssignments
+                .Where(item => item.Lifecycle != AssignmentLifecycle.Released
+                    && item.Role == AssignmentRole.Primary)
                 .Select(item => item.WorkerClientInstanceId)
                 .Where(owner => !string.IsNullOrWhiteSpace(owner))
                 .Distinct(StringComparer.Ordinal)
