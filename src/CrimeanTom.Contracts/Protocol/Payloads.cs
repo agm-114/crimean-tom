@@ -647,6 +647,8 @@ public sealed class SpatialDiagnosticsPayload
     public double MaximumPairGeodeticSeparationMeters { get; set; }
     public string MaximumPairFirstObjectId { get; set; } = string.Empty;
     public string MaximumPairSecondObjectId { get; set; } = string.Empty;
+    public string MaximumPairGeodeticFirstObjectId { get; set; } = string.Empty;
+    public string MaximumPairGeodeticSecondObjectId { get; set; } = string.Empty;
     public double TerrainChunkSizeUnity { get; set; } = 330.71396;
     public double TerrainChunkSizeMeters { get; set; }
     public int ConfiguredTerrainChunkViewDistance { get; set; }
@@ -656,6 +658,7 @@ public sealed class SpatialDiagnosticsPayload
     public double MaximumLoadedTerrainCenterDistanceMeters { get; set; }
     public int ObjectCountBeyondLoadedTerrain { get; set; }
     public int UnitCountBeyondLoadedTerrain { get; set; }
+    public int ObjectCountWithInvalidGeodeticPosition { get; set; }
     public int ActiveWeaponCount { get; set; }
     public int ActiveWeaponCountBeyondLoadedTerrain { get; set; }
     public bool InitialTerrainLoadingDone { get; set; }
