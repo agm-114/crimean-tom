@@ -1058,7 +1058,10 @@ public static class CampaignKernel
                 update.UncertaintyRadiusMeters,
                 update.Classification,
                 update.Revision,
-                update.Channel));
+                update.Channel,
+                update.Quality,
+                update.ObservedHeadingMilliDegrees,
+                update.ObservedSpeedMetersPerTick));
         }
 
         var scheduled = value.PendingActivities.Select(item => new ScheduledActivityState(

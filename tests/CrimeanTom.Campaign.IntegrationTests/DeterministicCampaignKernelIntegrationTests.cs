@@ -105,7 +105,10 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
         Assert.True(simulated.Intelligence.Count >= 2);
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Channel));
+        Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Quality));
+        Assert.Equal(RulesOfEngagement.WeaponsTight, simulated.Entities[Ids.RedKrivak].Analogue.Roe);
         Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.WeaponIntegrityMilliUnits <= 1_000);
+        Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.CrewMilliUnits <= 1_000);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
         Assert.Equal(900_000, simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
@@ -160,9 +163,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("6399119d32116608ad4b7093e7c6a698b2f41fb3c0f3253d89d25e097576aed6", longHorizon.Hash);
+        Assert.Equal("240c5c0a9f0abfb8c99e8e3902ce9f7b45add4cec0486b2fb778ca697fad47e3", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("e6cefa4933feff5cc308c7b6dd1ba2733d30d9cf8b55529a6ea4c75634836a5e", migrated.Hash);
+        Assert.Equal("aeb365672c2a4df02265cae616303fab3be47e1eb2baf1d7d9ffc0ec1ff8689a", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -548,8 +551,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(8, CampaignSchema.Version);
-        Assert.Equal(9, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(9, CampaignSchema.Version);
+        Assert.Equal(10, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
