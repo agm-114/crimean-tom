@@ -16,6 +16,8 @@ The campaign service run directory contains:
 Restore writes a verified copy to a new storage directory via
 `POST /control/restores`. It does not swap the live journal while the host is
 running; operators stop the host, replace the run directory, and start again.
+HTTP backup sources and destinations are confined to `backups/`; restore
+destinations are confined to a new child of the service run directory.
 
 ## Operator workflow
 

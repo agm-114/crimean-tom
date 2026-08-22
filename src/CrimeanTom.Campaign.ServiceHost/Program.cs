@@ -430,18 +430,42 @@ app.MapPost("/control/campaigns/{campaignId}/drain", async (
         return Results.Conflict(new { error = exception.Code, message = exception.Message });
     }
 });
-app.MapPost("/control/campaigns/{campaignId}/pause", (
+app.MapPost("/control/campaigns/{campaignId}/pause", async (
     string campaignId,
-    CampaignCoordinator coordinator) =>
-    Guid.TryParseExact(campaignId, "N", out var parsed)
-        ? Results.Ok(coordinator.Pause(new CampaignId(parsed)))
-        : Results.BadRequest(new { error = "invalid-campaign-id" }));
-app.MapPost("/control/campaigns/{campaignId}/resume", (
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.PauseAsync(new CampaignId(parsed), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/control/campaigns/{campaignId}/resume", async (
     string campaignId,
-    CampaignCoordinator coordinator) =>
-    Guid.TryParseExact(campaignId, "N", out var parsed)
-        ? Results.Ok(coordinator.Resume(new CampaignId(parsed)))
-        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.ResumeAsync(new CampaignId(parsed), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/backups", async (
     CampaignBackupRequest request,
     SqliteCampaignJournal store,
@@ -457,14 +481,25 @@ app.MapPost("/control/backups", async (
         return Results.Conflict(new { error = exception.Code, message = exception.Message });
     }
 });
-app.MapGet("/control/backups", (CampaignHostPaths paths) => Results.Ok(CampaignBackupHttp.List(paths)));
+app.MapGet("/control/backups", async (CampaignHostPaths paths, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await CampaignBackupHttp.ListAsync(paths, cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/restores", async (
     CampaignRestoreRequest request,
+    CampaignHostPaths paths,
     CancellationToken cancellationToken) =>
 {
     try
     {
-        return Results.Ok(await CampaignBackupHttp.RestoreAsync(request, cancellationToken));
+        return Results.Ok(await CampaignBackupHttp.RestoreAsync(paths, request, cancellationToken));
     }
     catch (CampaignStoreConflict exception)
     {
