@@ -499,7 +499,7 @@ public sealed class SceneStatePayload
 
 public sealed class WorldSnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 10;
+    public int SchemaVersion { get; set; } = 11;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -512,6 +512,14 @@ public sealed class WorldSnapshotPayload
     public double? TimeCompression { get; set; }
 
     public bool IsPaused { get; set; }
+
+    public float EngineTimeScale { get; set; }
+
+    public float EngineFixedDeltaTime { get; set; }
+
+    public float EngineUnscaledDeltaTime { get; set; }
+
+    public float? MeasuredFramesPerSecond { get; set; }
 
     public int ObservedObjectCount { get; set; }
 
