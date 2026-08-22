@@ -872,16 +872,31 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             start.ArgumentList.Add(readyPath);
             holder = Process.Start(start) ?? throw new InvalidOperationException("Could not start writer holder.");
 
+            long holderEpochValue = 0;
             using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
             {
-                while (!File.Exists(readyPath))
+                while (true)
                 {
                     Assert.False(holder.HasExited, "Independent writer exited before acquiring its lease.");
+                    try
+                    {
+                        if (File.Exists(readyPath)
+                            && long.TryParse(
+                                (await File.ReadAllTextAsync(readyPath, timeout.Token)).Trim(),
+                                out holderEpochValue))
+                        {
+                            break;
+                        }
+                    }
+                    catch (IOException) when (!timeout.IsCancellationRequested)
+                    {
+                    }
+
                     await Task.Delay(25, timeout.Token);
                 }
             }
 
-            var holderEpoch = new WriterEpoch(long.Parse(await File.ReadAllTextAsync(readyPath)));
+            var holderEpoch = new WriterEpoch(holderEpochValue);
             var holderLease = new CampaignWriterLease(
                 Ids.Campaign,
                 new CoordinatorId(Guid.Parse("d0000000-0000-0000-0000-000000000001")),
