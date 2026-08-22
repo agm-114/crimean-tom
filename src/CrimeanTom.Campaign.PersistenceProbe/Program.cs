@@ -11,7 +11,11 @@ if (args.Length == 6 && args[0] == "hold-writer")
     var holderNow = DateTimeOffset.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
     var holderLease = await AcquireAsync(holderJournal, campaignId, holderNow);
     var readyPath = Path.GetFullPath(args[5]);
-    await File.WriteAllTextAsync(readyPath, holderLease.WriterEpoch.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    var temporaryReadyPath = readyPath + ".tmp";
+    await File.WriteAllTextAsync(
+        temporaryReadyPath,
+        holderLease.WriterEpoch.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    File.Move(temporaryReadyPath, readyPath, overwrite: true);
     await Task.Delay(Timeout.InfiniteTimeSpan);
     return 0;
 }

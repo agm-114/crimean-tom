@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One in-flight run for the whole repo. A `gh stack push` would otherwise
+# start a job pair for every stacked PR and burn Actions minutes; the last
+# synchronize wins, which is the stack tip when branches are pushed
+# bottom-to-top.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  NO_PROXY: "*"
+
+jobs:
+  build-and-campaign:
+    name: Build DLLs and campaign tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.sln', '**/*.slnf') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install JavaScript workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Build campaign monitor
+        run: pnpm monitor:build
+
+      - name: Restore and build game-independent DLLs
+        run: |
+          dotnet restore CrimeanTom.CI.slnf
+          dotnet build CrimeanTom.CI.slnf --configuration Release --no-restore --verbosity minimal
+
+      - name: Run campaign kernel integration tests
+        run: >
+          dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.IntegrationTests.csproj
+          --configuration Release
+          --no-build
+          --logger trx
+          --results-directory "${{ runner.temp }}/test-results"
+
+      - name: Upload campaign test results
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-test-results
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: ignore
+
+  protocol:
+    name: Protocol integration (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.sln', '**/*.slnf') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install JavaScript workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Build campaign monitor
+        run: pnpm monitor:build
+
+      - name: Run protocol integration tests
+        run: >
+          pnpm test:protocol
+          --
+          --logger trx
+          --results-directory "${{ runner.temp }}/test-results"
+
+      - name: Upload protocol test results
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-test-results
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: ignore

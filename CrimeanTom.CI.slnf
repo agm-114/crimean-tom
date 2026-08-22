@@ -1,0 +1,20 @@
+{
+  "solution": {
+    "path": "CrimeanTom.sln",
+    "projects": [
+      "src\\CrimeanTom.Contracts\\CrimeanTom.Contracts.csproj",
+      "src\\CrimeanTom.LoadAcceleration\\CrimeanTom.LoadAcceleration.csproj",
+      "src\\CrimeanTom.Companion\\CrimeanTom.Companion.csproj",
+      "src\\CrimeanTom.CallsiteInventory\\CrimeanTom.CallsiteInventory.csproj",
+      "src\\CrimeanTom.Campaign.Contracts\\CrimeanTom.Campaign.Contracts.csproj",
+      "src\\CrimeanTom.Campaign.Domain\\CrimeanTom.Campaign.Domain.csproj",
+      "src\\CrimeanTom.Campaign.Engine\\CrimeanTom.Campaign.Engine.csproj",
+      "src\\CrimeanTom.Campaign.Service\\CrimeanTom.Campaign.Service.csproj",
+      "src\\CrimeanTom.Campaign.PersistenceProbe\\CrimeanTom.Campaign.PersistenceProbe.csproj",
+      "src\\CrimeanTom.Campaign.Transport\\CrimeanTom.Campaign.Transport.csproj",
+      "src\\CrimeanTom.Campaign.ServiceHost\\CrimeanTom.Campaign.ServiceHost.csproj",
+      "tests\\CrimeanTom.Protocol.Tests\\CrimeanTom.Protocol.Tests.csproj",
+      "tests\\CrimeanTom.Campaign.IntegrationTests\\CrimeanTom.Campaign.IntegrationTests.csproj"
+    ]
+  }
+}

@@ -54,7 +54,11 @@ public sealed class CampaignCompanionClient(
     private async Task ConnectOnceAsync(CancellationToken cancellationToken)
     {
         var token = (await File.ReadAllTextAsync(options.TokenFile, cancellationToken)).Trim();
-        using var channel = GrpcChannel.ForAddress(options.GrpcUri);
+        using var channel = GrpcChannel.ForAddress(options.GrpcUri, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+            DisposeHttpClient = true,
+        });
         var client = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
         using var call = client.Connect(headers, cancellationToken: cancellationToken);
@@ -1292,8 +1296,7 @@ public sealed class CampaignCompanionClient(
         string token,
         CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { BaseAddress = options.HttpUri };
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var client = CreateCampaignHttpClient(token);
         using var response = await client.PutAsync(
             $"/content/{sha256}",
             new ByteArrayContent(content),
@@ -1333,8 +1336,7 @@ public sealed class CampaignCompanionClient(
         {
             throw new InvalidDataException("The tactical assignment checkpoint reference is invalid.");
         }
-        using var client = new HttpClient { BaseAddress = options.HttpUri };
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var client = CreateCampaignHttpClient(token);
         var content = await client.GetByteArrayAsync(checkpointUri, cancellationToken);
         var actualHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
         if (!string.Equals(actualHash, checkpointSha256, StringComparison.OrdinalIgnoreCase))
@@ -1343,6 +1345,16 @@ public sealed class CampaignCompanionClient(
         }
         return JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(content, JsonOptions)
             ?? throw new InvalidDataException("The tactical assignment checkpoint was empty.");
+    }
+
+    private HttpClient CreateCampaignHttpClient(string token)
+    {
+        var client = new HttpClient(new SocketsHttpHandler { UseProxy = false }, disposeHandler: true)
+        {
+            BaseAddress = options.HttpUri,
+        };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 
     private OwnedMutationContextPayload Context(string assignment, long epoch, long revision, string idempotency) => new()
