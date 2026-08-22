@@ -993,6 +993,58 @@ public sealed class CompanionControlIntegrationTests
                 "/game/campaign",
                 testTimeout.Token);
             Assert.True(campaign.RootElement.GetProperty("isTaskForceModeCampaign").GetBoolean());
+
+            using var uiInspection = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/ui",
+                testTimeout.Token);
+            Assert.Equal("IntegrationScenario", uiInspection.RootElement.GetProperty("sceneName").GetString());
+            Assert.Equal(1920, uiInspection.RootElement.GetProperty("screenWidth").GetInt32());
+
+            using var screenshot = await PostAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/screenshot",
+                testTimeout.Token);
+            Assert.Equal("completed", screenshot.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal("screenshot-png-materialized", screenshot.RootElement.GetProperty("postcondition").GetString());
+            var screenshotHash = screenshot.RootElement.GetProperty("sha256").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(screenshotHash));
+            Assert.Equal(1, screenshot.RootElement.GetProperty("width").GetInt32());
+            Assert.Equal(1, screenshot.RootElement.GetProperty("height").GetInt32());
+
+            using var screenshotImage = new HttpRequestMessage(HttpMethod.Get, "/game/screenshot/image");
+            screenshotImage.Headers.Add(ProtocolConstants.ControlTokenHeader, token);
+            using var screenshotImageResponse = await client.SendAsync(screenshotImage, testTimeout.Token);
+            screenshotImageResponse.EnsureSuccessStatusCode();
+            Assert.Equal("image/png", screenshotImageResponse.Content.Headers.ContentType?.MediaType);
+
+            using var repeatedScreenshot = await PostAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/screenshot",
+                testTimeout.Token);
+            Assert.Equal("completed", repeatedScreenshot.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal(
+                screenshotHash,
+                repeatedScreenshot.RootElement.GetProperty("sha256").GetString());
+
+            using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/automation/camera/focus",
+                """{"unitId":"unit:42"}""",
+                testTimeout.Token);
+            Assert.Equal("camera-focused-on-unit", focusCamera.RootElement.GetProperty("postcondition").GetString());
+
+            using var hudPanel = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/automation/hud",
+                """{"panel":"map"}""",
+                testTimeout.Token);
+            Assert.Equal("tactical-map-visible", hudPanel.RootElement.GetProperty("postcondition").GetString());
             Assert.True(campaign.RootElement.GetProperty("taskForceBuilderEnabled").GetBoolean());
             Assert.False(campaign.RootElement.GetProperty("taskForceBuilderLoaded").GetBoolean());
 
@@ -1888,6 +1940,7 @@ public sealed class CompanionControlIntegrationTests
                 ProcessId = Environment.ProcessId,
                 GameVersion = "integration",
                 InitialScene = "IntegrationScenario",
+                ExperimentalSaveDirectory = Path.GetDirectoryName(probeSavePath) ?? ".",
             }, JsonOptions),
         };
         await WriteEnvelopeAsync(pipe, hello, cancellationToken);
@@ -1925,6 +1978,17 @@ public sealed class CompanionControlIntegrationTests
                 await File.WriteAllTextAsync(
                     probeSavePath,
                     "[File]\nSaveFile=true\n[Taskforce1Weapon1]\nType=integration_weapon\n",
+                    cancellationToken);
+            }
+            if (command.MessageType == GameCommandTypes.CaptureGameScreenshot)
+            {
+                var screenshotPath = Path.Combine(
+                    Path.GetDirectoryName(probeSavePath) ?? ".",
+                    "_CrimeanTomScreenshot.png");
+                await File.WriteAllBytesAsync(
+                    screenshotPath,
+                    Convert.FromBase64String(
+                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
                     cancellationToken);
             }
             if (command.MessageType != GameCommandTypes.SetOwnedSurfaceSuspension)
@@ -2040,6 +2104,49 @@ public sealed class CompanionControlIntegrationTests
                     JsonOptions),
                 GameCommandTypes.GetCampaignManagementState => JsonSerializer.Serialize(
                     CreateCampaignManagementState(builderLoaded, draftPending),
+                    JsonOptions),
+                GameCommandTypes.GetUiInspection => JsonSerializer.Serialize(
+                    new UiInspectionPayload
+                    {
+                        SceneName = "IntegrationScenario",
+                        CurrentWindowType = "MissionBriefView",
+                        GameMainAvailable = true,
+                        MainGameViewAvailable = true,
+                        ScreenWidth = 1920,
+                        ScreenHeight = 1080,
+                        PlayerTaskforceId = "taskforce:Blue",
+                    },
+                    JsonOptions),
+                GameCommandTypes.CaptureGameScreenshot => JsonSerializer.Serialize(
+                    new CaptureGameScreenshotResultPayload
+                    {
+                        Outcome = "scheduled",
+                        Postcondition = "screenshot-capture-scheduled",
+                        FileName = "_CrimeanTomScreenshot.png",
+                        FilePath = Path.Combine(
+                            Path.GetDirectoryName(probeSavePath) ?? ".",
+                            "_CrimeanTomScreenshot.png"),
+                        SceneName = "IntegrationScenario",
+                        Width = 1,
+                        Height = 1,
+                        CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    },
+                    JsonOptions),
+                GameCommandTypes.FocusCameraOnUnit => JsonSerializer.Serialize(
+                    new UiAutomationActionResultPayload
+                    {
+                        Action = GameCommandTypes.FocusCameraOnUnit,
+                        Outcome = "completed",
+                        Postcondition = "camera-focused-on-unit",
+                    },
+                    JsonOptions),
+                GameCommandTypes.SetTacticalHudPanel => JsonSerializer.Serialize(
+                    new UiAutomationActionResultPayload
+                    {
+                        Action = GameCommandTypes.SetTacticalHudPanel,
+                        Outcome = "completed",
+                        Postcondition = "tactical-map-visible",
+                    },
                     JsonOptions),
                 GameCommandTypes.OpenTaskForceBuilder => JsonSerializer.Serialize(
                     new UiAutomationActionResultPayload
@@ -4864,7 +4971,11 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.GetCapabilities
                 or GameCommandTypes.SetExperimentalPauseState
                 or GameCommandTypes.GetTacticalCouplingState
-                or GameCommandTypes.GetWorldSnapshot)
+                or GameCommandTypes.GetWorldSnapshot
+                or GameCommandTypes.GetUiInspection
+                or GameCommandTypes.CaptureGameScreenshot
+                or GameCommandTypes.FocusCameraOnUnit
+                or GameCommandTypes.SetTacticalHudPanel)
             {
                 return null;
             }

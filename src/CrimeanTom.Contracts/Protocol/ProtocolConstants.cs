@@ -82,6 +82,10 @@ public static class GameCommandTypes
     public const string GetReferenceCatalogPage = "get-reference-catalog-page";
     public const string GetCatalogDiagnostics = "get-catalog-diagnostics";
     public const string GetCampaignManagementState = "get-campaign-management-state";
+    public const string GetUiInspection = "get-ui-inspection";
+    public const string CaptureGameScreenshot = "capture-game-screenshot";
+    public const string FocusCameraOnUnit = "focus-camera-on-unit";
+    public const string SetTacticalHudPanel = "set-tactical-hud-panel";
     public const string OpenTaskForceBuilder = "open-task-force-builder";
     public const string StartPortOperations = "start-port-operations";
     public const string AddMaintenanceDraftUnit = "add-maintenance-draft-unit";
@@ -116,6 +120,8 @@ public static class GameCommandTypes
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,
         GetCampaignManagementState,
+        GetUiInspection,
+        CaptureGameScreenshot,
     };
 
     public static readonly string[] UiAutomationCommands =
@@ -126,6 +132,8 @@ public static class GameCommandTypes
         StartScenario,
         ContinueMissionBriefing,
         ExitTacticalSession,
+        FocusCameraOnUnit,
+        SetTacticalHudPanel,
     };
 
     public static readonly string[] ExperimentalCommands =
@@ -164,6 +172,10 @@ public static class GameCommandTypes
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,
         GetCampaignManagementState,
+        GetUiInspection,
+        CaptureGameScreenshot,
+        FocusCameraOnUnit,
+        SetTacticalHudPanel,
         OpenTaskForceBuilder,
         StartPortOperations,
         AddMaintenanceDraftUnit,
