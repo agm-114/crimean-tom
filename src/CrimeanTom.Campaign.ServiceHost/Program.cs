@@ -226,13 +226,27 @@ app.MapGet("/campaigns/{campaignId}/projections/{coalitionId}", async (
         return Results.Conflict(new { error = exception.Code, message = exception.Message });
     }
 });
-app.MapPost("/control/player-sessions", (
+app.MapPost("/control/player-sessions", async (
     PlayerSessionIssueRequest request,
-    CampaignPlayerSessionRegistry playerSessions) =>
+    CampaignPlayerSessionRegistry playerSessions,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
 {
+    if (!Guid.TryParseExact(request.CampaignId, "N", out var campaignId)
+        || !Guid.TryParseExact(request.CoalitionId, "N", out var coalitionId))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-or-coalition-id" });
+    }
     try
     {
-        return Results.Ok(playerSessions.Issue(request.CampaignId, request.PlayerId, request.CoalitionId));
+        await coordinator.ProjectCoalitionAsync(
+            new CampaignId(campaignId),
+            new CoalitionId(coalitionId),
+            cancellationToken);
+        return Results.Ok(playerSessions.Issue(
+            campaignId.ToString("N"),
+            request.PlayerId,
+            coalitionId.ToString("N")));
     }
     catch (CampaignStoreConflict exception)
     {
@@ -260,15 +274,22 @@ app.MapPost("/control/campaigns/{campaignId}/player-commands", async (
     CampaignPlayerCommandSequencer commands,
     CancellationToken cancellationToken) =>
 {
-    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed)
+        || !Guid.TryParseExact(request.CoalitionId, "N", out var parsedCoalition))
     {
-        return Results.BadRequest(new { error = "invalid-campaign-id" });
+        return Results.BadRequest(new { error = "invalid-campaign-or-coalition-id" });
     }
     try
     {
-        var session = playerSessions.Require(request.SessionId, campaignId, request.CoalitionId);
+        var normalizedCampaignId = parsed.ToString("N");
+        var normalizedRequest = request with { CoalitionId = parsedCoalition.ToString("N") };
+        var session = playerSessions.Require(
+            normalizedRequest.SessionId,
+            normalizedCampaignId,
+            normalizedRequest.CoalitionId,
+            normalizedRequest.Generation);
         var timeQuanta = await coordinator.ReadTimeQuantaAsync(new CampaignId(parsed), cancellationToken);
-        return Results.Ok(commands.Submit(campaignId, timeQuanta, session, request));
+        return Results.Ok(commands.Submit(normalizedCampaignId, timeQuanta, session, normalizedRequest));
     }
     catch (CampaignStoreConflict exception)
     {

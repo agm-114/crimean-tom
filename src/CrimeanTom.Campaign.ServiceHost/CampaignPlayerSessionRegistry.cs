@@ -7,6 +7,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 
 internal sealed class CampaignPlayerSessionRegistry
 {
+    private readonly object _gate = new();
     private readonly ConcurrentDictionary<string, PlayerSession> _bySession = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _byReconnectToken = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, RateWindow> _issueWindows = new(StringComparer.Ordinal);
@@ -16,62 +17,75 @@ internal sealed class CampaignPlayerSessionRegistry
         RequireToken(campaignId, "campaignId");
         RequireToken(playerId, "playerId");
         RequireToken(coalitionId, "coalitionId");
-        EnforceIssueRate(playerId);
-        foreach (var prior in _bySession.Values
-            .Where(item => string.Equals(item.CampaignId, campaignId, StringComparison.Ordinal)
-                && string.Equals(item.PlayerId, playerId, StringComparison.Ordinal))
-            .ToArray())
+        lock (_gate)
         {
-            _bySession.TryRemove(prior.SessionId, out _);
-            _byReconnectToken.TryRemove(prior.ReconnectToken, out _);
-        }
+            EnforceIssueRate(playerId);
+            foreach (var prior in _bySession.Values
+                .Where(item => string.Equals(item.CampaignId, campaignId, StringComparison.Ordinal)
+                    && string.Equals(item.PlayerId, playerId, StringComparison.Ordinal))
+                .ToArray())
+            {
+                _bySession.TryRemove(prior.SessionId, out _);
+                _byReconnectToken.TryRemove(prior.ReconnectToken, out _);
+            }
 
-        var session = new PlayerSession(
-            Guid.NewGuid().ToString("N"),
-            campaignId,
-            playerId,
-            coalitionId,
-            CreateToken(),
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow,
-            Generation: 1);
-        _bySession[session.SessionId] = session;
-        _byReconnectToken[session.ReconnectToken] = session.SessionId;
-        return ToView(session);
+            var now = DateTimeOffset.UtcNow;
+            var session = new PlayerSession(
+                Guid.NewGuid().ToString("N"),
+                campaignId,
+                playerId,
+                coalitionId,
+                CreateToken(),
+                now,
+                now,
+                Generation: 1);
+            _bySession[session.SessionId] = session;
+            _byReconnectToken[session.ReconnectToken] = session.SessionId;
+            return ToView(session);
+        }
     }
 
     public PlayerSessionView Reconnect(string reconnectToken)
     {
-        if (string.IsNullOrWhiteSpace(reconnectToken)
-            || !_byReconnectToken.TryRemove(reconnectToken, out var sessionId)
-            || !_bySession.TryGetValue(sessionId, out var current))
+        lock (_gate)
         {
-            throw new CampaignStoreConflict("player-session-unknown", "The reconnect token is unknown or already replaced.");
-        }
+            if (string.IsNullOrWhiteSpace(reconnectToken)
+                || !_byReconnectToken.TryRemove(reconnectToken, out var sessionId)
+                || !_bySession.TryGetValue(sessionId, out var current))
+            {
+                throw new CampaignStoreConflict("player-session-unknown", "The reconnect token is unknown or already replaced.");
+            }
 
-        var replacement = current with
-        {
-            ReconnectToken = CreateToken(),
-            LastSeenAt = DateTimeOffset.UtcNow,
-            Generation = current.Generation + 1,
-        };
-        _bySession[sessionId] = replacement;
-        _byReconnectToken[replacement.ReconnectToken] = sessionId;
-        return ToView(replacement);
+            var replacement = current with
+            {
+                ReconnectToken = CreateToken(),
+                LastSeenAt = DateTimeOffset.UtcNow,
+                Generation = current.Generation + 1,
+            };
+            _bySession[sessionId] = replacement;
+            _byReconnectToken[replacement.ReconnectToken] = sessionId;
+            return ToView(replacement);
+        }
     }
 
-    public PlayerSessionView Require(string sessionId, string campaignId, string coalitionId)
+    public PlayerSessionView Require(string sessionId, string campaignId, string coalitionId, int generation)
     {
-        if (!_bySession.TryGetValue(sessionId, out var session)
-            || !string.Equals(session.CampaignId, campaignId, StringComparison.Ordinal)
-            || !string.Equals(session.CoalitionId, coalitionId, StringComparison.Ordinal))
+        lock (_gate)
         {
-            throw new CampaignStoreConflict("player-session-mismatch", "The player session does not match the campaign coalition.");
-        }
+            if (!_bySession.TryGetValue(sessionId, out var session)
+                || !string.Equals(session.CampaignId, campaignId, StringComparison.Ordinal)
+                || !string.Equals(session.CoalitionId, coalitionId, StringComparison.Ordinal)
+                || session.Generation != generation)
+            {
+                throw new CampaignStoreConflict(
+                    "player-session-mismatch",
+                    "The player session does not match the campaign coalition and reconnect generation.");
+            }
 
-        var updated = session with { LastSeenAt = DateTimeOffset.UtcNow };
-        _bySession[sessionId] = updated;
-        return ToView(updated);
+            var updated = session with { LastSeenAt = DateTimeOffset.UtcNow };
+            _bySession[sessionId] = updated;
+            return ToView(updated);
+        }
     }
 
     private void EnforceIssueRate(string playerId)
@@ -91,9 +105,11 @@ internal sealed class CampaignPlayerSessionRegistry
 
     private static void RequireToken(string value, string name)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
         {
-            throw new CampaignStoreConflict("invalid-player-session", $"A {name} is required.");
+            throw new CampaignStoreConflict(
+                "invalid-player-session",
+                $"A {name} of at most 256 characters is required.");
         }
     }
 
