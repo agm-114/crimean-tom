@@ -640,8 +640,9 @@ single-player prototype.
   After the durable migration event, grants reconstruct from that event's
   exact commit position and source checkpoint blobs.
   Bounded migration orchestration admission and durable campaign-scoped cooldown are
-  now enforced around the authenticated migrate path; per-worker health
-  declarations and live two-container verification remain open. Named worker
+  now enforced around the authenticated migrate path; companions declare per-worker
+  health and eligibility on hello/heartbeat, and only Healthy+Eligible workers
+  receive new Primary or Shadow work. Live two-container verification remains open. Named worker
   launch scripts (`scripts/sea-power-worker.ps1`, `pnpm worker:start|stop|status`)
   isolate control ports, pipes, run directories, Unity logs, and companion state
   per worker ID. They launch Sea Power directly with per-process environment

@@ -176,8 +176,14 @@ are now enforced around the authenticated migrate-tactical-island path: one
 in-flight orchestration per campaign and per shared source/destination worker,
 explicit `migration-orchestration-busy` rejection before any staging, and
 cooldown reconstructed from the latest `TacticalIslandMigratedEvent` in the
-campaign journal rather than process-local clocks. Per-worker health declarations and live two-container
-Sea Power verification remain open. The campaign kernel now has one atomic
+campaign journal rather than process-local clocks. Companions now declare
+per-worker `health` and `eligibility` on hello and every heartbeat. Invalid values
+fail closed to `Quarantined`. Empty values from older workers default to
+`Healthy`/`Eligible`. Only `Healthy`+`Eligible` workers receive new Primary
+assignments or Shadow overlap; `Pressured` workers keep existing work but receive
+no speculative load; `Overloaded`, `Draining`, `Quarantined`, `Offline`, or
+non-`Eligible` owners evacuate quiet islands. Live two-container
+Sea Power verification remains open. The campaign kernel now has one atomic
 command/event that can migrate a complete singleton or multi-entity island:
 source assignments must be live `Primary`/`Quiesced`, destinations must be
 non-publishing `Shadow`/`Prepared` with a strictly higher epoch and a different
