@@ -595,7 +595,13 @@ switch ($Action) {
     'catalog-files' { Show-Json (Invoke-ControlRequest '/game/catalog/references?kind=files&offset=0&limit=25') }
     'campaign' { Show-Json (Invoke-ControlRequest '/game/campaign') }
     'ui' { Show-Json (Invoke-ControlRequest '/game/ui') }
-    'screenshot' { Show-Json (Invoke-ControlRequest '/game/screenshot' 'Post' -TimeoutSec 20) }
+    'screenshot' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/screenshot' `
+            'Post' `
+            ([pscustomobject]@{}) `
+            -TimeoutSec 20)
+    }
     'focus-camera' {
         Show-Json (Invoke-ControlRequest `
             '/game/automation/camera/focus' `

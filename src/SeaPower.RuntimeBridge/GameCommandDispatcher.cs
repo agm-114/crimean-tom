@@ -2218,6 +2218,14 @@ internal static class GameCommandDispatcher
 
     private static CommandResponsePayload FocusCameraOnUnit(string payloadJson)
     {
+        if (!RuntimeUiAutomationSeamFingerprintProvider.IsCommandVerified(
+            GameCommandTypes.FocusCameraOnUnit))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "The pinned camera-focus UI seam is not verified for this game build.");
+        }
+
         var request = JsonSerializer.Deserialize<FocusCameraOnUnitRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new FocusCameraOnUnitRequestPayload();
@@ -2275,6 +2283,14 @@ internal static class GameCommandDispatcher
 
     private static CommandResponsePayload SetTacticalHudPanel(string payloadJson)
     {
+        if (!RuntimeUiAutomationSeamFingerprintProvider.IsCommandVerified(
+            GameCommandTypes.SetTacticalHudPanel))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "The pinned tactical-HUD UI seam is not verified for this game build.");
+        }
+
         var request = JsonSerializer.Deserialize<SetTacticalHudPanelRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new SetTacticalHudPanelRequestPayload();
