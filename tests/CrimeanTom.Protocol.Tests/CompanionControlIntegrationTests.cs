@@ -3089,7 +3089,7 @@ public sealed class CompanionControlIntegrationTests
     private static GetColliderCatalogResultPayload CreateEmptyColliderCatalog(string probeSavePath) =>
         new()
         {
-            SchemaVersion = 1,
+            SchemaVersion = ColliderGeometryCache.SchemaVersion,
             CacheDirectory = Path.Combine(Path.GetDirectoryName(probeSavePath) ?? ".", "collider-catalog"),
             GameVersion = "integration",
             MemoryCount = 0,

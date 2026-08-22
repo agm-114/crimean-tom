@@ -32,6 +32,8 @@ param(
 
     [string]$ScenarioId,
 
+    [switch]$ForceRefresh,
+
     [string]$ProjectionId = 'port-projection:sevastopol:blue-fleet:1042',
 
     [long]$ExpectedCampaignRevision = 1042,
@@ -606,7 +608,7 @@ switch ($Action) {
         Show-Json (Invoke-ControlRequest `
             '/game/colliders/capture' `
             'Post' `
-            ([pscustomobject]@{}))
+            ([pscustomobject]@{ forceRefresh = $ForceRefresh.IsPresent }))
     }
     'colliders' { Show-Json (Invoke-ControlRequest '/game/colliders') }
     'focus-camera' {

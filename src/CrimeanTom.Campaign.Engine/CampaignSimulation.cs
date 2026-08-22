@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
+using CrimeanTom.Protocol;
 
 namespace CrimeanTom.Campaign.Engine;
 
@@ -17,8 +19,9 @@ namespace CrimeanTom.Campaign.Engine;
 /// CAP/AEW/MPA orbits, sprint-drift, snorkel, baffle turns, collision
 /// avoidance, and bingo/winchester withdrawal.
 /// Units stay in this resolver unless a live Sea Power assignment is Active or
-/// Quiescing. This is not Sea Power <c>ObjectBase</c> physics, per-sensor arcs,
-/// or projectile simulation.
+/// Quiescing. Terminal hits can raycast cached hull primitives with BepuPhysics
+/// when a collider catalog is supplied; that is not PhysX or Blastzone armor.
+/// Without a catalog the seeded range-roll analogue is unchanged.
 /// </summary>
 internal static class CampaignSimulation
 {
@@ -840,7 +843,15 @@ internal static class CampaignSimulation
             }
 
             var hit = ResolveTerminalHit(
-                state, dueAt, actor, target, bid.Weapon, bid.ActualDistanceMeters, actor.Coordinate);
+                state,
+                dueAt,
+                actor,
+                target,
+                bid.Weapon,
+                bid.ActualDistanceMeters,
+                actor.Coordinate,
+                VerticalMeters(actor),
+                insDriftMilliUnits: 0);
             outcomes.AddRange(hit.Outcomes);
             if (hit.Target is { } updatedTarget)
             {
@@ -1245,7 +1256,16 @@ internal static class CampaignSimulation
                 }
             }
 
-            var hit = ResolveTerminalHit(state, dueAt, shooter, target, weapon, distance, coordinate);
+            var hit = ResolveTerminalHit(
+                state,
+                dueAt,
+                shooter,
+                target,
+                weapon,
+                distance,
+                coordinate,
+                VerticalMeters(target) + 20,
+                round.InsDriftMilliUnits);
             outcomes.AddRange(hit.Outcomes);
             if (hit.Target is { } updated)
             {
@@ -1277,7 +1297,9 @@ internal static class CampaignSimulation
         EntityState target,
         OperationalWeaponCapability weapon,
         long distanceMeters,
-        GeoCoordinate threatCoordinate)
+        GeoCoordinate threatCoordinate,
+        float shotAltitudeMeters,
+        int insDriftMilliUnits)
     {
         var rangeRatio = weapon.MaximumRange.Value <= 0
             ? 1_000
@@ -1298,10 +1320,33 @@ internal static class CampaignSimulation
             - (1_000 - target.Analogue.PropulsionIntegrityMilliUnits) / 20,
             80,
             900);
-        var roll = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-hit-{target.EntityId}") % 1_000;
-        if (roll >= hitChance)
+        var geometric = ColliderHitResolution.TryGetHull(
+                ColliderHitResolution.ActiveCatalog(),
+                target.CatalogUnitId,
+                out var hull)
+            ? GeometricHit(
+                hull,
+                state,
+                dueAt,
+                actor,
+                target,
+                hitChance,
+                threatCoordinate,
+                shotAltitudeMeters,
+                insDriftMilliUnits)
+            : null;
+        if (geometric is false)
         {
             return new TerminalHit(null, []);
+        }
+
+        if (geometric is not true)
+        {
+            var roll = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-hit-{target.EntityId}") % 1_000;
+            if (roll >= hitChance)
+            {
+                return new TerminalHit(null, []);
+            }
         }
 
         var rangeDamage = 40_000 + (1_000 - rangeRatio) * 80
@@ -1377,6 +1422,51 @@ internal static class CampaignSimulation
         }
         return new TerminalHit(updated, outcomes);
     }
+
+    private static bool? GeometricHit(
+        ColliderUnitGeometryPayload hull,
+        CampaignState state,
+        CampaignTime dueAt,
+        EntityState actor,
+        EntityState target,
+        int hitChance,
+        GeoCoordinate shotFrom,
+        float shotAltitudeMeters,
+        int insDriftMilliUnits)
+    {
+        var origin = ColliderHitResolver.ToHullLocal(
+            shotFrom,
+            shotAltitudeMeters,
+            target.Coordinate,
+            VerticalMeters(target),
+            target.Heading.Value);
+        var toCenter = -origin;
+        var range = toCenter.Length();
+        if (range < 1f)
+        {
+            return true;
+        }
+
+        var direction = toCenter / range;
+        var reference = MathF.Abs(Vector3.Dot(direction, Vector3.UnitY)) > 0.95f ? Vector3.UnitX : Vector3.UnitY;
+        var right = Vector3.Normalize(Vector3.Cross(direction, reference));
+        var up = Vector3.Normalize(Vector3.Cross(right, direction));
+        var cep = 12f + (900 - hitChance) / 10f + insDriftMilliUnits / 40f;
+        var u = (KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"aim-u-{target.EntityId}") % 2001) - 1000;
+        var v = (KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"aim-v-{target.EntityId}") % 2001) - 1000;
+        var aim = origin
+            + direction * range
+            + right * (u / 1_000f * cep)
+            + up * (v / 1_000f * cep * 0.35f);
+        var ray = aim - origin;
+        var hit = ColliderHitResolver.Cast(hull, origin, ray, maximumT: 1.5f);
+        return hit.Performed ? hit.DidHit : null;
+    }
+
+    private static float VerticalMeters(EntityState entity) =>
+        Classify(entity) == ContactClassification.Subsurface
+            ? -entity.Analogue.AltitudeOrDepthMeters
+            : entity.Analogue.AltitudeOrDepthMeters;
 
     private static bool IsBallisticGun(OperationalWeaponCapability weapon) =>
         ContainsToken(weapon.AmmunitionId, "gun")

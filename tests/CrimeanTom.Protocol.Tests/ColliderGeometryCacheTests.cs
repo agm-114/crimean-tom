@@ -6,6 +6,13 @@ namespace CrimeanTom.Protocol.Tests;
 public sealed class ColliderGeometryCacheTests
 {
     [Fact]
+    public void UsesMeterBasedColliderSchema()
+    {
+        Assert.Equal(2, ColliderGeometryCache.SchemaVersion);
+        Assert.Equal(2, new ColliderUnitGeometryPayload().SchemaVersion);
+    }
+
+    [Fact]
     public void PersistsHullGeometryToDiskAndServesLaterLookupsFromMemory()
     {
         var root = Path.Combine(
