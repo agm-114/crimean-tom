@@ -11,9 +11,11 @@ namespace CrimeanTom.Campaign.Engine;
 /// <summary>
 /// Deterministic Operational analogue of tactical employment: geodetic weapon range,
 /// domain-aware sensors, fire doctrine, heading/telegraph, analogue loadouts,
-/// task-force weapon allocation, in-flight missiles/torpedoes, analogue
-/// propulsion/sensor/weapon damage, depth/altitude, formation station-keeping,
-/// CAP orbit / baffle turns, and bingo/winchester withdrawal.
+/// task-force weapon allocation, in-flight missiles/torpedoes/bombs/decoys,
+/// analogue propulsion/sensor/weapon/magazine/crew/compartment damage,
+/// EMCON/ROE/alert, depth/altitude, formation station-keeping,
+/// CAP/AEW/MPA orbits, sprint-drift, snorkel, baffle turns, collision
+/// avoidance, and bingo/winchester withdrawal.
 /// Units stay in this resolver unless a live Sea Power assignment is Active or
 /// Quiescing. This is not Sea Power <c>ObjectBase</c> physics, per-sensor arcs,
 /// or projectile simulation.
@@ -97,9 +99,9 @@ internal static class CampaignSimulation
             }
         }
 
-        var sustained = ResolveSustainmentAndAttrition(
-            withIntent with { Entities = entities, Groups = groups, Orders = orders },
-            dueAt);
+        var movedState = withIntent with { Entities = entities, Groups = groups, Orders = orders };
+        movedState = ApplyCollisionAvoidance(withIntent, movedState);
+        var sustained = ResolveSustainmentAndAttrition(movedState, dueAt);
         var engagement = ResolveOperationalEngagements(sustained, dueAt);
         var ordnance = ResolveInFlightOrdnance(engagement.State, dueAt, engagement.Outcomes);
         var intelligence = ResolveIntelligence(ordnance.State, dueAt, ordnance.Outcomes);
@@ -173,7 +175,9 @@ internal static class CampaignSimulation
                         ? neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count]
                         : intercepts[0];
             var kind = requiresRecovery ? OrderKind.Withdraw
-                : intercepts.Length > 0 ? OrderKind.Transit
+                : intercepts.Length > 0 ? OrderKind.Intercept
+                : first.SimulationDomain == SimulationDomain.Air ? OrderKind.Cap
+                : Classify(first) == ContactClassification.Subsurface ? OrderKind.Asw
                 : OrderKind.Patrol;
             var orderId = new OrderId(KeyedGuid(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-order"));
             var order = new OrderState(
@@ -236,16 +240,36 @@ internal static class CampaignSimulation
                 return entity;
             }
             var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
-            var moved = next != entity.RegionId;
+            var inbound = state.InFlight
+                .Where(item => item.TargetEntityId == entity.EntityId)
+                .OrderBy(item => item.OrdnanceId, StringComparer.Ordinal)
+                .ToArray();
+            var inboundTorpedoes = inbound
+                .Where(item => item.Kind == OrdnanceKind.Torpedo
+                    || ContainsToken(item.AmmunitionId, "torpedo"))
+                .ToArray();
+            var inboundTorpedo = inboundTorpedoes.Length > 0;
+            var inboundMissile = inbound.Any(item => item.Kind is OrdnanceKind.Missile or OrdnanceKind.Bomb);
+            var effectiveNext = inboundTorpedo ? entity.RegionId : next;
+            var moved = effectiveNext != entity.RegionId;
             var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
             var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
             var desired = hostileAhead && remaining > StandoffMeters
                 ? remaining - StandoffMeters
                 : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
-            var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank : TelegraphCruise;
-            var hopLimit = HopMeters(entity, movementTelegraph)
+            var telegraph = inboundTorpedo || order.Kind == OrderKind.Withdraw ? TelegraphFlank
+                : inboundMissile || order.Kind == OrderKind.Intercept ? TelegraphIntercept
+                : TelegraphCruise;
+            if ((order.Kind is OrderKind.Patrol or OrderKind.Asw)
+                && Classify(entity) == ContactClassification.Subsurface)
+            {
+                telegraph = KeyedValue(state.Metadata.Seed, entity.EntityId.Value, dueAt, "sprint-drift") % 1_000 < 400
+                    ? TelegraphStop
+                    : TelegraphFlank;
+            }
+            var hopLimit = HopMeters(entity, telegraph)
                 * Math.Max(100, entity.Analogue.PropulsionIntegrityMilliUnits) / 1_000;
-            var hop = Math.Min(hopLimit, desired);
+            var hop = Math.Min(hopLimit, inboundTorpedo ? hopLimit : desired);
             var resources = entity.Resources;
             if (hop > 0)
             {
@@ -257,30 +281,60 @@ internal static class CampaignSimulation
             }
             resources = Consume(resources, ResourceKind.Stores, StoresPerActivity);
             var bearingMilli = BearingMilliDegrees(entity.Coordinate, destination);
+            if (inboundTorpedo)
+            {
+                bearingMilli = BearingMilliDegrees(entity.Coordinate, inboundTorpedoes[0].Coordinate);
+                if (bearingMilli >= 0)
+                {
+                    bearingMilli = (bearingMilli + 180_000) % 360_000;
+                }
+            }
             var coordinate = hop > 0 && bearingMilli >= 0
                 ? DisplaceAlongBearing(entity.Coordinate, bearingMilli, hop)
                 : entity.Coordinate;
             var heading = bearingMilli >= 0
                 ? HeadingMilliDegrees.FromMilliDegrees(bearingMilli)
                 : entity.Heading;
-            var telegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank : TelegraphCruise;
-            if (entity.SimulationDomain == SimulationDomain.Air && order.Kind == OrderKind.Patrol)
+            if (entity.SimulationDomain == SimulationDomain.Air
+                && order.Kind is OrderKind.Patrol or OrderKind.Cap)
             {
-                heading = HeadingMilliDegrees.FromMilliDegrees((heading.Value + 45_000) % 360_000);
-                coordinate = DisplaceAlongBearing(coordinate, heading.Value, 12_000);
+                var turn = order.Kind == OrderKind.Cap ? 70_000 : 45_000;
+                heading = HeadingMilliDegrees.FromMilliDegrees((heading.Value + turn) % 360_000);
+                if (hop == 0)
+                {
+                    coordinate = DisplaceAlongBearing(
+                        coordinate, heading.Value, order.Kind == OrderKind.Cap ? 18_000 : 12_000);
+                }
             }
-            else if (Classify(entity) == ContactClassification.Subsurface && order.Kind == OrderKind.Patrol
+            else if (Classify(entity) == ContactClassification.Subsurface
+                && order.Kind is OrderKind.Patrol or OrderKind.Asw
                 && KeyedValue(state.Metadata.Seed, entity.EntityId.Value, dueAt, "baffles") % 1_000 < 200)
             {
                 heading = HeadingMilliDegrees.FromMilliDegrees((heading.Value + 60_000) % 360_000);
             }
+            var snorkel = Classify(entity) == ContactClassification.Subsurface
+                ? (entity.Analogue.SnorkelCycle + 1) % 10
+                : 0;
+            var snorkeling = Classify(entity) == ContactClassification.Subsurface
+                && snorkel == 0
+                && inbound.Length == 0
+                && telegraph != TelegraphFlank;
             var analogue = entity.Analogue with
             {
                 AltitudeOrDepthMeters = entity.SimulationDomain == SimulationDomain.Air
-                    ? (order.Kind == OrderKind.Patrol ? 8_000 : 5_500)
+                    ? (order.Kind == OrderKind.Cap ? 9_000 : order.Kind == OrderKind.Patrol ? 8_000 : 5_500)
                     : Classify(entity) == ContactClassification.Subsurface
-                        ? (telegraph == TelegraphFlank ? 50 : 180)
+                        ? (snorkeling ? 12 : telegraph == TelegraphFlank ? 50 : 180)
                         : 0,
+                Emcon = Classify(entity) == ContactClassification.Subsurface
+                    ? (snorkeling ? EmconState.Radiate : EmconState.Passive)
+                    : inboundMissile ? EmconState.Radiate : entity.Analogue.Emcon,
+                Alert = inbound.Length > 0 ? AlertState.General
+                    : hostileAhead ? AlertState.Warning : AlertState.Routine,
+                EcmMilliUnits = inboundMissile
+                    ? Math.Min(1_000, entity.Analogue.EcmMilliUnits + 250)
+                    : Math.Max(0, entity.Analogue.EcmMilliUnits - 80),
+                SnorkelCycle = snorkel,
             };
             var changed = moved
                 || hop > 0
@@ -291,7 +345,7 @@ internal static class CampaignSimulation
             return changed
                 ? entity with
                 {
-                    RegionId = next,
+                    RegionId = effectiveNext,
                     Coordinate = coordinate,
                     Heading = heading,
                     Telegraph = telegraph,
@@ -306,6 +360,12 @@ internal static class CampaignSimulation
 
         var arrived = activeMembers.All(entity =>
             {
+                if (state.InFlight.Any(item => item.TargetEntityId == entity.EntityId
+                    && (item.Kind == OrdnanceKind.Torpedo
+                        || ContainsToken(item.AmmunitionId, "torpedo"))))
+                {
+                    return false;
+                }
                 var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
                 if (next != order.DestinationRegionId)
                 {
@@ -316,7 +376,9 @@ internal static class CampaignSimulation
                 var desired = hostileAhead && remaining > StandoffMeters
                     ? remaining - StandoffMeters
                     : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
-                var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank : TelegraphCruise;
+                var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank
+                    : order.Kind == OrderKind.Intercept ? TelegraphIntercept
+                    : TelegraphCruise;
                 var hopLimit = HopMeters(entity, movementTelegraph)
                     * Math.Max(100, entity.Analogue.PropulsionIntegrityMilliUnits) / 1_000;
                 return desired <= hopLimit;
@@ -370,6 +432,74 @@ internal static class CampaignSimulation
         }).ToArray();
     }
 
+    private static CampaignState ApplyCollisionAvoidance(CampaignState beforeMovement, CampaignState state)
+    {
+        var entities = state.Entities;
+        var ordered = entities.Values
+            .Where(item => IsOperational(state, item))
+            .OrderBy(item => item.EntityId)
+            .ToArray();
+        for (var index = 1; index < ordered.Length; index++)
+        {
+            var entity = entities[ordered[index].EntityId];
+            if (entity.Coordinate == beforeMovement.Entities[entity.EntityId].Coordinate)
+            {
+                continue;
+            }
+            for (var prior = 0; prior < index; prior++)
+            {
+                var other = entities[ordered[prior].EntityId];
+                if (!CanCollide(entity, other))
+                {
+                    continue;
+                }
+                var distance = RoundedGreatCircleDistanceMeters(entity.Coordinate, other.Coordinate);
+                if (distance >= 400)
+                {
+                    continue;
+                }
+
+                var heading = (entity.Heading.Value + 90_000) % 360_000;
+                var coordinate = DisplaceAlongBearing(entity.Coordinate, heading, 180);
+                if (coordinate != entity.Coordinate)
+                {
+                    entity = entity with { Coordinate = coordinate, Revision = entity.Revision.Next() };
+                    entities = entities.SetItem(entity.EntityId, entity);
+                }
+                break;
+            }
+        }
+        return state with { Entities = entities };
+    }
+
+    private static bool CanCollide(EntityState first, EntityState second)
+    {
+        if (first.RegionId != second.RegionId)
+        {
+            return false;
+        }
+        if (first.SimulationDomain == SimulationDomain.Air
+            || second.SimulationDomain == SimulationDomain.Air)
+        {
+            return first.SimulationDomain == SimulationDomain.Air
+                && second.SimulationDomain == SimulationDomain.Air
+                && Math.Abs(first.Analogue.AltitudeOrDepthMeters
+                    - second.Analogue.AltitudeOrDepthMeters) < 300;
+        }
+        if (first.SimulationDomain == SimulationDomain.LandAbstract
+            || second.SimulationDomain == SimulationDomain.LandAbstract)
+        {
+            return first.SimulationDomain == SimulationDomain.LandAbstract
+                && second.SimulationDomain == SimulationDomain.LandAbstract;
+        }
+        var firstSubsurface = Classify(first) == ContactClassification.Subsurface;
+        var secondSubsurface = Classify(second) == ContactClassification.Subsurface;
+        return firstSubsurface == secondSubsurface
+            && (!firstSubsurface
+                || Math.Abs(first.Analogue.AltitudeOrDepthMeters
+                    - second.Analogue.AltitudeOrDepthMeters) < 30);
+    }
+
     private static CampaignState ResolveSustainmentAndAttrition(CampaignState state, CampaignTime dueAt)
     {
         var bases = state.Bases;
@@ -406,13 +536,20 @@ internal static class CampaignSimulation
                     damage -= checked((int)hullRepair);
                 }
                 var conditionBudget = repairBudget - hullRepair;
-                var conditionNeed = Math.Max(
-                    Math.Max((long)analogue.FireMilliUnits * 2, (long)analogue.FloodMilliUnits * 3),
-                    Math.Max(
-                        (long)(1_000 - analogue.PropulsionIntegrityMilliUnits) * 1_250,
-                        Math.Max(
-                            (long)(1_000 - analogue.SensorIntegrityMilliUnits) * 1_667,
-                            (long)(1_000 - analogue.WeaponIntegrityMilliUnits) * 1_667)));
+                var conditionNeed = new long[]
+                {
+                    (long)analogue.FireMilliUnits * 2,
+                    (long)analogue.FloodMilliUnits * 3,
+                    (long)(1_000 - analogue.PropulsionIntegrityMilliUnits) * 1_250,
+                    (long)(1_000 - analogue.SensorIntegrityMilliUnits) * 1_667,
+                    (long)(1_000 - analogue.WeaponIntegrityMilliUnits) * 1_667,
+                    (long)(1_000 - analogue.MagazineIntegrityMilliUnits) * 2_500,
+                    (long)(1_000 - analogue.FlightDeckIntegrityMilliUnits) * 2_500,
+                    (long)(1_000 - analogue.CrewMilliUnits) * 2_000,
+                    (long)(1_000 - analogue.PortIntegrityMilliUnits) * 2_500,
+                    (long)(1_000 - analogue.StarboardIntegrityMilliUnits) * 2_500,
+                    (long)(1_000 - analogue.CountermeasureMilliUnits) * 1_000,
+                }.Max();
                 var conditionRepair = Math.Min(conditionBudget, conditionNeed);
                 if (conditionRepair > 0)
                 {
@@ -426,6 +563,18 @@ internal static class CampaignSimulation
                             analogue.SensorIntegrityMilliUnits + checked((int)(conditionRepair / 1_667))),
                         WeaponIntegrityMilliUnits = Math.Min(1_000,
                             analogue.WeaponIntegrityMilliUnits + checked((int)(conditionRepair / 1_667))),
+                        MagazineIntegrityMilliUnits = Math.Min(1_000,
+                            analogue.MagazineIntegrityMilliUnits + checked((int)(conditionRepair / 2_500))),
+                        FlightDeckIntegrityMilliUnits = Math.Min(1_000,
+                            analogue.FlightDeckIntegrityMilliUnits + checked((int)(conditionRepair / 2_500))),
+                        CrewMilliUnits = Math.Min(1_000,
+                            analogue.CrewMilliUnits + checked((int)(conditionRepair / 2_000))),
+                        PortIntegrityMilliUnits = Math.Min(1_000,
+                            analogue.PortIntegrityMilliUnits + checked((int)(conditionRepair / 2_500))),
+                        StarboardIntegrityMilliUnits = Math.Min(1_000,
+                            analogue.StarboardIntegrityMilliUnits + checked((int)(conditionRepair / 2_500))),
+                        CountermeasureMilliUnits = Math.Min(1_000,
+                            analogue.CountermeasureMilliUnits + checked((int)(conditionRepair / 1_000))),
                     };
                 }
                 var spent = hullRepair + conditionRepair;
@@ -458,27 +607,45 @@ internal static class CampaignSimulation
                 ? 8_000
                 : 0;
             damage = Math.Min(1_000_000, checked(damage + shortageDamage + randomDamage + flooding));
-            if (home is null && lifecycle == EntityLifecycle.Destroyed)
+            if (home is not null)
             {
                 analogue = analogue with
                 {
-                    FireMilliUnits = Math.Max(0, analogue.FireMilliUnits - 12_000),
-                    FloodMilliUnits = Math.Max(0, analogue.FloodMilliUnits - 8_000),
+                    WeaponReadyMilliUnits = 1_000,
+                    EcmMilliUnits = 0,
                 };
             }
             else if (home is null)
             {
+                var weaponReadyRecovery = lifecycle == EntityLifecycle.Disabled ? 150 : 350;
                 analogue = analogue with
                 {
                     FireMilliUnits = analogue.FireMilliUnits == 0
                         ? 0
-                        : Math.Min(1_000_000, analogue.FireMilliUnits + 6_000),
+                        : Math.Min(1_000_000, analogue.FireMilliUnits + 6_000 - analogue.CrewMilliUnits / 20),
                     FloodMilliUnits = analogue.FloodMilliUnits == 0
                         ? 0
                         : Math.Min(1_000_000, analogue.FloodMilliUnits + 4_000),
+                    WeaponReadyMilliUnits = Math.Min(1_000,
+                        analogue.WeaponReadyMilliUnits + weaponReadyRecovery),
+                    EcmMilliUnits = Math.Max(0, analogue.EcmMilliUnits - 40),
+                };
+                analogue = analogue with
+                {
+                    FireMilliUnits = Math.Clamp(analogue.FireMilliUnits, 0, 1_000_000),
                 };
                 damage = Math.Min(1_000_000,
                     checked(damage + analogue.FireMilliUnits / 80 + analogue.FloodMilliUnits / 100));
+                if (analogue.MagazineIntegrityMilliUnits < 500
+                    && analogue.FireMilliUnits >= 80_000
+                    && KeyedValue(state.Metadata.Seed, entity.EntityId.Value, dueAt, "secondary") % 1_000 < 40)
+                {
+                    damage = Math.Min(1_000_000, damage + 35_000);
+                    analogue = analogue with
+                    {
+                        MagazineIntegrityMilliUnits = Math.Max(0, analogue.MagazineIntegrityMilliUnits - 80),
+                    };
+                }
             }
             if (damage >= 1_000_000)
             {
@@ -630,6 +797,11 @@ internal static class CampaignSimulation
                 Resources = Set(actor.Resources, ResourceKind.Munitions, available - expenditure),
                 Heading = interceptHeading,
                 Telegraph = TelegraphIntercept,
+                Analogue = actor.Analogue with
+                {
+                    Alert = AlertState.General,
+                    WeaponReadyMilliUnits = IsBallisticGun(bid.Weapon) ? actor.Analogue.WeaponReadyMilliUnits : 0,
+                },
                 Revision = actor.Revision.Next(),
             };
             entities = entities.SetItem(actor.EntityId, actor);
@@ -655,7 +827,10 @@ internal static class CampaignSimulation
                     bid.TargetingDistanceMeters,
                     OrdnanceSpeedMetersPerTick(bid.Weapon),
                     KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"ins-{target.EntityId}") % 80,
-                    dueAt));
+                    dueAt,
+                    OrdnanceKindFor(bid.Weapon),
+                    OrdnanceGuidanceFor(bid.Weapon) is OrdnanceGuidance.SemiActive or OrdnanceGuidance.Command ? 1 : 0,
+                    0));
                 guidanceLoad[actor.EntityId] = guidanceLoad.GetValueOrDefault(actor.EntityId) + 1;
                 coveredTargets.Add(target.EntityId);
                 outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Launch, actor.RegionId,
@@ -818,12 +993,18 @@ internal static class CampaignSimulation
                     ?? ParticipatingObserver(state, observer, engagementOutcomes, contact.EntityId);
                 var revision = intelligence.TryGetValue(key, out var current)
                     ? current.Revision.Next() : new EntityRevision(1);
+                var quality = score >= 900 ? TrackQuality.Identified
+                    : score >= 600 ? TrackQuality.Classified : TrackQuality.Detected;
+                var observedHeading = quality == TrackQuality.Identified ? contact.Heading.Value : 0;
+                var observedSpeed = quality == TrackQuality.Identified
+                    ? checked((int)Math.Min(int.MaxValue, HopMeters(contact, contact.Telegraph)))
+                    : 0;
                 intelligence = intelligence.SetItem(key, new IntelligenceEstimate(
                     key, contact.RegionId, coordinate, confidence, dueAt, radius, classification, revision,
-                    DetectionChannel(reportingSensor, contact)));
+                    DetectionChannel(reportingSensor, contact), quality, observedHeading, observedSpeed));
                 outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Detection, contact.RegionId,
                     reportingSensor?.EntityId ?? contact.EntityId,
-                    contact.EntityId, 0, 0, $"{confidence} {classification} contact"));
+                    contact.EntityId, 0, 0, $"{confidence} {quality} {classification} contact"));
             }
         }
         return new TickResult(state with { Intelligence = intelligence }, outcomes);
@@ -935,22 +1116,21 @@ internal static class CampaignSimulation
             var distanceBeforeStep = RoundedGreatCircleDistanceMeters(round.Coordinate, target.Coordinate);
             var terminalApproach = round.Stage == OrdnanceFlightStage.Terminal
                 || round.RemainingMeters <= round.SpeedMetersPerTick;
+            var seekerDelay = Math.Max(0, round.SeekerDelayTicks - 1);
+            var externalGuidance = round.Guidance is OrdnanceGuidance.SemiActive or OrdnanceGuidance.Command;
+            var hasExternalGuidance = !externalGuidance
+                || CanProvideExternalGuidance(state with { Entities = entities }, shooter, target);
+            var lostGuidanceTicks = hasExternalGuidance ? 0 : round.LostGuidanceTicks + 1;
             var headingMilli = round.HeadingMilliDegrees;
             if (terminalApproach && round.Guidance == OrdnanceGuidance.Active
+                && seekerDelay == 0
                 && distanceBeforeStep <= ActiveSeekerRangeMeters(round))
             {
                 headingMilli = HeadingToward(round.Coordinate, target.Coordinate,
                     HeadingMilliDegrees.FromMilliDegrees(headingMilli)).Value;
             }
-            else if (terminalApproach && round.Guidance == OrdnanceGuidance.SemiActive)
+            else if (terminalApproach && externalGuidance && hasExternalGuidance && seekerDelay == 0)
             {
-                if (!CanIlluminate(state with { Entities = entities }, shooter, target))
-                {
-                    outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SeekerLost, target.RegionId,
-                        round.ShooterEntityId, target.EntityId, 0, 0,
-                        $"Semi-active illumination lost for analogue round {round.OrdnanceId}"));
-                    continue;
-                }
                 headingMilli = HeadingToward(round.Coordinate, target.Coordinate,
                     HeadingMilliDegrees.FromMilliDegrees(headingMilli)).Value;
             }
@@ -972,15 +1152,36 @@ internal static class CampaignSimulation
                 : remainingMeters < round.RemainingMeters
                     ? OrdnanceFlightStage.Cruise
                     : round.Stage;
+            var advanced = round with
+            {
+                Coordinate = coordinate,
+                HeadingMilliDegrees = headingMilli,
+                RemainingMeters = remainingMeters,
+                Stage = stage,
+                SeekerDelayTicks = seekerDelay,
+                LostGuidanceTicks = lostGuidanceTicks,
+            };
+            if (round.Kind == OrdnanceKind.Decoy)
+            {
+                if (remainingMeters > 0)
+                {
+                    remaining.Add(advanced);
+                }
+                continue;
+            }
+
+            if (externalGuidance && !hasExternalGuidance
+                && (lostGuidanceTicks >= 2 || remainingMeters == 0))
+            {
+                outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SeekerLost, target.RegionId,
+                    round.ShooterEntityId, target.EntityId, 0, 0,
+                    $"External guidance lost for analogue round {round.OrdnanceId}"));
+                continue;
+            }
+
             if (remainingMeters > 0)
             {
-                remaining.Add(round with
-                {
-                    Coordinate = coordinate,
-                    HeadingMilliDegrees = headingMilli,
-                    RemainingMeters = remainingMeters,
-                    Stage = stage,
-                });
+                remaining.Add(advanced);
                 continue;
             }
 
@@ -991,6 +1192,31 @@ internal static class CampaignSimulation
                     round.ShooterEntityId, target.EntityId, 0, 0,
                     $"Terminal seeker missed by {distance} m"));
                 continue;
+            }
+
+            if (round.Kind == OrdnanceKind.Torpedo
+                && target.Analogue.CountermeasureMilliUnits >= 100)
+            {
+                target = target with
+                {
+                    Analogue = target.Analogue with
+                    {
+                        CountermeasureMilliUnits = target.Analogue.CountermeasureMilliUnits - 100,
+                    },
+                    Revision = target.Revision.Next(),
+                };
+                entities = entities.SetItem(target.EntityId, target);
+                var defeated = KeyedValue(state.Metadata.Seed, round.ShooterEntityId.Value, dueAt,
+                    $"noisemaker-{round.OrdnanceId}") % 1_000 < 280;
+                outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Countermeasure, target.RegionId,
+                    target.EntityId, round.ShooterEntityId, 0, 0,
+                    defeated
+                        ? $"Noisemaker defeated analogue torpedo {round.OrdnanceId}"
+                        : $"Noisemaker failed against analogue torpedo {round.OrdnanceId}"));
+                if (defeated)
+                {
+                    continue;
+                }
             }
 
             var weapon = new OperationalWeaponCapability(
@@ -1025,6 +1251,12 @@ internal static class CampaignSimulation
             {
                 entities = entities.SetItem(updated.EntityId, updated);
             }
+            else if (hit.Outcomes.Count == 0)
+            {
+                outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SeekerLost, target.RegionId,
+                    round.ShooterEntityId, target.EntityId, 0, 0,
+                    $"Terminal analogue round {round.OrdnanceId} missed"));
+            }
         }
 
         return new TickResult(
@@ -1050,7 +1282,10 @@ internal static class CampaignSimulation
         var rangeRatio = weapon.MaximumRange.Value <= 0
             ? 1_000
             : (int)Math.Min(1_000, distanceMeters * 1_000L / weapon.MaximumRange.Value);
-        var ecm = target.SimulationDomain == SimulationDomain.Air || target.Analogue.SensorIntegrityMilliUnits < 700 ? 80 : 0;
+        var ecm = target.SimulationDomain == SimulationDomain.Air
+            || target.Analogue.SensorIntegrityMilliUnits < 700
+            ? 80 : 0;
+        ecm += target.Analogue.EcmMilliUnits / 8;
         var hitChance = Math.Clamp(
             280 + actor.ReadinessMilliUnits / 2
             - target.ReadinessMilliUnits / 8
@@ -1077,10 +1312,7 @@ internal static class CampaignSimulation
             return new TerminalHit(null, []);
         }
 
-        var totalDamage = target.DamageMilliUnits + applied;
-        var lifecycle = totalDamage >= 1_000_000
-            ? EntityLifecycle.Destroyed
-            : totalDamage >= 800_000 ? EntityLifecycle.Disabled : target.Lifecycle;
+        var portHit = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"side-{target.EntityId}") % 2 == 0;
         var analogue = target.Analogue with
         {
             FireMilliUnits = Math.Min(1_000_000, target.Analogue.FireMilliUnits + applied / 4),
@@ -1088,10 +1320,33 @@ internal static class CampaignSimulation
             PropulsionIntegrityMilliUnits = Math.Max(0, target.Analogue.PropulsionIntegrityMilliUnits - applied / 8_000),
             SensorIntegrityMilliUnits = Math.Max(0, target.Analogue.SensorIntegrityMilliUnits - applied / 10_000),
             WeaponIntegrityMilliUnits = Math.Max(0, target.Analogue.WeaponIntegrityMilliUnits - applied / 9_000),
+            MagazineIntegrityMilliUnits = Math.Max(0, target.Analogue.MagazineIntegrityMilliUnits - applied / 12_000),
+            FlightDeckIntegrityMilliUnits = Math.Max(0, target.Analogue.FlightDeckIntegrityMilliUnits - applied / 15_000),
+            CrewMilliUnits = Math.Max(0, target.Analogue.CrewMilliUnits - applied / 11_000),
+            PortIntegrityMilliUnits = Math.Max(0, target.Analogue.PortIntegrityMilliUnits - (portHit ? applied / 7_000 : applied / 20_000)),
+            StarboardIntegrityMilliUnits = Math.Max(0, target.Analogue.StarboardIntegrityMilliUnits - (portHit ? applied / 20_000 : applied / 7_000)),
+            Alert = AlertState.General,
             AltitudeOrDepthMeters = Classify(target) == ContactClassification.Subsurface
                 ? Math.Max(target.Analogue.AltitudeOrDepthMeters, 180)
                 : target.Analogue.AltitudeOrDepthMeters,
         };
+        var extra = 0;
+        if (analogue.MagazineIntegrityMilliUnits < 400
+            && analogue.FireMilliUnits >= 50_000
+            && KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"secondary-{target.EntityId}") % 1_000 < 120)
+        {
+            extra = Math.Max(0,
+                Math.Min(40_000, 1_000_000 - (target.DamageMilliUnits + applied)));
+            analogue = analogue with
+            {
+                MagazineIntegrityMilliUnits = Math.Max(0, analogue.MagazineIntegrityMilliUnits - 100),
+                FireMilliUnits = Math.Min(1_000_000, analogue.FireMilliUnits + 20_000),
+            };
+        }
+        var totalDamage = target.DamageMilliUnits + applied + extra;
+        var lifecycle = totalDamage >= 1_000_000
+            ? EntityLifecycle.Destroyed
+            : totalDamage >= 800_000 ? EntityLifecycle.Disabled : target.Lifecycle;
         var updated = target with
         {
             DamageMilliUnits = totalDamage,
@@ -1110,6 +1365,11 @@ internal static class CampaignSimulation
                 actor.EntityId, target.EntityId, 0, applied,
                 $"Operational combat damage at {distanceMeters} m"),
         };
+        if (extra > 0)
+        {
+            outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SecondaryExplosion, target.RegionId,
+                actor.EntityId, target.EntityId, 0, extra, "Analogue magazine secondary explosion"));
+        }
         if (lifecycle == EntityLifecycle.Destroyed)
         {
             outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.Destruction, target.RegionId,
@@ -1119,13 +1379,27 @@ internal static class CampaignSimulation
     }
 
     private static bool IsBallisticGun(OperationalWeaponCapability weapon) =>
-        weapon.MaximumRange.Value < 40_000
-        || ContainsToken(weapon.AmmunitionId, "gun")
+        ContainsToken(weapon.AmmunitionId, "gun")
         || ContainsToken(weapon.AmmunitionId, "shell")
-        || ContainsToken(weapon.AmmunitionId, "ciws");
+        || ContainsToken(weapon.AmmunitionId, "ciws")
+        || weapon.MaximumRange.Value < 40_000
+            && !ContainsToken(weapon.AmmunitionId, "torpedo")
+            && !ContainsToken(weapon.AmmunitionId, "bomb")
+            && !ContainsToken(weapon.AmmunitionId, "missile")
+            && !ContainsToken(weapon.AmmunitionId, "rocket")
+            && !ContainsToken(weapon.AmmunitionId, "sam");
 
     private static long OrdnanceSpeedMetersPerTick(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "torpedo") ? 25_000 : 100_000;
+        ContainsToken(weapon.AmmunitionId, "torpedo") ? 25_000
+        : ContainsToken(weapon.AmmunitionId, "bomb") ? 40_000
+        : ContainsToken(weapon.AmmunitionId, "decoy") || ContainsToken(weapon.AmmunitionId, "chaff") ? 8_000
+        : 100_000;
+
+    private static OrdnanceKind OrdnanceKindFor(OperationalWeaponCapability weapon) =>
+        ContainsToken(weapon.AmmunitionId, "torpedo") ? OrdnanceKind.Torpedo
+        : ContainsToken(weapon.AmmunitionId, "bomb") ? OrdnanceKind.Bomb
+        : ContainsToken(weapon.AmmunitionId, "decoy") || ContainsToken(weapon.AmmunitionId, "chaff") ? OrdnanceKind.Decoy
+        : OrdnanceKind.Missile;
 
     private static long ActiveSeekerRangeMeters(InFlightOrdnance round) =>
         ContainsToken(round.AmmunitionId, "torpedo") ? 40_000 : 120_000;
@@ -1138,15 +1412,30 @@ internal static class CampaignSimulation
         && (RoundedGreatCircleDistanceMeters(shooter.Coordinate, target.Coordinate) <= VisualContactMeters
             || DetectionScore(state, shooter, target) > 0);
 
+    private static bool CanProvideExternalGuidance(
+        CampaignState state,
+        EntityState shooter,
+        EntityState target) =>
+        shooter.Analogue.Emcon == EmconState.Radiate
+        && CanIlluminate(state, shooter, target);
+
     private static OrdnanceGuidance OrdnanceGuidanceFor(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "sam") || ContainsToken(weapon.AmmunitionId, "aa")
-            ? OrdnanceGuidance.SemiActive
-            : OrdnanceGuidance.Active;
+        ContainsToken(weapon.AmmunitionId, "bomb")
+            || ContainsToken(weapon.AmmunitionId, "decoy")
+            || ContainsToken(weapon.AmmunitionId, "chaff")
+            ? OrdnanceGuidance.Inertial
+            : ContainsToken(weapon.AmmunitionId, "command")
+                ? OrdnanceGuidance.Command
+            : ContainsToken(weapon.AmmunitionId, "sam") || ContainsToken(weapon.AmmunitionId, "aa")
+                ? OrdnanceGuidance.SemiActive
+                : OrdnanceGuidance.Active;
 
     private static bool CanAttack(CampaignState state, EntityState entity) =>
         IsOperational(state, entity)
         && entity.SimulationDomain != SimulationDomain.Logistics
         && entity.Analogue.WeaponIntegrityMilliUnits >= 200
+        && entity.Analogue.MagazineIntegrityMilliUnits >= 80
+        && entity.Analogue.WeaponReadyMilliUnits >= 400
         && EffectiveWeapons(entity).Length > 0
         && Get(entity.Resources, ResourceKind.Munitions) > 0;
 
@@ -1225,18 +1514,24 @@ internal static class CampaignSimulation
     {
         if (distanceMeters <= VisualContactMeters)
         {
-            return true;
+            return actor.Analogue.Roe != RulesOfEngagement.WeaponsHold;
+        }
+
+        if (actor.Analogue.Roe == RulesOfEngagement.WeaponsHold)
+        {
+            return false;
         }
 
         var key = new IntelligenceKey(actor.CoalitionId, target.EntityId);
         if (!state.Intelligence.TryGetValue(key, out var estimate))
         {
-            return false;
+            return actor.Analogue.Roe == RulesOfEngagement.WeaponsFree;
         }
 
         if (estimate.Classification == ContactClassification.Unknown
             && estimate.Confidence < IntelligenceConfidence.Probable
-            && !IsDesperate(actor))
+            && !IsDesperate(actor)
+            && actor.Analogue.Roe != RulesOfEngagement.WeaponsFree)
         {
             return false;
         }
@@ -1244,8 +1539,8 @@ internal static class CampaignSimulation
         return estimate.Confidence switch
         {
             IntelligenceConfidence.Confirmed or IntelligenceConfidence.Probable => true,
-            IntelligenceConfidence.Possible => IsDesperate(actor),
-            _ => false,
+            IntelligenceConfidence.Possible => IsDesperate(actor) || actor.Analogue.Roe == RulesOfEngagement.WeaponsFree,
+            _ => actor.Analogue.Roe == RulesOfEngagement.WeaponsFree,
         };
     }
 
@@ -1271,7 +1566,9 @@ internal static class CampaignSimulation
         var rangeRemaining = weapon.MaximumRange.Value <= 0
             ? 0
             : (int)Math.Min(1_000, (weapon.MaximumRange.Value - distanceMeters) * 1_000L / weapon.MaximumRange.Value);
-        return (int)confidence * 1_000 + military + rangeRemaining;
+        return (int)confidence * 1_000 + military + rangeRemaining
+            + (state.InFlight.Any(item => item.TargetEntityId == actor.EntityId && item.ShooterEntityId == target.EntityId)
+                ? 400 : 0);
     }
 
     private static long WeaponExpenditure(OperationalWeaponCapability weapon, SimulationDomain domain)
@@ -1282,13 +1579,6 @@ internal static class CampaignSimulation
         }
 
         var ammunition = weapon.AmmunitionId;
-        if (ContainsToken(ammunition, "gun")
-            || ContainsToken(ammunition, "shell")
-            || ContainsToken(ammunition, "ciws")
-            || weapon.MaximumRange.Value < 40_000)
-        {
-            return 8_000;
-        }
         if (ContainsToken(ammunition, "torpedo"))
         {
             return 22_000;
@@ -1296,6 +1586,13 @@ internal static class CampaignSimulation
         if (ContainsToken(ammunition, "bomb"))
         {
             return 18_000;
+        }
+        if (ContainsToken(ammunition, "gun")
+            || ContainsToken(ammunition, "shell")
+            || ContainsToken(ammunition, "ciws")
+            || weapon.MaximumRange.Value < 40_000)
+        {
+            return 8_000;
         }
         return 30_000;
     }
@@ -1421,9 +1718,20 @@ internal static class CampaignSimulation
         {
             return SensorChannel.Visual;
         }
-        return Classify(contact) == ContactClassification.Subsurface
-            ? SensorChannel.Sonar
-            : SensorChannel.Radar;
+        if (Classify(contact) == ContactClassification.Subsurface)
+        {
+            return sensor?.SimulationDomain == SimulationDomain.Air
+                ? SensorChannel.Mad
+                : SensorChannel.Sonar;
+        }
+        if (contact.Analogue.EcmMilliUnits > 0)
+        {
+            return SensorChannel.Ecm;
+        }
+        return sensor?.Analogue.Emcon == EmconState.Passive
+            && contact.Analogue.Emcon == EmconState.Radiate
+                ? SensorChannel.Esm
+                : SensorChannel.Radar;
     }
 
     private static GeoCoordinate RegionAnchor(
@@ -1616,7 +1924,7 @@ internal static class CampaignSimulation
     private static int DetectionScore(CampaignState state, EntityState sensor, EntityState target)
     {
         var distance = RoundedGreatCircleDistanceMeters(sensor.Coordinate, target.Coordinate);
-        var horizon = SensorHorizonMeters(sensor, target);
+        var horizon = EffectiveSensorHorizonMeters(sensor, target);
         if (horizon <= 0)
         {
             return 0;
@@ -1651,6 +1959,26 @@ internal static class CampaignSimulation
             score -= 180 + Math.Min(200, target.Analogue.AltitudeOrDepthMeters);
         }
         score = score * sensor.Analogue.SensorIntegrityMilliUnits / 1_000;
+        if (sensor.Analogue.Emcon == EmconState.Silent)
+        {
+            score -= 220;
+        }
+        else if (sensor.Analogue.Emcon == EmconState.Passive)
+        {
+            score -= 90;
+        }
+        if (target.Analogue.Emcon == EmconState.Radiate)
+        {
+            score += 70;
+        }
+        if (Classify(target) == ContactClassification.Subsurface && target.Analogue.AltitudeOrDepthMeters <= 20)
+        {
+            score += 140;
+        }
+        if (sensor.Analogue.HostedAircraft > 0 || target.Analogue.HostedAircraft > 0)
+        {
+            score += 40;
+        }
         if (state.Weather.TryGetValue(target.RegionId, out var weather))
         {
             if (Classify(target) != ContactClassification.Subsurface)
@@ -1681,6 +2009,21 @@ internal static class CampaignSimulation
         return targetClass == ContactClassification.Subsurface ? 18_000
             : targetClass == ContactClassification.Air ? 120_000
             : 80_000;
+    }
+
+    private static long EffectiveSensorHorizonMeters(EntityState sensor, EntityState target)
+    {
+        var horizon = SensorHorizonMeters(sensor, target);
+        return sensor.Analogue.Emcon switch
+        {
+            EmconState.Silent when Classify(target) == ContactClassification.Subsurface => horizon,
+            EmconState.Silent => Math.Min(horizon, VisualContactMeters),
+            EmconState.Passive when Classify(target) != ContactClassification.Subsurface
+                && target.Analogue.Emcon == EmconState.Radiate => Math.Min(horizon, 45_000),
+            EmconState.Passive when Classify(target) != ContactClassification.Subsurface =>
+                Math.Min(horizon, VisualContactMeters),
+            _ => horizon,
+        };
     }
 
     private static ContactClassification ClassifyObserved(
@@ -1817,7 +2160,8 @@ internal static class CampaignSimulation
     private static SimulatedIntelligenceUpdate ToUpdate(IntelligenceEstimate item) => new(
         item.Key.ObserverCoalitionId, item.Key.ContactEntityId, item.EstimatedRegionId,
         item.EstimatedCoordinate, item.Confidence, item.ObservedAt, item.UncertaintyRadiusMeters,
-        item.Classification, item.Revision, item.Channel);
+        item.Classification, item.Revision, item.Channel, item.Quality,
+        item.ObservedHeadingMilliDegrees, item.ObservedSpeedMetersPerTick);
 
     private static ScheduledCampaignActivity ToContract(ScheduledActivityState item) => new(
         item.ActivityId, item.Kind, item.Subject, item.DueAt, item.Revision);

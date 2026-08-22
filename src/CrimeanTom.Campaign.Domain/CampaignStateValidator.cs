@@ -75,9 +75,22 @@ public static class CampaignStateValidator
                 || entity.Analogue.FloodMilliUnits is < 0 or > 1_000_000
                 || entity.Analogue.PropulsionIntegrityMilliUnits is < 0 or > 1_000
                 || entity.Analogue.SensorIntegrityMilliUnits is < 0 or > 1_000
-                || entity.Analogue.WeaponIntegrityMilliUnits is < 0 or > 1_000)
+                || entity.Analogue.WeaponIntegrityMilliUnits is < 0 or > 1_000
+                || !Enum.IsDefined(entity.Analogue.Emcon)
+                || !Enum.IsDefined(entity.Analogue.Roe)
+                || !Enum.IsDefined(entity.Analogue.Alert)
+                || entity.Analogue.MagazineIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.FlightDeckIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.CrewMilliUnits is < 0 or > 1_000
+                || entity.Analogue.PortIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.StarboardIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.EcmMilliUnits is < 0 or > 1_000
+                || entity.Analogue.CountermeasureMilliUnits is < 0 or > 1_000
+                || entity.Analogue.WeaponReadyMilliUnits is < 0 or > 1_000
+                || entity.Analogue.HostedAircraft is < 0 or > 64
+                || entity.Analogue.SnorkelCycle is < 0 or > 9)
             {
-                throw Invalid("entity-condition", "Entity readiness or damage is outside its canonical range.");
+                throw Invalid("entity-condition", "An entity condition is outside its canonical range.");
             }
             if (entity.HomeBaseId is { } homeBaseId
                 && (!state.Bases.TryGetValue(homeBaseId, out var homeBase) || homeBase.CoalitionId != entity.CoalitionId))
@@ -133,6 +146,9 @@ public static class CampaignStateValidator
                 || !state.Regions.ContainsKey(estimate.EstimatedRegionId) || !Enum.IsDefined(estimate.Confidence)
                 || !Enum.IsDefined(estimate.Classification)
                 || !Enum.IsDefined(estimate.Channel)
+                || !Enum.IsDefined(estimate.Quality)
+                || estimate.ObservedHeadingMilliDegrees is < 0 or >= 360_000
+                || estimate.ObservedSpeedMetersPerTick < 0
                 || estimate.UncertaintyRadiusMeters is < 0 or > 2_000_000
                 || estimate.ObservedAt.Quanta < 0 || estimate.ObservedAt.Quanta > state.Time.Quanta)
             {
@@ -292,12 +308,15 @@ public static class CampaignStateValidator
                 || !Enum.IsDefined(ordnance.Guidance)
                 || !Enum.IsDefined(ordnance.TargetClassification)
                 || ordnance.TargetClassification is ContactClassification.Unknown or ContactClassification.Logistics
+                || !Enum.IsDefined(ordnance.Kind)
                 || ordnance.RemainingMeters <= 0
                 || ordnance.SpeedMetersPerTick is <= 0 or > 1_000_000
                 || ordnance.InsDriftMilliUnits is < 0 or > 1_000
                 || ordnance.HeadingMilliDegrees is < 0 or >= 360_000
                 || ordnance.LaunchedAt.Quanta < 0
-                || ordnance.LaunchedAt.Quanta > state.Time.Quanta)
+                || ordnance.LaunchedAt.Quanta > state.Time.Quanta
+                || ordnance.SeekerDelayTicks is < 0 or > 1_000
+                || ordnance.LostGuidanceTicks is < 0 or > 1_000)
             {
                 throw Invalid("in-flight-ordnance", "In-flight analogue ordnance is invalid.");
             }
