@@ -30,6 +30,7 @@
     "worker:live-proof": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-worker-live-proof.ps1",
     "worker:migration-proof": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-worker-migration-proof.ps1",
     "worker:live-migrate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-worker-live-migrate.ps1",
+    "worker:divergence-sample": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-divergence-sample.ps1",
     "game:ping": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 ping",
     "game:capabilities": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 capabilities",
     "game:scene": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 scene",

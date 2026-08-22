@@ -1119,7 +1119,7 @@ These are deliberately uncommitted constants or mechanisms, not missing plan:
 | Outcome commitment/display semantics | Instrumented launch/impact/damage/destruction durability timeline | P4 exit gate |
 | Island coupling thresholds | Sensor/weapon interaction traces and churn benchmark | P5 scheduler tuning |
 | Load thresholds and tempo bounds | Stress throughput, queue, migration, recovery, and player-experience benchmarks | P5 load-controller defaults |
-| Hot Unity replica viability | D0-D5 controlled clock/RNG/order/checkpoint suite | Before P6B begins |
+| Hot Unity replica viability | D0-D5 controlled clock/RNG/order/checkpoint suite. [E1a sampler](../evidence/e1a-divergence-sampler-2026-08-22.md) can record same-machine canonical/kinematics/GameTime divergence first; it does not validate the adapter. | Before P6B begins |
 | Default replica count | Failure probability, adapter cost, and recovery benchmark | P6 policy gate |
 | Failover time objectives | Validated hot-shadow or cold-restore measurements under injected failures | P6 exit gate |
 | Scale/player claims | End-to-end load and soak evidence | P8 exit gate |
