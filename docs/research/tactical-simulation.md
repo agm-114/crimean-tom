@@ -28,6 +28,28 @@ Exact assertions may pass for a scenario that never reaches a divergent branch,
 but they are not a sound general contract; repeated outcome classes and bounded
 state envelopes are safer baseline tests.
 
+## Off-camera units and land units
+
+`GameMain` still ticks every registered `ObjectBase` that is not `Disabled`.
+Units outside the player's map or camera are not abstracted and are not paused.
+That is a capacity problem for Crimean Tom, not a native bubble. Distances,
+relocation, and native campaign pull-in are compared in
+[Tactical bubble](tactical-bubble.md).
+
+`LandUnit : ObjectBase` is a full tactical object. Subtypes in
+`LandUnitParameters.LandUnitSubType` are `AirBase`, `Installation`, `MobileUnit`,
+`AAA`, `SAM`, `MissileSite`, `Radar`, `Port`, `Bridge`, and `OilRig`. Mobile
+units apply `Rigidbody` motion from `OnFixedUpdate` when they have control.
+Installations still run fire, destruction, terrain-chunk altitude correction,
+and the shared weapon/sensor stack. `SceneCreator` also loads **background**
+land units from mission `BackgroundCityFile`, `BackgroundAirportFile`,
+`BackgroundPortFile`, and `BackgroundInstallationFile` sections.
+
+Crimean Tom's Fulda seed uses `SimulationDomain.LandAbstract` with an Operational
+ceiling for Central Front formations. Those must not be promoted into
+`LandUnit`. Coastal SAM, radar, and ports that belong inside a Sea Power
+session would materialize as `LandUnit`.
+
 ## Contacts and sensors
 
 Sensor subclasses cover radar, sonar, visual, ESM, ECM, MAD, and laser
