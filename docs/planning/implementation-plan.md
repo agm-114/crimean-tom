@@ -1115,7 +1115,7 @@ These are deliberately uncommitted constants or mechanisms, not missing plan:
 | Exact portable damage/store fields | Read/write round trips per platform class | Each P2 type gate |
 | Suspension/dematerialization support | Native Disable/Enable, then optional deeper removal, with no loss event, dangling relationship, child loss, save corruption, or unmeasured retained cost | Before P2 lifecycle exit |
 | Active-weapon handoff support | Native mid-flight save/load plus portable extraction/reconstruction experiment | Before P5 island split/migration |
-| Tactical session bubble | Floating-origin relocation and distant-island sensor/physics/terrain benchmark | Before P4 session contract freezes |
+| Tactical session bubble | Floating-origin relocation and distant-island sensor/physics/terrain benchmark. Native radii (67 km rebase, instantiated-set kinematics, ~500 nmi campaign pull-in) are recorded in [tactical-bubble.md](../research/tactical-bubble.md); a qualified combat/terrain radius is still unmeasured. | Before P4 session contract freezes |
 | Outcome commitment/display semantics | Instrumented launch/impact/damage/destruction durability timeline | P4 exit gate |
 | Island coupling thresholds | Sensor/weapon interaction traces and churn benchmark | P5 scheduler tuning |
 | Load thresholds and tempo bounds | Stress throughput, queue, migration, recovery, and player-experience benchmarks | P5 load-controller defaults |

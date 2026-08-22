@@ -105,8 +105,12 @@ map. It loads INI data into:
 
 `CampaignUpdater` advances the campaign clock and environment, evaluates
 objective triggers and active missions/objectives, updates positions in a
-parallel job, then updates patrols, bases, ports, and other updateable groups.
-Adds/removes are deferred so collections are not mutated during iteration.
+Burst `IJobParallelFor` (`UpdateLocationParallelForJob`), then updates patrols,
+bases, ports, and other updateable groups. The job steps `float2` graph
+locations at `GameTime.deltaTime * speedKnots * 0.514444` m/s (knots to metres
+per second). Adds/removes are deferred so collections are not mutated during
+iteration. `CampaignObjective.Update` and the win/lose paths remain empty in
+this build.
 
 `CampaignFixedUpdater` and `CampaignLateUpdater` are empty in this build. The
 strategic simulation is therefore driven primarily by the ordinary update and
@@ -135,12 +139,23 @@ can change a city's side after capture.
 
 ### Tactical materialization evidence
 
-`CampaignMain.StartMission` and `SetupGroupsForTacticalMission` provide a seam
-for taking selected campaign groups into a tactical mission. This is useful
-evidence that strategic entities can be materialized as detailed tactical
-units. Crimean Tom's current design generalizes that seam into live streaming
-and dematerialization within a continuous campaign; it does not use a fresh
-mission as the normal boundary.
+`CampaignMain.StartMission(group)` does not stream entities into an already
+running tactical scene. `SetupGroupsForTacticalMission` clears
+`MissionEditorModel.Groups`, adds the central group, then copies every other
+`GroupOfUnits` whose `Location.GetDistance(...) / 1000.0` is under
+`925.9999990463257` — **~926 km, 500 nmi** with 1852 m/nmi — writes
+`GeoPosition` from each group's station offsets, and calls
+`MissionEditorModel.SetupMission`. That is a generated-mission snapshot, not
+Crimean Tom live streaming, and it is not a measured weapons/terrain bubble.
+
+`CampaignMain.SceneManager_sceneLoaded` is empty. Pause-menu campaign save and
+exit on this path throw `NotImplementedException`. Treat the seam as proof that
+abstract groups *can* be copied into a mission file, not as a handoff API.
+
+Crimean Tom's current design still generalizes the idea (selected strategic
+entities become detailed tactical units) into live streaming and
+dematerialization within a continuous campaign. It does not use a fresh mission
+as the normal boundary. See [Tactical bubble](tactical-bubble.md).
 
 ### Incomplete areas
 
@@ -150,8 +165,8 @@ this installed build. The newer `SeaPowerAI.AIController.OnUpdate` is also empty
 
 Treat the dynamic campaign as an unfinished architectural prototype, not a
 stable public API. Useful ideas include its graph, abstract group, location,
-mission-template, and tactical-materialization model. Depending on its exact
-runtime classes would create high update risk.
+mission-template, and generated-mission materialization model. Depending on its
+exact runtime classes would create high update risk.
 
 ## Comparison
 
@@ -160,7 +175,7 @@ runtime classes would create high update risk.
 | Primary unit | Authored mission/event | Persistent player roster plus authored mission | Abstract map group/location |
 | Theater clock | Mostly progression/event based | Mostly progression plus logistics between missions | Continuous logical campaign time |
 | Force persistence | Variables/unlocks | Detailed loss, ammo, damage, crew, loadout state | Pools and active strategic groups |
-| Tactical entry | Authored mission | Generated/customized authored mission | Materialize selected strategic groups |
+| Tactical entry | Authored mission | Generated/customized authored mission | Generate a mission from groups within ~500 nmi |
 | Current completeness | Shipping campaign flow | Rich shipping feature | Partly implemented framework |
 
 ## Recommended reuse boundary
