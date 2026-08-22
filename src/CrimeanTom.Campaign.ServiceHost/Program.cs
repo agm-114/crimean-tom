@@ -69,6 +69,7 @@ builder.Services.AddSingleton<CampaignCoordinator>();
 builder.Services.AddSingleton(new CampaignOperationalWorkerOptions(grpcUri.ToString()));
 builder.Services.AddSingleton<CampaignOperationalWorkerSupervisor>();
 builder.Services.AddHostedService<CampaignOperationalWorkerHostedService>();
+builder.Services.AddHostedService<CampaignUnattendedSimulationHostedService>();
 var app = builder.Build();
 
 app.Use(async (context, next) =>

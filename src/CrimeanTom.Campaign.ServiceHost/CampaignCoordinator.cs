@@ -1191,6 +1191,8 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public bool IsPaused(CampaignId campaignId) => _pausedCampaigns.ContainsKey(campaignId);
+
     public async Task<CampaignSchedulerView> DrainAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken)
@@ -2257,6 +2259,12 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            if (_pausedCampaigns.ContainsKey(campaignId))
+            {
+                throw new CampaignStoreConflict(
+                    "campaign-paused",
+                    "Operator pause is in effect; campaign time does not advance until resume.");
+            }
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
             if (target.Quanta < state.Time.Quanta)
             {
@@ -2266,7 +2274,8 @@ public sealed class CampaignCoordinator(
             while (true)
             {
                 var pending = state.Assignments.Values
-                    .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+                    .Where(item => item.Lifecycle != AssignmentLifecycle.Released
+                        && !CampaignAssignmentKinds.IsOperationalSim(item))
                     .Select(item => new
                     {
                         Assignment = item,
@@ -2305,7 +2314,12 @@ public sealed class CampaignCoordinator(
                             state.Time),
                         $"fallback-release-{assignment.AssignmentId}-{deadline}"), cancellationToken);
                     var entity = state.Entities[assignment.EntityId];
-                    if (entity.Fidelity != FidelityState.Operational)
+                    var stillFenced = state.Assignments.Values.Any(item =>
+                        item.EntityId == entity.EntityId
+                        && !CampaignAssignmentKinds.IsOperationalSim(item)
+                        && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                            or AssignmentLifecycle.Quiesced);
+                    if (entity.Fidelity != FidelityState.Operational && !stillFenced)
                     {
                         state = await CommitAsync(state, Command(
                             state,

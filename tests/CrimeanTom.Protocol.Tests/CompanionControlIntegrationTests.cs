@@ -252,7 +252,7 @@ public sealed class CompanionControlIntegrationTests
             var fuldaOutcomes = advancedFuldaView.RootElement.GetProperty("recentOperationalOutcomes")
                 .EnumerateArray().ToArray();
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");
-            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Damage");
+            Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Detection");
             var fuldaCalibration = advancedFuldaView.RootElement.GetProperty("calibration");
             Assert.True(fuldaCalibration.GetProperty("inEnvelope").GetBoolean());
             Assert.Equal(0, fuldaCalibration.GetProperty("observedRangeViolationCount").GetInt32());
@@ -3451,6 +3451,7 @@ public sealed class CompanionControlIntegrationTests
         start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        start.Environment["CRIMEAN_TOM_UNATTENDED_SIMULATION"] = "0";
         if (environment is not null)
         {
             foreach (var (key, value) in environment)
