@@ -130,6 +130,7 @@ public static class ColliderHitResolver
         }
         else if (kind.Equals("box", StringComparison.OrdinalIgnoreCase)
             || kind.Equals("meshBounds", StringComparison.OrdinalIgnoreCase)
+            || kind.Equals("worldBounds", StringComparison.OrdinalIgnoreCase)
             || kind.Equals("bounds", StringComparison.OrdinalIgnoreCase))
         {
             var size = Vec3(primitive.Size);
