@@ -13,7 +13,12 @@ and which disagreements remain mandatory experiments.
 The [current implementation handoff](current-handoff.md) records the latest
 verified repository state and the exact next implementation slice.
 
-Phases 0 through 4 are complete, and Phase 5 is the next implementation phase.
+Phases 0 through 9 now have stacked implementation in this repository. Phases
+0-4 are live-evidenced. Later phases are implemented and covered by the broad
+kernel/protocol stories; remaining qualification (soak, clean-machine runbook,
+live two-container Sea Power migration, hot-shadow recovery) is listed as
+unsupported in [supported claims](supported-claims.md).
+
 The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
 catalog/provenance reads, canonical world snapshots, typed scenario/campaign
@@ -604,6 +609,10 @@ single-player prototype.
 
 ## Phase 5 - operational simulation and dynamic fidelity
 
+**Status: implemented (22 August 2026).** Per-worker health/eligibility and the
+operational calibration envelope are in the stacked PRs. Authenticated live
+two-container Sea Power migration remains unproven.
+
 ### Current implementation slice
 
 - Schema v6 records each entity's simulation domain, maximum fidelity, selected
@@ -799,6 +808,11 @@ player interest and coupling.
 
 ## Phase 6 - redundant replicas and failover
 
+**Status: implemented with a cold-failover claim (22 August 2026).** Replica
+checkpoint hash disagreement refuses majority; RenderProxy cannot receive
+simulation authority; Observer cannot activate without complete hidden state.
+Hot-shadow recovery is unsupported.
+
 ### Objective
 
 Allow multiple clients to simulate the same unit/island and replace an unhealthy
@@ -884,6 +898,10 @@ capacity reports, and migration storms.
 
 ## Phase 7 - realtime multiplayer experience
 
+**Status: implemented for trusted/private HTTP projections (22 August 2026).**
+Coalition-filtered snapshots, reconnectable player sessions, and ordered
+player-command envelopes are live. SignalR is not a canonical commit path.
+
 ### Objective
 
 Turn the federated simulation into a coherent multi-player command and
@@ -946,6 +964,10 @@ outside the release claim until Phase 9 security evidence exists.
 
 ## Phase 8 - scale, persistence, and service availability
 
+**Status: implemented for the packaged SQLite profile (22 August 2026).** Online
+backup/restore, operator pause, and drain are operator HTTP. Clean-machine soak
+and PostgreSQL adapters are not claimed.
+
 ### Objective
 
 Move from a working trusted campaign to a long-running, recoverable deployment.
@@ -982,6 +1004,11 @@ Move from a working trusted campaign to a long-running, recoverable deployment.
   LAN join, and long-running campaign tests on a clean machine.
 
 ## Phase 9 - hardening and release qualification
+
+**Status: claims and threat model documented (22 August 2026).** See
+[supported claims](supported-claims.md) and [threat model](threat-model.md).
+Soak, hostile-client adjudication, and a full clean-machine runbook remain
+unsupported.
 
 ### Objective
 

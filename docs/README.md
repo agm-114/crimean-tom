@@ -52,26 +52,32 @@ The folders separate evidence from design commitments:
     adversarial review checklist.
 14. [Current implementation handoff](planning/current-handoff.md) records the latest
     verified state, working-tree constraints, and the exact next safety slice.
-15. [Testing and observation](operations/testing.md) defines repeatable source, launch,
+15. [Supported claims](planning/supported-claims.md) lists what the tree actually
+    claims, including fail-closed compatibility and explicit non-claims.
+16. [Threat model](planning/threat-model.md) covers pipe, companion, operator API,
+    storage, projections, and update fingerprints.
+17. [Packaged SQLite profile](planning/packaged-sqlite-profile.md) is the ordinary
+    local-file deployment with backup/restore and operator pause/drain.
+18. [Testing and observation](operations/testing.md) defines repeatable source, launch,
     plugin, UI, and campaign-contract checks.
-16. [Source map](research/source-map.md) points future investigators at the highest-value
+19. [Source map](research/source-map.md) points future investigators at the highest-value
     decompiled types.
-17. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
+20. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
     records D0 scan coverage, initial time/RNG/job/coroutine classification, and
     the fail-closed clock-rebase verdict for the pinned build.
-18. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
+21. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
     records authenticated mutation admission, materialization, fenced lifecycle,
     checkpoint restore, scene reload, reconnect, and negative-path observations.
-19. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
+22. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
     defines the promotion-critical comparison contract for the first surface
     family.
-20. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
+23. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
     bounded-mutation exit condition to live evidence and records the narrow
     gate disposition.
-21. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
+24. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
     records the game-independent deterministic domain, contract, canonical hash,
     and information-filtering slice.
-22. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
+25. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
     records the in-progress WAL journal, writer-epoch, transactional append,
     idempotency, and durable replay slice.
 

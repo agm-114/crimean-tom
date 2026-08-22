@@ -100,6 +100,17 @@ public sealed class CompanionControlIntegrationTests
                 Assert.Contains("Crimean Tom Campaign Monitor", monitorHtml, StringComparison.Ordinal);
                 using var protectedHealth = await anonymousCampaignClient.GetAsync("/health", testTimeout.Token);
                 Assert.Equal(HttpStatusCode.OK, protectedHealth.StatusCode);
+                using var monitorWrite = await anonymousCampaignClient.PostAsJsonAsync(
+                    "/control/campaigns",
+                    new
+                    {
+                        campaignId = Guid.NewGuid().ToString("N"),
+                        name = "Monitor cookie must be read-only",
+                        seed = 1,
+                        catalogFingerprint = "must-not-commit",
+                    },
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, monitorWrite.StatusCode);
             }
             using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
             using var durabilityPolicyResponse = await campaignClient.GetAsync(
@@ -136,6 +147,24 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(
                 durabilityPolicy.RootElement.GetProperty("checkpointCommittedEffectFamilies").EnumerateArray(),
                 item => item.GetString() == "destruction");
+            using var supportedClaimsResponse = await campaignClient.GetAsync(
+                "/supported-claims",
+                testTimeout.Token);
+            supportedClaimsResponse.EnsureSuccessStatusCode();
+            using var supportedClaims = JsonDocument.Parse(
+                await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
+                supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
+            Assert.Equal(
+                "assignment-preparation-and-activation-fail-closed-on-pinned-fingerprint-mismatch",
+                supportedClaims.RootElement.GetProperty("compatibilityPolicy").GetString());
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString() == "render-proxy-cannot-receive-simulation-authority");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
+                item => item.GetString() == "hot-shadow-failover");
             using var createdCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
                 new
