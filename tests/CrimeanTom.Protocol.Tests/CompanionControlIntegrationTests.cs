@@ -416,6 +416,31 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 advancedFuldaView.RootElement.GetProperty("canonicalHash").GetString(),
                 backupHead.GetProperty("canonicalHash").GetString());
+            using var backupListResponse = await campaignClient.GetAsync("/control/backups", testTimeout.Token);
+            backupListResponse.EnsureSuccessStatusCode();
+            using var backupListBody = JsonDocument.Parse(
+                await backupListResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var listedBackup = Assert.Single(backupListBody.RootElement.EnumerateArray());
+            Assert.Equal(
+                backupBody.RootElement.GetProperty("databaseSha256").GetString(),
+                listedBackup.GetProperty("databaseSha256").GetString());
+            Assert.True(listedBackup.GetProperty("eventCount").GetInt32() > 0);
+            Assert.Equal(
+                backupHead.GetProperty("canonicalHash").GetString(),
+                Assert.Single(
+                    listedBackup.GetProperty("campaigns").EnumerateArray(),
+                    item => item.GetProperty("campaignId").GetString() == fuldaCampaignId)
+                    .GetProperty("canonicalHash").GetString());
+            using var escapedBackupResponse = await campaignClient.PostAsJsonAsync(
+                "/control/backups",
+                new { destinationDirectory = Path.Combine(campaignServiceRunDirectory, "outside-backup-root") },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, escapedBackupResponse.StatusCode);
+            using var escapedBackupBody = JsonDocument.Parse(
+                await escapedBackupResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "backup-destination-outside-root",
+                escapedBackupBody.RootElement.GetProperty("error").GetString());
             using var restoreResponse = await campaignClient.PostAsJsonAsync(
                 "/control/restores",
                 new { backupDirectory, destinationStorageDirectory = restoreDirectory },
@@ -431,6 +456,28 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 backupHead.GetProperty("canonicalHash").GetString(),
                 restoredHead.GetProperty("canonicalHash").GetString());
+            using var escapedRestoreResponse = await campaignClient.PostAsJsonAsync(
+                "/control/restores",
+                new
+                {
+                    backupDirectory,
+                    destinationStorageDirectory = Path.Combine(campaignServiceRunDirectory, "..", "escaped-restore"),
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, escapedRestoreResponse.StatusCode);
+            using var escapedRestoreBody = JsonDocument.Parse(
+                await escapedRestoreResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "restore-destination-outside-run-directory",
+                escapedRestoreBody.RootElement.GetProperty("error").GetString());
+            using var missingPauseResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{Guid.NewGuid():N}/pause",
+                content: null,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, missingPauseResponse.StatusCode);
+            using var missingPauseBody = JsonDocument.Parse(
+                await missingPauseResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("campaign-missing", missingPauseBody.RootElement.GetProperty("error").GetString());
             using var pauseResponse = await campaignClient.PostAsync(
                 $"/control/campaigns/{fuldaCampaignId}/pause",
                 content: null,

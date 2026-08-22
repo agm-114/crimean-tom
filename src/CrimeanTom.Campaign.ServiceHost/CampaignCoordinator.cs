@@ -1147,50 +1147,87 @@ public sealed class CampaignCoordinator(
         return CampaignCoalitionProjectionHttp.From(recovery.State, coalitionId);
     }
 
-    public CampaignPauseView Pause(CampaignId campaignId)
+    public async Task<CampaignPauseView> PauseAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
     {
-        _pausedCampaigns[campaignId] = 1;
-        return new CampaignPauseView(campaignId.ToString(), Paused: true);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            _ = await journal.RecoverAsync(campaignId, cancellationToken);
+            _pausedCampaigns[campaignId] = 1;
+            return new CampaignPauseView(campaignId.ToString(), Paused: true);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
-    public CampaignPauseView Resume(CampaignId campaignId)
+    public async Task<CampaignPauseView> ResumeAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
     {
-        _pausedCampaigns.TryRemove(campaignId, out _);
-        return new CampaignPauseView(campaignId.ToString(), Paused: false);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            _ = await journal.RecoverAsync(campaignId, cancellationToken);
+            _pausedCampaigns.TryRemove(campaignId, out _);
+            return new CampaignPauseView(campaignId.ToString(), Paused: false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
-    public Task<CampaignSchedulerView> DrainAsync(CampaignId campaignId, CancellationToken cancellationToken)
+    public async Task<CampaignSchedulerView> DrainAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
     {
-        return DrainCoreAsync(campaignId, cancellationToken);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var request = state.SchedulerPolicy is { } policy
+                ? SchedulerRequest(policy) with
+                {
+                    Health = SchedulerHealthState.Draining,
+                    Eligibility = SimulationSourceEligibility.DrainOnly,
+                }
+                : new CampaignSchedulerRequest(
+                    [],
+                    [],
+                    SchedulerHealthState.Draining,
+                    SimulationSourceEligibility.DrainOnly,
+                    TacticalEntityCapacity: 4,
+                    BacklogDepth: 0,
+                    TacticalReserveCapacity: 1);
+            return await ScheduleFidelityCoreAsync(campaignId, request, gateAlreadyHeld: true, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
-    private async Task<CampaignSchedulerView> DrainCoreAsync(CampaignId campaignId, CancellationToken cancellationToken)
-    {
-        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
-        var request = state.SchedulerPolicy is { } policy
-            ? SchedulerRequest(policy) with
-            {
-                Health = SchedulerHealthState.Draining,
-                Eligibility = SimulationSourceEligibility.DrainOnly,
-            }
-            : new CampaignSchedulerRequest(
-                [],
-                [],
-                SchedulerHealthState.Draining,
-                SimulationSourceEligibility.DrainOnly,
-                TacticalEntityCapacity: 4,
-                BacklogDepth: 0,
-                TacticalReserveCapacity: 1);
-        return await ScheduleFidelityAsync(campaignId, request, cancellationToken);
-    }
-
-    public async Task<CampaignSchedulerView> ScheduleFidelityAsync(
+    public Task<CampaignSchedulerView> ScheduleFidelityAsync(
         CampaignId campaignId,
         CampaignSchedulerRequest request,
+        CancellationToken cancellationToken) =>
+        ScheduleFidelityCoreAsync(campaignId, request, gateAlreadyHeld: false, cancellationToken);
+
+    private async Task<CampaignSchedulerView> ScheduleFidelityCoreAsync(
+        CampaignId campaignId,
+        CampaignSchedulerRequest request,
+        bool gateAlreadyHeld,
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        await _gate.WaitAsync(cancellationToken);
+        if (!gateAlreadyHeld)
+        {
+            await _gate.WaitAsync(cancellationToken);
+        }
         try
         {
             var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
@@ -1430,7 +1467,10 @@ public sealed class CampaignCoordinator(
         }
         finally
         {
-            _gate.Release();
+            if (!gateAlreadyHeld)
+            {
+                _gate.Release();
+            }
         }
     }
 
@@ -3381,4 +3421,3 @@ public sealed record CampaignFallbackAssignment(
     string Resolution);
 
 public sealed record CampaignPauseView(string CampaignId, bool Paused);
-
