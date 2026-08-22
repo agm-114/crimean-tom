@@ -254,7 +254,12 @@ public static class CampaignKernel
         RequireNew(command, state.Assignments.ContainsKey(value.AssignmentId), "assignment-exists");
         var entity = RequireEntity(state, value.EntityId);
         RequireCoalitionOrAdministrator(command, entity.CoalitionId);
-        if (entity.MaximumFidelity != FidelityState.Tactical || value.AuthorityEpoch.Value <= 0)
+        if (value.AuthorityEpoch.Value <= 0)
+        {
+            throw Violation("invalid-assignment", "Authority preparation requires a positive epoch.");
+        }
+        if (entity.MaximumFidelity != FidelityState.Tactical
+            && !CampaignAssignmentKinds.IsOperationalSimBatch(value.BatchId))
         {
             throw Violation("invalid-assignment", "Authority preparation requires a tactically representable entity and a positive epoch.");
         }
@@ -266,8 +271,7 @@ public static class CampaignKernel
         {
             CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
         }
-        if (value.BatchSize <= 0 || (string.IsNullOrEmpty(value.BatchId) && value.BatchSize != 1)
-            || (!string.IsNullOrEmpty(value.BatchId) && value.BatchSize < 2))
+        if (value.BatchSize <= 0 || (string.IsNullOrEmpty(value.BatchId) && value.BatchSize != 1))
         {
             throw Violation("invalid-assignment-batch", "Assignment batch size and identity are inconsistent.");
         }
@@ -403,6 +407,8 @@ public static class CampaignKernel
         {
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Prepared) => true,
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active)
+                when assignment.Role == AssignmentRole.Primary => true,
+            (AssignmentLifecycle.Prepared, AssignmentLifecycle.Active)
                 when assignment.Role == AssignmentRole.Primary => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,

@@ -81,10 +81,10 @@ A client may request `DrainOnly`, for example after detecting thermal throttling
 or a user pause. Only the coordinator changes canonical assignments. Disabling a
 client as a simulation source must not disconnect its player.
 
-Campaign-owned [standalone simulation workers](standalone-sim-worker.md) are a
-planned `Eligible` simulation source with no player session. They are not
-implemented. They are not headless Sea Power. Until Track A exists, unattended
-Operational islands remain in the campaign service process.
+Campaign-owned [standalone simulation workers](standalone-sim-worker.md) are an
+`Eligible` Track A simulation source with no player session. They are not
+headless Sea Power. The scheduler can assign non-player Operational islands to
+them; Operational ticks are still resolved in-process in this slice.
 
 ## Load-shedding ladder
 

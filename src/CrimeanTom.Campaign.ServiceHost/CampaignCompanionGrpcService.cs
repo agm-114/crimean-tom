@@ -39,9 +39,30 @@ public sealed class CampaignCompanionGrpcService(
         if (hello.ProtocolVersion != 1
             || !Guid.TryParseExact(hello.ClientInstanceId, "N", out _)
             || !Guid.TryParseExact(hello.CampaignId, "N", out var campaignGuid)
-            || hello.ReconnectCommitPosition < 0)
+            || hello.ReconnectCommitPosition < 0
+            || !CampaignWorkerKind.TryValidate(hello.WorkerKind, out var workerKind))
         {
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "The companion hello is incompatible."));
+        }
+
+        if (CampaignWorkerKind.IsOperational(workerKind))
+        {
+            if (!string.IsNullOrWhiteSpace(hello.RuntimeFingerprintSha256)
+                || !string.IsNullOrWhiteSpace(hello.PlayerTaskforceId)
+                || !string.IsNullOrWhiteSpace(hello.GameSessionId)
+                || hello.MaterializationProfiles.Count > 0)
+            {
+                throw new RpcException(new Status(
+                    StatusCode.FailedPrecondition,
+                    "Operational workers must not advertise a Sea Power runtime, task force, or materialization profile."));
+            }
+
+            if (hello.TacticalEntityCapacity is < 1 or > 10_000
+                || hello.TacticalReserveCapacity < 0
+                || hello.TacticalReserveCapacity > hello.TacticalEntityCapacity)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, "Operational worker capacity is invalid."));
+            }
         }
 
         var campaignId = new CampaignId(campaignGuid);

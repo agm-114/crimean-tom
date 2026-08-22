@@ -1,99 +1,68 @@
 # Campaign-owned standalone simulation workers
 
-This is a delivery plan, not an implemented worker. No spawn API, process, or
-scheduler change is claimed here.
+Track A is implemented: the campaign service can spawn and stop Sea-Power-free
+Operational workers, and the scheduler can assign non-player islands to them.
+Track B (unattended Sea Power farm windows) is not implemented.
 
-The campaign should be able to **create and destroy simulation capacity that no
-player Sea Power window owns**. Today that work either stays inside the campaign
-service process or requires a human to start `Sea Power.exe` with
-`pnpm worker:start`. Those are not the same thing, and a full Unity window is
-not a headless sim.
+Crimean Tom workers are ordinary processes. Installed Sea Power is a Unity game
+with a window. A standalone Track A worker is **not** a headless Sea Power
+instance. See [Tactical bubble](../research/tactical-bubble.md).
 
 ## Why this exists
 
 Crimean Tom's theater is larger than one tactical scene. Islands with no player
 looking at them still have to move, detect, spend, and sometimes fight. The
 durable owner of that work is the campaign journal. The question is only **which
-process is allowed to advance assigned islands**.
+process is allowed to own assigned islands**.
 
-| Kind | What it is today | Who starts it | Owns a Sea Power window? |
+| Kind | What it is | Who starts it | Owns a Sea Power window? |
 | --- | --- | --- | --- |
 | Player tactical client | `Sea Power.exe` + companion | Player / operator (`pnpm dev`, named worker scripts) | Yes |
 | In-process Operational kernel | Campaign engine inside the service | The service process itself | No |
-| Campaign-owned standalone sim worker | **Not implemented** | Coordinator (planned) | No, unless a later Sea Power farm track is separately proven |
+| Campaign-owned Track A worker | `CrimeanTom.Campaign.OperationalWorker` | Coordinator `POST /control/campaigns/{id}/sim-workers` | No |
 
-[System architecture](system-architecture.md) already lists an **Operational
-worker**: a .NET process that runs deterministic unattended simulation for
-assigned shards and must not allocate authority. This plan is that component,
-plus an explicit spawn/lifecycle owned by the coordinator.
-
-It is **not** a headless Sea Power instance. Installed Sea Power is a Unity
-game with a window, Steam, GPU, camera origin, and a full instantiated
-`ObjectBase` set. Named workers on this host are ordinary game processes. See
-[Tactical bubble](../research/tactical-bubble.md).
+The journal writer still **resolves** Operational ticks in-process. Track A is
+the campaign-owned simulation **source for placement, capacity, and fencing**.
+Sharding `CampaignSimulation` into the worker process is a follow-on. Assigned
+Operational islands are not frozen the way Sea Power Tactical islands are, so
+theater time does not stop when Track A owns them.
 
 ## What "not owned by any game instance" means
 
-A standalone sim worker:
+A Track A worker:
 
 - has **no player session**, no HUD/camera authority, and no filtered player
-  projection duties;
+  projection duties (`playerSessionBound=false`, `workerKind=operational`);
 - cannot be a `RenderProxy` or Observer for a human (those remain client roles);
-- receives fenced Operational work leases only for islands the scheduler has
-  decided need no player Sea Power. Tactical `Primary`/`Shadow` roles remain on
-  the Sea Power assignment path;
-- is spawned, drained, and stopped by the campaign coordinator, not by Steam
-  or a player's launch path.
+- receives a placement/fencing **Primary** assignment only for islands whose
+  desired fidelity is at most Operational. In this slice the service still
+  executes their ticks in-process;
+- is spawned, drained, and stopped by the campaign coordinator.
 
 Player Sea Power clients remain the only place Tactical Unity physics, sensors,
-weapons, and AI run. Standalone workers do not replace that.
+weapons, and AI run. Track A does not replace that.
 
 ## Two tracks (do not mix)
 
-### Track A — Sea-Power-free Operational worker (default)
+### Track A — Sea-Power-free Operational worker (implemented)
 
-A .NET 8 process, same stack as the campaign service, using the existing
-bidirectional gRPC transport and its ordered-session/reconnect conventions. It
-hosts a **shard of the campaign engine**: Operational and Strategic islands
-only.
-
-The current wire contract is not already generic enough for Track A:
-`CompanionHello`, tactical capacity, and `TacticalAssignment` describe a Sea
-Power companion, and the current state validator permits active assignments
-only at Tactical fidelity. A1 therefore requires an explicit protocol addition
-for operational-worker hello, work leases, and results. Track A must not encode
-Operational work as a fake `TacticalAssignment` or invent a game session ID.
-
-This is the right first spawn target because:
-
-- `LandAbstract` and any ceiling below Tactical must never enter Sea Power;
-- the kernel already resolves detection, uncertainty, expenditure, damage, and
-  withdrawal without Unity;
-- Steam, GPU, shared `PlayerPrefs`, and second-instance fights do not apply;
-- the coordinator can scale unattended work off the service process without
-  pretending Sea Power is headless.
+A .NET 8 process, same stack as the campaign service, speaking the existing
+worker gRPC hello/heartbeat/assignment protocol for this control-plane slice.
+Hello must not advertise a Sea Power runtime fingerprint, player task force,
+or materialization profile. The process does not yet host a shard of
+`CampaignSimulation`; the service remains the executor as well as the journal
+writer.
 
 **Must not own:** lease/epoch allocation, canonical campaign-clock allocation,
 journal writer identity, player commands, Sea Power materialization.
 
-### Track B — Unattended Sea Power farm (optional, later)
+### Track B — Unattended Sea Power farm (not implemented)
 
-Coordinator-launched `Sea Power.exe` + companion with **no player session**,
-used only when an island needs Tactical fidelity and no player client is
-present. This is still a Unity window until a headless/game-server mode is
-proven on the pinned build. It inherits every named-worker constraint already
-on disk: Steam `RestartAppIfNecessary`, shared native profile paths, one camera
-origin, instantiated-set cost, thin portable checkpoints.
+Coordinator-launched `Sea Power.exe` + companion with **no player session**.
+Still a Unity window. Forbidden as the default spawn. Do not describe it as
+headless. Do not use it for `LandAbstract`.
 
-Track B is forbidden as the default spawn. It is a separate evidence gate after
-Track A exists, live two-container migrate is honest, and the empty tactical
-shell can load without a human.
-
-Do not describe Track B as headless. Do not use it for `LandAbstract`.
-
-## Spawn and lifecycle (planned contract)
-
-Coordinator-owned, journaled, fail-closed:
+## Spawn and lifecycle
 
 ```text
 Requested -> Spawning -> Hello -> Eligible -> Assigned
@@ -103,37 +72,31 @@ Requested -> Spawning -> Hello -> Eligible -> Assigned
                          +-> Failed
 ```
 
-Planned operator/control surface (names are indicative):
+Control surface:
 
-- `POST /control/campaigns/{id}/sim-workers` — kind `operational` (Track A) or
-  later `sea-power-farm` (Track B), capacity, reserve, and required build
-  fingerprints. This is an authenticated coordinator operation, not a remote
-  process-execution endpoint: worker executable, arguments, environment, and
-  working directory come from an allow-listed local profile and are never
-  caller-supplied strings;
-- hello advertises a journaled spawn ID, worker instance ID, `workerKind`,
-  `playerSessionBound=false`, health, eligibility, and exact capability
-  (Operational engine/version vs Sea Power tactical profiles). A one-time spawn
-  credential binds the hello to the requested campaign and expected profile;
-- scheduler places islands whose desired fidelity is at most Operational onto
-  Track A workers in preference to crowding a player client or the service
-  process;
-- islands that require Tactical stay on a player client, stay Operational until
-  a client exists, or wait for an authorized Track B spawn;
-- drain/stop must stop new work, fence every operational lease or Tactical
-  Primary, commit or reject in-flight work, allow a bounded graceful exit, then
-  terminate only the exact supervised child identity. PID alone is not an
-  identity: record and verify the spawn ID, process start time, executable, and
-  OS process-group/job membership so PID reuse cannot kill an unrelated process.
+- `POST /control/campaigns/{id}/sim-workers` — kind `operational` only. Capacity
+  and reserve are the assigned-island budget. Overlapping spawn for the same
+  worker id is rejected.
+- `GET /control/campaigns/{id}/sim-workers` — recorded children and liveness.
+- `DELETE /control/campaigns/{id}/sim-workers/{workerId}` — release Operational
+  assignments, then PID-fenced kill (pid + start time + executable path).
+- Hello advertises `workerKind=operational` and `playerSessionBound=false`.
+- Service start reaps leftover children; Windows job objects kill children when
+  the service process dies.
+- Scheduler places islands whose desired fidelity is at most Operational onto
+  Track A workers. Sticky ownership. Drain/evacuation yields those assignments.
+- Islands that require Tactical stay on a player client, stay Operational on
+  Track A / the in-process kernel until a client exists, or wait for Track B.
+- Track A workers reject Sea Power tactical frames, checkpoints, and activation
+  grants.
 
 The service remains the only writer of leases, epochs, and committed events.
-A standalone worker is a simulation source, not a second coordinator.
 
-### Track A protocol boundary
+### Required protocol boundary for out-of-process simulation
 
 Track A reuses the proven ordered stream, acknowledgements, reconnect cursor,
 authentication, and backpressure rules, but adds discriminated Operational
-messages rather than weakening the Tactical ones:
+messages rather than weakening the Tactical ones before it can execute ticks:
 
 - an operational hello carries protocol/simulation/build fingerprints,
   supported fidelity ceilings and logical capacity; no fabricated Unity runtime
@@ -176,9 +139,9 @@ Operational result eligible for Tactical activation.
 
 ## Scheduler rules
 
-1. No player interest and ceiling ≤ Operational → Track A operational work
-   lease (or in-process kernel until Track A is implemented). Do not create an
-   active `TacticalAssignment` for it.
+1. No player interest and ceiling ≤ Operational → Track A when a worker is
+   connected; otherwise an in-process placement. The service kernel executes
+   both until operational work leases/results are implemented.
 2. Player interest and representable Tactical island → existing player client
    path. Do not steal that island onto a standalone worker while the player is
    the live view.
@@ -186,29 +149,25 @@ Operational result eligible for Tactical activation.
    in the kernel / Track A. Do not silently launch Sea Power.
 4. `RenderProxy` and player Observer never attach to a standalone worker.
 5. Compatibility fingerprints still fail closed. An Operational worker does not
-   need a Sea Power runtime hash; a Track B farm worker does.
+   send a Sea Power runtime hash.
 
-## Delivery slices (implementation comes later)
+## Delivery slices
 
-| Slice | Outcome | Gate before calling it done |
+| Slice | Outcome | Status |
 | --- | --- | --- |
-| A0 | This document and claim language | Review only |
-| A1 | Coordinator can spawn/stop a Track A process bound to one campaign | Operational hello with `playerSessionBound=false`; one-time spawn credential; process identity/job fencing; service restart does not leak or mis-adopt children |
-| A2 | Scheduler assigns non-player Operational islands to Track A | Broad kernel/protocol story: distinct operational lease/result messages; island leaves in-process kernel; outcomes are validated and journaled only by the service; crash replays the same input; player client never required |
-| A3 | Scale-out: more than one Track A worker, sticky leases, drain | Placement uses advertised and host-enforced capacity; duplicate instances for one spawn record and overlapping island leases are rejected |
-| B0 | Track B spawn design against named-worker evidence | Written admission that it is a windowed Unity process |
-| B1 | Unattended Sea Power farm spawn | Live proof: no player session, tactical shell loaded, Knox-only island, same migrate honesty as player workers |
-
-A1–A3 must not wait on B0–B1. B1 must not start before live two-container
-migrate for player workers has an honest result (success or documented
-failure).
+| A0 | This document and claim language | Done |
+| A1 | Coordinator spawn/stop bound to one campaign | Done: hello `playerSessionBound=false`; PID-fenced kill; restart does not leak children |
+| A2 | Scheduler places non-player Operational islands | Done for placement/fencing; tick execution and journaling remain in-process |
+| A3 | Execute leased Operational work out of process | Not started: distinct lease/result protocol and deterministic replay gates above are required |
+| B0 | Track B spawn design against named-worker evidence | Not started |
+| B1 | Unattended Sea Power farm spawn | Not started |
 
 ## Explicit non-claims
 
-- Standalone workers are not implemented in this layer.
 - Sea Power is not headless.
-- Spawning a Unity window is not cheaper than leaving the island Operational.
 - Track A does not match Sea Power tactical physics, sensors, or weapons.
+- Track A does not run a second campaign journal or allocate authority.
+- Operational ticks are still resolved by the service kernel in this slice.
 - Track B does not unlock hot-shadow, untrusted MP, or a qualified combat
   bubble.
 - The campaign service spawning processes does not make PostgreSQL, Docker, or

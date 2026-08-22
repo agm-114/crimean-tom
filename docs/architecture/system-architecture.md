@@ -131,9 +131,11 @@ order events.
 | Campaign client UI | Separate app or web UI | Theater map, orders, health, diagnostics, administration | Direct game mutation |
 
 The Operational worker is specified as a **campaign-owned standalone process**
-in [Standalone simulation workers](standalone-sim-worker.md). It is not
-implemented yet. It is not a headless Sea Power instance. Until it exists,
-unattended Operational islands run in-process in the campaign service.
+in [Standalone simulation workers](standalone-sim-worker.md). Track A is a .NET
+8 Operational worker the service can spawn; it is not a headless Sea Power
+instance. Unattended Operational islands may be assigned to Track A workers for
+capacity and fencing. The journal writer still resolves Operational ticks
+in-process.
 
 ## Technology and packaging baseline
 

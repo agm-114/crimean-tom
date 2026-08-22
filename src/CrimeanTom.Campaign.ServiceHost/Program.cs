@@ -66,6 +66,9 @@ builder.Services.AddSingleton<CampaignPlayerCommandSequencer>();
 builder.Services.AddSingleton<CampaignPerformanceTelemetry>();
 builder.Services.AddSingleton(new CampaignInboundSpool(Path.Combine(runDirectory, "inbound-spool")));
 builder.Services.AddSingleton<CampaignCoordinator>();
+builder.Services.AddSingleton(new CampaignOperationalWorkerOptions(grpcUri.ToString()));
+builder.Services.AddSingleton<CampaignOperationalWorkerSupervisor>();
+builder.Services.AddHostedService<CampaignOperationalWorkerHostedService>();
 var app = builder.Build();
 
 app.Use(async (context, next) =>
@@ -515,6 +518,55 @@ app.MapPost("/control/campaigns/{campaignId}/schedule", async (
         ? Results.Ok(await coordinator.ScheduleFidelityAsync(
             new CampaignId(parsed), request, cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/sim-workers", async (
+    string campaignId,
+    CampaignSimWorkerSpawnRequest request,
+    SqliteCampaignJournal store,
+    CampaignOperationalWorkerSupervisor supervisor,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+
+    try
+    {
+        await store.ReadMetadataAsync(new CampaignId(parsed), cancellationToken);
+        var spawned = supervisor.Spawn(new CampaignId(parsed), request);
+        return Results.Created($"/control/campaigns/{campaignId}/sim-workers/{spawned.WorkerId}", spawned);
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapGet("/control/campaigns/{campaignId}/sim-workers", (
+    string campaignId,
+    CampaignOperationalWorkerSupervisor supervisor) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed)
+        ? Results.Ok(supervisor.List(new CampaignId(parsed)))
+        : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapDelete("/control/campaigns/{campaignId}/sim-workers/{workerId}", async (
+    string campaignId,
+    string workerId,
+    CampaignOperationalWorkerSupervisor supervisor,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+
+    try
+    {
+        return Results.Ok(await supervisor.StopAsync(new CampaignId(parsed), workerId, cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/quiesce", async (
     CampaignQuiesceRequest request,
     CampaignCoordinator coordinator,

@@ -35,6 +35,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrimeanTom.Campaign.Service
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrimeanTom.LoadAcceleration", "src\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj", "{7C581131-E61F-4ECF-AE81-3BA7BE7AA8F1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrimeanTom.Campaign.OperationalWorker", "src\CrimeanTom.Campaign.OperationalWorker\CrimeanTom.Campaign.OperationalWorker.csproj", "{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -213,6 +215,18 @@ Global
 		{7C581131-E61F-4ECF-AE81-3BA7BE7AA8F1}.Release|x64.Build.0 = Release|Any CPU
 		{7C581131-E61F-4ECF-AE81-3BA7BE7AA8F1}.Release|x86.ActiveCfg = Release|Any CPU
 		{7C581131-E61F-4ECF-AE81-3BA7BE7AA8F1}.Release|x86.Build.0 = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|x64.Build.0 = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Debug|x86.Build.0 = Debug|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|x64.ActiveCfg = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|x64.Build.0 = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|x86.ActiveCfg = Release|Any CPU
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -232,5 +246,6 @@ Global
 		{F1061FD0-D41F-48B6-925F-9947D5A95B4E} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B16F3A03-469A-4FC6-8461-81797494B43A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{7C581131-E61F-4ECF-AE81-3BA7BE7AA8F1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{8F3A1C2E-9B47-4D6A-A1E8-7C5D2B90E4F1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

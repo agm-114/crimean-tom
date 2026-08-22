@@ -51,6 +51,9 @@ message CompanionHello {
   int32 tactical_reserve_capacity = 12;
   string health = 13;
   string eligibility = 14;
+  // Empty or "sea-power" is a player Sea Power companion. "operational" is a
+  // campaign-owned Track A worker with no player session and no Unity runtime.
+  string worker_kind = 15;
 }
 
 message TacticalMaterializationProfile {
@@ -100,6 +103,7 @@ message CompanionHeartbeat {
   int32 tactical_reserve_capacity = 14;
   string health = 15;
   string eligibility = 16;
+  string worker_kind = 17;
 }
 
 message ServiceHeartbeat {
