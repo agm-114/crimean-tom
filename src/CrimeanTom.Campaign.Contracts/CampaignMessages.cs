@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 7;
-    public const int AlgorithmVersion = 8;
+    public const int Version = 8;
+    public const int AlgorithmVersion = 9;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -106,7 +106,59 @@ public enum OperationalOutcomeKind
     Damage,
     Withdrawal,
     Destruction,
+    Launch,
+    PointDefense,
+    SeekerLost,
 }
+
+public enum SensorChannel
+{
+    Visual,
+    Radar,
+    Sonar,
+    Esm,
+}
+
+public enum OrdnanceFlightStage
+{
+    Launch,
+    Cruise,
+    Terminal,
+}
+
+public enum OrdnanceGuidance
+{
+    Inertial,
+    Active,
+    SemiActive,
+}
+
+public sealed record AnalogueTacticalCondition(
+    int AltitudeOrDepthMeters = 0,
+    int FireMilliUnits = 0,
+    int FloodMilliUnits = 0,
+    int PropulsionIntegrityMilliUnits = 1_000,
+    int SensorIntegrityMilliUnits = 1_000,
+    int WeaponIntegrityMilliUnits = 1_000)
+{
+    public static AnalogueTacticalCondition Healthy { get; } = new();
+}
+
+public sealed record InFlightOrdnance(
+    string OrdnanceId,
+    EntityId ShooterEntityId,
+    EntityId TargetEntityId,
+    CoalitionId ShooterCoalitionId,
+    string AmmunitionId,
+    ContactClassification TargetClassification,
+    GeoCoordinate Coordinate,
+    int HeadingMilliDegrees,
+    OrdnanceFlightStage Stage,
+    OrdnanceGuidance Guidance,
+    long RemainingMeters,
+    long SpeedMetersPerTick,
+    int InsDriftMilliUnits,
+    CampaignTime LaunchedAt);
 
 public enum CampaignActivityKind
 {
@@ -389,7 +441,8 @@ public sealed record SimulatedEntityUpdate(
     int DamageMilliUnits,
     EntityRevision Revision,
     int HeadingMilliDegrees = 0,
-    int Telegraph = 0);
+    int Telegraph = 0,
+    AnalogueTacticalCondition? Analogue = null);
 
 public sealed record SimulatedBaseUpdate(
     BaseId BaseId,
@@ -417,7 +470,8 @@ public sealed record SimulatedIntelligenceUpdate(
     CampaignTime ObservedAt,
     int UncertaintyRadiusMeters,
     ContactClassification Classification,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    SensorChannel Channel = SensorChannel.Visual);
 
 public sealed record OperationalOutcome(
     string OutcomeId,
@@ -445,7 +499,8 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedOrderUpdate> Orders,
     IReadOnlyList<SimulatedIntelligenceUpdate> Intelligence,
     IReadOnlyList<OperationalOutcome> Outcomes,
-    IReadOnlyList<ScheduledCampaignActivity> PendingActivities)
+    IReadOnlyList<ScheduledCampaignActivity> PendingActivities,
+    IReadOnlyList<InFlightOrdnance>? InFlight = null)
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;
