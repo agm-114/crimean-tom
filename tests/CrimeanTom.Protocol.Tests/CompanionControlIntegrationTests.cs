@@ -5259,7 +5259,8 @@ public sealed class CompanionControlIntegrationTests
     {
         var spool = Path.Combine(runDirectory, "inbound-spool");
         return Directory.Exists(spool)
-            ? Directory.EnumerateFiles(spool, "*.frame", SearchOption.AllDirectories)
+            ? Directory.EnumerateFiles(spool, "*.*", SearchOption.AllDirectories)
+                .Where(path => Path.GetExtension(path) is ".frame" or ".processed")
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .Select(path => CompanionFrame.Parser.ParseFrom(File.ReadAllBytes(path)))
                 .Where(frame => frame.PayloadCase is

@@ -581,7 +581,8 @@ distinct campaign sessions on this host. **Cross-worker tactical-island
 migration remains unproven** — do not claim two-container migration until
 `pnpm worker:live-migrate -Execute` (or `pnpm worker:migration-proof -Execute`)
 succeeds with destination Primary Active and source Primary Released. The
-22 August driver pins `prepare-source` and can bootstrap a fresh journal; it
+22 August driver keeps preflight read-only, pins `prepare-source` only under
+`-Execute`, and can bootstrap a fresh journal as a separate setup action; it
 does not change the claim. See
 `docs/evidence/phase-5-live-migrate-driver-2026-08-22.md`.
 

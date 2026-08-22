@@ -49,10 +49,11 @@ if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
 }
 
 $headers = Get-CampaignAuthHeaders $CampaignTokenFile
-$createdCampaign = $false
-$bootstrap = $null
 
 if ($CreateCampaign) {
+    if ($Execute) {
+        throw '-CreateCampaign and -Execute are separate phases: create/bootstrap, reconnect both workers, preflight, then execute.'
+    }
     if ([string]::IsNullOrWhiteSpace($CampaignId)) {
         $CampaignId = [Guid]::NewGuid().ToString('N')
     }
@@ -66,17 +67,26 @@ if ($CreateCampaign) {
         throw "Create campaign failed ($($createResponse.StatusCode)): $($createResponse.Content)"
     }
     $bootstrap = Invoke-CampaignApi Post $CampaignHttpUrl $headers "/control/campaigns/$CampaignId/bootstrap"
-    $createdCampaign = $true
     if ([string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
         $CanonicalEntityId = [string]$bootstrap.primaryEntityId
     }
+
+    [pscustomobject]@{
+        CampaignId = $CampaignId
+        CanonicalEntityId = $CanonicalEntityId
+        Created = $true
+        MigrationExecuted = $false
+        NextStep = "Reconnect worker-a and worker-b with -CampaignId $CampaignId, then run this driver without -CreateCampaign for preflight."
+    } | ConvertTo-Json -Depth 4
+    Write-Host "LIVE_MIGRATE_CAMPAIGN_CREATED: campaign=$CampaignId entity=$CanonicalEntityId; no migration was attempted."
+    exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($CampaignId)) {
     throw 'CampaignId is required unless -CreateCampaign is supplied.'
 }
 
-if ([string]::IsNullOrWhiteSpace($CanonicalEntityId) -and -not $createdCampaign) {
+if ([string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
     $view = Get-CampaignView $CampaignHttpUrl $headers $CampaignId
     $singletonIslands = @($view.islands | Where-Object {
         @($_.entityIds).Count -eq 1
@@ -93,7 +103,6 @@ $driverArgs = @{
     SourceWorkerId = $SourceWorkerId
     DestinationWorkerId = $DestinationWorkerId
     TimeoutSeconds = $TimeoutSeconds
-    AllowSourcePreparation = $true
 }
 if (-not [string]::IsNullOrWhiteSpace($WorkersRunRoot)) {
     $driverArgs.WorkersRunRoot = $WorkersRunRoot
@@ -103,20 +112,18 @@ if (-not [string]::IsNullOrWhiteSpace($CanonicalEntityId)) {
 }
 if ($Execute) {
     $driverArgs.Execute = $true
+    $driverArgs.AllowSourcePreparation = $true
 }
 if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
     $driverArgs.EvidencePath = $EvidencePath
 }
 
 Write-Host @"
-LIVE_MIGRATE_DRIVER: campaign=$CampaignId created=$createdCampaign entity=$CanonicalEntityId execute=$Execute
+LIVE_MIGRATE_DRIVER: campaign=$CampaignId entity=$CanonicalEntityId execute=$Execute
 Named workers must already be connected to this campaign with a loaded player task force.
-This driver pins source preparation, then reuses worker:migration-proof. It does not claim success until that script prints MIGRATION_PROOF_SUCCEEDED.
+Read-only preflight does not repair campaign state. -Execute authorizes pinned source preparation and migration.
+This driver does not claim success until worker:migration-proof prints MIGRATION_PROOF_SUCCEEDED.
 "@
-
-if ($createdCampaign) {
-    Write-Host "Restart worker-a and worker-b with -CampaignId $CampaignId before -Execute if they are bound to a different journal."
-}
 
 & (Join-Path $PSScriptRoot 'sea-power-worker-migration-proof.ps1') @driverArgs
 exit $LASTEXITCODE
