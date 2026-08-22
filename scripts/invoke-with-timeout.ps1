@@ -13,7 +13,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Stop-ProcessTree([int]$ProcessId) {
-    & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
+    try {
+        & taskkill.exe /PID $ProcessId /T /F 1>$null 2>$null
+    }
+    catch {
+    }
     Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
 }
 
@@ -29,10 +33,11 @@ $tempScript = [System.IO.Path]::Combine(
     [System.IO.Path]::GetTempPath(),
     "crimean-tom-timeout-$([Guid]::NewGuid().ToString('N')).ps1")
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText(
-    $tempScript,
-    $Command,
-    $utf8NoBom)
+$scriptBody = @(
+    $Command.TrimEnd(),
+    'if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }'
+) -join [Environment]::NewLine
+[System.IO.File]::WriteAllText($tempScript, $scriptBody, $utf8NoBom)
 
 $process = $null
 $exitCode = 0
@@ -41,34 +46,28 @@ try {
     $startInfo.FileName = (Get-Process -Id $PID).Path
     $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$tempScript`""
     $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.CreateNoWindow = $true
+    $startInfo.CreateNoWindow = $false
     $startInfo.WorkingDirectory = (Get-Location).Path
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
     $null = $process.Start()
 
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        [Console]::Error.WriteLine("COMMAND_TIMEOUT after ${TimeoutSeconds}s")
+    $budgetMs = $TimeoutSeconds * 1000
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $process.HasExited -and $elapsed.ElapsedMilliseconds -lt $budgetMs) {
+        Start-Sleep -Milliseconds 50
+    }
+
+    if (-not $process.HasExited) {
         Stop-ProcessTree $process.Id
         if (-not $process.HasExited) {
-            $process.Kill()
+            try { $process.Kill() } catch { }
         }
+        [Console]::Error.WriteLine("COMMAND_TIMEOUT after ${TimeoutSeconds}s")
         $exitCode = 124
     }
     else {
-        [void]$stdoutTask.Wait()
-        [void]$stderrTask.Wait()
-        if ($stdoutTask.Result) {
-            [Console]::Out.Write($stdoutTask.Result)
-        }
-        if ($stderrTask.Result) {
-            [Console]::Error.Write($stderrTask.Result)
-        }
         $exitCode = $process.ExitCode
     }
 }

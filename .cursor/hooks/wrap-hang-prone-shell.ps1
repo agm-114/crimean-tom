@@ -9,25 +9,33 @@ if ([string]::IsNullOrWhiteSpace($inputJson)) {
 $payload = $inputJson | ConvertFrom-Json
 $toolName = [string]$payload.tool_name
 $toolInput = $payload.tool_input
-$command = [string]$toolInput.command
-if ($toolName -cne 'Shell' -or [string]::IsNullOrWhiteSpace($command)) {
+$command = ''
+if ($null -ne $toolInput -and $toolInput.command) {
+    $command = [string]$toolInput.command
+}
+elseif ($payload.command) {
+    $command = [string]$payload.command
+}
+
+if ((-not [string]::IsNullOrWhiteSpace($toolName) -and $toolName -cne 'Shell') -or
+    [string]::IsNullOrWhiteSpace($command)) {
     Write-Output '{ "permission": "allow" }'
     exit 0
 }
 
-if ($command -match 'invoke-with-timeout\.ps1' -or $command -match 'COMMAND_TIMEOUT') {
+if ($command -match 'invoke-with-timeout\.ps1') {
     Write-Output '{ "permission": "allow" }'
     exit 0
 }
 
-$isHangProne = $command -match '(?i)(\bilspycmd\b|decompile-sea-power\.ps1|\bpnpm\s+decompile)'
+$isHangProne = $command -match '(?i)(?:^|[;&|]|&{2})\s*(?:(?:\S*[/\\])?ilspycmd\b|(?:\S*[/\\])?decompile-sea-power\.ps1\b|pnpm\s+decompile\b)'
 if (-not $isHangProne) {
     Write-Output '{ "permission": "allow" }'
     exit 0
 }
 
 $timeoutSeconds = 60
-if ($command -match '(?i)(--project|decompile-sea-power\.ps1|\bpnpm\s+decompile)') {
+if ($command -match '(?i)(--project|decompile-sea-power\.ps1|pnpm\s+decompile\b)') {
     $timeoutSeconds = 600
 }
 
@@ -46,9 +54,9 @@ $updated = [ordered]@{
     block_until_ms = $blockUntilMs
     timeout = $blockUntilMs
 }
-if ($toolInput.cwd) { $updated.cwd = $toolInput.cwd }
-if ($toolInput.working_directory) { $updated.working_directory = $toolInput.working_directory }
-if ($toolInput.description) { $updated.description = $toolInput.description }
+if ($toolInput -and $toolInput.cwd) { $updated.cwd = $toolInput.cwd }
+if ($toolInput -and $toolInput.working_directory) { $updated.working_directory = $toolInput.working_directory }
+if ($toolInput -and $toolInput.description) { $updated.description = $toolInput.description }
 
 $response = [ordered]@{
     permission = 'allow'
