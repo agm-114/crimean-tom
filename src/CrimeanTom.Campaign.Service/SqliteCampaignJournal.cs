@@ -716,6 +716,11 @@ public sealed class SqliteCampaignJournal
         CancellationToken cancellationToken = default) =>
         CampaignBackupManager.RestoreAsync(backupDirectory, destinationStorageDirectory, cancellationToken);
 
+    public static Task<CampaignBackupResult> InspectBackupAsync(
+        string backupDirectory,
+        CancellationToken cancellationToken = default) =>
+        CampaignBackupManager.InspectAsync(backupDirectory, cancellationToken);
+
     public Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsAsync(
         CampaignId campaignId,
         CommitPosition after,

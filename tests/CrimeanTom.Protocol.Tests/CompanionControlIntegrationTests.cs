@@ -126,6 +126,9 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "http-coalition-filtered; signalr-not-canonical-commit",
                 durabilityPolicy.RootElement.GetProperty("playerProjectionTransport").GetString());
+            Assert.Equal(
+                "sqlite-wal-local-blobs; no-docker-no-external-db",
+                durabilityPolicy.RootElement.GetProperty("packagedDeploymentProfile").GetString());
             Assert.Equal(120, durabilityPolicy.RootElement.GetProperty("maximumRollbackQuanta").GetInt64());
             Assert.Contains(
                 durabilityPolicy.RootElement.GetProperty("provisionalEffectFamilies").EnumerateArray(),
@@ -397,6 +400,109 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 new[] { HttpStatusCode.OK, HttpStatusCode.Conflict },
                 new[] { raceCommandFirst.StatusCode, raceCommandSecond.StatusCode }.Order().ToArray());
+            var backupDirectory = Path.Combine(campaignServiceRunDirectory, "backups", "fulda-operator");
+            var restoreDirectory = Path.Combine(campaignServiceRunDirectory, "restore-fulda");
+            using var backupResponse = await campaignClient.PostAsJsonAsync(
+                "/control/backups",
+                new { destinationDirectory = backupDirectory },
+                testTimeout.Token);
+            Assert.True(
+                backupResponse.IsSuccessStatusCode,
+                await backupResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            using var backupBody = JsonDocument.Parse(await backupResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var backupHead = Assert.Single(
+                backupBody.RootElement.GetProperty("campaigns").EnumerateArray(),
+                item => item.GetProperty("campaignId").GetString() == fuldaCampaignId);
+            Assert.Equal(
+                advancedFuldaView.RootElement.GetProperty("canonicalHash").GetString(),
+                backupHead.GetProperty("canonicalHash").GetString());
+            using var backupListResponse = await campaignClient.GetAsync("/control/backups", testTimeout.Token);
+            backupListResponse.EnsureSuccessStatusCode();
+            using var backupListBody = JsonDocument.Parse(
+                await backupListResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var listedBackup = Assert.Single(backupListBody.RootElement.EnumerateArray());
+            Assert.Equal(
+                backupBody.RootElement.GetProperty("databaseSha256").GetString(),
+                listedBackup.GetProperty("databaseSha256").GetString());
+            Assert.True(listedBackup.GetProperty("eventCount").GetInt32() > 0);
+            Assert.Equal(
+                backupHead.GetProperty("canonicalHash").GetString(),
+                Assert.Single(
+                    listedBackup.GetProperty("campaigns").EnumerateArray(),
+                    item => item.GetProperty("campaignId").GetString() == fuldaCampaignId)
+                    .GetProperty("canonicalHash").GetString());
+            using var escapedBackupResponse = await campaignClient.PostAsJsonAsync(
+                "/control/backups",
+                new { destinationDirectory = Path.Combine(campaignServiceRunDirectory, "outside-backup-root") },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, escapedBackupResponse.StatusCode);
+            using var escapedBackupBody = JsonDocument.Parse(
+                await escapedBackupResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "backup-destination-outside-root",
+                escapedBackupBody.RootElement.GetProperty("error").GetString());
+            using var restoreResponse = await campaignClient.PostAsJsonAsync(
+                "/control/restores",
+                new { backupDirectory, destinationStorageDirectory = restoreDirectory },
+                testTimeout.Token);
+            Assert.True(
+                restoreResponse.IsSuccessStatusCode,
+                await restoreResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            using var restoreBody = JsonDocument.Parse(
+                await restoreResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var restoredHead = Assert.Single(
+                restoreBody.RootElement.GetProperty("campaigns").EnumerateArray(),
+                item => item.GetProperty("campaignId").GetString() == fuldaCampaignId);
+            Assert.Equal(
+                backupHead.GetProperty("canonicalHash").GetString(),
+                restoredHead.GetProperty("canonicalHash").GetString());
+            using var escapedRestoreResponse = await campaignClient.PostAsJsonAsync(
+                "/control/restores",
+                new
+                {
+                    backupDirectory,
+                    destinationStorageDirectory = Path.Combine(campaignServiceRunDirectory, "..", "escaped-restore"),
+                },
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, escapedRestoreResponse.StatusCode);
+            using var escapedRestoreBody = JsonDocument.Parse(
+                await escapedRestoreResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                "restore-destination-outside-run-directory",
+                escapedRestoreBody.RootElement.GetProperty("error").GetString());
+            using var missingPauseResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{Guid.NewGuid():N}/pause",
+                content: null,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, missingPauseResponse.StatusCode);
+            using var missingPauseBody = JsonDocument.Parse(
+                await missingPauseResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("campaign-missing", missingPauseBody.RootElement.GetProperty("error").GetString());
+            using var pauseResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/pause",
+                content: null,
+                testTimeout.Token);
+            pauseResponse.EnsureSuccessStatusCode();
+            using var pausedAdvance = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/advance/60",
+                content: null,
+                testTimeout.Token);
+            Assert.Equal(HttpStatusCode.Conflict, pausedAdvance.StatusCode);
+            using var pausedBody = JsonDocument.Parse(await pausedAdvance.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("campaign-paused", pausedBody.RootElement.GetProperty("error").GetString());
+            using var resumeResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/resume",
+                content: null,
+                testTimeout.Token);
+            resumeResponse.EnsureSuccessStatusCode();
+            using var drainResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{fuldaCampaignId}/drain",
+                content: null,
+                testTimeout.Token);
+            drainResponse.EnsureSuccessStatusCode();
+            using var drainBody = JsonDocument.Parse(await drainResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("Draining", drainBody.RootElement.GetProperty("health").GetString());
+            Assert.Equal("DrainOnly", drainBody.RootElement.GetProperty("eligibility").GetString());
             var landEntityId = Assert.Single(
                 advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray(),
                 item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"

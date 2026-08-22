@@ -91,7 +91,6 @@ internal static class CampaignBackupManager
         }
 
         var backupJournal = new SqliteCampaignJournal(backupDatabase, backupBlobs.RootDirectory);
-        await backupJournal.InitializeAsync(cancellationToken);
         var backupIntegrity = await backupJournal.VerifyIntegrityAsync(cancellationToken);
         RequireManifestHeads(manifest, backupIntegrity);
 
@@ -124,6 +123,31 @@ internal static class CampaignBackupManager
         {
             DeleteStagingDirectory(staging);
         }
+    }
+
+    public static async Task<CampaignBackupResult> InspectAsync(
+        string backupDirectory,
+        CancellationToken cancellationToken)
+    {
+        var backup = Path.GetFullPath(backupDirectory);
+        if (!Directory.Exists(backup))
+        {
+            throw Conflict("backup-missing", "The backup directory does not exist.");
+        }
+
+        var manifest = await ReadAndVerifyManifestAsync(backup, cancellationToken);
+        var backupBlobs = new ContentAddressedBlobStore(Path.Combine(backup, BlobDirectoryName));
+        foreach (var blob in manifest.Blobs)
+        {
+            await backupBlobs.VerifyAsync(blob.Sha256, blob.Length, cancellationToken);
+        }
+
+        var backupJournal = new SqliteCampaignJournal(
+            Path.Combine(backup, DatabaseFileName),
+            backupBlobs.RootDirectory);
+        var integrity = await backupJournal.VerifyIntegrityAsync(cancellationToken);
+        RequireManifestHeads(manifest, integrity);
+        return new CampaignBackupResult(backup, manifest.DatabaseSha256, integrity);
     }
 
     private static async Task CopyDatabaseOnlineAsync(
@@ -180,7 +204,15 @@ internal static class CampaignBackupManager
             throw Conflict("backup-manifest-invalid", exception.Message);
         }
         if (manifest.FormatVersion != BackupFormatVersion || manifest.DatabaseFile != DatabaseFileName
-            || manifest.Campaigns.Length == 0 || manifest.Campaigns.Select(item => item.CampaignId).Distinct().Count() != manifest.Campaigns.Length
+            || string.IsNullOrWhiteSpace(manifest.DatabaseSha256)
+            || manifest.Campaigns is null || manifest.Campaigns.Length == 0
+            || manifest.Campaigns.Any(item => item is null
+                || !Guid.TryParseExact(item.CampaignId, "N", out _)
+                || item.CommitPosition < 0
+                || string.IsNullOrWhiteSpace(item.CanonicalHash))
+            || manifest.Campaigns.Select(item => item.CampaignId).Distinct().Count() != manifest.Campaigns.Length
+            || manifest.Blobs is null
+            || manifest.Blobs.Any(item => item is null || string.IsNullOrWhiteSpace(item.Sha256) || item.Length < 0)
             || manifest.Blobs.Select(item => item.Sha256).Distinct().Count() != manifest.Blobs.Length)
         {
             throw Conflict("backup-manifest-invalid", "The backup manifest version, identity, or uniqueness constraints failed.");
