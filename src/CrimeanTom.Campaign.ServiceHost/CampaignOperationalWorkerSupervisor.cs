@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -14,29 +16,36 @@ public sealed record CampaignOperationalWorkerOptions(string GrpcUrl);
 public sealed class CampaignOperationalWorkerSupervisor(
     CampaignHostPaths paths,
     CampaignCoordinator coordinator,
-    CampaignOperationalWorkerOptions options)
+    CampaignSessionRegistry sessions,
+    CampaignOperationalWorkerOptions options) : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
     };
-    private static readonly TimeSpan StartTimeTolerance = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartTimeTolerance = TimeSpan.FromMilliseconds(1);
+    private const int MaxLogLineCharacters = 16 * 1024;
+    private const long MaxLogBytes = 1024 * 1024;
     private readonly object _gate = new();
-    private readonly WindowsKillOnCloseJob _job = new();
+    private readonly object _logGate = new();
+    private readonly Lazy<WindowsKillOnCloseJob> _job = new(
+        () => new WindowsKillOnCloseJob(),
+        LazyThreadSafetyMode.ExecutionAndPublication);
     private readonly Dictionary<string, Process> _liveProcesses = new(StringComparer.Ordinal);
 
-    public IReadOnlyList<CampaignSimWorkerRecord> List(CampaignId campaignId)
+    public IReadOnlyList<CampaignSimWorkerView> List(CampaignId campaignId)
     {
         lock (_gate)
         {
             return ReadRecords(campaignId)
                 .Select(Refresh)
                 .OrderBy(item => item.WorkerId, StringComparer.Ordinal)
+                .Select(ToView)
                 .ToArray();
         }
     }
 
-    public CampaignSimWorkerRecord Spawn(CampaignId campaignId, CampaignSimWorkerSpawnRequest request)
+    public CampaignSimWorkerView Spawn(CampaignId campaignId, CampaignSimWorkerSpawnRequest request)
     {
         if (!string.IsNullOrWhiteSpace(request.Kind)
             && !string.Equals(request.Kind.Trim(), CampaignWorkerKind.Operational, StringComparison.Ordinal))
@@ -66,13 +75,20 @@ public sealed class CampaignOperationalWorkerSupervisor(
 
             if (existing is not null)
             {
-                TryStopRecord(existing, releaseAssignments: false);
+                if (!TryStopRecord(existing))
+                {
+                    throw new CampaignStoreConflict(
+                        "sim-worker-process-identity-mismatch",
+                        "The prior worker PID is still live but no longer matches its fenced process identity.");
+                }
             }
 
             var executable = CampaignOperationalWorkerPaths.Resolve();
             var recordDirectory = RecordDirectory(campaignId, workerId);
             Directory.CreateDirectory(recordDirectory);
             var clientInstanceId = Guid.NewGuid().ToString("N");
+            var spawnId = Guid.NewGuid().ToString("N");
+            var spawnCredential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var start = new ProcessStartInfo(executable)
             {
                 WorkingDirectory = Path.GetDirectoryName(executable) ?? AppContext.BaseDirectory,
@@ -85,6 +101,8 @@ public sealed class CampaignOperationalWorkerSupervisor(
             start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = options.GrpcUrl;
             start.Environment["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(paths.RunDirectory, "service.token");
             start.Environment["CRIMEAN_TOM_CLIENT_INSTANCE_ID"] = clientInstanceId;
+            start.Environment["CRIMEAN_TOM_SIM_WORKER_SPAWN_ID"] = spawnId;
+            start.Environment["CRIMEAN_TOM_SIM_WORKER_SPAWN_CREDENTIAL"] = spawnCredential;
             start.Environment["CRIMEAN_TOM_SIM_WORKER_RECORD_DIRECTORY"] = recordDirectory;
             start.Environment["CRIMEAN_TOM_SIM_WORKER_CAPACITY"] = capacity.ToString();
             start.Environment["CRIMEAN_TOM_SIM_WORKER_RESERVE"] = reserve.ToString();
@@ -94,32 +112,97 @@ public sealed class CampaignOperationalWorkerSupervisor(
             var process = new Process { StartInfo = start, EnableRaisingEvents = true };
             process.OutputDataReceived += (_, args) => AppendLog(stdoutPath, args.Data);
             process.ErrorDataReceived += (_, args) => AppendLog(stderrPath, args.Data);
-            if (!process.Start())
+            try
             {
-                throw new CampaignStoreConflict("sim-worker-spawn-failed", "The operational worker process did not start.");
-            }
+                if (!process.Start())
+                {
+                    throw new CampaignStoreConflict(
+                        "sim-worker-spawn-failed",
+                        "The operational worker process did not start.");
+                }
 
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            _job.Assign(process);
-            _liveProcesses[LiveKey(campaignId, workerId)] = process;
-            var record = new CampaignSimWorkerRecord(
-                workerId,
-                campaignId.ToString(),
-                clientInstanceId,
-                process.Id,
-                ToUtc(process.StartTime),
-                Path.GetFullPath(executable),
-                capacity,
-                reserve,
-                DateTimeOffset.UtcNow,
-                Alive: true);
-            WriteRecord(record);
-            return record;
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                _job.Value.Assign(process);
+                if (process.HasExited)
+                {
+                    throw new CampaignStoreConflict(
+                        "sim-worker-exited-during-spawn",
+                        "The Operational worker exited before its supervised identity could be recorded.");
+                }
+                var record = new CampaignSimWorkerRecord(
+                    workerId,
+                    campaignId.ToString(),
+                    clientInstanceId,
+                    spawnId,
+                    HashCredential(spawnCredential),
+                    process.Id,
+                    ToUtc(process.StartTime),
+                    Path.GetFullPath(executable),
+                    capacity,
+                    reserve,
+                    DateTimeOffset.UtcNow,
+                    Alive: true);
+                WriteRecord(record);
+                _liveProcesses[LiveKey(campaignId, workerId)] = process;
+                return ToView(record);
+            }
+            catch
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit(5_000);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+
+                throw;
+            }
         }
     }
 
-    public async Task<CampaignSimWorkerRecord> StopAsync(
+    public bool ValidateOperationalHello(CampaignId campaignId, CompanionHello hello)
+    {
+        lock (_gate)
+        {
+            var matches = ReadRecords(campaignId)
+                .Where(record => string.Equals(
+                    record.ClientInstanceId,
+                    hello.ClientInstanceId,
+                    StringComparison.Ordinal))
+                .ToArray();
+            if (matches.Length != 1)
+            {
+                return false;
+            }
+
+            var record = matches[0];
+            if (!string.Equals(record.SpawnId, hello.OperationalSpawnId, StringComparison.Ordinal)
+                || record.Capacity != hello.OperationalEntityCapacity
+                || record.Reserve != hello.OperationalReserveCapacity
+                || !MatchesLiveProcess(record)
+                || string.IsNullOrWhiteSpace(hello.OperationalSpawnCredential))
+            {
+                return false;
+            }
+
+            var suppliedHash = HashCredential(hello.OperationalSpawnCredential);
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(record.SpawnCredentialSha256),
+                Encoding.ASCII.GetBytes(suppliedHash));
+        }
+    }
+
+    public async Task<CampaignSimWorkerView> StopAsync(
         CampaignId campaignId,
         string workerId,
         CancellationToken cancellationToken)
@@ -131,17 +214,25 @@ public sealed class CampaignOperationalWorkerSupervisor(
                 ?? throw new CampaignStoreConflict("sim-worker-missing", "The operational worker record does not exist.");
         }
 
+        CampaignSimWorkerRecord stopped;
+        lock (_gate)
+        {
+            if (!TryStopRecord(record))
+            {
+                throw new CampaignStoreConflict(
+                    "sim-worker-process-identity-mismatch",
+                    "The worker PID is live but no longer matches its fenced process identity.");
+            }
+            _ = sessions.CloseClient(record.ClientInstanceId, "operational-worker-stopped");
+            stopped = record with { Alive = false, Pid = 0 };
+            WriteRecord(stopped);
+        }
+
         await coordinator.ReleaseOperationalWorkerAssignmentsAsync(
             campaignId,
             record.ClientInstanceId,
             cancellationToken);
-        lock (_gate)
-        {
-            TryStopRecord(record, releaseAssignments: false);
-            var stopped = record with { Alive = false, Pid = 0 };
-            WriteRecord(stopped);
-            return stopped;
-        }
+        return ToView(stopped);
     }
 
     public void ReapStaleChildren()
@@ -167,7 +258,7 @@ public sealed class CampaignOperationalWorkerSupervisor(
                 {
                     if (MatchesLiveProcess(record))
                     {
-                        TryStopRecord(record, releaseAssignments: false);
+                        _ = TryStopRecord(record);
                     }
                 }
             }
@@ -194,32 +285,41 @@ public sealed class CampaignOperationalWorkerSupervisor(
 
                 foreach (var record in ReadRecords(new CampaignId(campaignGuid)))
                 {
-                    TryStopRecord(record, releaseAssignments: false);
+                    _ = TryStopRecord(record);
                 }
             }
         }
     }
 
-    private void TryStopRecord(CampaignSimWorkerRecord record, bool releaseAssignments)
+    public void Dispose()
     {
-        _ = releaseAssignments;
-        if (!MatchesLiveProcess(record) && !_liveProcesses.ContainsKey(
-            LiveKey(new CampaignId(Guid.ParseExact(record.CampaignId, "N")), record.WorkerId)))
+        StopAll();
+        if (_job.IsValueCreated)
         {
-            return;
+            _job.Value.Dispose();
         }
+    }
 
+    private bool TryStopRecord(CampaignSimWorkerRecord record)
+    {
         try
         {
             var key = LiveKey(new CampaignId(Guid.ParseExact(record.CampaignId, "N")), record.WorkerId);
-            if (_liveProcesses.Remove(key, out var tracked))
+            if (_liveProcesses.TryGetValue(key, out var tracked))
             {
+                if (!MatchesLiveProcess(record, tracked))
+                {
+                    return false;
+                }
+
+                _liveProcesses.Remove(key);
+                var exited = tracked.HasExited;
                 try
                 {
-                    if (!tracked.HasExited)
+                    if (!exited)
                     {
                         tracked.Kill(entireProcessTree: true);
-                        tracked.WaitForExit(5_000);
+                        exited = tracked.WaitForExit(5_000);
                     }
                 }
                 finally
@@ -227,31 +327,61 @@ public sealed class CampaignOperationalWorkerSupervisor(
                     tracked.Dispose();
                 }
 
-                return;
+                return exited;
             }
 
+            if (record.Pid <= 0)
+            {
+                return true;
+            }
             using var process = Process.GetProcessById(record.Pid);
+            if (process.HasExited)
+            {
+                return true;
+            }
             if (!MatchesLiveProcess(record, process))
             {
-                return;
+                return false;
             }
 
             process.Kill(entireProcessTree: true);
-            process.WaitForExit(5_000);
+            return process.WaitForExit(5_000);
         }
         catch (ArgumentException)
         {
+            return true;
         }
         catch (InvalidOperationException)
         {
+            return false;
+        }
+        catch (Win32Exception)
+        {
+            return false;
         }
     }
 
     private static string LiveKey(CampaignId campaignId, string workerId) =>
         $"{campaignId}/{workerId}";
 
+    private static string HashCredential(string credential) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credential)));
+
     private CampaignSimWorkerRecord Refresh(CampaignSimWorkerRecord record) =>
         record with { Alive = MatchesLiveProcess(record) };
+
+    private static CampaignSimWorkerView ToView(CampaignSimWorkerRecord record) => new(
+        record.WorkerId,
+        record.CampaignId,
+        record.ClientInstanceId,
+        record.SpawnId,
+        record.Pid,
+        record.ProcessStartTimeUtc,
+        record.ExecutablePath,
+        record.Capacity,
+        record.Reserve,
+        record.SpawnedAtUtc,
+        record.Alive);
 
     private static bool MatchesLiveProcess(CampaignSimWorkerRecord record)
     {
@@ -324,7 +454,20 @@ public sealed class CampaignOperationalWorkerSupervisor(
     {
         var directory = RecordDirectory(new CampaignId(Guid.ParseExact(record.CampaignId, "N")), record.WorkerId);
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "worker.json"), JsonSerializer.Serialize(record, JsonOptions));
+        var path = Path.Combine(directory, "worker.json");
+        var temporaryPath = Path.Combine(directory, $"worker.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(record, JsonOptions));
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
 
     private string RecordDirectory(CampaignId campaignId, string workerId) =>
@@ -353,14 +496,36 @@ public sealed class CampaignOperationalWorkerSupervisor(
         return new DateTimeOffset(utc, TimeSpan.Zero);
     }
 
-    private static void AppendLog(string path, string? line)
+    private void AppendLog(string path, string? line)
     {
         if (line is null)
         {
             return;
         }
 
-        File.AppendAllText(path, line + Environment.NewLine);
+        var boundedLine = line.Length <= MaxLogLineCharacters
+            ? line
+            : line[..MaxLogLineCharacters] + " [truncated]";
+        lock (_logGate)
+        {
+            try
+            {
+                if (File.Exists(path) && new FileInfo(path).Length >= MaxLogBytes)
+                {
+                    File.WriteAllText(path, "[previous worker log truncated at 1 MiB]" + Environment.NewLine);
+                }
+
+                File.AppendAllText(path, boundedLine + Environment.NewLine);
+            }
+            catch (IOException)
+            {
+                // Logging failure must not crash the campaign service or bypass
+                // process supervision. Liveness remains visible through the API.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 }
 
@@ -370,10 +535,25 @@ public sealed record CampaignSimWorkerSpawnRequest(
     int Reserve = 0,
     string Kind = CampaignWorkerKind.Operational);
 
-public sealed record CampaignSimWorkerRecord(
+internal sealed record CampaignSimWorkerRecord(
     string WorkerId,
     string CampaignId,
     string ClientInstanceId,
+    string SpawnId,
+    string SpawnCredentialSha256,
+    int Pid,
+    DateTimeOffset ProcessStartTimeUtc,
+    string ExecutablePath,
+    int Capacity,
+    int Reserve,
+    DateTimeOffset SpawnedAtUtc,
+    bool Alive);
+
+public sealed record CampaignSimWorkerView(
+    string WorkerId,
+    string CampaignId,
+    string ClientInstanceId,
+    string SpawnId,
     int Pid,
     DateTimeOffset ProcessStartTimeUtc,
     string ExecutablePath,
@@ -409,7 +589,9 @@ internal static class CampaignOperationalWorkerPaths
 
         var baseDirectory = AppContext.BaseDirectory;
         yield return Path.Combine(baseDirectory, "operational-worker", "CrimeanTom.Campaign.OperationalWorker.exe");
+        yield return Path.Combine(baseDirectory, "operational-worker", "CrimeanTom.Campaign.OperationalWorker");
         yield return Path.Combine(baseDirectory, "CrimeanTom.Campaign.OperationalWorker.exe");
+        yield return Path.Combine(baseDirectory, "CrimeanTom.Campaign.OperationalWorker");
         yield return Path.Combine(
             baseDirectory,
             "..",
@@ -420,8 +602,20 @@ internal static class CampaignOperationalWorkerPaths
             baseDirectory,
             "..",
             "CrimeanTom.Campaign.OperationalWorker",
+            "debug",
+            "CrimeanTom.Campaign.OperationalWorker");
+        yield return Path.Combine(
+            baseDirectory,
+            "..",
+            "CrimeanTom.Campaign.OperationalWorker",
             "release",
             "CrimeanTom.Campaign.OperationalWorker.exe");
+        yield return Path.Combine(
+            baseDirectory,
+            "..",
+            "CrimeanTom.Campaign.OperationalWorker",
+            "release",
+            "CrimeanTom.Campaign.OperationalWorker");
 
         var directory = new DirectoryInfo(baseDirectory);
         while (directory is not null)
@@ -438,6 +632,14 @@ internal static class CampaignOperationalWorkerPaths
                         configuration,
                         "net8.0",
                         "CrimeanTom.Campaign.OperationalWorker.exe");
+                    yield return Path.Combine(
+                        directory.FullName,
+                        "src",
+                        "CrimeanTom.Campaign.OperationalWorker",
+                        "bin",
+                        configuration,
+                        "net8.0",
+                        "CrimeanTom.Campaign.OperationalWorker");
                 }
 
                 yield break;
@@ -524,7 +726,7 @@ internal static class NativeProcess
 
 internal sealed class WindowsKillOnCloseJob : IDisposable
 {
-    private readonly nint _handle;
+    private nint _handle;
 
     public WindowsKillOnCloseJob()
     {
@@ -534,6 +736,10 @@ internal sealed class WindowsKillOnCloseJob : IDisposable
         }
 
         _handle = CreateJobObject(nint.Zero, null);
+        if (_handle == nint.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the Operational worker job object.");
+        }
         var info = new JobObjectExtendedLimitInformation
         {
             BasicLimitInformation = new JobObjectBasicLimitInformation
@@ -546,7 +752,19 @@ internal sealed class WindowsKillOnCloseJob : IDisposable
         try
         {
             Marshal.StructureToPtr(info, pointer, false);
-            _ = SetInformationJobObject(_handle, JobObjectExtendedLimitInformationClass, pointer, (uint)length);
+            if (!SetInformationJobObject(
+                _handle,
+                JobObjectExtendedLimitInformationClass,
+                pointer,
+                (uint)length))
+            {
+                var error = Marshal.GetLastWin32Error();
+                CloseHandle(_handle);
+                _handle = nint.Zero;
+                throw new Win32Exception(
+                    error,
+                    "Could not configure kill-on-close for the Operational worker job object.");
+            }
         }
         finally
         {
@@ -561,7 +779,12 @@ internal sealed class WindowsKillOnCloseJob : IDisposable
             return;
         }
 
-        _ = AssignProcessToJobObject(_handle, process.Handle);
+        if (!AssignProcessToJobObject(_handle, process.Handle))
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "Could not assign the Operational worker to the supervisor job object.");
+        }
     }
 
     public void Dispose()
@@ -569,6 +792,7 @@ internal sealed class WindowsKillOnCloseJob : IDisposable
         if (_handle != nint.Zero)
         {
             CloseHandle(_handle);
+            _handle = nint.Zero;
         }
     }
 

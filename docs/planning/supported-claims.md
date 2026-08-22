@@ -24,6 +24,9 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
 - Online backup and side-directory restore verify event/hash integrity.
 - Operator pause rejects campaign time advances until resume. Drain sets
   scheduler health to Draining and eligibility to DrainOnly.
+- Campaign-owned Track A Operational workers can be spawned, authenticated by
+  per-spawn identity, and used for non-player island placement/fencing. Tick
+  execution remains in the service process.
 
 Failover is the cold checkpoint / operational path. Hot Shadow promotion is
 implemented as fenced island migration in tests with a mock destination worker;
@@ -38,6 +41,7 @@ it is not a claimed live two-process Sea Power recovery objective.
   outcomes directly.
 - Authenticated live migration across two real Sea Power containers.
 - PostgreSQL, brokers, or object storage as requirements for ordinary players.
+- Out-of-process Operational tick execution or worker-computed result commits.
 
 ## Remaining qualification
 

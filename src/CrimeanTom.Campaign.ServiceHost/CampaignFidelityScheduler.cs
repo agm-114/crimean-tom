@@ -131,7 +131,7 @@ internal static class CampaignFidelityScheduler
         var tacticalWorkers = campaignWorkers
             .Where(worker => !CampaignWorkerKind.IsOperational(worker.WorkerKind))
             .ToArray();
-        var workerConnected = campaignWorkers.Length > 0;
+        var workerConnected = tacticalWorkers.Length > 0;
         var islands = BuildIslands(state, campaignWorkers).ToArray();
         var campaignOccupiedEntities = state.Assignments.Values
             .Where(item => item.Lifecycle is AssignmentLifecycle.Preparing
@@ -226,7 +226,7 @@ internal static class CampaignFidelityScheduler
                     .CanAdmitPromotion(island.EntityIds.Count));
             var owningWorkers = islandAssignments
                 .Where(item => item.Lifecycle != AssignmentLifecycle.Released
-                    && item.Role == AssignmentRole.Primary)
+                    && item.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary)
                 .Select(item => item.WorkerClientInstanceId)
                 .Where(owner => !string.IsNullOrWhiteSpace(owner))
                 .Distinct(StringComparer.Ordinal)

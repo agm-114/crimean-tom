@@ -271,7 +271,11 @@ public static class CampaignKernel
         {
             CampaignInvariants.RequireText(value.BatchId, nameof(value.BatchId));
         }
-        if (value.BatchSize <= 0 || (string.IsNullOrEmpty(value.BatchId) && value.BatchSize != 1))
+        if (value.BatchSize <= 0
+            || (string.IsNullOrEmpty(value.BatchId) && value.BatchSize != 1)
+            || (!string.IsNullOrEmpty(value.BatchId)
+                && value.BatchSize < 2
+                && !CampaignAssignmentKinds.IsOperationalSimBatch(value.BatchId)))
         {
             throw Violation("invalid-assignment-batch", "Assignment batch size and identity are inconsistent.");
         }
@@ -409,7 +413,8 @@ public static class CampaignKernel
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Active)
                 when assignment.Role == AssignmentRole.Primary => true,
             (AssignmentLifecycle.Prepared, AssignmentLifecycle.Active)
-                when assignment.Role == AssignmentRole.Primary => true,
+                when assignment.Role == AssignmentRole.Primary
+                    && CampaignAssignmentKinds.IsOperationalSim(assignment) => true,
             (AssignmentLifecycle.Active, AssignmentLifecycle.Quiescing) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Released) => true,
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Quiesced) => true,

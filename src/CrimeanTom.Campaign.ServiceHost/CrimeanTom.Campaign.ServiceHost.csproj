@@ -39,6 +39,19 @@
       SkipUnchangedFiles="true" />
   </Target>
 
+  <Target Name="CopyOperationalWorkerToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_OperationalWorkerPublishSource>$(MSBuildThisFileDirectory)..\CrimeanTom.Campaign.OperationalWorker\bin\$(Configuration)\$(TargetFramework)\</_OperationalWorkerPublishSource>
+    </PropertyGroup>
+    <ItemGroup>
+      <_OperationalWorkerPublishFiles Include="$(_OperationalWorkerPublishSource)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_OperationalWorkerPublishFiles)"
+      DestinationFolder="$(PublishDir)operational-worker\%(RecursiveDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- Vite owns this generated tree during development. DotNetWatchContentFiles
        keeps generated chunks out of the watched MSBuild input; Vite also updates
        production assets in place so Roslyn never observes a delete/recreate storm.
