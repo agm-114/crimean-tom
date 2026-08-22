@@ -58,9 +58,9 @@ public static class CampaignCalibration
 
             var ratio = distance > long.MaxValue / 1_000L
                 ? int.MaxValue
-                : (int)Math.Min(int.MaxValue, distance * 1_000L / range);
+                : CeilingRatioMilliunits(distance, range);
             maximumRatio = Math.Max(maximumRatio, ratio);
-            if (ratio > EnvelopeMaximumRangeRatioMilliunits)
+            if (distance > range)
             {
                 violations++;
                 disagreements.Add($"weapon-range-exceeds-catalog:{outcome.OutcomeId}:{ratio}");
@@ -91,5 +91,16 @@ public static class CampaignCalibration
             Math.Max(0, observedFencedIslandCount),
             Math.Max(0, demotedFencedIslandCount),
             disagreements);
+    }
+
+    private static int CeilingRatioMilliunits(long distance, long range)
+    {
+        var scaledDistance = distance * 1_000L;
+        var quotient = Math.DivRem(scaledDistance, range, out var remainder);
+        if (remainder > 0)
+        {
+            quotient++;
+        }
+        return (int)Math.Min(int.MaxValue, quotient);
     }
 }
