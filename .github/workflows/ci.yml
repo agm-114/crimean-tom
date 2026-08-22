@@ -4,17 +4,23 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# One in-flight run for the whole repo. A `gh stack push` would otherwise
+# start a job pair for every stacked PR and burn Actions minutes; the last
+# synchronize wins, which is the stack tip when branches are pushed
+# bottom-to-top.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.repository }}
   cancel-in-progress: true
 
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
   NO_PROXY: "*"
 
 jobs:
@@ -29,6 +35,12 @@ jobs:
         with:
           global-json-file: global.json
           dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.sln', '**/*.slnf') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - uses: pnpm/action-setup@v4
         with:
@@ -51,7 +63,20 @@ jobs:
           dotnet build CrimeanTom.CI.slnf --configuration Release --no-restore --verbosity minimal
 
       - name: Run campaign kernel integration tests
-        run: pnpm test:campaign
+        run: >
+          dotnet test tests/CrimeanTom.Campaign.IntegrationTests/CrimeanTom.Campaign.IntegrationTests.csproj
+          --configuration Release
+          --no-build
+          --logger trx
+          --results-directory "${{ runner.temp }}/test-results"
+
+      - name: Upload campaign test results
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-test-results
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: ignore
 
   protocol:
     name: Protocol integration (Windows)
@@ -64,6 +89,12 @@ jobs:
         with:
           global-json-file: global.json
           dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.sln', '**/*.slnf') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - uses: pnpm/action-setup@v4
         with:
@@ -81,4 +112,16 @@ jobs:
         run: pnpm monitor:build
 
       - name: Run protocol integration tests
-        run: pnpm test:protocol
+        run: >
+          pnpm test:protocol
+          --
+          --logger trx
+          --results-directory "${{ runner.temp }}/test-results"
+
+      - name: Upload protocol test results
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-test-results
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: ignore
