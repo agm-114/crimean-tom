@@ -499,9 +499,13 @@ public sealed class SceneStatePayload
 
 public sealed class WorldSnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 10;
+    public int SchemaVersion { get; set; } = 12;
 
     public string SceneName { get; set; } = string.Empty;
+
+    public string ScenarioId { get; set; } = string.Empty;
+
+    public string ScenarioPath { get; set; } = string.Empty;
 
     public string IdentityScope { get; set; } = "loaded-scene";
 
@@ -512,6 +516,14 @@ public sealed class WorldSnapshotPayload
     public double? TimeCompression { get; set; }
 
     public bool IsPaused { get; set; }
+
+    public float EngineTimeScale { get; set; }
+
+    public float EngineFixedDeltaTime { get; set; }
+
+    public float EngineUnscaledDeltaTime { get; set; }
+
+    public float? MeasuredFramesPerSecond { get; set; }
 
     public int ObservedObjectCount { get; set; }
 
