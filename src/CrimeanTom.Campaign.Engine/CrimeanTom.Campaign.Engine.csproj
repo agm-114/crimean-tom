@@ -12,6 +12,12 @@
   <ItemGroup>
     <ProjectReference Include="..\CrimeanTom.Campaign.Contracts\CrimeanTom.Campaign.Contracts.csproj" />
     <ProjectReference Include="..\CrimeanTom.Campaign.Domain\CrimeanTom.Campaign.Domain.csproj" />
+    <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
+    <ProjectReference Include="..\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepuPhysics" Version="2.4.0" />
   </ItemGroup>
 
 </Project>
