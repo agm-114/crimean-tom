@@ -2659,7 +2659,8 @@ public sealed class CampaignCoordinator(
         var fenced = evaluation.Islands.Count(island => island.UnsafeToSplit || island.Engaged);
         var demoted = evaluation.Islands.Count(island =>
             (island.UnsafeToSplit || island.Engaged)
-            && island.DesiredFidelity != FidelityState.Tactical
+            && island.EntityIds.Any(entityId =>
+                state.Entities[entityId].Fidelity != FidelityState.Tactical)
             && state.Assignments.Values.Any(assignment =>
                 island.EntityIds.Contains(assignment.EntityId)
                 && assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
