@@ -56,8 +56,8 @@ companion instead of desktop screenshots:
 - `POST /game/automation/hud` with `{ "panel": "map"|"formation"|"hud"|"pause-resume" }`
   toggles those typed HUD surfaces.
 
-These tools are local-control only. Camera and HUD actions are inventoried seams
-and will pin method fingerprints on the next live build.
+These tools are local-control only. Camera and HUD actions are pinned to verified
+method fingerprints and fail closed when a game update changes those seams.
 
 ## Tactical screen
 
