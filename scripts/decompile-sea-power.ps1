@@ -50,7 +50,13 @@ function Invoke-Decompile([string]$AssemblyPath, [string]$DestinationRoot, [stri
     [System.IO.Directory]::CreateDirectory($destination) | Out-Null
 
     Write-Host "Decompiling $([System.IO.Path]::GetFileName($AssemblyPath)) -> $destination"
-    & ilspycmd $AssemblyPath --project --outputdir $destination --referencepath $ReferencePath --disable-updatecheck
+    $timeoutWrapper = Join-Path $repoRoot 'scripts\invoke-with-timeout.ps1'
+    & $timeoutWrapper -TimeoutSeconds 600 -Command (
+        "ilspycmd `"$AssemblyPath`" --project --outputdir `"$destination`" --referencepath `"$ReferencePath`" --disable-updatecheck"
+    )
+    if ($LASTEXITCODE -eq 124) {
+        throw "ilspycmd timed out for $AssemblyPath after 600s."
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "ilspycmd failed for $AssemblyPath with exit code $LASTEXITCODE."
     }
