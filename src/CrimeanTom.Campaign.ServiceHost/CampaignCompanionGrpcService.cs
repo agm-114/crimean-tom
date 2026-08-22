@@ -101,12 +101,19 @@ public sealed class CampaignCompanionGrpcService(
         }
         finally
         {
-            sessions.Close(session);
-            logger.LogInformation(
-                "Campaign companion session {SessionId} for client {ClientId} closed at cursor {Cursor}.",
-                session.SessionId,
-                hello.ClientInstanceId,
-                session.Snapshot().LastAppliedCommitPosition);
+            try
+            {
+                await inboundSpool.AbandonSessionAsync(session);
+            }
+            finally
+            {
+                sessions.Close(session);
+                logger.LogInformation(
+                    "Campaign companion session {SessionId} for client {ClientId} closed at cursor {Cursor}.",
+                    session.SessionId,
+                    hello.ClientInstanceId,
+                    session.Snapshot().LastAppliedCommitPosition);
+            }
         }
     }
 
@@ -128,8 +135,12 @@ public sealed class CampaignCompanionGrpcService(
                 previousSequence = frame.Sequence;
                 if (frame.PayloadCase != CompanionFrame.PayloadOneofCase.Heartbeat)
                 {
-                    await inboundSpool.AcceptAsync(session, frame, cancellationToken);
-                    await coordinator.ProcessCompanionFrameAsync(session.Hello, frame, cancellationToken);
+                    var receipt = await inboundSpool.AcceptAsync(session, frame, cancellationToken);
+                    if (!receipt.AlreadyProcessed)
+                    {
+                        await coordinator.ProcessCompanionFrameAsync(session.Hello, frame, cancellationToken);
+                    }
+                    await inboundSpool.CompleteAsync(receipt, cancellationToken);
                 }
                 session.Observe(frame);
                 if (!session.TryQueue(new ServiceFrame

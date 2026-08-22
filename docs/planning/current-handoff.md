@@ -578,8 +578,13 @@ with per-process Steam app context, two named workers are live on the main host:
 `C:\Users\Varun\repos\crimean-tom\.run\workers` returned
 `LIVE_PROOF_SUCCEEDED`. **Two real runtime+companion workers coexist** with
 distinct campaign sessions on this host. **Cross-worker tactical-island
-migration remains unproven** — do not claim two-container migration until that
-authenticated migrate path is exercised live across these workers.
+migration remains unproven** — do not claim two-container migration until
+`pnpm worker:live-migrate -Execute` (or `pnpm worker:migration-proof -Execute`)
+succeeds with destination Primary Active and source Primary Released. The
+22 August driver keeps preflight read-only, pins `prepare-source` only under
+`-Execute`, and can bootstrap a fresh journal as a separate setup action; it
+does not change the claim. See
+`docs/evidence/phase-5-live-migrate-driver-2026-08-22.md`.
 
 Reserve-aware load shedding is now implemented around actual runtime resource
 counts: active, suspended-retained, recovery-required and total materialized
