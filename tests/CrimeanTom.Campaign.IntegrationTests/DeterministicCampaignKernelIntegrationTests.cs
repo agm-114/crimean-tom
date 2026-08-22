@@ -111,7 +111,10 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(15, simulated.ScheduledActivities.Count);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Launch);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
+        Assert.Contains(simulated.RecentOperationalOutcomes, item =>
+            item.Kind is OperationalOutcomeKind.Damage
+                or OperationalOutcomeKind.PointDefense
+                or OperationalOutcomeKind.SeekerLost);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
         Assert.Contains(simulated.RecentOperationalOutcomes, item =>
             item.Kind == OperationalOutcomeKind.WeaponExpenditure
@@ -157,9 +160,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("46a26a045409061bfa01f6c0afe79bf54de3dc8dc7f6a0a4ef057dc602c67b46", longHorizon.Hash);
+        Assert.Equal("6399119d32116608ad4b7093e7c6a698b2f41fb3c0f3253d89d25e097576aed6", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("87c472ca97846175f68eb3313d11b3983d0686579d376c35b89c035c5169f14f", migrated.Hash);
+        Assert.Equal("e6cefa4933feff5cc308c7b6dd1ba2733d30d9cf8b55529a6ea4c75634836a5e", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -489,6 +492,45 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var polarCoordinate = polarMoved.Entities[Ids.BlueOiler].Coordinate;
         Assert.InRange(polarCoordinate.LatitudeMicrodegrees, -90_000_000, 90_000_000);
         Assert.InRange(polarCoordinate.LongitudeMicrodegrees, -180_000_000, 179_999_999);
+
+        var tacticalRound = new InFlightOrdnance(
+            "tactical-fence-round",
+            Ids.RedKrivak,
+            Ids.BlueKnox,
+            Ids.RedCoalition,
+            "synthetic-catalog-anti-surface-missile",
+            ContactClassification.Surface,
+            state.Entities[Ids.RedKrivak].Coordinate,
+            0,
+            OrdnanceFlightStage.Cruise,
+            OrdnanceGuidance.Active,
+            50_000,
+            100_000,
+            0,
+            state.Time);
+        var tacticallyOwned = state with
+        {
+            Assignments = state.Assignments.SetItem(Ids.Assignment,
+                state.Assignments[Ids.Assignment] with { Lifecycle = AssignmentLifecycle.Active }),
+            InFlight = [tacticalRound],
+        };
+        CampaignStateValidator.Validate(tacticallyOwned);
+        var roundTrip = CampaignCanonicalSerializer.Deserialize(
+            CampaignCanonicalSerializer.Serialize(tacticallyOwned));
+        Assert.Equal(tacticalRound, Assert.Single(roundTrip.InFlight));
+        var tacticalDamage = tacticallyOwned.Entities[Ids.BlueKnox].DamageMilliUnits;
+        var fencedRound = SimulateForTest(tacticallyOwned, 102, new CampaignTime(20));
+        Assert.Empty(fencedRound.InFlight);
+        Assert.Equal(tacticalDamage, fencedRound.Entities[Ids.BlueKnox].DamageMilliUnits);
+        Assert.Contains(fencedRound.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.SeekerLost
+            && item.TargetEntityId == Ids.BlueKnox);
+
+        var spoofedRound = tacticallyOwned with
+        {
+            InFlight = [tacticalRound with { ShooterCoalitionId = Ids.BlueCoalition }],
+        };
+        Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(spoofedRound));
     }
 
     private static CampaignState SimulateForTest(CampaignState state, int sequence, CampaignTime target)
