@@ -259,6 +259,7 @@ public sealed class CampaignCompanionClient(
             while (!heartbeatToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
+                CompanionHeartbeat heartbeat;
                 try
                 {
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
@@ -269,46 +270,34 @@ public sealed class CampaignCompanionClient(
                         resources,
                         options.TacticalEntityCapacity,
                         options.TacticalReserveCapacity);
-                    await writeGate.WaitAsync(heartbeatToken);
-                    try
+                    heartbeat = new CompanionHeartbeat
                     {
-                        await call.RequestStream.WriteAsync(new CompanionFrame
+                        ObservedCommitPosition = stateStore.ReadCursor(),
+                        SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        GameSessionId = CurrentGameSessionId(),
+                        RuntimeFingerprintSha256 = current.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
+                        CatalogFingerprintSha256 = current.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
+                        PlayerTaskforceId = current.PlayerTaskforceId,
+                        MaterializationProfiles =
                         {
-                            Sequence = ++nextSequence,
-                            Heartbeat = new CompanionHeartbeat
-                            {
-                                ObservedCommitPosition = stateStore.ReadCursor(),
-                                SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                                GameSessionId = CurrentGameSessionId(),
-                                RuntimeFingerprintSha256 = current.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
-                                CatalogFingerprintSha256 = current.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
-                                PlayerTaskforceId = current.PlayerTaskforceId,
-                                MaterializationProfiles =
+                            current.OwnedSurfaceMaterializationProfiles.Select(profile =>
+                                new TacticalMaterializationProfile
                                 {
-                                    current.OwnedSurfaceMaterializationProfiles.Select(profile =>
-                                        new TacticalMaterializationProfile
-                                        {
-                                            UnitTypeId = profile.UnitTypeId,
-                                            VariantId = profile.VariantId,
-                                            LoadoutId = profile.LoadoutId,
-                                        }),
-                                },
-                                CouplingRelationships = { couplingRelationships },
-                                OwnedMaterializedEntityCount = resources.RetainedConstructedObjectCount,
-                                OwnedActiveEntityCount = resources.ActiveObjectCount,
-                                OwnedRetainedSuspendedEntityCount = resources.SuspendedRetainedObjectCount,
-                                OwnedRecoveryRequiredEntityCount = resources.RecoveryRequiredCount,
-                                TacticalEntityCapacity = options.TacticalEntityCapacity,
-                                TacticalReserveCapacity = options.TacticalReserveCapacity,
-                                Health = workerHealth.Health,
-                                Eligibility = workerHealth.Eligibility,
-                            },
-                        });
-                    }
-                    finally
-                    {
-                        writeGate.Release();
-                    }
+                                    UnitTypeId = profile.UnitTypeId,
+                                    VariantId = profile.VariantId,
+                                    LoadoutId = profile.LoadoutId,
+                                }),
+                        },
+                        CouplingRelationships = { couplingRelationships },
+                        OwnedMaterializedEntityCount = resources.RetainedConstructedObjectCount,
+                        OwnedActiveEntityCount = resources.ActiveObjectCount,
+                        OwnedRetainedSuspendedEntityCount = resources.SuspendedRetainedObjectCount,
+                        OwnedRecoveryRequiredEntityCount = resources.RecoveryRequiredCount,
+                        TacticalEntityCapacity = options.TacticalEntityCapacity,
+                        TacticalReserveCapacity = options.TacticalReserveCapacity,
+                        Health = workerHealth.Health,
+                        Eligibility = workerHealth.Eligibility,
+                    };
                 }
                 catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
                 {
@@ -316,37 +305,29 @@ public sealed class CampaignCompanionClient(
                 }
                 catch (Exception exception)
                 {
-                    logger.LogDebug(exception, "Campaign heartbeat capability refresh was skipped.");
-                    try
+                    logger.LogDebug(exception, "Campaign heartbeat capability refresh failed; advertising the worker as offline.");
+                    heartbeat = new CompanionHeartbeat
                     {
-                        await writeGate.WaitAsync(heartbeatToken);
-                        try
-                        {
-                            await call.RequestStream.WriteAsync(new CompanionFrame
-                            {
-                                Sequence = ++nextSequence,
-                                Heartbeat = new CompanionHeartbeat
-                                {
-                                    ObservedCommitPosition = stateStore.ReadCursor(),
-                                    SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                                    GameSessionId = CurrentGameSessionId(),
-                                    Health = "Offline",
-                                    Eligibility = "Disabled",
-                                },
-                            });
-                        }
-                        finally
-                        {
-                            writeGate.Release();
-                        }
-                    }
-                    catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
+                        ObservedCommitPosition = stateStore.ReadCursor(),
+                        SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        GameSessionId = CurrentGameSessionId(),
+                        Health = "Offline",
+                        Eligibility = "Disabled",
+                    };
+                }
+
+                await writeGate.WaitAsync(heartbeatToken);
+                try
+                {
+                    await call.RequestStream.WriteAsync(new CompanionFrame
                     {
-                        break;
-                    }
-                    catch
-                    {
-                    }
+                        Sequence = ++nextSequence,
+                        Heartbeat = heartbeat,
+                    });
+                }
+                finally
+                {
+                    writeGate.Release();
                 }
             }
         }
