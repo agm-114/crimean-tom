@@ -520,12 +520,14 @@ internal static class GameCommandDispatcher
     {
         const double metersPerUnityUnit = 67.2;
         const double terrainChunkSizeUnity = 330.71396;
+        var origin = Utils.worldPositionFromUnityToLongLat(Vector3.zero, Globals._currentCenterTile);
         var candidates = objects
             .Where(candidate => candidate is not null)
             .Select(candidate => new
             {
                 Object = candidate,
                 Position = candidate.transform.position,
+                Geo = candidate._geoPosition,
                 Id = candidate is WeaponBase
                     ? $"weapon:{candidate.UniqueID}"
                     : candidate.isUnit()
@@ -534,9 +536,19 @@ internal static class GameCommandDispatcher
             })
             .ToArray();
         var rebaseThreshold = Math.Max(0d, Finite(Globals._rebaseToOrigin) ?? 0d);
+        var terrainManager = Singleton<TerrainManager>.InstanceExists()
+            ? Singleton<TerrainManager>.Instance
+            : null;
+        var loadedTiles = terrainManager?.TerrainChunkDictionary;
         var maximumDistance = 0d;
         var maximumDistanceObjectId = string.Empty;
+        var maximumGeodeticDistance = 0d;
+        var maximumGeodeticDistanceObjectId = string.Empty;
         var beyondThreshold = 0;
+        var beyondLoadedTerrain = 0;
+        var unitsBeyondLoadedTerrain = 0;
+        var activeWeaponCount = 0;
+        var activeWeaponsBeyondLoadedTerrain = 0;
         foreach (var candidate in candidates)
         {
             var distance = Math.Sqrt(
@@ -547,13 +559,46 @@ internal static class GameCommandDispatcher
                 maximumDistance = distance;
                 maximumDistanceObjectId = candidate.Id;
             }
+            var geodetic = GeodeticMeters(
+                origin._latitude,
+                origin._longitude,
+                candidate.Geo._latitude,
+                candidate.Geo._longitude);
+            if (geodetic > maximumGeodeticDistance)
+            {
+                maximumGeodeticDistance = geodetic;
+                maximumGeodeticDistanceObjectId = candidate.Id;
+            }
             if (rebaseThreshold > 0d && distance > rebaseThreshold)
             {
                 beyondThreshold++;
             }
+
+            var terrainLoaded = loadedTiles is not null
+                && loadedTiles.ContainsKey(Utils.longLatToTile(candidate.Geo));
+            var launchedWeapon = candidate.Object is WeaponBase weapon
+                && weapon.isLaunched()
+                && !weapon.IsDestroyed;
+            if (launchedWeapon)
+            {
+                activeWeaponCount++;
+            }
+            if (loadedTiles is not null && !terrainLoaded)
+            {
+                beyondLoadedTerrain++;
+                if (candidate.Object.isUnit())
+                {
+                    unitsBeyondLoadedTerrain++;
+                }
+                if (launchedWeapon)
+                {
+                    activeWeaponsBeyondLoadedTerrain++;
+                }
+            }
         }
 
         var maximumPairDistance = 0d;
+        var maximumPairGeodetic = 0d;
         var maximumPairFirstObjectId = string.Empty;
         var maximumPairSecondObjectId = string.Empty;
         for (var firstIndex = 0; firstIndex < candidates.Length; firstIndex++)
@@ -563,6 +608,15 @@ internal static class GameCommandDispatcher
                 var deltaX = candidates[firstIndex].Position.x - candidates[secondIndex].Position.x;
                 var deltaZ = candidates[firstIndex].Position.z - candidates[secondIndex].Position.z;
                 var distance = Math.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+                var geodetic = GeodeticMeters(
+                    candidates[firstIndex].Geo._latitude,
+                    candidates[firstIndex].Geo._longitude,
+                    candidates[secondIndex].Geo._latitude,
+                    candidates[secondIndex].Geo._longitude);
+                if (geodetic > maximumPairGeodetic)
+                {
+                    maximumPairGeodetic = geodetic;
+                }
                 if (distance <= maximumPairDistance)
                 {
                     continue;
@@ -579,10 +633,8 @@ internal static class GameCommandDispatcher
         var cameraDistance = Math.Sqrt(
             cameraPosition.x * cameraPosition.x
             + cameraPosition.z * cameraPosition.z);
-        var terrainManager = Singleton<TerrainManager>.InstanceExists()
-            ? Singleton<TerrainManager>.Instance
-            : null;
-        var maximumLoadedTerrainTileOffset = terrainManager?.TerrainChunkDictionary.Keys
+        var cameraGeo = Utils.worldPositionFromUnityToLongLat(cameraPosition, Globals._currentCenterTile);
+        var maximumLoadedTerrainTileOffset = loadedTiles?.Keys
             .Select(tile => Math.Sqrt(
                 Math.Pow(tile.x - Globals._currentCenterTile.x, 2d)
                 + Math.Pow(tile.y - Globals._currentCenterTile.y, 2d)))
@@ -596,31 +648,59 @@ internal static class GameCommandDispatcher
             MetersPerUnityUnit = metersPerUnityUnit,
             CenterTileX = Globals._currentCenterTile.x,
             CenterTileY = Globals._currentCenterTile.y,
+            OriginLatitude = origin._latitude,
+            OriginLongitude = origin._longitude,
             RebaseThresholdUnity = rebaseThreshold,
             RebaseThresholdMeters = rebaseThreshold * metersPerUnityUnit,
             CameraHorizontalDistanceUnity = cameraDistance,
             CameraHorizontalDistanceMeters = cameraDistance * metersPerUnityUnit,
+            CameraLatitude = cameraGeo._latitude,
+            CameraLongitude = cameraGeo._longitude,
             ObjectCountBeyondRebaseThreshold = beyondThreshold,
             MaximumObjectHorizontalDistanceUnity = maximumDistance,
             MaximumObjectHorizontalDistanceMeters = maximumDistance * metersPerUnityUnit,
+            MaximumObjectGeodeticDistanceMeters = maximumGeodeticDistance,
             MaximumDistanceObjectId = maximumDistanceObjectId,
+            MaximumGeodeticDistanceObjectId = maximumGeodeticDistanceObjectId,
             MaximumPairHorizontalSeparationUnity = maximumPairDistance,
             MaximumPairHorizontalSeparationMeters = maximumPairDistance * metersPerUnityUnit,
+            MaximumPairGeodeticSeparationMeters = maximumPairGeodetic,
             MaximumPairFirstObjectId = maximumPairFirstObjectId,
             MaximumPairSecondObjectId = maximumPairSecondObjectId,
             TerrainChunkSizeUnity = terrainChunkSizeUnity,
             TerrainChunkSizeMeters = terrainChunkSizeUnity * metersPerUnityUnit,
             ConfiguredTerrainChunkViewDistance = Globals._terrainChunksViewDistance,
-            LoadedTerrainChunkCount = terrainManager?.TerrainChunkDictionary.Count ?? 0,
+            LoadedTerrainChunkCount = loadedTiles?.Count ?? 0,
             FinalizedTerrainChunkCount = terrainManager?.TerrainChunkDictionary.Values.Count(
                 chunk => chunk is not null && chunk._isFinalized) ?? 0,
             MaximumLoadedTerrainTileOffset = maximumLoadedTerrainTileOffset,
             MaximumLoadedTerrainCenterDistanceMeters =
                 maximumLoadedTerrainTileOffset * terrainChunkSizeUnity * metersPerUnityUnit,
+            ObjectCountBeyondLoadedTerrain = beyondLoadedTerrain,
+            UnitCountBeyondLoadedTerrain = unitsBeyondLoadedTerrain,
+            ActiveWeaponCount = activeWeaponCount,
+            ActiveWeaponCountBeyondLoadedTerrain = activeWeaponsBeyondLoadedTerrain,
             InitialTerrainLoadingDone = terrainManager?.IsInitialLoadingDone ?? false,
             RelocationHandlerAvailable = relocationHandler is not null,
             LastRelocationEventTimeMilliseconds = relocationHandler?.LastRelocationEventTime ?? 0L,
         };
+    }
+
+    private static double GeodeticMeters(
+        double latitudeDegrees,
+        double longitudeDegrees,
+        double otherLatitudeDegrees,
+        double otherLongitudeDegrees)
+    {
+        const double earthRadiusMeters = 6_371_000d;
+        var latitude = latitudeDegrees * Math.PI / 180d;
+        var otherLatitude = otherLatitudeDegrees * Math.PI / 180d;
+        var deltaLatitude = (otherLatitudeDegrees - latitudeDegrees) * Math.PI / 180d;
+        var deltaLongitude = (otherLongitudeDegrees - longitudeDegrees) * Math.PI / 180d;
+        var chord = Math.Sin(deltaLatitude / 2d) * Math.Sin(deltaLatitude / 2d)
+            + Math.Cos(latitude) * Math.Cos(otherLatitude)
+            * Math.Sin(deltaLongitude / 2d) * Math.Sin(deltaLongitude / 2d);
+        return 2d * earthRadiusMeters * Math.Atan2(Math.Sqrt(chord), Math.Sqrt(1d - chord));
     }
 
     private static void PopulateWorldSubsystemHashes(WorldSnapshotPayload snapshot)

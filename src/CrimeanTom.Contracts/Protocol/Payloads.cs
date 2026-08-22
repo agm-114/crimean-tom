@@ -624,20 +624,27 @@ public sealed class ControlledTickExperimentPayload
 
 public sealed class SpatialDiagnosticsPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public double MetersPerUnityUnit { get; set; } = 67.2;
     public double CenterTileX { get; set; }
     public double CenterTileY { get; set; }
+    public double OriginLatitude { get; set; }
+    public double OriginLongitude { get; set; }
     public double RebaseThresholdUnity { get; set; }
     public double RebaseThresholdMeters { get; set; }
     public double CameraHorizontalDistanceUnity { get; set; }
     public double CameraHorizontalDistanceMeters { get; set; }
+    public double CameraLatitude { get; set; }
+    public double CameraLongitude { get; set; }
     public int ObjectCountBeyondRebaseThreshold { get; set; }
     public double MaximumObjectHorizontalDistanceUnity { get; set; }
     public double MaximumObjectHorizontalDistanceMeters { get; set; }
+    public double MaximumObjectGeodeticDistanceMeters { get; set; }
     public string MaximumDistanceObjectId { get; set; } = string.Empty;
+    public string MaximumGeodeticDistanceObjectId { get; set; } = string.Empty;
     public double MaximumPairHorizontalSeparationUnity { get; set; }
     public double MaximumPairHorizontalSeparationMeters { get; set; }
+    public double MaximumPairGeodeticSeparationMeters { get; set; }
     public string MaximumPairFirstObjectId { get; set; } = string.Empty;
     public string MaximumPairSecondObjectId { get; set; } = string.Empty;
     public double TerrainChunkSizeUnity { get; set; } = 330.71396;
@@ -647,6 +654,10 @@ public sealed class SpatialDiagnosticsPayload
     public int FinalizedTerrainChunkCount { get; set; }
     public double MaximumLoadedTerrainTileOffset { get; set; }
     public double MaximumLoadedTerrainCenterDistanceMeters { get; set; }
+    public int ObjectCountBeyondLoadedTerrain { get; set; }
+    public int UnitCountBeyondLoadedTerrain { get; set; }
+    public int ActiveWeaponCount { get; set; }
+    public int ActiveWeaponCountBeyondLoadedTerrain { get; set; }
     public bool InitialTerrainLoadingDone { get; set; }
     public bool RelocationHandlerAvailable { get; set; }
     public long LastRelocationEventTimeMilliseconds { get; set; }
