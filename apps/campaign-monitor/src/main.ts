@@ -87,12 +87,19 @@ type Calibration = {
   maximumRangeRatioMilliunits: number; envelopeMaximumRangeRatioMilliunits: number;
   observedFencedIslandCount: number; demotedFencedIslandCount: number; disagreements: string[];
 };
+type ReplicaEntity = {
+  entityId: string; diagnosis: string; sampleCount: number; distinctCheckpointSha256: string[];
+};
+type ReplicaConvergence = {
+  schemaVersion: number; majorityRule: string; entities: ReplicaEntity[];
+};
 type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
   assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
   performance: Performance; workers: Worker[];
   calibration: Calibration;
+  replicaConvergence: ReplicaConvergence;
 };
 type CampaignSummary = {
   campaignId: string; name: string; commitPosition: number; catalogFingerprint: string;
@@ -577,7 +584,11 @@ function renderPanels(data: Campaign): void {
   const calibrationLabel = data.calibration?.inEnvelope
     ? "IN-ENVELOPE"
     : `DISAGREE/${data.calibration?.disagreements.length ?? 0}`;
-  const performanceStatus = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M // CAL ${calibrationLabel}`;
+  const replicaEntities = data.replicaConvergence?.entities ?? [];
+  const replicaDiverged = replicaEntities.filter(item => item.diagnosis === "unsafe-divergence").length;
+  const replicaMatched = replicaEntities.filter(item => item.diagnosis === "exact-match").length;
+  const replicaLabel = replicaDiverged ? `UNSAFE/${replicaDiverged}` : `MATCH/${replicaMatched}`;
+  const performanceStatus = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M // CAL ${calibrationLabel} // REPLICA ${replicaLabel}`;
   byId("performance-status").textContent = performanceStatus;
   byId("performance-status").title = data.calibration?.inEnvelope
     ? performanceStatus
