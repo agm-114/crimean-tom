@@ -2,11 +2,14 @@
 
 ## Repository state
 
-This handoff records the state through 21 August 2026. Phases 0 through 4 are
-complete and Phase 5 is active. Durable campaign authority, unattended simulation,
-and the first canonical tactical handoff loop now run
-outside Unity. The
-game-independent kernel can now validate typed commands, produce and apply
+This handoff records the state through 22 August 2026. Phases 0 through 9 have
+stacked implementation. Phases 0-4 have live Sea Power evidence. Phases 5-9 are
+covered by the broad kernel and protocol integration stories plus
+[supported claims](supported-claims.md). Hot-shadow failover, untrusted public
+play, and authenticated two-container live Sea Power migration remain
+unsupported.
+
+The game-independent kernel can now validate typed commands, produce and apply
 ordered events, and hash immutable canonical state. Its SQLite WAL journal now
 requires a live compare-and-swap writer epoch, commits command/event/revision/head
 changes transactionally, enforces idempotency, and replays from origin. The first
