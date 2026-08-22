@@ -267,8 +267,8 @@ app.MapPost("/control/campaigns/{campaignId}/player-commands", async (
     try
     {
         var session = playerSessions.Require(request.SessionId, campaignId, request.CoalitionId);
-        var view = await coordinator.ViewAsync(new CampaignId(parsed), cancellationToken);
-        return Results.Ok(commands.Submit(campaignId, view.TimeQuanta, session, request));
+        var timeQuanta = await coordinator.ReadTimeQuantaAsync(new CampaignId(parsed), cancellationToken);
+        return Results.Ok(commands.Submit(campaignId, timeQuanta, session, request));
     }
     catch (CampaignStoreConflict exception)
     {

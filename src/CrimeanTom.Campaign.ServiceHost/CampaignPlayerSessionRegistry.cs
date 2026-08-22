@@ -17,6 +17,15 @@ internal sealed class CampaignPlayerSessionRegistry
         RequireToken(playerId, "playerId");
         RequireToken(coalitionId, "coalitionId");
         EnforceIssueRate(playerId);
+        foreach (var prior in _bySession.Values
+            .Where(item => string.Equals(item.CampaignId, campaignId, StringComparison.Ordinal)
+                && string.Equals(item.PlayerId, playerId, StringComparison.Ordinal))
+            .ToArray())
+        {
+            _bySession.TryRemove(prior.SessionId, out _);
+            _byReconnectToken.TryRemove(prior.ReconnectToken, out _);
+        }
+
         var session = new PlayerSession(
             Guid.NewGuid().ToString("N"),
             campaignId,
