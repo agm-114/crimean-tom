@@ -2020,6 +2020,9 @@ public sealed class CampaignCoordinator(
         {
             var campaignId = state.Metadata.CampaignId;
             RequireLiveDestinationWorker(campaignId.ToString(), plan.DestinationClientInstanceId);
+            _replicaHashes.ThrowIfUnsafeDivergence(
+                state,
+                plan.Members.Select(item => item.Source.EntityId));
             var batchId = plan.Members[0].Destination.BatchId;
             if (string.IsNullOrEmpty(batchId))
             {

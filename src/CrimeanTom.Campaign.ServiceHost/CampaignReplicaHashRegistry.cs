@@ -23,7 +23,13 @@ internal sealed class CampaignReplicaHashRegistry
     {
         if (assignment.Role is AssignmentRole.RenderProxy
             || assignment.Lifecycle == AssignmentLifecycle.Released
-            || !IsHexSha256(checkpointSha256))
+            || string.IsNullOrWhiteSpace(checkpointSha256))
+        {
+            return;
+        }
+
+        var normalized = checkpointSha256.Trim().ToLowerInvariant();
+        if (!IsHexSha256(normalized))
         {
             return;
         }
@@ -34,7 +40,7 @@ internal sealed class CampaignReplicaHashRegistry
             assignment.AssignmentId,
             assignment.Role.ToString(),
             assignment.WorkerClientInstanceId,
-            checkpointSha256,
+            normalized,
             assignment.AuthorityEpoch.Value,
             entityRevision);
     }

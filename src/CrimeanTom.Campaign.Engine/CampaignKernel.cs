@@ -485,6 +485,7 @@ public static class CampaignKernel
                 || assignment.AuthorityEpoch != member.AuthorityEpoch
                 || assignment.Revision != member.ExpectedAssignmentRevision
                 || assignment.Lifecycle != AssignmentLifecycle.Prepared
+                || assignment.Role != AssignmentRole.Primary
                 || !string.Equals(assignment.BatchId, value.BatchId, StringComparison.Ordinal)
                 || entity.Revision != member.ExpectedEntityRevision
                 || entity.MaximumFidelity != FidelityState.Tactical
