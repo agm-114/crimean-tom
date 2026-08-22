@@ -100,6 +100,17 @@ public sealed class CompanionControlIntegrationTests
                 Assert.Contains("Crimean Tom Campaign Monitor", monitorHtml, StringComparison.Ordinal);
                 using var protectedHealth = await anonymousCampaignClient.GetAsync("/health", testTimeout.Token);
                 Assert.Equal(HttpStatusCode.OK, protectedHealth.StatusCode);
+                using var monitorWrite = await anonymousCampaignClient.PostAsJsonAsync(
+                    "/control/campaigns",
+                    new
+                    {
+                        campaignId = Guid.NewGuid().ToString("N"),
+                        name = "Monitor cookie must be read-only",
+                        seed = 1,
+                        catalogFingerprint = "must-not-commit",
+                    },
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, monitorWrite.StatusCode);
             }
             using var campaignClient = CreateBearerClient(campaignHttpUrl, campaignToken);
             using var durabilityPolicyResponse = await campaignClient.GetAsync(
@@ -146,7 +157,7 @@ public sealed class CompanionControlIntegrationTests
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
             Assert.Equal(
-                "fail-closed-on-runtime-or-catalog-fingerprint-mismatch",
+                "assignment-preparation-and-activation-fail-closed-on-pinned-fingerprint-mismatch",
                 supportedClaims.RootElement.GetProperty("compatibilityPolicy").GetString());
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),

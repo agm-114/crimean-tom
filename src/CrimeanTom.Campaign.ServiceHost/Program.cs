@@ -119,9 +119,8 @@ app.Use(async (context, next) =>
     const string prefix = "Bearer ";
     var bearerAuthenticated = supplied.StartsWith(prefix, StringComparison.Ordinal)
         && token.IsMatch(supplied[prefix.Length..]);
-    var monitorAuthenticated = context.Request.Cookies.TryGetValue(
-        CampaignMonitorSession.CookieName,
-        out var monitorCookie)
+    var monitorAuthenticated = (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+        && context.Request.Cookies.TryGetValue(CampaignMonitorSession.CookieName, out var monitorCookie)
         && monitorSession.IsMatch(monitorCookie);
     if (!bearerAuthenticated && !monitorAuthenticated)
     {
