@@ -243,6 +243,12 @@ internal static class GameCommandDispatcher
                 SimulationTimeSeconds = Finite(GameTime.time),
                 TimeCompression = Finite(GameTime.TimeCompression),
                 IsPaused = GameTime.IsPaused(),
+                EngineTimeScale = Time.timeScale,
+                EngineFixedDeltaTime = Time.fixedDeltaTime,
+                EngineUnscaledDeltaTime = Time.unscaledDeltaTime,
+                MeasuredFramesPerSecond = Time.unscaledDeltaTime > 0f
+                    ? 1f / Time.unscaledDeltaTime
+                    : null,
                 StableIdentityState = "ready",
                 SpatialDiagnostics = CaptureSpatialDiagnostics([]),
                 ControlledTickExperiment = RuntimeControlledTickAdapter.Capture(),
@@ -291,6 +297,12 @@ internal static class GameCommandDispatcher
             SimulationTimeSeconds = Finite(GameTime.time),
             TimeCompression = Finite(GameTime.TimeCompression),
             IsPaused = GameTime.IsPaused(),
+            EngineTimeScale = Time.timeScale,
+            EngineFixedDeltaTime = Time.fixedDeltaTime,
+            EngineUnscaledDeltaTime = Time.unscaledDeltaTime,
+            MeasuredFramesPerSecond = Time.unscaledDeltaTime > 0f
+                ? 1f / Time.unscaledDeltaTime
+                : null,
             ObservedObjectCount = allObjects.Count,
             StableIdentityState = duplicateStableIds.Length == 0
                 ? "ready"
