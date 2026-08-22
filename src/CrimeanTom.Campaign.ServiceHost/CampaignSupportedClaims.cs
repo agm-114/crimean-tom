@@ -23,6 +23,7 @@ public static class CampaignSupportedClaims
             "online-backup-restore-with-integrity-hashes",
             "operator-pause-and-drain",
             "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
+            "unattended-kernel-simulation-without-sea-power-or-client",
         ],
         Unsupported:
         [
@@ -33,6 +34,7 @@ public static class CampaignSupportedClaims
             "hostile-client-adjudication",
             "postgresql-or-external-object-storage-requirement",
             "out-of-process-operational-tick-execution",
+            "sea-power-physics-or-headless-unity-in-kernel",
         ]);
 }
 

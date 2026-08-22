@@ -321,8 +321,18 @@ campaign continues:
    detection, weather, and scheduled operations without a game client.
 2. **Operational** — a deterministic resolver advances unattended combat at a
    richer level but still without Unity.
-3. **Tactical** — one or more Sea Power clients simulate the same unit or
-   tightly interacting group at full Sea Power fidelity.
+3. **Tactical** — a live Sea Power client simulates the same unit at full Sea
+   Power fidelity. The kernel does **not** freeze a unit merely because it is
+   labelled Tactical or has a preparing assignment. Only an **Active** or
+   **Quiescing** Sea Power assignment takes the unit out of the in-process
+   analogue. Without a connected game process, the service keeps simulating
+   every non-suspended unit.
+
+The campaign host also runs an unattended ticker (`CRIMEAN_TOM_UNATTENDED_SIMULATION`,
+default on). It advances every non-empty, non-paused campaign on a wall clock
+without an HTTP client or Sea Power window. Integration tests disable the ticker
+so they can drive `advance` themselves. This analogue is not PhysX, per-sensor
+arcs, or in-flight Unity `WeaponBase` objects.
 
 A **Render proxy** is a replica role, not a fourth canonical fidelity level. It
 materializes only authorized presentation state and cannot adjudicate outcomes
