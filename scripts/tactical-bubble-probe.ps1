@@ -46,27 +46,65 @@ function Select-BubbleFields($Snapshot) {
         canonicalSha256 = $Snapshot.canonicalSha256
         observedObjectCount = $Snapshot.observedObjectCount
         spatialSchemaVersion = $spatial.schemaVersion
+        originLatitude = $spatial.originLatitude
+        originLongitude = $spatial.originLongitude
         rebaseThresholdMeters = $spatial.rebaseThresholdMeters
         cameraHorizontalDistanceMeters = $spatial.cameraHorizontalDistanceMeters
+        cameraLatitude = $spatial.cameraLatitude
+        cameraLongitude = $spatial.cameraLongitude
         objectCountBeyondRebaseThreshold = $spatial.objectCountBeyondRebaseThreshold
         maximumObjectHorizontalDistanceMeters = $spatial.maximumObjectHorizontalDistanceMeters
+        maximumDistanceObjectId = $spatial.maximumDistanceObjectId
         maximumObjectGeodeticDistanceMeters = $spatial.maximumObjectGeodeticDistanceMeters
+        maximumGeodeticDistanceObjectId = $spatial.maximumGeodeticDistanceObjectId
         maximumPairHorizontalSeparationMeters = $spatial.maximumPairHorizontalSeparationMeters
+        maximumPairFirstObjectId = $spatial.maximumPairFirstObjectId
+        maximumPairSecondObjectId = $spatial.maximumPairSecondObjectId
         maximumPairGeodeticSeparationMeters = $spatial.maximumPairGeodeticSeparationMeters
+        maximumPairGeodeticFirstObjectId = $spatial.maximumPairGeodeticFirstObjectId
+        maximumPairGeodeticSecondObjectId = $spatial.maximumPairGeodeticSecondObjectId
         loadedTerrainChunkCount = $spatial.loadedTerrainChunkCount
+        finalizedTerrainChunkCount = $spatial.finalizedTerrainChunkCount
         maximumLoadedTerrainCenterDistanceMeters = $spatial.maximumLoadedTerrainCenterDistanceMeters
         objectCountBeyondLoadedTerrain = $spatial.objectCountBeyondLoadedTerrain
         unitCountBeyondLoadedTerrain = $spatial.unitCountBeyondLoadedTerrain
+        objectCountWithInvalidGeodeticPosition = $spatial.objectCountWithInvalidGeodeticPosition
         activeWeaponCount = $spatial.activeWeaponCount
         activeWeaponCountBeyondLoadedTerrain = $spatial.activeWeaponCountBeyondLoadedTerrain
+        initialTerrainLoadingDone = $spatial.initialTerrainLoadingDone
+        relocationHandlerAvailable = $spatial.relocationHandlerAvailable
     }
 }
 
 $first = Get-WorldSnapshot
+if ([int]$first.spatialDiagnostics.schemaVersion -lt 2) {
+    Write-Host 'BUBBLE_PROBE_STALE_RUNTIME: spatial diagnostics schema is older than 2; rebuild and redeploy the Runtime Bridge.'
+    exit 2
+}
+if ([string]$first.sceneName -cne 'mission' -or [int]$first.observedObjectCount -le 0) {
+    Write-Host 'BUBBLE_PROBE_NOT_TACTICAL: load and continue a tactical mission before capturing evidence.'
+    exit 2
+}
 Start-Sleep -Seconds $SampleIntervalSeconds
 $second = Get-WorldSnapshot
+if ([int]$second.spatialDiagnostics.schemaVersion -lt 2) {
+    Write-Host 'BUBBLE_PROBE_STALE_RUNTIME: spatial diagnostics schema is older than 2; rebuild and redeploy the Runtime Bridge.'
+    exit 2
+}
+if ([string]$second.sceneName -cne 'mission' -or [int]$second.observedObjectCount -le 0) {
+    Write-Host 'BUBBLE_PROBE_NOT_TACTICAL: the tactical mission ended before the second sample.'
+    exit 2
+}
 $firstBubble = Select-BubbleFields $first
 $secondBubble = Select-BubbleFields $second
+
+if (-not [bool]$firstBubble.initialTerrainLoadingDone `
+    -or -not [bool]$secondBubble.initialTerrainLoadingDone `
+    -or [int]$firstBubble.loadedTerrainChunkCount -le 0 `
+    -or [int]$secondBubble.loadedTerrainChunkCount -le 0) {
+    Write-Host 'BUBBLE_PROBE_TERRAIN_NOT_READY: wait for initial tactical terrain loading to finish before capturing evidence.'
+    exit 2
+}
 
 $kinematicsChanged = $firstBubble.kinematicsSha256 -ne $secondBubble.kinematicsSha256
 $weaponsBeyondTerrain = [int]$secondBubble.activeWeaponCountBeyondLoadedTerrain -gt 0
@@ -100,11 +138,6 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
     $json | Set-Content -LiteralPath $EvidencePath -Encoding UTF8
-}
-
-if ($secondBubble.spatialSchemaVersion -lt 2) {
-    Write-Host 'BUBBLE_PROBE_STALE_RUNTIME: spatial diagnostics schema is older than 2; rebuild and redeploy the Runtime Bridge.'
-    exit 2
 }
 
 Write-Host 'BUBBLE_PROBE_CAPTURED: two world snapshots recorded. This does not qualify a combat/terrain radius.'
