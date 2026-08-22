@@ -270,23 +270,38 @@ public static class CampaignStateValidator
         }
 
         var ordnanceIds = new HashSet<string>(StringComparer.Ordinal);
+        var coveredTargets = new HashSet<EntityId>();
+        var guidanceLoad = new Dictionary<EntityId, int>();
         foreach (var ordnance in state.InFlight)
         {
+            var shooterExists = state.Entities.TryGetValue(ordnance.ShooterEntityId, out var shooter);
+            var targetExists = state.Entities.TryGetValue(ordnance.TargetEntityId, out var target);
+            var shooterLoad = guidanceLoad.GetValueOrDefault(ordnance.ShooterEntityId) + 1;
             if (!ordnanceIds.Add(ordnance.OrdnanceId)
+                || !coveredTargets.Add(ordnance.TargetEntityId)
+                || shooterLoad > 2
                 || string.IsNullOrWhiteSpace(ordnance.OrdnanceId)
+                || ordnance.OrdnanceId.Length > 128
                 || string.IsNullOrWhiteSpace(ordnance.AmmunitionId)
-                || !state.Entities.ContainsKey(ordnance.ShooterEntityId)
-                || !state.Entities.ContainsKey(ordnance.TargetEntityId)
+                || ordnance.AmmunitionId.Length > 256
+                || !shooterExists
+                || !targetExists
+                || shooter!.CoalitionId != ordnance.ShooterCoalitionId
+                || target!.CoalitionId == ordnance.ShooterCoalitionId
                 || !Enum.IsDefined(ordnance.Stage)
                 || !Enum.IsDefined(ordnance.Guidance)
                 || !Enum.IsDefined(ordnance.TargetClassification)
-                || ordnance.RemainingMeters < 0
-                || ordnance.SpeedMetersPerTick <= 0
+                || ordnance.TargetClassification is ContactClassification.Unknown or ContactClassification.Logistics
+                || ordnance.RemainingMeters <= 0
+                || ordnance.SpeedMetersPerTick is <= 0 or > 1_000_000
                 || ordnance.InsDriftMilliUnits is < 0 or > 1_000
-                || ordnance.HeadingMilliDegrees is < 0 or >= 360_000)
+                || ordnance.HeadingMilliDegrees is < 0 or >= 360_000
+                || ordnance.LaunchedAt.Quanta < 0
+                || ordnance.LaunchedAt.Quanta > state.Time.Quanta)
             {
                 throw Invalid("in-flight-ordnance", "In-flight analogue ordnance is invalid.");
             }
+            guidanceLoad[ordnance.ShooterEntityId] = shooterLoad;
             ValidateCoordinate(ordnance.Coordinate);
         }
     }
