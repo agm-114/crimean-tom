@@ -277,6 +277,45 @@ public sealed class CampaignCompanionStateStore
     public bool HasActivationGrant(string assignmentId, long authorityEpoch) =>
         File.Exists(ActivationGrantPath(assignmentId, authorityEpoch));
 
+    public async Task SaveSupersededActivationGrantAsync(
+        string assignmentId,
+        long authorityEpoch,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidDataException("A superseded activation grant reason is required.");
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                SupersededActivationGrantPath(assignmentId, authorityEpoch),
+                Encoding.UTF8.GetBytes(reason.Trim()),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public bool HasSupersededActivationGrant(string assignmentId, long authorityEpoch) =>
+        File.Exists(SupersededActivationGrantPath(assignmentId, authorityEpoch));
+
+    public string? TryReadSupersededActivationGrantReason(string assignmentId, long authorityEpoch)
+    {
+        var path = SupersededActivationGrantPath(assignmentId, authorityEpoch);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var value = File.ReadAllText(path).Trim();
+        return value.Length > 0 ? value : null;
+    }
+
     public bool HasCommittedMigration(long commitPosition, string assignmentId, long authorityEpoch)
     {
         var events = Path.Combine(_root, "committed-events");
@@ -330,6 +369,9 @@ public sealed class CampaignCompanionStateStore
 
     private string ActivationGrantPath(string assignmentId, long authorityEpoch) =>
         Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.activation-grant");
+
+    private string SupersededActivationGrantPath(string assignmentId, long authorityEpoch) =>
+        Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.activation-grant-superseded");
 
     private static async Task WriteAtomicallyAsync(
         string destination,
