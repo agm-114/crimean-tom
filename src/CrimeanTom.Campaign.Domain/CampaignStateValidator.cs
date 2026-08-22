@@ -69,7 +69,13 @@ public static class CampaignStateValidator
             _ = HeadingMilliDegrees.FromMilliDegrees(entity.Heading.Value);
             if (entity.Telegraph is < -1 or > 5
                 || entity.ReadinessMilliUnits is < 0 or > 1_000
-                || entity.DamageMilliUnits is < 0 or > 1_000_000)
+                || entity.DamageMilliUnits is < 0 or > 1_000_000
+                || entity.Analogue.AltitudeOrDepthMeters is < -400 or > 20_000
+                || entity.Analogue.FireMilliUnits is < 0 or > 1_000_000
+                || entity.Analogue.FloodMilliUnits is < 0 or > 1_000_000
+                || entity.Analogue.PropulsionIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.SensorIntegrityMilliUnits is < 0 or > 1_000
+                || entity.Analogue.WeaponIntegrityMilliUnits is < 0 or > 1_000)
             {
                 throw Invalid("entity-condition", "Entity readiness or damage is outside its canonical range.");
             }
@@ -126,6 +132,7 @@ public static class CampaignStateValidator
             if (key != estimate.Key || estimate.Revision.Value <= 0 || !state.Entities.ContainsKey(key.ContactEntityId)
                 || !state.Regions.ContainsKey(estimate.EstimatedRegionId) || !Enum.IsDefined(estimate.Confidence)
                 || !Enum.IsDefined(estimate.Classification)
+                || !Enum.IsDefined(estimate.Channel)
                 || estimate.UncertaintyRadiusMeters is < 0 or > 2_000_000
                 || estimate.ObservedAt.Quanta < 0 || estimate.ObservedAt.Quanta > state.Time.Quanta)
             {
@@ -260,6 +267,27 @@ public static class CampaignStateValidator
             {
                 throw Invalid("operational-outcome", "An operational outcome is invalid.");
             }
+        }
+
+        var ordnanceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ordnance in state.InFlight)
+        {
+            if (!ordnanceIds.Add(ordnance.OrdnanceId)
+                || string.IsNullOrWhiteSpace(ordnance.OrdnanceId)
+                || string.IsNullOrWhiteSpace(ordnance.AmmunitionId)
+                || !state.Entities.ContainsKey(ordnance.ShooterEntityId)
+                || !state.Entities.ContainsKey(ordnance.TargetEntityId)
+                || !Enum.IsDefined(ordnance.Stage)
+                || !Enum.IsDefined(ordnance.Guidance)
+                || !Enum.IsDefined(ordnance.TargetClassification)
+                || ordnance.RemainingMeters < 0
+                || ordnance.SpeedMetersPerTick <= 0
+                || ordnance.InsDriftMilliUnits is < 0 or > 1_000
+                || ordnance.HeadingMilliDegrees is < 0 or >= 360_000)
+            {
+                throw Invalid("in-flight-ordnance", "In-flight analogue ordnance is invalid.");
+            }
+            ValidateCoordinate(ordnance.Coordinate);
         }
     }
 
