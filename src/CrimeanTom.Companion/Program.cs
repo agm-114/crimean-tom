@@ -208,6 +208,24 @@ app.MapPost("/game/screenshot", async (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
 {
+    var hello = broker.GameHello;
+    if (hello is null || string.IsNullOrWhiteSpace(hello.ExperimentalSaveDirectory))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.AutomationPreconditionFailed,
+            message = "No connected game has advertised an experimental save directory.",
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    var screenshotPath = Path.GetFullPath(Path.Combine(
+        hello.ExperimentalSaveDirectory,
+        "_CrimeanTomScreenshot.png"));
+    var previousHash = await TryHashFileAsync(screenshotPath, cancellationToken);
+    var previousLastWriteTimeUtc = File.Exists(screenshotPath)
+        ? File.GetLastWriteTimeUtc(screenshotPath)
+        : (DateTime?)null;
+
     var payload = request ?? new CaptureGameScreenshotRequestPayload();
     var result = await broker.SendCommandAsync(
         GameCommandTypes.CaptureGameScreenshot,
@@ -222,12 +240,25 @@ app.MapPost("/game/screenshot", async (
     var scheduled = JsonSerializer.Deserialize<CaptureGameScreenshotResultPayload>(
         result.ResultJson,
         wireJsonOptions) ?? new CaptureGameScreenshotResultPayload();
-    var previousHash = await TryHashFileAsync(scheduled.FilePath, cancellationToken);
+    if (string.IsNullOrWhiteSpace(scheduled.FilePath)
+        || !string.Equals(
+            Path.GetFullPath(scheduled.FilePath),
+            screenshotPath,
+            StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The game returned an unexpected screenshot path.",
+        }, statusCode: StatusCodes.Status502BadGateway);
+    }
+
     var stableHash = await WaitForStableFileHashAsync(
-        scheduled.FilePath,
+        screenshotPath,
         TimeSpan.FromSeconds(15),
         cancellationToken,
-        excludeHash: previousHash);
+        excludeHash: previousHash,
+        excludeLastWriteTimeUtc: previousLastWriteTimeUtc);
     if (string.IsNullOrEmpty(stableHash))
     {
         return Results.Json(new
@@ -986,7 +1017,8 @@ static async Task<string> WaitForStableFileHashAsync(
     string path,
     TimeSpan timeout,
     CancellationToken cancellationToken,
-    string? excludeHash = null)
+    string? excludeHash = null,
+    DateTime? excludeLastWriteTimeUtc = null)
 {
     if (string.IsNullOrWhiteSpace(path))
     {
@@ -1013,8 +1045,12 @@ static async Task<string> WaitForStableFileHashAsync(
                 var hash = Convert.ToHexString(await SHA256.HashDataAsync(
                     stream,
                     cancellationToken)).ToLowerInvariant();
-                if (!string.IsNullOrEmpty(excludeHash)
-                    && string.Equals(hash, excludeHash, StringComparison.Ordinal))
+                var lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
+                var isUnchangedExcludedFile = !string.IsNullOrEmpty(excludeHash)
+                    && string.Equals(hash, excludeHash, StringComparison.Ordinal)
+                    && (!excludeLastWriteTimeUtc.HasValue
+                        || lastWriteTimeUtc <= excludeLastWriteTimeUtc.Value);
+                if (isUnchangedExcludedFile)
                 {
                     priorHash = hash;
                     consecutiveMatches = 0;

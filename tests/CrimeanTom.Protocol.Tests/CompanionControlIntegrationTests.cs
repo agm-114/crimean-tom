@@ -1009,13 +1009,26 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.Equal("completed", screenshot.RootElement.GetProperty("outcome").GetString());
             Assert.Equal("screenshot-png-materialized", screenshot.RootElement.GetProperty("postcondition").GetString());
-            Assert.False(string.IsNullOrWhiteSpace(screenshot.RootElement.GetProperty("sha256").GetString()));
+            var screenshotHash = screenshot.RootElement.GetProperty("sha256").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(screenshotHash));
+            Assert.Equal(1, screenshot.RootElement.GetProperty("width").GetInt32());
+            Assert.Equal(1, screenshot.RootElement.GetProperty("height").GetInt32());
 
             using var screenshotImage = new HttpRequestMessage(HttpMethod.Get, "/game/screenshot/image");
             screenshotImage.Headers.Add(ProtocolConstants.ControlTokenHeader, token);
             using var screenshotImageResponse = await client.SendAsync(screenshotImage, testTimeout.Token);
             screenshotImageResponse.EnsureSuccessStatusCode();
             Assert.Equal("image/png", screenshotImageResponse.Content.Headers.ContentType?.MediaType);
+
+            using var repeatedScreenshot = await PostAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/screenshot",
+                testTimeout.Token);
+            Assert.Equal("completed", repeatedScreenshot.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal(
+                screenshotHash,
+                repeatedScreenshot.RootElement.GetProperty("sha256").GetString());
 
             using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
                 client,
