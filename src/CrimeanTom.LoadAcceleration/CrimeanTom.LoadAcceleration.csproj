@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <ProjectReference Include="..\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>13</LangVersion>

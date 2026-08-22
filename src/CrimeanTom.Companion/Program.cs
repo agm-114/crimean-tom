@@ -30,6 +30,7 @@ builder.Services.AddSingleton(controlToken);
 builder.Services.AddSingleton(serviceProvider => new GamePipeBroker(
     serviceProvider.GetRequiredService<ILogger<GamePipeBroker>>(),
     gamePipeName));
+builder.Services.AddSingleton<CompanionColliderCatalog>();
 builder.Services.AddSingleton<PortOperationsProjectionStore>();
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<GamePipeBroker>());
 var campaignServiceGrpcUrl = builder.Configuration["CampaignServiceGrpcUrl"]
@@ -202,6 +203,22 @@ app.MapGet("/game/ui", (GamePipeBroker broker, CancellationToken cancellationTok
         GameCommandTypes.GetUiInspection,
         CommandPriorities.Control,
         cancellationToken));
+
+app.MapPost("/game/colliders/capture", (
+    CaptureColliderCatalogRequestPayload? request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.CaptureColliderCatalog,
+        JsonSerializer.Serialize(request ?? new CaptureColliderCatalogRequestPayload(), wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapGet("/game/colliders", (
+    string? unitTypeId,
+    CompanionColliderCatalog catalog) =>
+    Results.Json(catalog.Get(unitTypeId), wireJsonOptions));
 
 app.MapPost("/game/screenshot", async (
     CaptureGameScreenshotRequestPayload? request,
