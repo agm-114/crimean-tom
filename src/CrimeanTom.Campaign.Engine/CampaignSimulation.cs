@@ -681,6 +681,7 @@ internal static class CampaignSimulation
 
     private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
         state.Assignments.Values.Any(item => item.EntityId == entityId
+            && !CampaignAssignmentKinds.IsOperationalSim(item)
             && item.Lifecycle is AssignmentLifecycle.Preparing or AssignmentLifecycle.Prepared
                 or AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing or AssignmentLifecycle.Quiesced);
 

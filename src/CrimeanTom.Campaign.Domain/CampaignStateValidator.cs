@@ -155,7 +155,9 @@ public static class CampaignStateValidator
                 || !state.Entities.ContainsKey(assignment.EntityId) || !Enum.IsDefined(assignment.Role)
                 || !Enum.IsDefined(assignment.Lifecycle) || assignment.BatchSize <= 0
                 || (string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize != 1)
-                || (!string.IsNullOrEmpty(assignment.BatchId) && assignment.BatchSize < 2)
+                || (!string.IsNullOrEmpty(assignment.BatchId)
+                    && assignment.BatchSize < 2
+                    && !CampaignAssignmentKinds.IsOperationalSim(assignment))
                 || assignment.WorkerClientInstanceId is null
                 || assignment.WorkerClientInstanceId.Length > 256
                 || assignment.WorkerClientInstanceId.Any(char.IsControl))
@@ -168,8 +170,17 @@ public static class CampaignStateValidator
             {
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
             }
+            if (CampaignAssignmentKinds.IsOperationalSim(assignment)
+                && (assignment.Role != AssignmentRole.Primary
+                    || state.Entities[assignment.EntityId].Fidelity == FidelityState.Tactical))
+            {
+                throw Invalid(
+                    "operational-assignment",
+                    "An Operational worker assignment must be Primary and cannot cover Tactical fidelity.");
+            }
             if (assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
                     or AssignmentLifecycle.Quiesced
+                && !CampaignAssignmentKinds.IsOperationalSim(assignment)
                 && state.Entities[assignment.EntityId].Fidelity != FidelityState.Tactical)
             {
                 throw Invalid("active-assignment-fidelity", "An active tactical assignment requires tactical entity fidelity.");

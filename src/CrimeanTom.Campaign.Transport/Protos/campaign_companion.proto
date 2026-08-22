@@ -33,6 +33,7 @@ message ServiceFrame {
     ServiceAcknowledgement acknowledgement = 17;
     StageFinalCheckpoint stage_final_checkpoint = 18;
     ActivationGrant activation_grant = 19;
+    OperationalAssignment operational_assignment = 20;
   }
 }
 
@@ -51,6 +52,16 @@ message CompanionHello {
   int32 tactical_reserve_capacity = 12;
   string health = 13;
   string eligibility = 14;
+  // Empty or "sea-power" is a player Sea Power companion. "operational" is a
+  // campaign-owned Track A worker with no player session and no Unity runtime.
+  string worker_kind = 15;
+  // Present only for a supervisor-spawned Operational worker. The service
+  // validates both values against its exact live child record before admitting
+  // the session.
+  string operational_spawn_id = 16;
+  string operational_spawn_credential = 17;
+  int32 operational_entity_capacity = 18;
+  int32 operational_reserve_capacity = 19;
 }
 
 message TacticalMaterializationProfile {
@@ -100,6 +111,10 @@ message CompanionHeartbeat {
   int32 tactical_reserve_capacity = 14;
   string health = 15;
   string eligibility = 16;
+  string worker_kind = 17;
+  int32 operational_entity_capacity = 18;
+  int32 operational_reserve_capacity = 19;
+  int32 owned_operational_entity_count = 20;
 }
 
 message ServiceHeartbeat {
@@ -147,6 +162,23 @@ message TacticalAssignment {
   int64 initial_fuel_milliunits = 24;
   int64 initial_stores_milliunits = 25;
   int64 initial_damage_milliunits = 26;
+}
+
+// Control-plane placement for a Sea-Power-free worker. This is deliberately
+// distinct from TacticalAssignment: it carries no Unity materialization,
+// runtime-fingerprint, checkpoint, or task-force fields. A later execution
+// slice adds immutable time-range work leases and proposed results separately.
+message OperationalAssignment {
+  string campaign_id = 1;
+  string assignment_id = 2;
+  string entity_id = 3;
+  int64 authority_epoch = 4;
+  int64 handoff_commit_position = 5;
+  int64 handoff_time_quanta = 6;
+  int64 expected_entity_revision = 7;
+  string idempotency_key = 8;
+  string batch_id = 9;
+  int32 batch_size = 10;
 }
 
 message AssignmentPrepared {
