@@ -56,7 +56,9 @@ public static class CampaignCalibration
                 continue;
             }
 
-            var ratio = (int)Math.Min(int.MaxValue, checked(distance * 1_000L / range));
+            var ratio = distance > long.MaxValue / 1_000L
+                ? int.MaxValue
+                : (int)Math.Min(int.MaxValue, distance * 1_000L / range);
             maximumRatio = Math.Max(maximumRatio, ratio);
             if (ratio > EnvelopeMaximumRangeRatioMilliunits)
             {

@@ -2662,6 +2662,7 @@ public sealed class CampaignCoordinator(
             && island.DesiredFidelity != FidelityState.Tactical
             && state.Assignments.Values.Any(assignment =>
                 island.EntityIds.Contains(assignment.EntityId)
+                && assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
                 && assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing));
         return CampaignCalibration.Evaluate(
             state.RecentOperationalOutcomes,
