@@ -22,6 +22,7 @@ public static class CampaignSupportedClaims
             "observer-is-never-a-primary-activation-source",
             "online-backup-restore-with-integrity-hashes",
             "operator-pause-and-drain",
+            "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
         ],
         Unsupported:
         [
@@ -31,6 +32,7 @@ public static class CampaignSupportedClaims
             "authenticated-two-container-live-sea-power-migration",
             "hostile-client-adjudication",
             "postgresql-or-external-object-storage-requirement",
+            "out-of-process-operational-tick-execution",
         ]);
 }
 

@@ -5,6 +5,11 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 
+using CrimeanTom.Campaign.Transport.V1;
+
+using Grpc.Core;
+using Grpc.Net.Client;
+
 namespace CrimeanTom.Protocol.Tests;
 
 public sealed class OperationalSimWorkerIntegrationTests
@@ -34,6 +39,21 @@ public sealed class OperationalSimWorkerIntegrationTests
             var token = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
             using var campaignClient = CreateBearerClient(campaignHttpUrl, token);
 
+            using var supportedClaims = await campaignClient.GetAsync(
+                "/supported-claims",
+                testTimeout.Token);
+            supportedClaims.EnsureSuccessStatusCode();
+            using var supportedClaimsBody = JsonDocument.Parse(
+                await supportedClaims.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Contains(
+                "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
+                supportedClaimsBody.RootElement.GetProperty("supported").EnumerateArray()
+                    .Select(item => item.GetString()));
+            Assert.Contains(
+                "out-of-process-operational-tick-execution",
+                supportedClaimsBody.RootElement.GetProperty("unsupported").EnumerateArray()
+                    .Select(item => item.GetString()));
+
             using var created = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
                 new
@@ -50,6 +70,12 @@ public sealed class OperationalSimWorkerIntegrationTests
                 content: null,
                 testTimeout.Token);
             bootstrapped.EnsureSuccessStatusCode();
+
+            await AssertUnsupervisedOperationalHelloRejectedAsync(
+                campaignGrpcUrl,
+                token,
+                campaignId,
+                testTimeout.Token);
 
             using var trackB = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/sim-workers",
@@ -136,6 +162,23 @@ public sealed class OperationalSimWorkerIntegrationTests
                     && (item.GetProperty("batchId").GetString() ?? string.Empty)
                         .StartsWith("operational:", StringComparison.Ordinal));
 
+            using var drainedCampaign = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/drain",
+                content: null,
+                testTimeout.Token);
+            drainedCampaign.EnsureSuccessStatusCode();
+            using var afterDrain = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            afterDrain.EnsureSuccessStatusCode();
+            using var afterDrainBody = JsonDocument.Parse(
+                await afterDrain.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.DoesNotContain(
+                afterDrainBody.RootElement.GetProperty("assignments").EnumerateArray(),
+                item => (item.GetProperty("batchId").GetString() ?? string.Empty)
+                        .StartsWith("operational:", StringComparison.Ordinal)
+                    && item.GetProperty("lifecycle").GetString() is not ("Released" or null));
+
             using var deleted = await campaignClient.DeleteAsync(
                 $"/control/campaigns/{campaignId}/sim-workers/op-small",
                 testTimeout.Token);
@@ -174,6 +217,19 @@ public sealed class OperationalSimWorkerIntegrationTests
             Assert.DoesNotContain(
                 leftoverBody.RootElement.EnumerateArray(),
                 item => item.GetProperty("alive").GetBoolean());
+
+            await ScheduleAsync(restartedClient, campaignId, testTimeout.Token);
+            using var recovered = await restartedClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            recovered.EnsureSuccessStatusCode();
+            using var recoveredBody = JsonDocument.Parse(
+                await recovered.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.DoesNotContain(
+                recoveredBody.RootElement.GetProperty("assignments").EnumerateArray(),
+                item => (item.GetProperty("batchId").GetString() ?? string.Empty)
+                        .StartsWith("operational:", StringComparison.Ordinal)
+                    && item.GetProperty("lifecycle").GetString() is not ("Released" or null));
         }
         finally
         {
@@ -227,6 +283,40 @@ public sealed class OperationalSimWorkerIntegrationTests
             body.RootElement.GetProperty("pid").GetInt32());
     }
 
+    private static async Task AssertUnsupervisedOperationalHelloRejectedAsync(
+        string grpcUrl,
+        string token,
+        string campaignId,
+        CancellationToken cancellationToken)
+    {
+        using var channel = GrpcChannel.ForAddress(grpcUrl, new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler { UseProxy = false },
+        });
+        var client = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
+        var headers = new Metadata { { "authorization", $"Bearer {token}" } };
+        using var call = client.Connect(headers, cancellationToken: cancellationToken);
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = 1,
+            Hello = new CompanionHello
+            {
+                ProtocolVersion = 1,
+                ClientInstanceId = Guid.NewGuid().ToString("N"),
+                CampaignId = campaignId,
+                WorkerKind = CampaignWorkerKind.Operational,
+                OperationalSpawnId = Guid.NewGuid().ToString("N"),
+                OperationalSpawnCredential = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+                OperationalEntityCapacity = 1,
+                Health = "Healthy",
+                Eligibility = "Eligible",
+            },
+        });
+        var exception = await Assert.ThrowsAsync<RpcException>(async () =>
+            await call.ResponseStream.MoveNext(cancellationToken));
+        Assert.Equal(StatusCode.PermissionDenied, exception.StatusCode);
+    }
+
     private static async Task ScheduleAsync(HttpClient client, string campaignId, CancellationToken cancellationToken)
     {
         using var response = await client.PostAsJsonAsync(
@@ -263,6 +353,8 @@ public sealed class OperationalSimWorkerIntegrationTests
                 session.GetProperty("clientInstanceId").GetString() == clientInstanceId
                 && session.GetProperty("workerKind").GetString() == "operational"
                 && session.GetProperty("playerSessionBound").GetBoolean() == false
+                && session.GetProperty("tacticalEntityCapacity").GetInt32() == 0
+                && session.GetProperty("operationalEntityCapacity").GetInt32() > 0
                 && session.GetProperty("receivedFrameCount").GetInt64() > 0);
         }, cancellationToken);
     }

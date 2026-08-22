@@ -15,6 +15,7 @@ public sealed class CampaignCompanionGrpcService(
     CampaignSessionRegistry sessions,
     CampaignInboundSpool inboundSpool,
     CampaignCoordinator coordinator,
+    CampaignOperationalWorkerSupervisor operationalWorkers,
     SqliteCampaignJournal journal,
     ILogger<CampaignCompanionGrpcService> logger)
     : CampaignCompanionTransport.CampaignCompanionTransportBase
@@ -45,6 +46,7 @@ public sealed class CampaignCompanionGrpcService(
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "The companion hello is incompatible."));
         }
 
+        var campaignId = new CampaignId(campaignGuid);
         if (CampaignWorkerKind.IsOperational(workerKind))
         {
             if (!string.IsNullOrWhiteSpace(hello.RuntimeFingerprintSha256)
@@ -57,15 +59,32 @@ public sealed class CampaignCompanionGrpcService(
                     "Operational workers must not advertise a Sea Power runtime, task force, or materialization profile."));
             }
 
-            if (hello.TacticalEntityCapacity is < 1 or > 10_000
-                || hello.TacticalReserveCapacity < 0
-                || hello.TacticalReserveCapacity > hello.TacticalEntityCapacity)
+            if (hello.TacticalEntityCapacity != 0
+                || hello.TacticalReserveCapacity != 0
+                || hello.OperationalEntityCapacity is < 1 or > 10_000
+                || hello.OperationalReserveCapacity < 0
+                || hello.OperationalReserveCapacity > hello.OperationalEntityCapacity)
             {
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, "Operational worker capacity is invalid."));
             }
+
+            if (!operationalWorkers.ValidateOperationalHello(campaignId, hello))
+            {
+                throw new RpcException(new Status(
+                    StatusCode.PermissionDenied,
+                    "The Operational worker hello does not match a live supervisor spawn."));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(hello.OperationalSpawnId)
+            || !string.IsNullOrWhiteSpace(hello.OperationalSpawnCredential)
+            || hello.OperationalEntityCapacity != 0
+            || hello.OperationalReserveCapacity != 0)
+        {
+            throw new RpcException(new Status(
+                StatusCode.FailedPrecondition,
+                "Sea Power companions must not advertise Operational spawn identity."));
         }
 
-        var campaignId = new CampaignId(campaignGuid);
         var currentHead = await journal.ReadHeadAsync(campaignId, context.CancellationToken);
         if (hello.ReconnectCommitPosition > currentHead.Value)
         {

@@ -170,6 +170,14 @@ public static class CampaignStateValidator
             {
                 throw Invalid("duplicate-primary", "An entity has multiple primary assignments.");
             }
+            if (CampaignAssignmentKinds.IsOperationalSim(assignment)
+                && (assignment.Role != AssignmentRole.Primary
+                    || state.Entities[assignment.EntityId].Fidelity == FidelityState.Tactical))
+            {
+                throw Invalid(
+                    "operational-assignment",
+                    "An Operational worker assignment must be Primary and cannot cover Tactical fidelity.");
+            }
             if (assignment.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
                     or AssignmentLifecycle.Quiesced
                 && !CampaignAssignmentKinds.IsOperationalSim(assignment)

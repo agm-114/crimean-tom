@@ -1300,15 +1300,12 @@ public sealed class CampaignCoordinator(
                         $"scheduler-{state.Time.Quanta}-{island.IslandId}-{entityId}-{entity.Revision.Value}-{island.DesiredFidelity}"), cancellationToken);
                 }
             }
-            if (workers.Count > 0)
-            {
-                state = await YieldOperationalAssignmentsAsync(
-                    state,
-                    campaignId,
-                    evaluation,
-                    workers,
-                    cancellationToken);
-            }
+            state = await YieldOperationalAssignmentsAsync(
+                state,
+                campaignId,
+                evaluation,
+                workers,
+                cancellationToken);
             if (workers.Count > 0)
             {
                 var destinationCapacity = Math.Max(
@@ -1561,6 +1558,13 @@ public sealed class CampaignCoordinator(
         CampaignHandoffRequest request,
         CancellationToken cancellationToken)
     {
+        if (CampaignAssignmentKinds.IsOperationalSimBatch(request.BatchId))
+        {
+            throw new CampaignStoreConflict(
+                "reserved-operational-assignment",
+                "The general tactical handoff path cannot create Operational worker assignments.");
+        }
+
         var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
         if (campaignId != state.Metadata.CampaignId)
         {
@@ -2369,16 +2373,26 @@ public sealed class CampaignCoordinator(
         {
             if (!prepared.Ready)
             {
-                await CommitAsync(state, Command(
-                    state,
-                    CampaignSubject.Assignment(assignmentId),
-                    assignment.Revision,
-                    new SetAssignmentLifecycleCommand(
-                        assignmentId,
-                        assignment.AuthorityEpoch,
-                        AssignmentLifecycle.Released,
-                        state.Time),
-                    $"reject-operational-{prepared.AssignmentId}-{prepared.AuthorityEpoch}"), cancellationToken);
+                var rejectedBatch = state.Assignments.Values
+                    .Where(item => CampaignAssignmentKinds.IsOperationalSim(item)
+                        && string.Equals(item.BatchId, assignment.BatchId, StringComparison.Ordinal)
+                        && item.Lifecycle != AssignmentLifecycle.Released)
+                    .OrderBy(item => item.AssignmentId.Value)
+                    .ToArray();
+                foreach (var rejectedCandidate in rejectedBatch)
+                {
+                    var rejected = state.Assignments[rejectedCandidate.AssignmentId];
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Assignment(rejected.AssignmentId),
+                        rejected.Revision,
+                        new SetAssignmentLifecycleCommand(
+                            rejected.AssignmentId,
+                            rejected.AuthorityEpoch,
+                            AssignmentLifecycle.Released,
+                            state.Time),
+                        $"reject-operational-{rejected.AssignmentId}-{rejected.AuthorityEpoch.Value}"), cancellationToken);
+                }
                 return;
             }
 
@@ -2847,8 +2861,11 @@ public sealed class CampaignCoordinator(
             worker.OwnedActiveEntityCount,
             worker.OwnedRetainedSuspendedEntityCount,
             worker.OwnedRecoveryRequiredEntityCount,
+            worker.OwnedOperationalEntityCount,
             worker.TacticalEntityCapacity,
             worker.TacticalReserveCapacity,
+            worker.OperationalEntityCapacity,
+            worker.OperationalReserveCapacity,
             worker.Health,
             worker.Eligibility,
             worker.WorkerKind,
@@ -2913,7 +2930,10 @@ public sealed class CampaignCoordinator(
                 .ToArray();
             var yieldForPlayer = island.DesiredFidelity == FidelityState.Tactical;
             var yieldForDrain = owners.Any(CampaignWorkerHealth.MustEvacuate);
-            if (!yieldForPlayer && !yieldForDrain)
+            var yieldForMissingOwner = live.Any(item => !workerByClient.ContainsKey(item.WorkerClientInstanceId));
+            var yieldForCampaignDrain = evaluation.Request.Health == SchedulerHealthState.Draining
+                || evaluation.Request.Eligibility == SimulationSourceEligibility.DrainOnly;
+            if (!yieldForPlayer && !yieldForDrain && !yieldForMissingOwner && !yieldForCampaignDrain)
             {
                 continue;
             }
@@ -2932,7 +2952,11 @@ public sealed class CampaignCoordinator(
                         IdempotencyKey = $"operational-yield-{assignment.AssignmentId}-{assignment.AuthorityEpoch.Value}",
                         Reason = yieldForPlayer
                             ? "player-interest-preempts-operational-worker"
-                            : "operational-worker-evacuation",
+                            : yieldForDrain
+                                ? "operational-worker-evacuation"
+                                : yieldForMissingOwner
+                                    ? "operational-worker-disconnected"
+                                    : "campaign-drain",
                     },
                 };
                 _ = sessions.TryQueueForClient(
@@ -2952,12 +2976,18 @@ public sealed class CampaignCoordinator(
         IReadOnlyList<CampaignSessionSnapshot> workers,
         CancellationToken cancellationToken)
     {
+        if (evaluation.Request.Health == SchedulerHealthState.Draining
+            || evaluation.Request.Eligibility != SimulationSourceEligibility.Eligible)
+        {
+            return state;
+        }
+
         var plannedLoads = workers
             .Where(worker => CampaignWorkerKind.IsOperational(worker.WorkerKind))
             .ToDictionary(
                 worker => worker.ClientInstanceId,
                 worker => Math.Max(
-                    worker.OwnedMaterializedEntityCount,
+                    worker.OwnedOperationalEntityCount,
                     state.Assignments.Values
                         .Where(assignment => assignment.Lifecycle != AssignmentLifecycle.Released
                             && CampaignAssignmentKinds.IsOperationalSim(assignment)
@@ -2989,8 +3019,22 @@ public sealed class CampaignCoordinator(
                 continue;
             }
 
+            var eligibleEntityIds = island.EntityIds
+                .Where(entityId =>
+                {
+                    var entity = state.Entities[entityId];
+                    return entity.Fidelity != FidelityState.Tactical
+                        && entity.Lifecycle is not (EntityLifecycle.Destroyed or EntityLifecycle.Retired);
+                })
+                .OrderBy(item => item)
+                .ToArray();
+            if (eligibleEntityIds.Length == 0)
+            {
+                continue;
+            }
+
             var islandWorker = SelectOperationalPlacementWorker(
-                island.EntityIds,
+                eligibleEntityIds,
                 liveAssignments,
                 workers,
                 plannedLoads);
@@ -2999,17 +3043,13 @@ public sealed class CampaignCoordinator(
                 continue;
             }
 
-            var batchId = CampaignAssignmentKinds.OperationalSimBatchId(island.IslandId);
-            var batchSize = island.EntityIds.Count;
-            foreach (var entityId in island.EntityIds.OrderBy(item => item))
+            var generation = state.Assignments.Values.Count(item => island.EntityIds.Contains(item.EntityId)) + 1;
+            var batchId = CampaignAssignmentKinds.OperationalSimBatchId($"{island.IslandId}:{generation}");
+            var batchSize = eligibleEntityIds.Length;
+            var createdAssignmentIds = new List<AssignmentId>();
+            foreach (var entityId in eligibleEntityIds)
             {
                 var entity = state.Entities[entityId];
-                if (entity.Fidelity == FidelityState.Tactical
-                    || entity.Lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Retired)
-                {
-                    continue;
-                }
-
                 var attempt = state.Assignments.Values.Count(item => item.EntityId == entityId) + 1;
                 var assignmentGuid = KeyedGuid(
                     campaignId.Value,
@@ -3038,33 +3078,43 @@ public sealed class CampaignCoordinator(
                     islandWorker.ClientInstanceId);
                 var prepared = await PrepareOperationalHandoffCoreAsync(state, handoffRequest, cancellationToken);
                 state = prepared.State;
+                var assignmentId = ParseScopedId(
+                    handoffRequest.AssignmentId,
+                    "assignment:",
+                    value => new AssignmentId(value));
+                createdAssignmentIds.Add(assignmentId);
                 if (sessions.TryQueueForClient(
                     campaignId.ToString(),
                     islandWorker.ClientInstanceId,
                     new ServiceFrame
                     {
-                        Assignment = prepared.Assignment,
+                        OperationalAssignment = prepared.Assignment,
                     }))
                 {
                     plannedLoads[islandWorker.ClientInstanceId]++;
                     continue;
                 }
 
-                var assignmentId = ParseScopedId(
-                    handoffRequest.AssignmentId,
-                    "assignment:",
-                    value => new AssignmentId(value));
-                var assignment = state.Assignments[assignmentId];
-                state = await CommitAsync(state, Command(
-                    state,
-                    CampaignSubject.Assignment(assignmentId),
-                    assignment.Revision,
-                    new SetAssignmentLifecycleCommand(
-                        assignmentId,
-                        assignment.AuthorityEpoch,
-                        AssignmentLifecycle.Released,
-                        state.Time),
-                    $"cancel-{idempotencyKey}-session-lost-before-queue"), cancellationToken);
+                foreach (var createdId in createdAssignmentIds)
+                {
+                    var assignment = state.Assignments[createdId];
+                    if (assignment.Lifecycle == AssignmentLifecycle.Released)
+                    {
+                        continue;
+                    }
+
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Assignment(createdId),
+                        assignment.Revision,
+                        new SetAssignmentLifecycleCommand(
+                            createdId,
+                            assignment.AuthorityEpoch,
+                            AssignmentLifecycle.Released,
+                            state.Time),
+                        $"cancel-{idempotencyKey}-{createdId}-session-lost-before-queue"), cancellationToken);
+                }
+                break;
             }
         }
 
@@ -3099,9 +3149,6 @@ public sealed class CampaignCoordinator(
 
                 state = await ReleaseOperationalAssignmentAsync(state, current, cancellationToken);
             }
-        }
-        catch (CampaignStoreConflict)
-        {
         }
         finally
         {
@@ -3154,7 +3201,8 @@ public sealed class CampaignCoordinator(
         return state;
     }
 
-    private async Task<(CampaignState State, TacticalAssignment Assignment)> PrepareOperationalHandoffCoreAsync(
+    private async Task<(CampaignState State, CrimeanTom.Campaign.Transport.V1.OperationalAssignment Assignment)>
+        PrepareOperationalHandoffCoreAsync(
         CampaignState state,
         CampaignHandoffRequest request,
         CancellationToken cancellationToken)
@@ -3193,13 +3241,19 @@ public sealed class CampaignCoordinator(
                 request.WorkerClientInstanceId),
             $"{request.IdempotencyKey}-assignment"), cancellationToken);
         entity = state.Entities[entityId];
-        return (state, ToTacticalAssignment(
-            campaignId,
-            request,
-            entity,
-            sourceCheckpoint: null,
-            state.Head,
-            state.Time));
+        return (state, new CrimeanTom.Campaign.Transport.V1.OperationalAssignment
+        {
+            CampaignId = campaignId.ToString(),
+            AssignmentId = request.AssignmentId,
+            EntityId = request.GameEntityId,
+            AuthorityEpoch = request.AuthorityEpoch,
+            HandoffCommitPosition = state.Head.Value,
+            HandoffTimeQuanta = state.Time.Quanta,
+            ExpectedEntityRevision = entity.Revision.Value,
+            IdempotencyKey = request.IdempotencyKey,
+            BatchId = request.BatchId,
+            BatchSize = request.BatchSize,
+        });
     }
 
     private static CampaignSessionSnapshot? SelectOperationalPlacementWorker(
@@ -3231,23 +3285,19 @@ public sealed class CampaignCoordinator(
                 existingOwners[0],
                 StringComparison.Ordinal))
             .Where(CampaignWorkerHealth.CanReceiveNewAssignments)
-            .Select(worker =>
+            .Select(worker => new
             {
-                var workerCapacity = Math.Max(0, worker.TacticalEntityCapacity - worker.TacticalReserveCapacity);
-                return new
-                {
-                    Worker = worker,
-                    Admission = CampaignWorkerAdmissionPolicy.Calculate(
-                        worker,
-                        workerCapacity,
-                        plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId)),
-                };
+                Worker = worker,
+                Capacity = Math.Max(
+                    0,
+                    worker.OperationalEntityCapacity - worker.OperationalReserveCapacity),
+                Occupied = Math.Max(0, plannedWorkerLoads.GetValueOrDefault(worker.ClientInstanceId)),
             })
-            .Where(candidate => candidate.Admission.CanAdmitPromotion(missingEntityCount))
+            .Where(candidate => missingEntityCount <= candidate.Capacity - candidate.Occupied)
             .OrderBy(candidate => checked(
-                candidate.Admission.OccupiedTacticalEntityCount * 1_000_000L)
-                / Math.Max(1, candidate.Admission.PromotionCapacityLimit))
-            .ThenBy(candidate => candidate.Admission.OccupiedTacticalEntityCount)
+                candidate.Occupied * 1_000_000L)
+                / Math.Max(1, candidate.Capacity))
+            .ThenBy(candidate => candidate.Occupied)
             .ThenBy(candidate => candidate.Worker.ClientInstanceId, StringComparer.Ordinal)
             .Select(candidate => candidate.Worker)
             .FirstOrDefault();
@@ -3607,7 +3657,7 @@ public sealed class CampaignCoordinator(
                 item.Relationship.MissingSamples)));
         var resources = string.Join('|', workers
             .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
-            .Select(worker => $"{worker.ClientInstanceId}:{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity},{worker.Health},{worker.Eligibility}"));
+            .Select(worker => $"{worker.ClientInstanceId}:{worker.WorkerKind},{worker.PlayerSessionBound},{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.OwnedOperationalEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity},{worker.OperationalEntityCapacity},{worker.OperationalReserveCapacity},{worker.Health},{worker.Eligibility}"));
         var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
@@ -3785,8 +3835,11 @@ public sealed record CampaignWorkerView(
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,
     int OwnedRecoveryRequiredEntityCount,
+    int OwnedOperationalEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    int OperationalEntityCapacity,
+    int OperationalReserveCapacity,
     string Health,
     string Eligibility,
     string WorkerKind,

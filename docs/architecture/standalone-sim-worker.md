@@ -12,8 +12,9 @@ instance. See [Tactical bubble](../research/tactical-bubble.md).
 
 Crimean Tom's theater is larger than one tactical scene. Islands with no player
 looking at them still have to move, detect, spend, and sometimes fight. The
-durable owner of that work is the campaign journal. The question is only **which
-process is allowed to own assigned islands**.
+durable owner of that work is the campaign journal. The question is only
+**which process is recorded as the placement target and, in a later slice,
+executes leased work**.
 
 | Kind | What it is | Who starts it | Owns a Sea Power window? |
 | --- | --- | --- | --- |
@@ -22,7 +23,7 @@ process is allowed to own assigned islands**.
 | Campaign-owned Track A worker | `CrimeanTom.Campaign.OperationalWorker` | Coordinator `POST /control/campaigns/{id}/sim-workers` | No |
 
 The journal writer still **resolves** Operational ticks in-process. Track A is
-the campaign-owned simulation **source for placement, capacity, and fencing**.
+the campaign-owned **placement, capacity, and fencing target** in this slice.
 Sharding `CampaignSimulation` into the worker process is a follow-on. Assigned
 Operational islands are not frozen the way Sea Power Tactical islands are, so
 theater time does not stop when Track A owns them.
@@ -46,12 +47,12 @@ weapons, and AI run. Track A does not replace that.
 
 ### Track A — Sea-Power-free Operational worker (implemented)
 
-A .NET 8 process, same stack as the campaign service, speaking the existing
-worker gRPC hello/heartbeat/assignment protocol for this control-plane slice.
-Hello must not advertise a Sea Power runtime fingerprint, player task force,
-or materialization profile. The process does not yet host a shard of
-`CampaignSimulation`; the service remains the executor as well as the journal
-writer.
+A .NET 8 process, same stack as the campaign service, reusing the existing
+ordered gRPC stream and heartbeat conventions. Its control-plane placement is a
+distinct `OperationalAssignment`, not a `TacticalAssignment`. Hello must not
+advertise a Sea Power runtime fingerprint, player task force, or materialization
+profile. The process does not yet host a shard of `CampaignSimulation`; the
+service remains the executor as well as the journal writer.
 
 **Must not own:** lease/epoch allocation, canonical campaign-clock allocation,
 journal writer identity, player commands, Sea Power materialization.
@@ -78,9 +79,12 @@ Control surface:
   and reserve are the assigned-island budget. Overlapping spawn for the same
   worker id is rejected.
 - `GET /control/campaigns/{id}/sim-workers` — recorded children and liveness.
-- `DELETE /control/campaigns/{id}/sim-workers/{workerId}` — release Operational
-  assignments, then PID-fenced kill (pid + start time + executable path).
-- Hello advertises `workerKind=operational` and `playerSessionBound=false`.
+- `DELETE /control/campaigns/{id}/sim-workers/{workerId}` — PID/start/executable-
+  fenced kill and immediate session removal, then release the control-plane
+  placements. A3 must replace this with bounded work-result drain before kill.
+- Hello advertises `workerKind=operational` and `playerSessionBound=false`, plus
+  a per-spawn ID and credential that must match the exact live supervisor
+  record. Unsolicited Operational hellos fail closed.
 - Service start reaps leftover children; Windows job objects kill children when
   the service process dies.
 - Scheduler places islands whose desired fidelity is at most Operational onto
@@ -119,23 +123,25 @@ Operational result eligible for Tactical activation.
 
 ### Supervision and recovery
 
-- One journaled spawn record maps to at most one accepted worker instance.
+- One durable supervisor spawn record maps to at most one accepted worker instance.
   Duplicate or unsolicited hellos fail closed.
-- The coordinator places children in an OS job/process group, applies configured
-  CPU/memory/concurrency limits, captures bounded logs, and reports pressure to
-  the scheduler. Advertised island capacity is not a substitute for host
-  resource limits.
-- On service restart, the coordinator reconciles journaled spawn records with
-  verified process identities. It either re-authenticates and re-leases a
-  matching child or fences and terminates it; it never silently adopts an
-  arbitrary process and never assumes an old lease survived.
-- On worker crash or timeout, outstanding leases expire without committing
-  partial results. The service replays the immutable input on another Track A
-  worker or in-process. Journal recovery, not worker-local mutable state,
-  determines canonical progress.
-- Shutdown/restart tests must cover PID reuse, duplicate hello, orphan cleanup,
-  crash during result publication, log saturation, and a child that ignores the
-  graceful-stop deadline.
+- On Windows, the coordinator places children in a kill-on-close job object and
+  captures bounded logs; job creation/configuration/assignment fails closed at
+  spawn. Other hosts use explicit process-tree kill plus startup identity
+  reaping and require their own crash-orphan qualification. Advertised island
+  capacity is not a substitute for host CPU/memory limits; measured resource
+  limits and pressure reporting remain A3 gates.
+- On service restart, the coordinator kills any still-live child whose PID,
+  start time, and executable match its record. It never silently adopts a child
+  or assumes an old placement survived. The next scheduler pass releases
+  placements whose worker session is absent before admitting replacement work.
+- The control-plane slice has no worker-computed result to commit partially.
+  A3 must make worker crash/timeout expire an immutable work lease and replay
+  its input on another Track A worker or in-process.
+- The broad integration story covers unsolicited hello, drain, exact child
+  death, restart cleanup, and canonical placement release. PID-reuse injection,
+  log saturation, crash during A3 result publication, and a child that ignores
+  graceful stop remain later negative gates.
 
 ## Scheduler rules
 
@@ -156,7 +162,7 @@ Operational result eligible for Tactical activation.
 | Slice | Outcome | Status |
 | --- | --- | --- |
 | A0 | This document and claim language | Done |
-| A1 | Coordinator spawn/stop bound to one campaign | Done: hello `playerSessionBound=false`; PID-fenced kill; restart does not leak children |
+| A1 | Coordinator spawn/stop bound to one campaign | Done: hello `playerSessionBound=false`; per-spawn credential; PID/start/executable and job fencing; restart does not leak children |
 | A2 | Scheduler places non-player Operational islands | Done for placement/fencing; tick execution and journaling remain in-process |
 | A3 | Execute leased Operational work out of process | Not started: distinct lease/result protocol and deterministic replay gates above are required |
 | B0 | Track B spawn design against named-worker evidence | Not started |

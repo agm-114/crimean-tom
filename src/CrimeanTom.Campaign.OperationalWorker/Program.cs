@@ -34,7 +34,7 @@ internal static class Program
     {
         var token = (await File.ReadAllTextAsync(options.TokenFile, cancellationToken)).Trim();
         long observedCommitPosition = 0;
-        var assignments = new ConcurrentDictionary<string, OperationalAssignment>(StringComparer.Ordinal);
+        var assignments = new ConcurrentDictionary<string, OwnedOperationalAssignment>(StringComparer.Ordinal);
         while (!cancellationToken.IsCancellationRequested)
         {
             try
@@ -52,10 +52,7 @@ internal static class Program
             }
             catch (Exception exception)
             {
-                await File.AppendAllTextAsync(
-                    Path.Combine(options.RecordDirectory, "worker.stderr.log"),
-                    $"{DateTimeOffset.UtcNow:o} {exception}{Environment.NewLine}",
-                    cancellationToken);
+                Console.Error.WriteLine($"{DateTimeOffset.UtcNow:o} {exception}");
                 await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
             }
         }
@@ -65,7 +62,7 @@ internal static class Program
         OperationalWorkerOptions options,
         string token,
         long reconnectCommitPosition,
-        ConcurrentDictionary<string, OperationalAssignment> assignments,
+        ConcurrentDictionary<string, OwnedOperationalAssignment> assignments,
         CancellationToken cancellationToken)
     {
         using var channel = GrpcChannel.ForAddress(options.GrpcUri, new GrpcChannelOptions
@@ -89,8 +86,10 @@ internal static class Program
                 ReconnectCommitPosition = reconnectCommitPosition,
                 CatalogFingerprintSha256 = options.CatalogFingerprintSha256,
                 WorkerKind = CampaignWorkerKind.Operational,
-                TacticalEntityCapacity = options.Capacity,
-                TacticalReserveCapacity = options.Reserve,
+                OperationalSpawnId = options.SpawnId,
+                OperationalSpawnCredential = options.SpawnCredential,
+                OperationalEntityCapacity = options.Capacity,
+                OperationalReserveCapacity = options.Reserve,
                 Health = "Healthy",
                 Eligibility = "Eligible",
             },
@@ -125,12 +124,25 @@ internal static class Program
                             observedCommitPosition,
                             frame.CommittedEvent.CommitPosition);
                         break;
+                    case ServiceFrame.PayloadOneofCase.OperationalAssignment:
+                        await HandleAssignmentAsync(frame.OperationalAssignment);
+                        await SendAcknowledgementAsync(frame.Sequence, observedCommitPosition);
+                        break;
                     case ServiceFrame.PayloadOneofCase.Assignment:
-                        await HandleAssignmentAsync(frame.Assignment);
+                        await SendPreparedAsync(
+                            frame.Assignment.AssignmentId,
+                            frame.Assignment.EntityId,
+                            frame.Assignment.AuthorityEpoch,
+                            ready: false,
+                            "operational-worker-rejects-tactical");
                         await SendAcknowledgementAsync(frame.Sequence, observedCommitPosition);
                         break;
                     case ServiceFrame.PayloadOneofCase.Fence:
-                        assignments.TryRemove(frame.Fence.AssignmentId, out _);
+                        if (assignments.TryGetValue(frame.Fence.AssignmentId, out var fenced)
+                            && fenced.AuthorityEpoch == frame.Fence.FencedAuthorityEpoch)
+                        {
+                            assignments.TryRemove(frame.Fence.AssignmentId, out _);
+                        }
                         await SendAcknowledgementAsync(frame.Sequence, observedCommitPosition);
                         break;
                     case ServiceFrame.PayloadOneofCase.Command:
@@ -180,25 +192,44 @@ internal static class Program
 
         return observedCommitPosition;
 
-        async Task HandleAssignmentAsync(TacticalAssignment assignment)
+        async Task HandleAssignmentAsync(OperationalAssignment assignment)
         {
-            var tactical = !string.IsNullOrWhiteSpace(assignment.RequiredRuntimeFingerprintSha256)
-                || !string.IsNullOrWhiteSpace(assignment.TaskforceId);
-            if (tactical)
+            if (!string.Equals(assignment.CampaignId, options.CampaignId, StringComparison.Ordinal)
+                || !TryParseScopedGuid(assignment.AssignmentId, "assignment:")
+                || !TryParseScopedGuid(assignment.EntityId, "unit:crimean-tom:")
+                || assignment.AuthorityEpoch <= 0
+                || assignment.HandoffCommitPosition < 0
+                || assignment.HandoffTimeQuanta < 0
+                || assignment.ExpectedEntityRevision <= 0
+                || assignment.BatchSize <= 0
+                || !assignment.BatchId.StartsWith("operational:", StringComparison.Ordinal))
             {
                 await SendPreparedAsync(
                     assignment.AssignmentId,
                     assignment.EntityId,
                     assignment.AuthorityEpoch,
                     ready: false,
-                    "operational-worker-rejects-tactical");
+                    "operational-assignment-invalid");
                 return;
             }
 
-            assignments[assignment.AssignmentId] = new OperationalAssignment(
+            var owned = new OwnedOperationalAssignment(
                 assignment.AssignmentId,
                 assignment.EntityId,
                 assignment.AuthorityEpoch);
+            if (assignments.TryGetValue(assignment.AssignmentId, out var existing)
+                && existing != owned)
+            {
+                await SendPreparedAsync(
+                    assignment.AssignmentId,
+                    assignment.EntityId,
+                    assignment.AuthorityEpoch,
+                    ready: false,
+                    "operational-assignment-fenced");
+                return;
+            }
+
+            assignments[assignment.AssignmentId] = owned;
             await SendPreparedAsync(
                 assignment.AssignmentId,
                 assignment.EntityId,
@@ -227,7 +258,11 @@ internal static class Program
                         AuthorityEpoch = authorityEpoch,
                         Ready = ready,
                         ErrorCode = errorCode,
-                        ErrorMessage = ready ? string.Empty : "Track A workers cannot materialize Sea Power tactical islands.",
+                        ErrorMessage = ready
+                            ? string.Empty
+                            : errorCode == "operational-worker-rejects-tactical"
+                                ? "Track A workers cannot materialize Sea Power tactical islands."
+                                : "The Operational placement message is invalid.",
                     },
                 });
             }
@@ -276,10 +311,9 @@ internal static class Program
                             SentAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                             CatalogFingerprintSha256 = options.CatalogFingerprintSha256,
                             WorkerKind = CampaignWorkerKind.Operational,
-                            OwnedMaterializedEntityCount = owned,
-                            OwnedActiveEntityCount = owned,
-                            TacticalEntityCapacity = options.Capacity,
-                            TacticalReserveCapacity = options.Reserve,
+                            OwnedOperationalEntityCount = owned,
+                            OperationalEntityCapacity = options.Capacity,
+                            OperationalReserveCapacity = options.Reserve,
                             Health = "Healthy",
                             Eligibility = "Eligible",
                         },
@@ -294,15 +328,21 @@ internal static class Program
             }
         }
     }
+
+    private static bool TryParseScopedGuid(string value, string prefix) =>
+        value.StartsWith(prefix, StringComparison.Ordinal)
+        && Guid.TryParseExact(value[prefix.Length..], "N", out _);
 }
 
-internal sealed record OperationalAssignment(string AssignmentId, string EntityId, long AuthorityEpoch);
+internal sealed record OwnedOperationalAssignment(string AssignmentId, string EntityId, long AuthorityEpoch);
 
 internal sealed record OperationalWorkerOptions(
     string CampaignId,
     Uri GrpcUri,
     string TokenFile,
     string ClientInstanceId,
+    string SpawnId,
+    string SpawnCredential,
     string RecordDirectory,
     string CatalogFingerprintSha256,
     int Capacity,
@@ -327,6 +367,8 @@ internal sealed record OperationalWorkerOptions(
             grpcUri,
             tokenFile,
             clientInstanceId,
+            Require("CRIMEAN_TOM_SIM_WORKER_SPAWN_ID"),
+            Require("CRIMEAN_TOM_SIM_WORKER_SPAWN_CREDENTIAL"),
             recordDirectory,
             Environment.GetEnvironmentVariable("CRIMEAN_TOM_CATALOG_FINGERPRINT") ?? string.Empty,
             ParseCapacity("CRIMEAN_TOM_SIM_WORKER_CAPACITY", 8),

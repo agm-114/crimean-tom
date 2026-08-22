@@ -37,6 +37,20 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public bool CloseClient(string clientInstanceId, string reason)
+    {
+        lock (_gate)
+        {
+            if (!_activeByClient.Remove(clientInstanceId, out var session))
+            {
+                return false;
+            }
+
+            session.Complete(reason);
+            return true;
+        }
+    }
+
     public CampaignSessionSnapshot? Snapshot(string? campaignId = null)
     {
         lock (_gate)
@@ -165,8 +179,11 @@ public sealed class CampaignCompanionSession
     private int _ownedActiveEntityCount;
     private int _ownedRetainedSuspendedEntityCount;
     private int _ownedRecoveryRequiredEntityCount;
+    private int _ownedOperationalEntityCount;
     private int _tacticalEntityCapacity;
     private int _tacticalReserveCapacity;
+    private int _operationalEntityCapacity;
+    private int _operationalReserveCapacity;
     private string _health = CampaignWorkerHealth.Healthy;
     private string _eligibility = CampaignWorkerHealth.Eligible;
     private DateTimeOffset _lastHeartbeatAt;
@@ -188,7 +205,16 @@ public sealed class CampaignCompanionSession
         _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
         _playerTaskforceId = hello.PlayerTaskforceId;
         _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
-        ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
+        if (CampaignWorkerKind.IsOperational(_workerKind))
+        {
+            ObserveOperationalCapacity(
+                hello.OperationalEntityCapacity,
+                hello.OperationalReserveCapacity);
+        }
+        else
+        {
+            ObserveCapacity(hello.TacticalEntityCapacity, hello.TacticalReserveCapacity);
+        }
         ObserveHealth(hello.Health, hello.Eligibility);
     }
 
@@ -222,6 +248,21 @@ public sealed class CampaignCompanionSession
             lock (_capabilityGate)
             {
                 _lastHeartbeatAt = DateTimeOffset.UtcNow;
+                var mixedCapacityNamespace = operationalHeartbeat
+                    ? frame.Heartbeat.TacticalEntityCapacity != 0
+                        || frame.Heartbeat.TacticalReserveCapacity != 0
+                        || frame.Heartbeat.OwnedMaterializedEntityCount != 0
+                        || frame.Heartbeat.OwnedActiveEntityCount != 0
+                        || frame.Heartbeat.OwnedRetainedSuspendedEntityCount != 0
+                        || frame.Heartbeat.OwnedRecoveryRequiredEntityCount != 0
+                    : frame.Heartbeat.OperationalEntityCapacity != 0
+                        || frame.Heartbeat.OperationalReserveCapacity != 0
+                        || frame.Heartbeat.OwnedOperationalEntityCount != 0;
+                if (mixedCapacityNamespace)
+                {
+                    ObserveHealth(CampaignWorkerHealth.Quarantined, CampaignWorkerHealth.Quarantined);
+                    return;
+                }
                 if (operationalHeartbeat
                     || (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
                         && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
@@ -244,6 +285,12 @@ public sealed class CampaignCompanionSession
                             .Select(item => item.Clone()).ToArray();
                         ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                     }
+                    else
+                    {
+                        _ownedOperationalEntityCount = Math.Max(
+                            0,
+                            frame.Heartbeat.OwnedOperationalEntityCount);
+                    }
 
                     if (!string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
                     {
@@ -260,9 +307,18 @@ public sealed class CampaignCompanionSession
                     _ownedRecoveryRequiredEntityCount = Math.Max(
                         0,
                         frame.Heartbeat.OwnedRecoveryRequiredEntityCount);
-                    ObserveCapacity(
-                        frame.Heartbeat.TacticalEntityCapacity,
-                        frame.Heartbeat.TacticalReserveCapacity);
+                    if (operationalHeartbeat)
+                    {
+                        ObserveOperationalCapacity(
+                            frame.Heartbeat.OperationalEntityCapacity,
+                            frame.Heartbeat.OperationalReserveCapacity);
+                    }
+                    else
+                    {
+                        ObserveCapacity(
+                            frame.Heartbeat.TacticalEntityCapacity,
+                            frame.Heartbeat.TacticalReserveCapacity);
+                    }
                 }
 
                 ObserveHealth(frame.Heartbeat.Health, frame.Heartbeat.Eligibility, replaceEmptyWithHealthy: false);
@@ -305,8 +361,11 @@ public sealed class CampaignCompanionSession
                 _ownedActiveEntityCount,
                 _ownedRetainedSuspendedEntityCount,
                 _ownedRecoveryRequiredEntityCount,
+                _ownedOperationalEntityCount,
                 _tacticalEntityCapacity,
                 _tacticalReserveCapacity,
+                _operationalEntityCapacity,
+                _operationalReserveCapacity,
                 health,
                 eligibility,
                 _couplingRelationships.Values
@@ -358,6 +417,19 @@ public sealed class CampaignCompanionSession
         }
         _tacticalEntityCapacity = capacity;
         _tacticalReserveCapacity = reserve;
+    }
+
+    private void ObserveOperationalCapacity(int capacity, int reserve)
+    {
+        if (capacity is < 1 or > 10_000 || reserve < 0 || reserve > capacity)
+        {
+            _operationalEntityCapacity = 0;
+            _operationalReserveCapacity = 0;
+            return;
+        }
+
+        _operationalEntityCapacity = capacity;
+        _operationalReserveCapacity = reserve;
     }
 
     private void ObserveHealth(string health, string eligibility, bool replaceEmptyWithHealthy = true)
@@ -422,8 +494,11 @@ public sealed record CampaignSessionSnapshot(
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,
     int OwnedRecoveryRequiredEntityCount,
+    int OwnedOperationalEntityCount,
     int TacticalEntityCapacity,
     int TacticalReserveCapacity,
+    int OperationalEntityCapacity,
+    int OperationalReserveCapacity,
     string Health,
     string Eligibility,
     IReadOnlyList<CampaignCouplingRelationship> CouplingRelationships,
