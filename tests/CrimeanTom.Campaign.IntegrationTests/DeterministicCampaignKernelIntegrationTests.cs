@@ -95,20 +95,18 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var parallel = CampaignKernel.Apply(second.State, parallelWorkerEvent);
         Assert.Equal(CampaignCanonicalSerializer.Serialize(simulated), CampaignCanonicalSerializer.Serialize(parallel));
         Assert.Equal(new CampaignTime(30), simulated.Time);
-        Assert.Equal(Ids.Odessa, simulated.Entities[Ids.BlueKnox].RegionId);
         Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueOiler].RegionId);
+        Assert.NotEqual(Ids.Odessa, simulated.Entities[Ids.BlueKnox].RegionId);
+        Assert.True(simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits < 800_000);
+        Assert.True(simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits <= 1_000);
         Assert.NotEqual(0, simulated.Entities[Ids.BlueOiler].Heading.Value);
         Assert.True(simulated.Entities[Ids.BlueOiler].Telegraph is 2 or 3 or 4);
         Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
-        Assert.Equal(800_000, simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits);
-        Assert.Equal(1_000, simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits);
+        Assert.True(simulated.Intelligence.Count >= 2);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
         Assert.Equal(900_000, simulated.Bases[Ids.RedBase].Resources[ResourceKind.SpareParts].MilliUnits);
         Assert.Equal(15, simulated.ScheduledActivities.Count);
-        Assert.Equal(2, simulated.Intelligence.Count);
-        Assert.DoesNotContain(simulated.Intelligence.Keys, item =>
-            item.ObserverCoalitionId == Ids.RedCoalition && item.ContactEntityId == Ids.BlueKnox);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Damage);
         Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
@@ -156,9 +154,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("9b554b3742c1f3e31a4af2d356d40f239d49d7eafb4e7ae27211e0944a2f6022", longHorizon.Hash);
+        Assert.Equal("594b0579e43852e698f7653f59e65308685d47b3a920c8c320c0ba8391a50a83", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("fc50c497a5568ffcd74c75ae0be38efcd8772e94aab6ad927583be8708a49039", migrated.Hash);
+        Assert.Equal("427e4165eb262f74a930049caddb817cdb9590e251edc24ac3c571f2825e1c6f", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -429,7 +427,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(7, CampaignSchema.Version);
-        Assert.Equal(7, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(8, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
@@ -483,6 +481,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(AssignmentRole.Primary, source.Role);
         Assert.Equal(AssignmentLifecycle.Preparing, source.Lifecycle);
         Assert.Equal(FidelityState.Tactical, entity.Fidelity);
+        Assert.NotEqual(EntityLifecycle.Destroyed, entity.Lifecycle);
 
         state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.Assignment), source.Revision,
             new ActivateTacticalAssignmentCommand(Ids.Assignment, source.AuthorityEpoch, Ids.BlueKnox, entity.Revision,

@@ -264,6 +264,112 @@ public sealed class OperationalSimWorkerIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task ServerAdvancesCampaignWithoutClientOrSeaPower()
+    {
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var repositoryRoot = FindRepositoryRoot();
+        var runDirectory = CreateTemporaryDirectory();
+        var campaignGrpcPort = GetUnusedLoopbackPort();
+        var campaignHttpPort = GetUnusedLoopbackPort();
+        while (campaignHttpPort == campaignGrpcPort)
+        {
+            campaignHttpPort = GetUnusedLoopbackPort();
+        }
+
+        var campaignGrpcUrl = $"http://127.0.0.1:{campaignGrpcPort}";
+        var campaignHttpUrl = $"http://127.0.0.1:{campaignHttpPort}";
+        var campaignId = Guid.NewGuid().ToString("N");
+        Process? campaignService = null;
+        try
+        {
+            campaignService = StartCampaignService(
+                repositoryRoot,
+                runDirectory,
+                campaignGrpcUrl,
+                campaignHttpUrl,
+                new Dictionary<string, string>
+                {
+                    ["CRIMEAN_TOM_UNATTENDED_SIMULATION"] = "1",
+                    ["CRIMEAN_TOM_UNATTENDED_TICK_WALL_MS"] = "200",
+                    ["CRIMEAN_TOM_UNATTENDED_QUANTA_PER_TICK"] = "10",
+                });
+            var token = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
+            using var campaignClient = CreateBearerClient(campaignHttpUrl, token);
+            using var created = await campaignClient.PostAsJsonAsync(
+                "/control/campaigns",
+                new
+                {
+                    campaignId,
+                    name = "Unattended kernel analogue",
+                    seed = 19L,
+                    catalogFingerprint = new string('b', 64),
+                },
+                testTimeout.Token);
+            created.EnsureSuccessStatusCode();
+            using var bootstrapped = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/bootstrap",
+                content: null,
+                testTimeout.Token);
+            bootstrapped.EnsureSuccessStatusCode();
+
+            using var before = await campaignClient.GetAsync($"/campaigns/{campaignId}", testTimeout.Token);
+            before.EnsureSuccessStatusCode();
+            using var beforeBody = JsonDocument.Parse(await before.Content.ReadAsStringAsync(testTimeout.Token));
+            var beforeTime = beforeBody.RootElement.GetProperty("timeQuanta").GetInt64();
+
+            await WaitUntilAsync(
+                async () =>
+                {
+                    using var snapshot = await campaignClient.GetAsync($"/campaigns/{campaignId}", testTimeout.Token);
+                    if (!snapshot.IsSuccessStatusCode)
+                    {
+                        return false;
+                    }
+
+                    using var body = JsonDocument.Parse(await snapshot.Content.ReadAsStringAsync(testTimeout.Token));
+                    return body.RootElement.GetProperty("timeQuanta").GetInt64() > beforeTime;
+                },
+                testTimeout.Token);
+
+            using var after = await campaignClient.GetAsync($"/campaigns/{campaignId}", testTimeout.Token);
+            after.EnsureSuccessStatusCode();
+            using var afterBody = JsonDocument.Parse(await after.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.True(afterBody.RootElement.GetProperty("timeQuanta").GetInt64() > beforeTime);
+            Assert.Contains(
+                afterBody.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("revision").GetInt64() > 1
+                    || item.GetProperty("headingMilliDegrees").GetInt32() != 0
+                    || item.GetProperty("fuelMilliunits").GetInt64() < 1_000_000);
+        }
+        finally
+        {
+            if (campaignService is not null)
+            {
+                try
+                {
+                    if (!campaignService.HasExited)
+                    {
+                        campaignService.Kill(entireProcessTree: true);
+                    }
+
+                    campaignService.Dispose();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+
+            try
+            {
+                Directory.Delete(runDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     private static async Task<SpawnedWorker> SpawnWorkerAsync(
         HttpClient client,
         string campaignId,
@@ -405,7 +511,8 @@ public sealed class OperationalSimWorkerIntegrationTests
         string repositoryRoot,
         string runDirectory,
         string grpcUrl,
-        string httpUrl)
+        string httpUrl,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var normalHostPath = Path.Combine(
             repositoryRoot,
@@ -434,6 +541,14 @@ public sealed class OperationalSimWorkerIntegrationTests
         start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        start.Environment["CRIMEAN_TOM_UNATTENDED_SIMULATION"] = "0";
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                start.Environment[key] = value;
+            }
+        }
         Directory.CreateDirectory(runDirectory);
         var process = new Process { StartInfo = start };
         process.Start();

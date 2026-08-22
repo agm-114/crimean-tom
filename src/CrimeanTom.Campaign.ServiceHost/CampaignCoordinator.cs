@@ -1191,6 +1191,8 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public bool IsPaused(CampaignId campaignId) => _pausedCampaigns.ContainsKey(campaignId);
+
     public async Task<CampaignSchedulerView> DrainAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken)

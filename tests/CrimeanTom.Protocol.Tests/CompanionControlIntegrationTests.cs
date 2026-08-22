@@ -3451,6 +3451,7 @@ public sealed class CompanionControlIntegrationTests
         start.Environment["CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY"] = runDirectory;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_GRPC_URL"] = grpcUrl;
         start.Environment["CRIMEAN_TOM_CAMPAIGN_HTTP_URL"] = httpUrl;
+        start.Environment["CRIMEAN_TOM_UNATTENDED_SIMULATION"] = "0";
         if (environment is not null)
         {
             foreach (var (key, value) in environment)
