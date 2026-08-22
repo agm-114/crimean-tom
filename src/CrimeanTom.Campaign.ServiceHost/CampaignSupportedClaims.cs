@@ -10,7 +10,7 @@ public static class CampaignSupportedClaims
         ReplicaHashRule: CampaignDurabilityPolicy.Current.ReplicaHashRule,
         PackagedDeploymentProfile: CampaignDurabilityPolicy.Current.PackagedDeploymentProfile,
         PlayerProjectionTransport: CampaignDurabilityPolicy.Current.PlayerProjectionTransport,
-        CompatibilityPolicy: "fail-closed-on-runtime-or-catalog-fingerprint-mismatch",
+        CompatibilityPolicy: "assignment-preparation-and-activation-fail-closed-on-pinned-fingerprint-mismatch",
         CanonicalDurabilityBoundary: CampaignDurabilityPolicy.Current.CanonicalDurabilityBoundary,
         Supported:
         [
@@ -19,7 +19,7 @@ public static class CampaignSupportedClaims
             "coalition-filtered-projections-without-classified-truth",
             "replica-checkpoint-hash-disagreement-refuses-majority",
             "render-proxy-cannot-receive-simulation-authority",
-            "observer-cannot-activate-without-complete-hidden-state",
+            "observer-is-never-a-primary-activation-source",
             "online-backup-restore-with-integrity-hashes",
             "operator-pause-and-drain",
         ],

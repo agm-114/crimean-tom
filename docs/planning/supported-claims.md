@@ -4,9 +4,10 @@ Authenticated `GET /supported-claims` is the machine-readable copy of this
 document. If the two disagree, the HTTP contract is wrong.
 
 Game build in evidence: Sea Power `0.8.2-23444+s358`. A later game update can
-invalidate runtime fingerprints, UI automation, and catalog hashes. Compatibility
-failures fail closed: a worker with a mismatched runtime or catalog fingerprint
-does not receive new Primary or Shadow work.
+invalidate runtime fingerprints, UI automation, and catalog hashes. Assignment
+preparation and activation fail closed when the companion's current runtime or
+catalog fingerprint differs from the fingerprint pinned into that assignment.
+The scheduler does not yet enforce a campaign-global build fingerprint.
 
 ## Supported
 
@@ -18,8 +19,8 @@ does not receive new Primary or Shadow work.
   co-op, not an untrusted public server.
 - Live replica checkpoint SHA-256 disagreement refuses migration. There is no
   majority vote.
-- `RenderProxy` cannot receive simulation authority. Observer assignments cannot
-  activate to Primary without a separately authorized complete-state proof.
+- `RenderProxy` cannot receive simulation authority. The only activation path is
+  a fenced prepared Shadow; Observer is never a Primary activation source.
 - Online backup and side-directory restore verify event/hash integrity.
 - Operator pause rejects campaign time advances until resume. Drain sets
   scheduler health to Draining and eligibility to DrainOnly.
