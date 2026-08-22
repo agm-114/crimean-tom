@@ -104,6 +104,10 @@ internal static class GameCommandDispatcher
                     GameCommandTypes.GetUiInspection => Success(GetUiInspection()),
                     GameCommandTypes.CaptureGameScreenshot => CaptureGameScreenshot(
                         command.PayloadJson),
+                    GameCommandTypes.CaptureColliderCatalog => Success(
+                        RuntimeColliderCatalog.Capture(command.PayloadJson)),
+                    GameCommandTypes.GetColliderCatalog => Success(
+                        RuntimeColliderCatalog.Get(command.PayloadJson)),
                     GameCommandTypes.FocusCameraOnUnit => FocusCameraOnUnit(command.PayloadJson),
                     GameCommandTypes.SetTacticalHudPanel => SetTacticalHudPanel(
                         command.PayloadJson),

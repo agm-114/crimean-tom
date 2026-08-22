@@ -203,6 +203,31 @@ app.MapGet("/game/ui", (GamePipeBroker broker, CancellationToken cancellationTok
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/colliders/capture", (
+    CaptureColliderCatalogRequestPayload? request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.CaptureColliderCatalog,
+        JsonSerializer.Serialize(request ?? new CaptureColliderCatalogRequestPayload(), wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
+app.MapGet("/game/colliders", (
+    string? unitTypeId,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.GetColliderCatalog,
+        JsonSerializer.Serialize(new CaptureColliderCatalogRequestPayload
+        {
+            UnitTypeId = unitTypeId,
+        }, wireJsonOptions),
+        CommandPriorities.Bulk,
+        cancellationToken));
+
 app.MapPost("/game/screenshot", async (
     CaptureGameScreenshotRequestPayload? request,
     GamePipeBroker broker,

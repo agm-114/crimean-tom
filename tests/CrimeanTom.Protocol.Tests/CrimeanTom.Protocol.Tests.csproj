@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Companion\CrimeanTom.Companion.csproj" />
+    <ProjectReference Include="..\..\src\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj" />
   </ItemGroup>
 
   <ItemGroup>
