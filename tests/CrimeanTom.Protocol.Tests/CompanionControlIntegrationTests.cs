@@ -205,6 +205,13 @@ public sealed class CompanionControlIntegrationTests
                 .EnumerateArray().ToArray();
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "Damage");
+            var fuldaCalibration = advancedFuldaView.RootElement.GetProperty("calibration");
+            Assert.True(fuldaCalibration.GetProperty("inEnvelope").GetBoolean());
+            Assert.Equal(0, fuldaCalibration.GetProperty("observedRangeViolationCount").GetInt32());
+            Assert.True(
+                fuldaCalibration.GetProperty("maximumRangeRatioMilliunits").GetInt32()
+                <= fuldaCalibration.GetProperty("envelopeMaximumRangeRatioMilliunits").GetInt32());
+            Assert.Equal(10, fuldaCalibration.GetProperty("maximumTacticalCompressionTimes").GetInt32());
             var landEntityId = Assert.Single(
                 advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray(),
                 item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"

@@ -80,11 +80,19 @@ type Performance = {
   workingSetBytes: number; recovery: OperationTelemetry; advance: OperationTelemetry;
   schedule: OperationTelemetry;
 };
+type Calibration = {
+  schemaVersion: number; inEnvelope: boolean; maximumTacticalCompressionTimes: number;
+  healthyTicksPerWallSecond: number; targetTicksPerWallSecond: number;
+  observedWeaponExpenditureCount: number; observedRangeViolationCount: number;
+  maximumRangeRatioMilliunits: number; envelopeMaximumRangeRatioMilliunits: number;
+  observedFencedIslandCount: number; demotedFencedIslandCount: number; disagreements: string[];
+};
 type Campaign = {
   campaignId: string; name: string; commitPosition: number; timeQuanta: number; canonicalHash: string;
   regions: Region[]; bases: Base[]; entities: Entity[]; groups: Group[];
   assignments: Assignment[]; recentOperationalOutcomes: Outcome[]; scheduler: Scheduler;
   performance: Performance; workers: Worker[];
+  calibration: Calibration;
 };
 type CampaignSummary = {
   campaignId: string; name: string; commitPosition: number; catalogFingerprint: string;
@@ -566,7 +574,14 @@ function renderPanels(data: Campaign): void {
   byId("worker-status").title = data.workers.length
     ? `${workerStatus} // ${data.workers.map(worker => `${worker.clientInstanceId.slice(0, 8).toUpperCase()}:${worker.health}/${worker.eligibility}:${worker.playerTaskforceId || "NO TASKFORCE"}:O${worker.occupiedTacticalEntityCount}/${worker.tacticalEntityCapacity}:R${worker.tacticalReserveCapacity}:P${worker.promotionHeadroom}:M${worker.migrationOverlapHeadroom}`).join(" + ")}`
     : workerStatus;
-  byId("performance-status").textContent = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M`;
+  const calibrationLabel = data.calibration?.inEnvelope
+    ? "IN-ENVELOPE"
+    : `DISAGREE/${data.calibration?.disagreements.length ?? 0}`;
+  const performanceStatus = `PERF / REC ${data.performance.recovery.lastDurationMicroseconds}µs // ADV ${data.performance.advance.lastDurationMicroseconds}µs // SCH ${data.performance.schedule.lastDurationMicroseconds}µs // MEM ${(data.performance.workingSetBytes / 1_048_576).toFixed(0)}M // CAL ${calibrationLabel}`;
+  byId("performance-status").textContent = performanceStatus;
+  byId("performance-status").title = data.calibration?.inEnvelope
+    ? performanceStatus
+    : `${performanceStatus} // ${(data.calibration?.disagreements ?? []).join(" // ")}`;
   byId("outcome-count").textContent = `${data.recentOperationalOutcomes.length.toString().padStart(2, "0")} EVENTS`;
   renderOrderOfBattle(data);
   byId("outcome-list").innerHTML = [...data.recentOperationalOutcomes].reverse().map(outcome => `
