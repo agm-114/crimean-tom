@@ -1512,6 +1512,8 @@ public sealed class ColliderCatalogEntryPayload
 
     public string ClassName { get; set; } = string.Empty;
 
+    public string GameVersion { get; set; } = string.Empty;
+
     public int ColliderCount { get; set; }
 
     public string Sha256 { get; set; } = string.Empty;

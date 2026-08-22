@@ -1405,6 +1405,18 @@ public sealed class CompanionControlIntegrationTests
                 "box",
                 colliderCatalog.RootElement.GetProperty("geometry").GetProperty("colliders")[0].GetProperty("kind").GetString());
 
+            using var colliderList = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders",
+                testTimeout.Token);
+            Assert.Equal("file-cache", colliderList.RootElement.GetProperty("source").GetString());
+            Assert.Equal("integration", colliderList.RootElement.GetProperty("gameVersion").GetString());
+            Assert.Equal(1, colliderList.RootElement.GetProperty("fileCount").GetInt32());
+            Assert.Equal(
+                "integration",
+                colliderList.RootElement.GetProperty("entries")[0].GetProperty("gameVersion").GetString());
+
             using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,

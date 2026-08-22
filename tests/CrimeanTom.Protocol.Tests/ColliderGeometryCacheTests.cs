@@ -39,6 +39,7 @@ public sealed class ColliderGeometryCacheTests
             Assert.Equal(64, written.Sha256.Length);
             Assert.True(File.Exists(first.FilePathFor("usn_ff_knox_84")));
             Assert.Equal(1, first.MemoryCount);
+            Assert.Equal(1, first.FileCount);
 
             var reloaded = new ColliderGeometryCache(root);
             Assert.True(reloaded.TryGet("USN_FF_KNOX_84", out var fromFile));
@@ -49,6 +50,10 @@ public sealed class ColliderGeometryCacheTests
             File.Delete(reloaded.FilePathFor("usn_ff_knox_84"));
             Assert.True(reloaded.TryGet("usn_ff_knox_84", out var fromMemory));
             Assert.Equal(written.Sha256, fromMemory.Sha256);
+            Assert.Equal(1, reloaded.MemoryCount);
+            Assert.Equal(0, reloaded.FileCount);
+            Assert.Equal(0, reloaded.RefreshFromDisk());
+            Assert.False(reloaded.TryGet("usn_ff_knox_84", out _));
 
             var cold = new ColliderGeometryCache(root);
             Assert.False(cold.TryGet("usn_ff_knox_84", out _));
@@ -109,6 +114,9 @@ public sealed class ColliderGeometryCacheTests
             Assert.Equal(1, catalog.RefreshFromDisk());
             Assert.True(catalog.TryGet("usn_ff_knox_84", out var loaded));
             Assert.Equal("sphere", loaded.Colliders[0].Kind);
+            Assert.Equal("0.8.2", catalog.NewestGameVersion);
+            Assert.Equal("0.8.2", catalog.List()[0].GameVersion);
+            Assert.Equal(1, catalog.FileCount);
             Assert.Contains(
                 Path.DirectorySeparatorChar + "0.8.2" + Path.DirectorySeparatorChar,
                 catalog.List()[0].FilePath,

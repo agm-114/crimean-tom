@@ -29,7 +29,12 @@ internal static class RuntimeColliderCatalog
             ? new CaptureColliderCatalogRequestPayload()
             : JsonSerializer.Deserialize<CaptureColliderCatalogRequestPayload>(payloadJson, JsonOptions)
                 ?? new CaptureColliderCatalogRequestPayload();
-        var cache = Cache();
+        var cache = TryCache();
+        if (cache is null)
+        {
+            return SummarizeCapture(null, scanned: 0, captured: 0, "collider-cache-unavailable");
+        }
+
         var scanned = 0;
         var captured = 0;
         var wanted = string.IsNullOrWhiteSpace(request.UnitTypeId)
@@ -40,6 +45,7 @@ internal static class RuntimeColliderCatalog
             return SummarizeCapture(cache, scanned, captured, "no-objects-manager");
         }
 
+        var handled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var objects = Singleton<ObjectsManager>.Instance._listOfAllObjects;
         foreach (var unit in objects)
         {
@@ -61,16 +67,31 @@ internal static class RuntimeColliderCatalog
                 continue;
             }
 
-            var extracted = Extract(unit, unitTypeId);
-            if (!request.ForceRefresh
-                && cache.TryGet(unitTypeId, out var existing)
-                && existing.ColliderCount >= extracted.ColliderCount)
+            if (!request.ForceRefresh && cache.TryGet(unitTypeId, out _))
             {
                 continue;
             }
 
-            cache.Upsert(extracted);
-            captured++;
+            if (!handled.Add(unitTypeId))
+            {
+                continue;
+            }
+
+            try
+            {
+                cache.Upsert(Extract(unit, unitTypeId));
+                captured++;
+            }
+            catch (IOException exception)
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[Sea Power Runtime Bridge] collider cache write failed for {unitTypeId}: {exception.Message}");
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[Sea Power Runtime Bridge] collider cache write failed for {unitTypeId}: {exception.Message}");
+            }
         }
 
         return SummarizeCapture(
@@ -88,7 +109,17 @@ internal static class RuntimeColliderCatalog
             ? new CaptureColliderCatalogRequestPayload()
             : JsonSerializer.Deserialize<CaptureColliderCatalogRequestPayload>(payloadJson, JsonOptions)
                 ?? new CaptureColliderCatalogRequestPayload();
-        var cache = Cache();
+        var cache = TryCache();
+        if (cache is null)
+        {
+            return new GetColliderCatalogResultPayload
+            {
+                SchemaVersion = ColliderGeometryCache.SchemaVersion,
+                GameVersion = Application.version ?? string.Empty,
+                Source = "plugin-memory",
+            };
+        }
+
         ColliderUnitGeometryPayload? geometry = null;
         if (!string.IsNullOrWhiteSpace(request.UnitTypeId)
             && cache.TryGet(request.UnitTypeId, out var found))
@@ -103,7 +134,7 @@ internal static class RuntimeColliderCatalog
             CacheDirectory = cache.Root,
             GameVersion = _gameVersion,
             MemoryCount = cache.MemoryCount,
-            FileCount = entries.Count,
+            FileCount = cache.FileCount,
             Entries = PipeEntries(entries, request.UnitTypeId),
             Geometry = geometry,
             Source = "plugin-memory",
@@ -111,23 +142,23 @@ internal static class RuntimeColliderCatalog
     }
 
     private static CaptureColliderCatalogResultPayload SummarizeCapture(
-        ColliderGeometryCache cache,
+        ColliderGeometryCache? cache,
         int scanned,
         int captured,
         string postcondition)
     {
-        var entries = cache.List();
+        var entries = cache?.List();
         return new CaptureColliderCatalogResultPayload
         {
             SchemaVersion = ColliderGeometryCache.SchemaVersion,
-            CacheDirectory = cache.Root,
+            CacheDirectory = cache?.Root ?? string.Empty,
             GameVersion = _gameVersion,
             ScannedObjectCount = scanned,
             CapturedUnitCount = captured,
-            MemoryCount = cache.MemoryCount,
-            FileCount = entries.Count,
+            MemoryCount = cache?.MemoryCount ?? 0,
+            FileCount = cache?.FileCount ?? 0,
             Postcondition = postcondition,
-            Entries = PipeEntries(entries, unitTypeId: null),
+            Entries = PipeEntries(entries ?? Array.Empty<ColliderCatalogEntryPayload>(), unitTypeId: null),
         };
     }
 
@@ -146,9 +177,21 @@ internal static class RuntimeColliderCatalog
         return selected.Take(MaximumPipeCatalogEntries).ToArray();
     }
 
-    public static string CurrentRoot() => Cache().Root;
+    public static string CurrentRoot()
+    {
+        try
+        {
+            return TryCache()?.Root ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            UnityEngine.Debug.LogWarning(
+                $"[Sea Power Runtime Bridge] collider cache root unavailable: {exception.Message}");
+            return string.Empty;
+        }
+    }
 
-    private static ColliderGeometryCache Cache()
+    private static ColliderGeometryCache? TryCache()
     {
         lock (Sync)
         {
@@ -159,11 +202,21 @@ internal static class RuntimeColliderCatalog
                 return _cache;
             }
 
-            _gameVersion = gameVersion;
-            var configured = System.Environment.GetEnvironmentVariable("CRIMEAN_TOM_COLLIDER_CACHE_DIR");
-            _cache = new ColliderGeometryCache(
-                ColliderGeometryCache.ResolveRoot(configured, gameVersion));
-            return _cache;
+            try
+            {
+                var configured = System.Environment.GetEnvironmentVariable("CRIMEAN_TOM_COLLIDER_CACHE_DIR");
+                _cache = new ColliderGeometryCache(
+                    ColliderGeometryCache.ResolveRoot(configured, gameVersion));
+                _gameVersion = gameVersion;
+                return _cache;
+            }
+            catch (Exception exception)
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[Sea Power Runtime Bridge] collider cache unavailable: {exception.Message}");
+                _cache = null;
+                return null;
+            }
         }
     }
 
@@ -201,7 +254,7 @@ internal static class RuntimeColliderCatalog
             };
             primitive.Name = collider.name ?? string.Empty;
             primitive.IsTrigger = collider.isTrigger;
-            primitive.Enabled = collider.enabled;
+            primitive.Enabled = collider.enabled && collider.gameObject.activeInHierarchy;
             primitives.Add(primitive);
         }
 
@@ -226,10 +279,10 @@ internal static class RuntimeColliderCatalog
         {
             Kind = "box",
             Center = Vec(root.InverseTransformPoint(worldCenter)),
-            Size = Vec(new Vector3(
+            Size = Vec(ToRootLocalSize(root, new Vector3(
                 Mathf.Abs(box.size.x * scale.x),
                 Mathf.Abs(box.size.y * scale.y),
-                Mathf.Abs(box.size.z * scale.z))),
+                Mathf.Abs(box.size.z * scale.z)))),
             Rotation = Quat(localRotation),
         };
     }
@@ -243,7 +296,7 @@ internal static class RuntimeColliderCatalog
         {
             Kind = "sphere",
             Center = Vec(root.InverseTransformPoint(worldCenter)),
-            Radius = radius,
+            Radius = ToRootLocalLength(root, radius),
         };
     }
 
@@ -269,29 +322,88 @@ internal static class RuntimeColliderCatalog
             Kind = "capsule",
             Center = Vec(root.InverseTransformPoint(worldCenter)),
             Rotation = Quat(localRotation),
-            Radius = capsule.radius * radiusScale,
-            Height = capsule.height * heightScale,
+            Radius = ToRootLocalLength(root, capsule.radius * radiusScale),
+            Height = ToRootLocalLength(root, capsule.height * heightScale),
             Direction = capsule.direction,
         };
     }
 
-    private static ColliderPrimitivePayload MeshBounds(Transform root, MeshCollider mesh) =>
-        BoundsOf(root, mesh);
-
-    private static ColliderPrimitivePayload BoundsOf(Transform root, Collider collider)
+    private static ColliderPrimitivePayload MeshBounds(Transform root, MeshCollider mesh)
     {
-        var bounds = collider.bounds;
-        var min = root.InverseTransformPoint(bounds.min);
-        var max = root.InverseTransformPoint(bounds.max);
+        var shared = mesh.sharedMesh;
+        if (shared is null)
+        {
+            return WorldBounds(root, mesh);
+        }
+
+        var bounds = shared.bounds;
+        var worldCenter = mesh.transform.TransformPoint(bounds.center);
+        var localRotation = Quaternion.Inverse(root.rotation) * mesh.transform.rotation;
+        var scale = mesh.transform.lossyScale;
         return new ColliderPrimitivePayload
         {
-            Kind = collider is MeshCollider ? "meshBounds" : "bounds",
-            Center = Vec((min + max) * 0.5f),
-            Size = Vec(new Vector3(
-                Mathf.Abs(max.x - min.x),
-                Mathf.Abs(max.y - min.y),
-                Mathf.Abs(max.z - min.z))),
+            Kind = "meshBounds",
+            Center = Vec(root.InverseTransformPoint(worldCenter)),
+            Size = Vec(ToRootLocalSize(root, new Vector3(
+                Mathf.Abs(bounds.size.x * scale.x),
+                Mathf.Abs(bounds.size.y * scale.y),
+                Mathf.Abs(bounds.size.z * scale.z)))),
+            Rotation = Quat(localRotation),
         };
+    }
+
+    private static ColliderPrimitivePayload BoundsOf(Transform root, Collider collider) =>
+        WorldBounds(root, collider);
+
+    private static ColliderPrimitivePayload WorldBounds(Transform root, Collider collider)
+    {
+        var bounds = collider.bounds;
+        var min = bounds.min;
+        var max = bounds.max;
+        var localMin = new Vector3(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+        var localMax = new Vector3(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+        for (var index = 0; index < 8; index++)
+        {
+            var corner = new Vector3(
+                (index & 1) == 0 ? min.x : max.x,
+                (index & 2) == 0 ? min.y : max.y,
+                (index & 4) == 0 ? min.z : max.z);
+            var local = root.InverseTransformPoint(corner);
+            localMin = Vector3.Min(localMin, local);
+            localMax = Vector3.Max(localMax, local);
+        }
+
+        return new ColliderPrimitivePayload
+        {
+            Kind = "worldBounds",
+            Center = Vec((localMin + localMax) * 0.5f),
+            Size = Vec(new Vector3(
+                Mathf.Abs(localMax.x - localMin.x),
+                Mathf.Abs(localMax.y - localMin.y),
+                Mathf.Abs(localMax.z - localMin.z))),
+        };
+    }
+
+    private static Vector3 ToRootLocalSize(Transform root, Vector3 worldSize)
+    {
+        var scale = root.lossyScale;
+        return new Vector3(
+            DivideAbs(worldSize.x, scale.x),
+            DivideAbs(worldSize.y, scale.y),
+            DivideAbs(worldSize.z, scale.z));
+    }
+
+    private static float ToRootLocalLength(Transform root, float worldLength)
+    {
+        var scale = root.lossyScale;
+        var max = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        return DivideAbs(worldLength, max);
+    }
+
+    private static float DivideAbs(float value, float scale)
+    {
+        var abs = Mathf.Abs(scale);
+        return abs < 1e-8f ? Mathf.Abs(value) : Mathf.Abs(value) / abs;
     }
 
     private static float[] Vec(Vector3 value) => new[] { value.x, value.y, value.z };

@@ -28,8 +28,27 @@ public sealed class ColliderGeometryCache
     public ColliderGeometryCache(string rootDirectory)
     {
         _root = Path.GetFullPath(rootDirectory);
-        Directory.CreateDirectory(_root);
-        ImportTree();
+        try
+        {
+            Directory.CreateDirectory(_root);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        try
+        {
+            ImportTree();
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     public string Root => _root;
@@ -41,6 +60,41 @@ public sealed class ColliderGeometryCache
             lock (_sync)
             {
                 return _memory.Count;
+            }
+        }
+    }
+
+    public int FileCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                var count = 0;
+                foreach (var path in _paths.Values)
+                {
+                    if (File.Exists(path))
+                    {
+                        count++;
+                    }
+                }
+
+                return count;
+            }
+        }
+    }
+
+    public string NewestGameVersion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _memory.Values
+                    .OrderByDescending(item => item.CapturedAtUnixMilliseconds)
+                    .Select(item => item.GameVersion)
+                    .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item))
+                    ?? string.Empty;
             }
         }
     }
@@ -115,15 +169,36 @@ public sealed class ColliderGeometryCache
         var json = JsonSerializer.Serialize(geometry, JsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
         var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        Directory.CreateDirectory(_root);
-        File.WriteAllBytes(temporaryPath, bytes);
-        if (File.Exists(path))
+        try
         {
-            File.Replace(temporaryPath, path, destinationBackupFileName: null);
+            Directory.CreateDirectory(_root);
+            File.WriteAllBytes(temporaryPath, bytes);
+            if (File.Exists(path))
+            {
+                File.Replace(temporaryPath, path, destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(temporaryPath, path);
+            }
         }
-        else
+        catch
         {
-            File.Move(temporaryPath, path);
+            try
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            throw;
         }
 
         lock (_sync)
@@ -135,6 +210,9 @@ public sealed class ColliderGeometryCache
                 _writeTicks[path] = File.GetLastWriteTimeUtc(path).Ticks;
             }
             catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
             {
             }
         }
@@ -158,14 +236,59 @@ public sealed class ColliderGeometryCache
     private void ImportTree()
     {
         ImportDirectory(_root);
-        if (!Directory.Exists(_root))
+        if (Directory.Exists(_root))
+        {
+            string[] directories;
+            try
+            {
+                directories = Directory.GetDirectories(_root);
+            }
+            catch (IOException)
+            {
+                directories = [];
+            }
+            catch (UnauthorizedAccessException)
+            {
+                directories = [];
+            }
+
+            foreach (var directory in directories)
+            {
+                ImportDirectory(directory);
+            }
+        }
+
+        PruneMissingFiles();
+    }
+
+    private void PruneMissingFiles()
+    {
+        List<string>? stale = null;
+        foreach (var pair in _paths)
+        {
+            if (File.Exists(pair.Value))
+            {
+                continue;
+            }
+
+            stale ??= [];
+            stale.Add(pair.Key);
+        }
+
+        if (stale is null)
         {
             return;
         }
 
-        foreach (var directory in Directory.GetDirectories(_root))
+        foreach (var key in stale)
         {
-            ImportDirectory(directory);
+            if (_paths.TryGetValue(key, out var path))
+            {
+                _writeTicks.Remove(path);
+            }
+
+            _memory.Remove(key);
+            _paths.Remove(key);
         }
     }
 
@@ -176,7 +299,21 @@ public sealed class ColliderGeometryCache
             return;
         }
 
-        foreach (var path in Directory.GetFiles(directory, "*.json"))
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(directory, "*.json");
+        }
+        catch (IOException)
+        {
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        foreach (var path in files)
         {
             long ticks;
             try
@@ -184,6 +321,10 @@ public sealed class ColliderGeometryCache
                 ticks = File.GetLastWriteTimeUtc(path).Ticks;
             }
             catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
             {
                 continue;
             }
@@ -229,6 +370,9 @@ public sealed class ColliderGeometryCache
             catch (IOException)
             {
             }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -237,6 +381,7 @@ public sealed class ColliderGeometryCache
         {
             UnitTypeId = geometry.UnitTypeId,
             ClassName = geometry.ClassName,
+            GameVersion = geometry.GameVersion,
             ColliderCount = geometry.ColliderCount,
             Sha256 = geometry.Sha256,
             InMemory = inMemory,
