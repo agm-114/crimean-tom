@@ -34,6 +34,18 @@ Record:
 
 Do not commit the generated tree.
 
+## Continuous integration
+
+GitHub Actions (`.github/workflows/ci.yml`) builds the game-independent DLLs
+from `CrimeanTom.CI.slnf`, builds the campaign monitor, and runs
+`pnpm test:campaign`. A second Windows job runs `pnpm test:protocol`. The Sea
+Power Runtime Bridge plugin is excluded because it needs installed game
+assemblies.
+
+```powershell
+pnpm test:ci
+```
+
 ## Runtime baseline
 
 Run the game-independent broad integration scenario first:
