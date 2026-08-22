@@ -602,7 +602,12 @@ switch ($Action) {
             ([pscustomobject]@{}) `
             -TimeoutSec 20)
     }
-    'colliders-capture' { Show-Json (Invoke-ControlRequest '/game/colliders/capture' 'Post') }
+    'colliders-capture' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/colliders/capture' `
+            'Post' `
+            ([pscustomobject]@{}))
+    }
     'colliders' { Show-Json (Invoke-ControlRequest '/game/colliders') }
     'focus-camera' {
         Show-Json (Invoke-ControlRequest `
