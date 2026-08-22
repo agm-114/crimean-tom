@@ -14,7 +14,7 @@ using CrimeanTom.Protocol;
 
 namespace CrimeanTom.Campaign.Engine;
 
-public readonly record struct ColliderRayHit(bool DidHit, float DistanceMeters, string Kind);
+public readonly record struct ColliderRayHit(bool DidHit, float DistanceMeters, string Kind, bool Performed = true);
 
 /// <summary>
 /// Raycasts cached ObjectBase-local primitives with BepuPhysics. This is not Unity
@@ -51,7 +51,7 @@ public static class ColliderHitResolver
     {
         if (geometry.Colliders is not { Length: > 0 })
         {
-            return new ColliderRayHit(false, 0, string.Empty);
+            return new ColliderRayHit(false, 0, string.Empty, Performed: false);
         }
 
         var lengthSquared = direction.LengthSquared();
@@ -81,7 +81,7 @@ public static class ColliderHitResolver
 
             if (added == 0)
             {
-                return new ColliderRayHit(false, 0, string.Empty);
+                return new ColliderRayHit(false, 0, string.Empty, Performed: false);
             }
 
             var handler = new ClosestHitHandler();
@@ -160,10 +160,18 @@ public static class ColliderHitResolver
     private static Vector3 Vec3(float[] values) =>
         values is { Length: >= 3 } ? new Vector3(values[0], values[1], values[2]) : Vector3.Zero;
 
-    private static Quaternion Quat(float[] values) =>
-        values is { Length: >= 4 }
-            ? Quaternion.Normalize(new Quaternion(values[0], values[1], values[2], values[3]))
-            : Quaternion.Identity;
+    private static Quaternion Quat(float[] values)
+    {
+        if (values is not { Length: >= 4 })
+        {
+            return Quaternion.Identity;
+        }
+
+        var quaternion = new Quaternion(values[0], values[1], values[2], values[3]);
+        return quaternion.LengthSquared() < 1e-8f
+            ? Quaternion.Identity
+            : Quaternion.Normalize(quaternion);
+    }
 
     private static double EastMeters(GeoCoordinate origin, GeoCoordinate destination)
     {

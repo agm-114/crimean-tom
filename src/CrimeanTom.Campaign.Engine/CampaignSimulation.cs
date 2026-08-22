@@ -1320,26 +1320,27 @@ internal static class CampaignSimulation
             - (1_000 - target.Analogue.PropulsionIntegrityMilliUnits) / 20,
             80,
             900);
-        if (ColliderHitResolution.TryGetHull(
+        var geometric = ColliderHitResolution.TryGetHull(
                 ColliderHitResolution.ActiveCatalog(),
                 target.CatalogUnitId,
-                out var hull))
+                out var hull)
+            ? GeometricHit(
+                hull,
+                state,
+                dueAt,
+                actor,
+                target,
+                hitChance,
+                threatCoordinate,
+                shotAltitudeMeters,
+                insDriftMilliUnits)
+            : null;
+        if (geometric is false)
         {
-            if (!GeometricHit(
-                    hull,
-                    state,
-                    dueAt,
-                    actor,
-                    target,
-                    hitChance,
-                    threatCoordinate,
-                    shotAltitudeMeters,
-                    insDriftMilliUnits))
-            {
-                return new TerminalHit(null, []);
-            }
+            return new TerminalHit(null, []);
         }
-        else
+
+        if (geometric is not true)
         {
             var roll = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-hit-{target.EntityId}") % 1_000;
             if (roll >= hitChance)
@@ -1422,7 +1423,7 @@ internal static class CampaignSimulation
         return new TerminalHit(updated, outcomes);
     }
 
-    private static bool GeometricHit(
+    private static bool? GeometricHit(
         ColliderUnitGeometryPayload hull,
         CampaignState state,
         CampaignTime dueAt,
@@ -1458,7 +1459,8 @@ internal static class CampaignSimulation
             + right * (u / 1_000f * cep)
             + up * (v / 1_000f * cep * 0.35f);
         var ray = aim - origin;
-        return ColliderHitResolver.Cast(hull, origin, ray, maximumT: 1.5f).DidHit;
+        var hit = ColliderHitResolver.Cast(hull, origin, ray, maximumT: 1.5f);
+        return hit.Performed ? hit.DidHit : null;
     }
 
     private static float VerticalMeters(EntityState entity) =>

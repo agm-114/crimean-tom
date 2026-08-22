@@ -9,7 +9,16 @@ namespace CrimeanTom.Campaign.Engine;
 /// </summary>
 public static class ColliderHitResolution
 {
-    public static IReadOnlyDictionary<string, ColliderUnitGeometryPayload>? CatalogOverride { get; set; }
+    private static readonly object EnvironmentCatalogSync = new();
+    private static readonly AsyncLocal<IReadOnlyDictionary<string, ColliderUnitGeometryPayload>?> OverrideLocal = new();
+    private static IReadOnlyDictionary<string, ColliderUnitGeometryPayload>? _environmentCatalog;
+    private static bool _environmentCatalogResolved;
+
+    public static IReadOnlyDictionary<string, ColliderUnitGeometryPayload>? CatalogOverride
+    {
+        get => OverrideLocal.Value;
+        set => OverrideLocal.Value = value;
+    }
 
     public static IReadOnlyDictionary<string, ColliderUnitGeometryPayload>? ActiveCatalog()
     {
@@ -18,7 +27,25 @@ public static class ColliderHitResolution
             return CatalogOverride.Count == 0 ? null : CatalogOverride;
         }
 
-        return TryLoadFromEnvironment();
+        lock (EnvironmentCatalogSync)
+        {
+            if (!_environmentCatalogResolved)
+            {
+                _environmentCatalog = TryLoadFromEnvironment();
+                _environmentCatalogResolved = true;
+            }
+
+            return _environmentCatalog;
+        }
+    }
+
+    public static void ResetEnvironmentCatalog()
+    {
+        lock (EnvironmentCatalogSync)
+        {
+            _environmentCatalog = null;
+            _environmentCatalogResolved = false;
+        }
     }
 
     public static IReadOnlyDictionary<string, ColliderUnitGeometryPayload>? TryLoadFromEnvironment()

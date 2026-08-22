@@ -18,6 +18,41 @@ public sealed class ColliderHitResolverTests
 
         var miss = ColliderHitResolver.Cast(hull, new Vector3(80, 2, -80), new Vector3(0, 0, 80), maximumT: 1.5f);
         Assert.False(miss.DidHit);
+        Assert.True(miss.Performed);
+    }
+
+    [Fact]
+    public void TriggerOnlyHullDoesNotCountAsAGeometricMiss()
+    {
+        var hull = new ColliderUnitGeometryPayload
+        {
+            UnitTypeId = "usn_knox",
+            Colliders =
+            [
+                new ColliderPrimitivePayload
+                {
+                    Kind = "box",
+                    Enabled = true,
+                    IsTrigger = true,
+                    Center = [0f, 0f, 0f],
+                    Size = [12f, 8f, 40f],
+                },
+            ],
+        };
+
+        var hit = ColliderHitResolver.Cast(hull, new Vector3(0, 2, -80), new Vector3(0, 0, 80), maximumT: 1.5f);
+        Assert.False(hit.Performed);
+        Assert.False(hit.DidHit);
+    }
+
+    [Fact]
+    public void ZeroRotationQuaternionDoesNotNaNTheRaycast()
+    {
+        var hull = KnoxBox("usn_knox");
+        hull.Colliders[0].Rotation = [0f, 0f, 0f, 0f];
+        var hit = ColliderHitResolver.Cast(hull, new Vector3(0, 2, -80), new Vector3(0, 0, 80), maximumT: 1.5f);
+        Assert.True(hit.Performed);
+        Assert.True(hit.DidHit);
     }
 
     [Fact]
@@ -33,6 +68,7 @@ public sealed class ColliderHitResolverTests
     [Fact]
     public void CatalogOverrideDoesNotChangeDefaultTheaterHashPath()
     {
+        ColliderHitResolution.ResetEnvironmentCatalog();
         Assert.Null(ColliderHitResolution.ActiveCatalog());
         ColliderHitResolution.CatalogOverride = new Dictionary<string, ColliderUnitGeometryPayload>(
             StringComparer.OrdinalIgnoreCase)
