@@ -23,7 +23,7 @@ internal static class CompanionWorkerHealthClassifier
 
         if (resources.RecoveryRequiredCount > 0)
         {
-            return ("Overloaded", "DrainOnly");
+            return ("Pressured", "Eligible");
         }
 
         var capacity = Math.Max(0, tacticalEntityCapacity);

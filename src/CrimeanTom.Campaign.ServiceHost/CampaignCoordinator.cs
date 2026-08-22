@@ -823,6 +823,8 @@ public sealed class CampaignCoordinator(
                     plan.Members.Select(item => item.Destination.AssignmentId.ToString()).ToArray());
             }
 
+            RequireLiveDestinationWorker(campaignId.ToString(), plan.DestinationClientInstanceId);
+
             orchestration = CreateMigrationOrchestrationLease(
                 campaignId,
                 plan,
@@ -1681,6 +1683,21 @@ public sealed class CampaignCoordinator(
             members);
     }
 
+    private void RequireLiveDestinationWorker(string campaignId, string destinationClientInstanceId)
+    {
+        var destination = sessions.Snapshots(campaignId)
+            .FirstOrDefault(worker => string.Equals(
+                worker.ClientInstanceId,
+                destinationClientInstanceId,
+                StringComparison.Ordinal));
+        if (destination is null || CampaignWorkerHealth.MustEvacuate(destination))
+        {
+            throw new CampaignStoreConflict(
+                "migration-destination-ineligible",
+                "The destination worker is no longer healthy enough to receive the island.");
+        }
+    }
+
     private async Task<IslandMigrationPlan?> TryReconstructMigratedPlanAsync(
         CampaignState state,
         IReadOnlyList<EntityId> islandEntityIds,
@@ -1996,6 +2013,7 @@ public sealed class CampaignCoordinator(
         try
         {
             var campaignId = state.Metadata.CampaignId;
+            RequireLiveDestinationWorker(campaignId.ToString(), plan.DestinationClientInstanceId);
             var batchId = plan.Members[0].Destination.BatchId;
             if (string.IsNullOrEmpty(batchId))
             {
@@ -2661,7 +2679,10 @@ public sealed class CampaignCoordinator(
                 worker.ClientInstanceId,
                 existingOwners[0],
                 StringComparison.Ordinal))
-            .Where(worker => CampaignWorkerHealth.CanReceiveNewAssignments(worker)
+            .Where(worker =>
+                (existingOwners.Length == 0
+                    ? CampaignWorkerHealth.CanReceiveNewAssignments(worker)
+                    : !CampaignWorkerHealth.MustEvacuate(worker))
                 && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
                 && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
                     profile.UnitTypeId,
@@ -2696,7 +2717,7 @@ public sealed class CampaignCoordinator(
         if (string.IsNullOrWhiteSpace(preferredWorker.PlayerTaskforceId)
             || preferredWorker.TacticalEntityCapacity <= 0
             || preferredWorker.OwnedRecoveryRequiredEntityCount > 0
-            || CampaignWorkerHealth.MustEvacuate(preferredWorker)
+            || !CampaignWorkerHealth.CanReceiveNewAssignments(preferredWorker)
             || !islandEntityIds.All(entityId => preferredWorker.MaterializationProfiles.Any(profile => string.Equals(
                 profile.UnitTypeId,
                 state.Entities[entityId].CatalogUnitId,

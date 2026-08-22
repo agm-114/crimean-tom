@@ -144,6 +144,7 @@ public sealed record CampaignBroadcastResult(int MatchedSessionCount, int Queued
 
 public sealed class CampaignCompanionSession
 {
+    private static readonly TimeSpan HeartbeatStaleAfter = TimeSpan.FromSeconds(8);
     private readonly object _capabilityGate = new();
     private readonly Channel<ServiceFrame> _outgoing = Channel.CreateBounded<ServiceFrame>(new BoundedChannelOptions(256)
     {
@@ -168,6 +169,7 @@ public sealed class CampaignCompanionSession
     private int _tacticalReserveCapacity;
     private string _health = CampaignWorkerHealth.Healthy;
     private string _eligibility = CampaignWorkerHealth.Eligible;
+    private DateTimeOffset _lastHeartbeatAt;
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
@@ -210,11 +212,12 @@ public sealed class CampaignCompanionSession
         else if (frame.PayloadCase == CompanionFrame.PayloadOneofCase.Heartbeat)
         {
             Interlocked.Exchange(ref _lastAppliedCommitPosition, frame.Heartbeat.ObservedCommitPosition);
-            if (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
-                && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
-                && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
+            lock (_capabilityGate)
             {
-                lock (_capabilityGate)
+                _lastHeartbeatAt = DateTimeOffset.UtcNow;
+                if (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
+                    && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
+                    && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256))
                 {
                     _gameSessionId = frame.Heartbeat.GameSessionId;
                     _runtimeFingerprintSha256 = frame.Heartbeat.RuntimeFingerprintSha256;
@@ -235,9 +238,10 @@ public sealed class CampaignCompanionSession
                     ObserveCapacity(
                         frame.Heartbeat.TacticalEntityCapacity,
                         frame.Heartbeat.TacticalReserveCapacity);
-                    ObserveHealth(frame.Heartbeat.Health, frame.Heartbeat.Eligibility);
                     ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
                 }
+
+                ObserveHealth(frame.Heartbeat.Health, frame.Heartbeat.Eligibility, replaceEmptyWithHealthy: false);
             }
         }
     }
@@ -246,6 +250,15 @@ public sealed class CampaignCompanionSession
     {
         lock (_capabilityGate)
         {
+            var health = _health;
+            var eligibility = _eligibility;
+            if (_lastHeartbeatAt != default
+                && DateTimeOffset.UtcNow - _lastHeartbeatAt > HeartbeatStaleAfter)
+            {
+                health = CampaignWorkerHealth.Offline;
+                eligibility = CampaignWorkerHealth.Disabled;
+            }
+
             return new(
                 SessionId,
                 Hello.ClientInstanceId,
@@ -270,8 +283,8 @@ public sealed class CampaignCompanionSession
                 _ownedRecoveryRequiredEntityCount,
                 _tacticalEntityCapacity,
                 _tacticalReserveCapacity,
-                _health,
-                _eligibility,
+                health,
+                eligibility,
                 _couplingRelationships.Values
                     .OrderBy(item => item.Key, StringComparer.Ordinal)
                     .Select(item => new CampaignCouplingRelationship(
@@ -321,8 +334,15 @@ public sealed class CampaignCompanionSession
         _tacticalReserveCapacity = reserve;
     }
 
-    private void ObserveHealth(string health, string eligibility)
+    private void ObserveHealth(string health, string eligibility, bool replaceEmptyWithHealthy = true)
     {
+        if (string.IsNullOrWhiteSpace(health)
+            && string.IsNullOrWhiteSpace(eligibility)
+            && !replaceEmptyWithHealthy)
+        {
+            return;
+        }
+
         var normalizedHealth = CampaignWorkerHealth.NormalizeHealth(health);
         var normalizedEligibility = CampaignWorkerHealth.NormalizeEligibility(eligibility);
         if (!string.IsNullOrWhiteSpace(health)
