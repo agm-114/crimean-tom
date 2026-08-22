@@ -335,12 +335,55 @@ public sealed class OperationalSimWorkerIntegrationTests
             using var after = await campaignClient.GetAsync($"/campaigns/{campaignId}", testTimeout.Token);
             after.EnsureSuccessStatusCode();
             using var afterBody = JsonDocument.Parse(await after.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.True(afterBody.RootElement.GetProperty("timeQuanta").GetInt64() > beforeTime);
+            var advancedTime = afterBody.RootElement.GetProperty("timeQuanta").GetInt64();
+            Assert.True(advancedTime > beforeTime);
             Assert.Contains(
                 afterBody.RootElement.GetProperty("entities").EnumerateArray(),
                 item => item.GetProperty("revision").GetInt64() > 1
                     || item.GetProperty("headingMilliDegrees").GetInt32() != 0
                     || item.GetProperty("fuelMilliunits").GetInt64() < 1_000_000);
+
+            using var paused = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/pause",
+                content: null,
+                testTimeout.Token);
+            paused.EnsureSuccessStatusCode();
+            using var pausedAtSnapshot = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            pausedAtSnapshot.EnsureSuccessStatusCode();
+            using var pausedAtBody = JsonDocument.Parse(
+                await pausedAtSnapshot.Content.ReadAsStringAsync(testTimeout.Token));
+            var pausedTime = pausedAtBody.RootElement.GetProperty("timeQuanta").GetInt64();
+            await Task.Delay(TimeSpan.FromMilliseconds(750), testTimeout.Token);
+            using var pausedSnapshot = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            pausedSnapshot.EnsureSuccessStatusCode();
+            using var pausedBody = JsonDocument.Parse(
+                await pausedSnapshot.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(pausedTime, pausedBody.RootElement.GetProperty("timeQuanta").GetInt64());
+
+            using var resumed = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/resume",
+                content: null,
+                testTimeout.Token);
+            resumed.EnsureSuccessStatusCode();
+            await WaitUntilAsync(
+                async () =>
+                {
+                    using var snapshot = await campaignClient.GetAsync(
+                        $"/campaigns/{campaignId}",
+                        testTimeout.Token);
+                    if (!snapshot.IsSuccessStatusCode)
+                    {
+                        return false;
+                    }
+                    using var body = JsonDocument.Parse(
+                        await snapshot.Content.ReadAsStringAsync(testTimeout.Token));
+                    return body.RootElement.GetProperty("timeQuanta").GetInt64() > pausedTime;
+                },
+                testTimeout.Token);
         }
         finally
         {

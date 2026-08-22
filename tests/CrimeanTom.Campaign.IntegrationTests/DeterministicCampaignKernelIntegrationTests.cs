@@ -154,9 +154,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("594b0579e43852e698f7653f59e65308685d47b3a920c8c320c0ba8391a50a83", longHorizon.Hash);
+        Assert.Equal("a01da1fda488c356ca0fb7528c5637a8393142ad2f93effc692d4c2c7d382635", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("427e4165eb262f74a930049caddb817cdb9590e251edc24ac3c571f2825e1c6f", migrated.Hash);
+        Assert.Equal("3e6ac1067a6535d45e8bd8047eb16c0e7d737252bd4922f7e077a4502c468803", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -311,6 +311,55 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             item.Kind == OperationalOutcomeKind.WeaponExpenditure
             && item.ActorEntityId == Ids.RedKrivak);
 
+        var missingCatalogWeapon = sameRegionWithoutIntel with
+        {
+            Entities = sameRegionWithoutIntel.Entities.SetItem(Ids.BlueKnox,
+                sameRegionWithoutIntel.Entities[Ids.BlueKnox] with
+                {
+                    RegionId = Ids.BlackSea,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 32_000_001),
+                    OperationalWeapons = [],
+                }),
+        };
+        var missingCatalogHeldFire = SimulateForTest(missingCatalogWeapon, 93, new CampaignTime(20));
+        Assert.DoesNotContain(missingCatalogHeldFire.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == Ids.BlueKnox);
+
+        var abstractLand = sameRegionWithoutIntel with
+        {
+            Assignments = sameRegionWithoutIntel.Assignments.Clear(),
+            Entities = sameRegionWithoutIntel.Entities
+                .SetItem(Ids.BlueKnox, sameRegionWithoutIntel.Entities[Ids.BlueKnox] with
+                {
+                    RegionId = Ids.BlackSea,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 32_000_001),
+                    Fidelity = FidelityState.Operational,
+                    SimulationDomain = SimulationDomain.LandAbstract,
+                    MaximumFidelity = FidelityState.Operational,
+                    OperationalWeapons = [],
+                })
+                .SetItem(Ids.RedKrivak, sameRegionWithoutIntel.Entities[Ids.RedKrivak] with
+                {
+                    SimulationDomain = SimulationDomain.LandAbstract,
+                    MaximumFidelity = FidelityState.Operational,
+                    OperationalWeapons = [],
+                }),
+        };
+        var abstractLandFired = SimulateForTest(abstractLand, 90, new CampaignTime(20));
+        Assert.Contains(abstractLandFired.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.Detail is not null
+            && item.Detail.StartsWith("abstract-corps-fires employment", StringComparison.Ordinal));
+
+        var splitGroup = state with
+        {
+            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with { RegionId = Ids.Bosporus }),
+        };
+        var splitMoved = SimulateForTest(splitGroup, 91, new CampaignTime(20));
+        Assert.Equal(Ids.BlackSea, splitMoved.Entities[Ids.BlueKnox].RegionId);
+        Assert.Equal(Ids.Bosporus, splitMoved.Entities[Ids.BlueOiler].RegionId);
+
         var withinRegion = state with
         {
             Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with
@@ -357,6 +406,34 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             item.Kind == OperationalOutcomeKind.Withdrawal
             && item.Detail is not null
             && item.Detail.Contains("holding at home base", StringComparison.Ordinal));
+
+        var batteredAtHome = homeDamaged with
+        {
+            Entities = homeDamaged.Entities.SetItem(Ids.BlueOiler,
+                homeDamaged.Entities[Ids.BlueOiler] with { DamageMilliUnits = 450_000 }),
+        };
+        var batteredHeld = SimulateForTest(batteredAtHome, 92, new CampaignTime(20));
+        Assert.Null(batteredHeld.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Equal(state.Bases[Ids.BlueBase].Coordinate, batteredHeld.Entities[Ids.BlueOiler].Coordinate);
+
+        var strandedBattered = state with
+        {
+            Entities = state.Entities
+                .SetItem(Ids.BlueOiler, oiler with
+                {
+                    HomeBaseId = null,
+                    DamageMilliUnits = 450_000,
+                })
+                .SetItem(Ids.RedKrivak, state.Entities[Ids.RedKrivak] with { RegionId = Ids.BlackSea }),
+            Groups = state.Groups.SetItem(Ids.BlueGroup, state.Groups[Ids.BlueGroup] with
+            {
+                Members = state.Groups[Ids.BlueGroup].Members.Clear().Add(Ids.BlueOiler),
+                ActiveOrderId = null,
+            }),
+            Orders = state.Orders.Clear(),
+        };
+        var strandedHeld = SimulateForTest(strandedBattered, 89, new CampaignTime(20));
+        Assert.Null(strandedHeld.Groups[Ids.BlueGroup].ActiveOrderId);
 
         var destroyed = state with
         {
@@ -495,6 +572,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.Assignment), source.Revision,
             new SetAssignmentLifecycleCommand(Ids.Assignment, source.AuthorityEpoch, AssignmentLifecycle.Quiesced, state.Time),
             effectiveAt: state.Time), commands, events);
+        var quiescedEntity = state.Entities[Ids.BlueKnox];
+        var quiescedProbe = SimulateForTest(state, 102, new CampaignTime(state.Time.Quanta + 10));
+        Assert.Equal(quiescedEntity, quiescedProbe.Entities[Ids.BlueKnox]);
 
         state = Commit(state, Command(sequence++, CampaignSubject.Assignment(Ids.ShadowAssignment), EntityRevision.None,
             new AssignAuthorityCommand(Ids.ShadowAssignment, Ids.BlueKnox, AssignmentRole.Shadow, new AuthorityEpoch(8),

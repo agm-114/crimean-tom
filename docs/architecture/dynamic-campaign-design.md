@@ -325,14 +325,17 @@ campaign continues:
    Power fidelity. The kernel does **not** freeze a unit merely because it is
    labelled Tactical or has a preparing assignment. Only an **Active** or
    **Quiescing** Sea Power assignment takes the unit out of the in-process
-   analogue. Without a connected game process, the service keeps simulating
-   every non-suspended unit.
+   analogue. A migration-held **Quiesced** source remains fenced until the
+   prepared destination activates or fallback releases it. Without such a live
+   or migration fence, the service keeps simulating every non-suspended unit.
 
 The campaign host also runs an unattended ticker (`CRIMEAN_TOM_UNATTENDED_SIMULATION`,
 default on). It advances every non-empty, non-paused campaign on a wall clock
 without an HTTP client or Sea Power window. Integration tests disable the ticker
-so they can drive `advance` themselves. This analogue is not PhysX, per-sensor
-arcs, or in-flight Unity `WeaponBase` objects.
+so they can drive `advance` themselves. The same ticker resolves the bounded
+fallback deadline for disconnected Tactical assignments; Operational-worker
+leases remain under their separate supervisor. This analogue is not PhysX,
+per-sensor arcs, or in-flight Unity `WeaponBase` objects.
 
 A **Render proxy** is a replica role, not a fourth canonical fidelity level. It
 materializes only authorized presentation state and cannot adjudicate outcomes
