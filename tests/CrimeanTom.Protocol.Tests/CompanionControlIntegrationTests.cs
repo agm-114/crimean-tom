@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
+using CrimeanTom.LoadAcceleration;
 using CrimeanTom.Protocol;
 
 using Google.Protobuf;
@@ -47,6 +48,7 @@ public sealed class CompanionControlIntegrationTests
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
+        var colliderCacheDir = Path.Combine(runDirectory, "collider-cache");
         var controlUrl = $"http://127.0.0.1:{GetUnusedLoopbackPort()}";
         var gamePipeName = $"CrimeanTom.Tests.{Guid.NewGuid():N}";
         var probeSavePath = Path.Combine(runDirectory, "_CrimeanTomPhase1Probe.sav");
@@ -672,6 +674,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(start.ExitCode == 0, start.FormatFailure("start"));
 
@@ -1359,6 +1362,61 @@ public sealed class CompanionControlIntegrationTests
                 screenshotHash,
                 repeatedScreenshot.RootElement.GetProperty("sha256").GetString());
 
+            using var colliderCapture = await PostAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders/capture",
+                testTimeout.Token);
+            Assert.Equal(
+                "no-unit-colliders-captured",
+                colliderCapture.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(0, colliderCapture.RootElement.GetProperty("memoryCount").GetInt32());
+
+            new ColliderGeometryCache(ColliderGeometryCache.ResolveRoot(colliderCacheDir, "integration"))
+                .Upsert(new ColliderUnitGeometryPayload
+                {
+                    GameVersion = "integration",
+                    UnitTypeId = "usn_ff_knox_84",
+                    ClassName = "Knox",
+                    Source = "test",
+                    Colliders =
+                    [
+                        new ColliderPrimitivePayload
+                        {
+                            Kind = "box",
+                            Name = "hull",
+                            Enabled = true,
+                            Size = [10f, 4f, 20f],
+                        },
+                    ],
+                });
+
+            using var colliderCatalog = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders?unitTypeId=usn_ff_knox_84",
+                testTimeout.Token);
+            Assert.Equal("file-cache", colliderCatalog.RootElement.GetProperty("source").GetString());
+            Assert.Equal(1, colliderCatalog.RootElement.GetProperty("memoryCount").GetInt32());
+            Assert.Equal(
+                "usn_ff_knox_84",
+                colliderCatalog.RootElement.GetProperty("geometry").GetProperty("unitTypeId").GetString());
+            Assert.Equal(
+                "box",
+                colliderCatalog.RootElement.GetProperty("geometry").GetProperty("colliders")[0].GetProperty("kind").GetString());
+
+            using var colliderList = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/colliders",
+                testTimeout.Token);
+            Assert.Equal("file-cache", colliderList.RootElement.GetProperty("source").GetString());
+            Assert.Equal("integration", colliderList.RootElement.GetProperty("gameVersion").GetString());
+            Assert.Equal(1, colliderList.RootElement.GetProperty("fileCount").GetInt32());
+            Assert.Equal(
+                "integration",
+                colliderList.RootElement.GetProperty("entries")[0].GetProperty("gameVersion").GetString());
+
             using var focusCamera = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -2027,6 +2085,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(restartedCompanion.ExitCode == 0, restartedCompanion.FormatFailure("start-after-fallback"));
             token = (await File.ReadAllTextAsync(tokenPath, testTimeout.Token)).Trim();
@@ -2460,6 +2519,12 @@ public sealed class CompanionControlIntegrationTests
                         Height = 1,
                         CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     },
+                    JsonOptions),
+                GameCommandTypes.CaptureColliderCatalog => JsonSerializer.Serialize(
+                    CreateEmptyColliderCapture(probeSavePath),
+                    JsonOptions),
+                GameCommandTypes.GetColliderCatalog => JsonSerializer.Serialize(
+                    CreateEmptyColliderCatalog(probeSavePath),
                     JsonOptions),
                 GameCommandTypes.FocusCameraOnUnit => JsonSerializer.Serialize(
                     new UiAutomationActionResultPayload
@@ -3003,6 +3068,34 @@ public sealed class CompanionControlIntegrationTests
             Unit = unit,
         };
     }
+
+    private static CaptureColliderCatalogResultPayload CreateEmptyColliderCapture(string probeSavePath)
+    {
+        var catalog = CreateEmptyColliderCatalog(probeSavePath);
+        return new CaptureColliderCatalogResultPayload
+        {
+            SchemaVersion = catalog.SchemaVersion,
+            CacheDirectory = catalog.CacheDirectory,
+            GameVersion = catalog.GameVersion,
+            ScannedObjectCount = 0,
+            CapturedUnitCount = 0,
+            MemoryCount = catalog.MemoryCount,
+            FileCount = catalog.FileCount,
+            Postcondition = "no-unit-colliders-captured",
+            Entries = catalog.Entries,
+        };
+    }
+
+    private static GetColliderCatalogResultPayload CreateEmptyColliderCatalog(string probeSavePath) =>
+        new()
+        {
+            SchemaVersion = 1,
+            CacheDirectory = Path.Combine(Path.GetDirectoryName(probeSavePath) ?? ".", "collider-catalog"),
+            GameVersion = "integration",
+            MemoryCount = 0,
+            FileCount = 0,
+            Entries = [],
+        };
 
     private static WorldSnapshotPayload CreateWorldSnapshot()
     {
@@ -4653,6 +4746,7 @@ public sealed class CompanionControlIntegrationTests
                 ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                 ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
                 ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+                ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = Path.Combine(destinationRunDirectory, "collider-cache"),
             });
         Assert.True(destinationStart.ExitCode == 0, destinationStart.FormatFailure("destination-start"));
         var destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
@@ -4712,6 +4806,7 @@ public sealed class CompanionControlIntegrationTests
                 ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                 ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(serviceRunDirectory, "service.token"),
                 ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = destinationStateDirectory,
+                ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = Path.Combine(destinationRunDirectory, "collider-cache"),
             });
         Assert.True(destinationRestart.ExitCode == 0, destinationRestart.FormatFailure("destination-restart"));
         destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
@@ -5499,6 +5594,8 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.GetWorldSnapshot
                 or GameCommandTypes.GetUiInspection
                 or GameCommandTypes.CaptureGameScreenshot
+                or GameCommandTypes.CaptureColliderCatalog
+                or GameCommandTypes.GetColliderCatalog
                 or GameCommandTypes.FocusCameraOnUnit
                 or GameCommandTypes.SetTacticalHudPanel)
             {

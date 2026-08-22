@@ -26,6 +26,8 @@
   <ItemGroup>
     <Compile Include="..\CrimeanTom.LoadAcceleration\PersistentFileHashCache.cs"
              Link="LoadAcceleration\PersistentFileHashCache.cs" />
+    <Compile Include="..\CrimeanTom.LoadAcceleration\ColliderGeometryCache.cs"
+             Link="LoadAcceleration\ColliderGeometryCache.cs" />
   </ItemGroup>
 
   <ItemGroup>
