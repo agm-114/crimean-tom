@@ -3,6 +3,7 @@
     "path": "CrimeanTom.sln",
     "projects": [
       "src\\CrimeanTom.Contracts\\CrimeanTom.Contracts.csproj",
+      "src\\CrimeanTom.LoadAcceleration\\CrimeanTom.LoadAcceleration.csproj",
       "src\\CrimeanTom.Companion\\CrimeanTom.Companion.csproj",
       "src\\CrimeanTom.CallsiteInventory\\CrimeanTom.CallsiteInventory.csproj",
       "src\\CrimeanTom.Campaign.Contracts\\CrimeanTom.Campaign.Contracts.csproj",
