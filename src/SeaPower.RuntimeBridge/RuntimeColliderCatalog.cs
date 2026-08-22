@@ -92,6 +92,11 @@ internal static class RuntimeColliderCatalog
                 UnityEngine.Debug.LogWarning(
                     $"[Sea Power Runtime Bridge] collider cache write failed for {unitTypeId}: {exception.Message}");
             }
+            catch (Exception exception)
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[Sea Power Runtime Bridge] collider capture failed for {unitTypeId}: {exception.Message}");
+            }
         }
 
         return SummarizeCapture(
@@ -195,7 +200,9 @@ internal static class RuntimeColliderCatalog
     {
         lock (Sync)
         {
-            var gameVersion = Application.version ?? "unknown";
+            var gameVersion = string.IsNullOrWhiteSpace(Application.version)
+                ? "unknown"
+                : Application.version;
             if (_cache is not null
                 && string.Equals(_gameVersion, gameVersion, StringComparison.Ordinal))
             {

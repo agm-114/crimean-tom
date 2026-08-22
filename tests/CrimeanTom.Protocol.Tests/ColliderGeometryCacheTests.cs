@@ -148,4 +148,134 @@ public sealed class ColliderGeometryCacheTests
         var resolved = ColliderGeometryCache.ResolveRoot(configured, "1.0.9f1");
         Assert.Equal(Path.GetFullPath(configured), resolved);
     }
+
+    [Fact]
+    public void SanitizedUnitTypeCollisionsUseDistinctFilesAndReloadIndependently()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var cache = new ColliderGeometryCache(root);
+            cache.Upsert(Geometry("unit/a", "Alpha", capturedAt: 1));
+            cache.Upsert(Geometry("unit?a", "Bravo", capturedAt: 2));
+
+            Assert.NotEqual(cache.FilePathFor("unit/a"), cache.FilePathFor("unit?a"));
+            Assert.Equal(2, Directory.GetFiles(root, "*.json").Length);
+
+            var reloaded = new ColliderGeometryCache(root);
+            Assert.True(reloaded.TryGet("unit/a", out var alpha));
+            Assert.True(reloaded.TryGet("unit?a", out var bravo));
+            Assert.Equal("Alpha", alpha.ClassName);
+            Assert.Equal("Bravo", bravo.ClassName);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RefreshRejectsTamperedFilesInsteadOfServingStaleMemory()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var cache = new ColliderGeometryCache(root);
+            cache.Upsert(Geometry("unit", "Original", capturedAt: 1));
+            var path = cache.FilePathFor("unit");
+            File.WriteAllText(
+                path,
+                File.ReadAllText(path).Replace(
+                    "\"className\":\"Original\"",
+                    "\"className\":\"Tampered\"",
+                    StringComparison.Ordinal));
+
+            Assert.Equal(0, cache.RefreshFromDisk());
+            Assert.False(cache.TryGet("unit", out _));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RefreshFallsBackToOlderVersionWhenSelectedFileIsDeleted()
+    {
+        var home = CreateTemporaryRoot();
+        try
+        {
+            var older = new ColliderGeometryCache(ColliderGeometryCache.ResolveRoot(home, "1.0"));
+            older.Upsert(Geometry("unit", "Older", capturedAt: 10, gameVersion: "1.0"));
+            var newer = new ColliderGeometryCache(ColliderGeometryCache.ResolveRoot(home, "2.0"));
+            newer.Upsert(Geometry("unit", "Newer", capturedAt: 20, gameVersion: "2.0"));
+
+            var catalog = new ColliderGeometryCache(home);
+            Assert.True(catalog.TryGet("unit", out var selected));
+            Assert.Equal("Newer", selected.ClassName);
+
+            File.Delete(newer.FilePathFor("unit"));
+            Assert.Equal(1, catalog.RefreshFromDisk());
+            Assert.True(catalog.TryGet("unit", out selected));
+            Assert.Equal("Older", selected.ClassName);
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UpsertRejectsInvalidPrimitiveGeometry()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var geometry = Geometry("unit", "Invalid", capturedAt: 1);
+            geometry.Colliders[0].Size = [10f, float.NaN, 20f];
+
+            Assert.Throws<InvalidDataException>(() =>
+                new ColliderGeometryCache(root).Upsert(geometry));
+            Assert.Empty(Directory.GetFiles(root, "*.json"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CreateTemporaryRoot()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "crimean-tom-collider-cache",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static ColliderUnitGeometryPayload Geometry(
+        string unitTypeId,
+        string className,
+        long capturedAt,
+        string gameVersion = "1.2.3") =>
+        new()
+        {
+            GameVersion = gameVersion,
+            UnitTypeId = unitTypeId,
+            ClassName = className,
+            Source = "test",
+            CapturedAtUnixMilliseconds = capturedAt,
+            Colliders =
+            [
+                new ColliderPrimitivePayload
+                {
+                    Kind = "box",
+                    Name = "hull",
+                    Enabled = true,
+                    Center = [0f, 1f, 0f],
+                    Size = [10f, 4f, 20f],
+                },
+            ],
+        };
 }
