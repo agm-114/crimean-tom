@@ -5,14 +5,15 @@ param(
     [string]$ExpectedRuntimeFingerprintSha256,
 
     [Parameter(Mandatory = $true)]
-    [ValidateScript({ Test-Path -LiteralPath $_ })]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string]$VerifiedPluginDll,
 
     [Parameter(Mandatory = $true)]
     [string[]]$WorkerIds,
 
+    [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{64}$')]
-    [string]$ExpectedPluginAssemblySha256 = '',
+    [string]$ExpectedPluginAssemblySha256,
 
     [string]$CapabilitiesBaselinePath = '',
 
@@ -37,6 +38,7 @@ $recomputeScript = Join-Path $repoRoot '.run\build-artifacts\fingerprint-analysi
 $streamingAssets = Join-Path $SeaPowerDir 'Sea Power_Data\StreamingAssets'
 $deployDir = Join-Path $streamingAssets 'SeaPowerRuntimeBridge'
 $deployedDll = Join-Path $deployDir 'SeaPower.RuntimeBridge.dll'
+$expectedGameExecutable = [System.IO.Path]::GetFullPath((Join-Path $SeaPowerDir 'Sea Power.exe'))
 $processStartTimeToleranceSeconds = 2
 
 function Get-Sha256([string]$Path) {
@@ -48,6 +50,18 @@ function Assert-RestrictedWorkerId([string]$Id) {
         throw "Worker id '$Id' is not a restricted worker id."
     }
     return $Id
+}
+
+function Get-DefaultWorkerControlPort([string]$Id) {
+    if ($Id -ieq 'default') { return 5137 }
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Id))
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    return 5140 + ([BitConverter]::ToUInt32($hash, 0) % 900)
 }
 
 function Resolve-UtcTimestamp($Value) {
@@ -132,6 +146,9 @@ function Test-ValidatedWorkerGameProcess([string]$WorkerId) {
     if (-not $resolvedExecutable.Equals($expectedExecutable, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to stop worker '$WorkerId' PID $processId because executable '$resolvedExecutable' does not match '$expectedExecutable'."
     }
+    if (-not $resolvedExecutable.Equals($expectedGameExecutable, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to stop worker '$WorkerId' PID $processId because executable '$resolvedExecutable' is not inside the configured SeaPowerDir."
+    }
 
     if (-not (Test-ProcessStartTimeMatches $process $metadata.gameProcessStartTimeUtc)) {
         throw "Refusing to stop worker '$WorkerId' PID $processId because the recorded UTC start time does not match."
@@ -175,11 +192,7 @@ function Get-WorkerRuntimeFingerprint([string]$WorkerId) {
         throw "Worker '$WorkerId' control token is missing at $tokenPath."
     }
 
-    $port = switch -Regex ($WorkerId) {
-        '^worker-a$' { 6018 }
-        '^worker-b$' { 5464 }
-        default { throw "Unknown control port for worker '$WorkerId'." }
-    }
+    $port = Get-DefaultWorkerControlPort $WorkerId
 
     $token = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
     $capabilities = Invoke-RestMethod `
@@ -207,7 +220,7 @@ Write-Host "  Plugin assembly SHA-256:      $artifactSha256"
 Write-Host "  Plugin artifact length:       $artifactLength"
 Write-Host "  Workers:                      $($validatedWorkers -join ', ')"
 
-if (-not [string]::IsNullOrWhiteSpace($ExpectedPluginAssemblySha256) -and $artifactSha256 -cne $ExpectedPluginAssemblySha256) {
+if ($artifactSha256 -cne $ExpectedPluginAssemblySha256) {
     throw "The supplied plugin artifact SHA-256 '$artifactSha256' does not match ExpectedPluginAssemblySha256 '$ExpectedPluginAssemblySha256'."
 }
 
@@ -247,6 +260,9 @@ if ($ConfirmLiveFingerprint) {
         if ($live.RuntimeFingerprintSha256 -cne $ExpectedRuntimeFingerprintSha256) {
             throw "Worker '$workerId' reports runtime fingerprint '$($live.RuntimeFingerprintSha256)', not '$ExpectedRuntimeFingerprintSha256'."
         }
+        if ($live.PluginAssemblySha256 -cne $ExpectedPluginAssemblySha256) {
+            throw "Worker '$workerId' reports plugin assembly '$($live.PluginAssemblySha256)', not '$ExpectedPluginAssemblySha256'."
+        }
         if ($live.CatalogFingerprintSha256 -cne $RequiredCatalogFingerprintSha256) {
             throw "Worker '$workerId' catalog fingerprint '$($live.CatalogFingerprintSha256)' does not match the required catalog profile."
         }
@@ -273,7 +289,34 @@ foreach ($target in $gameTargets) {
 }
 
 New-Item -ItemType Directory -Path $deployDir -Force | Out-Null
-Copy-Item -LiteralPath $VerifiedPluginDll -Destination $deployedDll -Force
+$stagedDll = Join-Path $deployDir ("SeaPower.RuntimeBridge.dll.staged-{0}" -f [Guid]::NewGuid().ToString('N'))
+try {
+    Copy-Item -LiteralPath $VerifiedPluginDll -Destination $stagedDll
+    $stagedSha256 = Get-Sha256 $stagedDll
+    if ($stagedSha256 -cne $artifactSha256) {
+        throw "Staged DLL hash '$stagedSha256' does not match verified artifact hash '$artifactSha256'."
+    }
+
+    if (Test-Path -LiteralPath $deployedDll -PathType Leaf) {
+        $previousSha256 = Get-Sha256 $deployedDll
+        $backupDll = "$deployedDll.backup-$previousSha256"
+        if (-not (Test-Path -LiteralPath $backupDll -PathType Leaf)) {
+            Copy-Item -LiteralPath $deployedDll -Destination $backupDll
+        }
+        $backupSha256 = Get-Sha256 $backupDll
+        if ($backupSha256 -cne $previousSha256) {
+            throw "Backup DLL hash '$backupSha256' does not match previous deployed hash '$previousSha256'."
+        }
+        Write-Host "  Previous deployed DLL backup: $backupDll"
+    }
+
+    Move-Item -LiteralPath $stagedDll -Destination $deployedDll -Force
+}
+finally {
+    if (Test-Path -LiteralPath $stagedDll -PathType Leaf) {
+        Remove-Item -LiteralPath $stagedDll -Force
+    }
+}
 $deployedSha256 = Get-Sha256 $deployedDll
 if ($deployedSha256 -cne $artifactSha256) {
     throw "Deployed DLL hash '$deployedSha256' does not match verified artifact hash '$artifactSha256'."
@@ -282,4 +325,4 @@ if ($deployedSha256 -cne $artifactSha256) {
 Write-Host ''
 Write-Host "Deployed verified RuntimeBridge plugin to $deployedDll"
 Write-Host 'Companions were left running. Relaunch only the named worker games, then verify:'
-Write-Host "  scripts/sea-power-runtime-fingerprint-recover.ps1 -ExpectedRuntimeFingerprintSha256 $ExpectedRuntimeFingerprintSha256 -VerifiedPluginDll '$VerifiedPluginDll' -WorkerIds $($validatedWorkers -join ',') -ConfirmLiveFingerprint"
+Write-Host "  scripts/sea-power-runtime-fingerprint-recover.ps1 -ExpectedRuntimeFingerprintSha256 $ExpectedRuntimeFingerprintSha256 -ExpectedPluginAssemblySha256 $ExpectedPluginAssemblySha256 -VerifiedPluginDll '$VerifiedPluginDll' -WorkerIds $($validatedWorkers -join ',') -ConfirmLiveFingerprint"
