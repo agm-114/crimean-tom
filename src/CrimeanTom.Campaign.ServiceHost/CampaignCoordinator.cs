@@ -2314,6 +2314,12 @@ public sealed class CampaignCoordinator(
         {
             throw new CampaignStoreConflict("checkpoint-fenced", "Checkpoint assignment epoch is stale.");
         }
+        if (checkpoint.EntityRevision < 0)
+        {
+            throw new CampaignStoreConflict(
+                "checkpoint-revision-conflict",
+                "Checkpoint entity revision cannot be negative.");
+        }
         var content = await journal.ReadBlobAsync(checkpoint.CheckpointSha256, cancellationToken);
         if (content.LongLength != checkpoint.CheckpointLength)
         {

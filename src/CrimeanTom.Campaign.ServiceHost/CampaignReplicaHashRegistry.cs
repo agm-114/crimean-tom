@@ -47,6 +47,7 @@ internal sealed class CampaignReplicaHashRegistry
 
     public CampaignReplicaConvergenceReport Diagnose(CampaignState state)
     {
+        PruneReleasedSamples(state);
         var entities = state.Assignments.Values
             .Where(item => item.Lifecycle != AssignmentLifecycle.Released
                 && item.Role is not AssignmentRole.RenderProxy)
@@ -60,6 +61,7 @@ internal sealed class CampaignReplicaHashRegistry
 
     public void ThrowIfUnsafeDivergence(CampaignState state, IEnumerable<EntityId> entityIds)
     {
+        PruneReleasedSamples(state);
         foreach (var entityId in entityIds.Distinct())
         {
             var diagnosis = DiagnoseEntity(state, entityId);
@@ -79,26 +81,51 @@ internal sealed class CampaignReplicaHashRegistry
                 && item.Lifecycle != AssignmentLifecycle.Released
                 && item.Role is AssignmentRole.Primary or AssignmentRole.Shadow or AssignmentRole.Observer)
             .ToArray();
-        var hashes = live
+        var samples = live
             .Select(item => _samples.TryGetValue(Key(state.Metadata.CampaignId, item.AssignmentId), out var sample)
-                ? sample.CheckpointSha256
+                ? sample
                 : null)
-            .Where(hash => hash is not null)
-            .Cast<string>()
+            .Where(sample => sample is not null)
+            .Cast<ReplicaCheckpointSample>()
             .ToArray();
-        var distinct = hashes.Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray();
-        var diagnosis = distinct.Length switch
-        {
-            0 => PendingInsufficientSamples,
-            1 when hashes.Length < 2 => PendingInsufficientSamples,
-            1 => ExactMatch,
-            _ => UnsafeDivergence,
-        };
+        var distinct = samples.Select(item => item.CheckpointSha256)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        var sameRevisionDisagreement = samples
+            .GroupBy(item => item.EntityRevision)
+            .Any(group => group.Select(item => item.CheckpointSha256)
+                .Distinct(StringComparer.Ordinal)
+                .Skip(1)
+                .Any());
+        var exactMatch = live.Length >= 2
+            && samples.Length == live.Length
+            && samples.Select(item => item.EntityRevision).Distinct().Count() == 1
+            && distinct.Length == 1;
+        var diagnosis = sameRevisionDisagreement
+            ? UnsafeDivergence
+            : exactMatch ? ExactMatch : PendingInsufficientSamples;
         return new CampaignReplicaEntityDiagnosis(
             entityId.ToString(),
             diagnosis,
-            hashes.Length,
+            samples.Length,
             distinct);
+    }
+
+    private void PruneReleasedSamples(CampaignState state)
+    {
+        var liveAssignmentIds = state.Assignments.Values
+            .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+            .Select(item => item.AssignmentId)
+            .ToHashSet();
+        foreach (var pair in _samples)
+        {
+            if (pair.Value.CampaignId == state.Metadata.CampaignId
+                && !liveAssignmentIds.Contains(pair.Value.AssignmentId))
+            {
+                _samples.TryRemove(pair.Key, out _);
+            }
+        }
     }
 
     private static string Key(CampaignId campaignId, AssignmentId assignmentId) =>

@@ -4076,7 +4076,30 @@ public sealed class CompanionControlIntegrationTests
                 AssignmentId = queued.Assignment.AssignmentId,
                 EntityId = queued.Assignment.EntityId,
                 AuthorityEpoch = queued.Assignment.AuthorityEpoch,
-                EntityRevision = 2,
+                EntityRevision = sourceCheckpoint.EntityRevision + 1,
+                CheckpointSha256 = divergingHash,
+                CheckpointLength = divergingBytes.Length,
+            },
+        });
+        using var laggedView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("replicaConvergence").GetProperty("entities").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("diagnosis").GetString() == "pending-insufficient-samples"
+                && item.GetProperty("sampleCount").GetInt32() == 2),
+            cancellationToken);
+
+        destinationSequence++;
+        await call.RequestStream.WriteAsync(new CompanionFrame
+        {
+            Sequence = destinationSequence,
+            CheckpointPublished = new CheckpointPublished
+            {
+                AssignmentId = queued.Assignment.AssignmentId,
+                EntityId = queued.Assignment.EntityId,
+                AuthorityEpoch = queued.Assignment.AuthorityEpoch,
+                EntityRevision = sourceCheckpoint.EntityRevision,
                 CheckpointSha256 = divergingHash,
                 CheckpointLength = divergingBytes.Length,
             },
