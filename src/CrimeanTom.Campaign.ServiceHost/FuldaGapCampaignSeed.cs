@@ -11,7 +11,10 @@ internal static partial class FuldaGapCampaignSeed
     private static readonly Lazy<SeaPowerOperationalCatalog?> OperationalCatalog =
         new(SeaPowerOperationalCatalog.TryCreateFromEnvironment);
 
-    public static FuldaGapSeed Create(CampaignId campaignId, int forceMultiplier = 1)
+    public static FuldaGapSeed Create(
+        CampaignId campaignId,
+        int forceMultiplier = 1,
+        int? maximumEntities = null)
     {
         if (forceMultiplier is < 1 or > 100)
         {
@@ -206,8 +209,82 @@ internal static partial class FuldaGapCampaignSeed
         }.Concat(Ww3PlusOrders(campaignId, groupIds, regionIds))
             .Concat(Ww3AirbaseComplexOrders(campaignId, blue, red, groupIds, regionIds))
             .ToArray();
-        return new FuldaGapSeed(campaignId, forceMultiplier, blue, red, regions, bases, entities, groups, orders, regionIds, baseIds, entityIds);
+        var selectedCount = maximumEntities ?? entities.Length;
+        if (selectedCount is < 1 || selectedCount > entities.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumEntities),
+                $"Fulda entity limit must be between 1 and {entities.Length}.");
+        }
+
+        // Keep the normal full seed unchanged. Bounded performance fixtures use
+        // a stable cross-theater sample while retaining Pharris as the tactical
+        // campaign/Sea Power anchor required by the current POC sync path.
+        var selectedEntities = selectedCount == entities.Length
+            ? entities
+            : SelectBoundedEntities(entities, selectedCount);
+        var selectedEntitySet = selectedEntities
+            .Select(item => item.EntityId)
+            .ToHashSet();
+        var selectedGroups = groups
+            .Select(group => group with
+            {
+                Members = group.Members.Where(selectedEntitySet.Contains).ToArray(),
+            })
+            .Where(group => group.Members.Count > 0)
+            .ToArray();
+        var selectedGroupSet = selectedGroups
+            .Select(group => group.GroupId)
+            .ToHashSet();
+        var selectedOrders = orders
+            .Where(order => selectedGroupSet.Contains(order.GroupId))
+            .ToArray();
+        var selectedEntityIds = selectedEntities
+            .ToDictionary(item => item.Key, item => item.EntityId, StringComparer.Ordinal);
+
+        return new FuldaGapSeed(
+            campaignId,
+            forceMultiplier,
+            blue,
+            red,
+            regions,
+            bases,
+            selectedEntities,
+            selectedGroups,
+            selectedOrders,
+            regionIds,
+            baseIds,
+            selectedEntityIds);
     }
+
+    private static FuldaEntitySeed[] SelectBoundedEntities(
+        IReadOnlyList<FuldaEntitySeed> entities,
+        int selectedCount)
+    {
+        // Preserve the current tactical anchor and, when the requested bound
+        // permits it, every unit supported by the POC's native/proxy Knox
+        // profile. Fill the rest with a stable hash of the campaign-independent
+        // entity key so repeated benchmark campaigns have identical composition
+        // even though their canonical IDs differ.
+        var required = entities
+            .Where(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)
+                || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal))
+            .OrderByDescending(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal))
+            .ThenBy(item => item.Key, StringComparer.Ordinal)
+            .Take(selectedCount)
+            .ToArray();
+        var requiredKeys = required.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
+        return required
+            .Concat(entities
+                .Where(item => !requiredKeys.Contains(item.Key))
+                .OrderBy(item => StableSampleKey(item.Key), StringComparer.Ordinal)
+                .Take(selectedCount - required.Length))
+            .OrderBy(item => item.EntityId)
+            .ToArray();
+    }
+
+    private static string StableSampleKey(string entityKey) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entityKey)));
 
     private static FuldaRegionSeed Region(CampaignId campaignId, string key, string name, string[] neighbors) =>
         new(key, new RegionId(Id(campaignId, $"region-{key}")), name, neighbors);

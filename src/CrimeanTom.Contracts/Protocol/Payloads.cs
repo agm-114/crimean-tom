@@ -507,6 +507,8 @@ public sealed class RuntimeTimingPayload
     public float TimeScale { get; set; }
 
     public float TimeCompression { get; set; }
+
+    public float InternalTimeDilation { get; set; }
 }
 
 public sealed class DeterministicHookCapabilityPayload
@@ -563,7 +565,7 @@ public sealed class SceneStatePayload
 
 public sealed class WorldSnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 12;
+    public int SchemaVersion { get; set; } = 13;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -584,6 +586,10 @@ public sealed class WorldSnapshotPayload
     public float EngineTimeScale { get; set; }
 
     public float EngineFixedDeltaTime { get; set; }
+
+    public float GameFixedDeltaTime { get; set; }
+
+    public float InternalTimeDilation { get; set; }
 
     public float EngineUnscaledDeltaTime { get; set; }
 

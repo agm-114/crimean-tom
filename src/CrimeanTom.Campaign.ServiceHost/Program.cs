@@ -201,6 +201,15 @@ app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap/{forceMultiplie
         ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(
             new CampaignId(parsed), cancellationToken, forceMultiplier))
         : Results.BadRequest(new { error = "invalid-campaign-id-or-force-multiplier" }));
+app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap/subset/{entityCount:int}", async (
+    string campaignId,
+    int entityCount,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    Guid.TryParseExact(campaignId, "N", out var parsed) && entityCount is >= 1 and <= 4_096
+        ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(
+            new CampaignId(parsed), cancellationToken, forceMultiplier: 1, maximumEntities: entityCount))
+        : Results.BadRequest(new { error = "invalid-campaign-id-or-entity-count" }));
 app.MapGet("/campaigns/{campaignId}", async (
     string campaignId,
     CampaignCoordinator coordinator,

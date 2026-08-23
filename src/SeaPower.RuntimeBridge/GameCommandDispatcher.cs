@@ -257,6 +257,8 @@ internal static class GameCommandDispatcher
                 IsPaused = GameTime.IsPaused(),
                 EngineTimeScale = Time.timeScale,
                 EngineFixedDeltaTime = Time.fixedDeltaTime,
+                GameFixedDeltaTime = GameTime.fixedDeltaTime,
+                InternalTimeDilation = GameTime.TimeDilation,
                 EngineUnscaledDeltaTime = Time.unscaledDeltaTime,
                 MeasuredFramesPerSecond = Time.unscaledDeltaTime > 0f
                     ? 1f / Time.unscaledDeltaTime
@@ -313,6 +315,8 @@ internal static class GameCommandDispatcher
             IsPaused = GameTime.IsPaused(),
             EngineTimeScale = Time.timeScale,
             EngineFixedDeltaTime = Time.fixedDeltaTime,
+            GameFixedDeltaTime = GameTime.fixedDeltaTime,
+            InternalTimeDilation = GameTime.TimeDilation,
             EngineUnscaledDeltaTime = Time.unscaledDeltaTime,
             MeasuredFramesPerSecond = Time.unscaledDeltaTime > 0f
                 ? 1f / Time.unscaledDeltaTime

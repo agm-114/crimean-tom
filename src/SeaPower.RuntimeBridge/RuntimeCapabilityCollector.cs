@@ -110,6 +110,7 @@ internal static class RuntimeCapabilityCollector
                 GameFixedDeltaTime = GameTime.fixedDeltaTime,
                 TimeScale = Time.timeScale,
                 TimeCompression = GameTime.TimeCompression,
+                InternalTimeDilation = GameTime.TimeDilation,
             },
             DeterministicHooks = hooks,
             UiAutomationSeams = uiAutomationSeams,

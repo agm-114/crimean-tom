@@ -144,7 +144,8 @@ public sealed class CampaignCoordinator(
     public async Task<FuldaGapBootstrapResult> BootstrapFuldaGapAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken,
-        int forceMultiplier = 1)
+        int forceMultiplier = 1,
+        int? maximumEntities = null)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -155,7 +156,7 @@ public sealed class CampaignCoordinator(
                 throw new CampaignStoreConflict("campaign-not-empty", "Fulda Gap bootstrap requires an empty campaign.");
             }
 
-            var seed = FuldaGapCampaignSeed.Create(campaignId, forceMultiplier);
+            var seed = FuldaGapCampaignSeed.Create(campaignId, forceMultiplier, maximumEntities);
             var resultMetrics = (
                 seed.ForceMultiplier,
                 BlueCoalitionId: seed.BlueCoalitionId.ToString(),

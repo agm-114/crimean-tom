@@ -364,17 +364,34 @@ pnpm performance:compare -- `
   -OutputPath .run/performance/vanilla-vs-dynamic-full.json
 ```
 
-The capture records FPS, main-thread snapshot latency, tactical clock rate,
+The capture records FPS, main-thread snapshot latency, the engine and Sea Power
+fixed timesteps, internal `GameTime.TimeDilation`, tactical clock rate,
 object/proxy counts, campaign quanta and commit throughput, plus normalized CPU
 and memory for Sea Power, the companion, and the actual ServiceHost child
-process. The comparison is intentionally system-level and not unit-count
-normalized. Always inspect the reported object/entity/proxy counts and
-`anyPausedSample`; a hidden/destroyed proxy or mismatched workload invalidates a
-visual-proxy comparison even if the command succeeds. Keep `.run/performance`
-artifacts local and summarize qualifying runs in a dated evidence document.
+process. Fixed timestep and internal dilation are context metrics: also inspect
+the measured tactical seconds per wall second to detect an engine falling
+behind without changing its configured dilation. The comparison is
+intentionally system-level and not unit-count normalized. Always inspect the
+reported object/entity/proxy counts and `anyPausedSample`; a hidden/destroyed
+proxy or mismatched workload invalidates a visual-proxy comparison even if the
+command succeeds. Keep `.run/performance` artifacts local and summarize
+qualifying runs in a dated evidence document.
 The current qualified pair and the associated replay/memory investigation are
 recorded in
 [Full dynamic campaign sync and performance proof](../evidence/full-dynamic-campaign-sync-performance-2026-08-23.md).
+
+For a matched entity-count fixture without expanding the full force multiplier,
+create the campaign metadata normally and then call:
+
+```text
+POST /control/campaigns/{campaignId}/bootstrap/fulda-gap/subset/{entityCount}
+```
+
+`entityCount` is bounded to 1–4,096. The selector is deterministic across
+campaign IDs, always retains Pharris, and retains the complete current Knox
+tactical/proxy set whenever the requested bound has room for it. The
+qualified native-versus-dynamic 500 result is recorded in
+[Native versus dynamic 500-entity performance](../evidence/native-vs-dynamic-500-performance-2026-08-23.md).
 
 ### Manual all-native scale ladder
 

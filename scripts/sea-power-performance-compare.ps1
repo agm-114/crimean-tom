@@ -211,6 +211,9 @@ if ($Action -eq 'capture') {
             elapsedSeconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3)
             framesPerSecond = [double]$world.measuredFramesPerSecond
             mainThreadCaptureMicroseconds = [double]$world.mainThreadCaptureDurationMicroseconds
+            engineFixedDeltaTimeSeconds = [double]$world.engineFixedDeltaTime
+            gameFixedDeltaTimeSeconds = [double]$world.gameFixedDeltaTime
+            internalTimeDilation = [double]$world.internalTimeDilation
             observedObjectCount = [int]$world.observedObjectCount
             activeWeaponCount = [int]$world.spatialDiagnostics.activeWeaponCount
             tacticalSimulationSeconds = [double]$ui.simulationTimeSeconds
@@ -240,6 +243,9 @@ if ($Action -eq 'capture') {
     $last = $samples[$samples.Count - 1]
     $fpsValues = [double[]]@($samples | ForEach-Object framesPerSecond)
     $captureValues = [double[]]@($samples | ForEach-Object mainThreadCaptureMicroseconds)
+    $engineFixedDeltaValues = [double[]]@($samples | ForEach-Object engineFixedDeltaTimeSeconds)
+    $gameFixedDeltaValues = [double[]]@($samples | ForEach-Object gameFixedDeltaTimeSeconds)
+    $internalTimeDilationValues = [double[]]@($samples | ForEach-Object internalTimeDilation)
     $objectValues = [double[]]@($samples | ForEach-Object observedObjectCount)
     $proxyValues = [double[]]@($samples | ForEach-Object visibleProxyCount)
     $sampleSpan = [Math]::Max(0.0001d, $last.elapsedSeconds - $first.elapsedSeconds)
@@ -260,6 +266,12 @@ if ($Action -eq 'capture') {
             averageFramesPerSecond = [Math]::Round((Get-Average $fpsValues), 3)
             minimumFramesPerSecond = [Math]::Round((Get-Percentile $fpsValues 0.0), 3)
             p95MainThreadCaptureMicroseconds = [Math]::Round((Get-Percentile $captureValues 0.95), 3)
+            averageEngineFixedTimestepMilliseconds = [Math]::Round(
+                1000d * (Get-Average $engineFixedDeltaValues), 4)
+            averageGameFixedTimestepMilliseconds = [Math]::Round(
+                1000d * (Get-Average $gameFixedDeltaValues), 4)
+            averageInternalTimeDilation = [Math]::Round(
+                (Get-Average $internalTimeDilationValues), 4)
             averageObservedObjectCount = [Math]::Round((Get-Average $objectValues), 3)
             averageVisibleProxyCount = [Math]::Round((Get-Average $proxyValues), 3)
             tacticalSimulationSecondsPerWallSecond = [Math]::Round(
@@ -355,6 +367,9 @@ $comparison = [ordered]@{
         Metric-Delta 'averageFramesPerSecond' $baseline.summary.averageFramesPerSecond $candidate.summary.averageFramesPerSecond 'higher'
         Metric-Delta 'minimumFramesPerSecond' $baseline.summary.minimumFramesPerSecond $candidate.summary.minimumFramesPerSecond 'higher'
         Metric-Delta 'p95MainThreadCaptureMicroseconds' $baseline.summary.p95MainThreadCaptureMicroseconds $candidate.summary.p95MainThreadCaptureMicroseconds 'lower'
+        Metric-Delta 'averageEngineFixedTimestepMilliseconds' $baseline.summary.averageEngineFixedTimestepMilliseconds $candidate.summary.averageEngineFixedTimestepMilliseconds 'context'
+        Metric-Delta 'averageGameFixedTimestepMilliseconds' $baseline.summary.averageGameFixedTimestepMilliseconds $candidate.summary.averageGameFixedTimestepMilliseconds 'context'
+        Metric-Delta 'averageInternalTimeDilation' $baseline.summary.averageInternalTimeDilation $candidate.summary.averageInternalTimeDilation 'context'
         Metric-Delta 'tacticalSimulationSecondsPerWallSecond' $baseline.summary.tacticalSimulationSecondsPerWallSecond $candidate.summary.tacticalSimulationSecondsPerWallSecond 'higher'
         Metric-Delta 'seaPowerNormalizedCpuPercent' $baseline.processes.seaPower.normalizedCpuPercent $candidate.processes.seaPower.normalizedCpuPercent 'lower'
         Metric-Delta 'seaPowerWorkingSetMiB' $baseline.processes.seaPower.workingSetMiB $candidate.processes.seaPower.workingSetMiB 'lower'
