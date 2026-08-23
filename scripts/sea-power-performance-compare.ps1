@@ -169,6 +169,16 @@ if ($Action -eq 'capture') {
         Find-ProcessId 'CrimeanTom.Campaign.ServiceHost'
     }
 
+    # Keep endpoint cold-start and metadata initialization outside the timed
+    # process/sample window. Both sides still warm the same runtime endpoints;
+    # the candidate additionally warms its campaign view.
+    $warmWorld = Invoke-JsonGet "$ControlUrl/game/world" $controlHeaders
+    $null = Invoke-JsonGet "$ControlUrl/game/ui" $controlHeaders
+    $null = Invoke-JsonGet "$ControlUrl/game/render-proxies" $controlHeaders
+    if ($null -ne $campaignHeaders) {
+        $null = Invoke-JsonGet "$CampaignUrl/campaigns/$CampaignId" $campaignHeaders
+    }
+
     $processBefore = [pscustomobject]@{
         seaPower = Get-ProcessSnapshot $seaPowerProcessId
         companion = Get-ProcessSnapshot $companionProcessId
@@ -176,7 +186,13 @@ if ($Action -eq 'capture') {
     }
     $samples = [Collections.Generic.List[object]]::new()
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    while ($watch.Elapsed.TotalSeconds -lt $DurationSeconds) {
+    $scheduledSampleCount = [int][Math]::Ceiling($DurationSeconds / [double]$SampleIntervalSeconds)
+    for ($sampleIndex = 0; $sampleIndex -lt $scheduledSampleCount; $sampleIndex++) {
+        $scheduledSeconds = $sampleIndex * $SampleIntervalSeconds
+        $delayMilliseconds = 1000d * ($scheduledSeconds - $watch.Elapsed.TotalSeconds)
+        if ($delayMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds ([int][Math]::Ceiling($delayMilliseconds))
+        }
         $world = Invoke-JsonGet "$ControlUrl/game/world" $controlHeaders
         $ui = Invoke-JsonGet "$ControlUrl/game/ui" $controlHeaders
         $proxies = Invoke-JsonGet "$ControlUrl/game/render-proxies" $controlHeaders
@@ -203,9 +219,10 @@ if ($Action -eq 'capture') {
             campaignAdvanceMicroseconds = if ($null -eq $campaign) { $null } else { [long]$campaign.performance.advance.lastDurationMicroseconds }
             campaignAdvanceWorkUnitsPerSecond = if ($null -eq $campaign) { $null } else { [double]$campaign.performance.advance.lastWorkUnitsPerSecondMilliunits / 1000d }
         })
-        if ($watch.Elapsed.TotalSeconds -lt $DurationSeconds) {
-            Start-Sleep -Seconds $SampleIntervalSeconds
-        }
+    }
+    $remainingDurationMilliseconds = 1000d * ($DurationSeconds - $watch.Elapsed.TotalSeconds)
+    if ($remainingDurationMilliseconds -gt 0) {
+        Start-Sleep -Milliseconds ([int][Math]::Ceiling($remainingDurationMilliseconds))
     }
     $watch.Stop()
     $processAfter = [pscustomobject]@{
@@ -227,7 +244,9 @@ if ($Action -eq 'capture') {
         label = $Label
         workload = $Workload
         campaignId = $CampaignId
+        scenarioId = [string]$warmWorld.scenarioId
         durationSeconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3)
+        sampleIntervalSeconds = $SampleIntervalSeconds
         sampleCount = $samples.Count
         gameSessionId = [string]$health.sessionId
         seaPowerBuild = [string]$health.game.gameVersion
@@ -272,6 +291,31 @@ if ([string]::IsNullOrWhiteSpace($BaselinePath) -or
 }
 $baseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
 $candidate = Get-Content -LiteralPath $CandidatePath -Raw | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace([string]$baseline.scenarioId) -or
+    [string]$baseline.scenarioId -cne [string]$candidate.scenarioId) {
+    throw 'Performance comparison requires the same recorded scenario on both sides.'
+}
+if ([string]::IsNullOrWhiteSpace([string]$baseline.seaPowerBuild) -or
+    [string]$baseline.seaPowerBuild -cne [string]$candidate.seaPowerBuild) {
+    throw 'Performance comparison requires the same Sea Power build on both sides.'
+}
+if ([int]$baseline.sampleCount -ne [int]$candidate.sampleCount -or
+    [int]$baseline.sampleIntervalSeconds -ne [int]$candidate.sampleIntervalSeconds) {
+    throw 'Performance comparison requires matching sample counts and intervals.'
+}
+if ([bool]$baseline.summary.anyPausedSample -or
+    [bool]$candidate.summary.anyPausedSample -or
+    [double]$baseline.summary.tacticalSimulationSecondsPerWallSecond -le 0 -or
+    [double]$candidate.summary.tacticalSimulationSecondsPerWallSecond -le 0) {
+    throw 'Performance comparison requires unpaused, advancing tactical time on both sides.'
+}
+if (-not [string]::IsNullOrWhiteSpace([string]$candidate.campaignId) -and
+    ($null -eq $candidate.summary.campaignEntityCount -or
+        [int]$candidate.summary.campaignEntityCount -le 0 -or
+        $null -eq $candidate.summary.campaignQuantaPerWallSecond -or
+        [double]$candidate.summary.campaignQuantaPerWallSecond -le 0)) {
+    throw 'A campaign-bound candidate must report entities and advancing campaign time.'
+}
 $comparison = [ordered]@{
     schemaVersion = 1
     comparedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')

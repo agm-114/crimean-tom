@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CrimeanTom.Companion</AssemblyName>
     <RootNamespace>CrimeanTom.Companion</RootNamespace>
+    <!-- The companion runs beside Sea Power on a player's desktop. The Web SDK
+         otherwise enables server GC, which creates one heap per logical CPU and
+         retained more than 700 MiB after a full 4,096-entity journal catch-up. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
