@@ -155,20 +155,55 @@ public sealed class CampaignCoordinator(
             }
 
             var seed = FuldaGapCampaignSeed.Create(campaignId, forceMultiplier);
+            var resultMetrics = (
+                seed.ForceMultiplier,
+                BlueCoalitionId: seed.BlueCoalitionId.ToString(),
+                RedCoalitionId: seed.RedCoalitionId.ToString(),
+                RegionCount: seed.Regions.Count,
+                BaseCount: seed.Bases.Count,
+                EntityCount: seed.Entities.Count,
+                TaskForceCount: seed.Groups.Count,
+                OpeningOrderCount: seed.Orders.Count,
+                MaritimeEntityCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Maritime),
+                AirEntityCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Air),
+                RotaryWingEntityCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.RotaryWing),
+                LogisticsEntityCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Logistics),
+                LandEntityCount: seed.Entities.Count(item => item.SimulationDomain is SimulationDomain.LandAbstract
+                    or SimulationDomain.Ground or SimulationDomain.Installation),
+                GroundUnitCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Ground),
+                InstallationEntityCount: seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Installation),
+                AbstractLandFormationCount: seed.Entities.Count(item => item.CatalogUnitId == "abstract_land_formation"),
+                CivilianTrafficCount: seed.Entities.Count(FuldaGapCampaignSeed.IsCivilianTraffic),
+                FixedSiteCount: seed.Entities.Count(FuldaGapCampaignSeed.IsFixedSite),
+                ResidentStrategicSystemCount: seed.Entities.Count(FuldaGapCampaignSeed.IsResidentStrategicSystem),
+                TacticalEligibleEntityCount: seed.Entities.Count(item => item.MaximumFidelity == FidelityState.Tactical),
+                FuldaRegionId: seed.RegionIds["fulda"].ToString(),
+                GiukRegionId: seed.RegionIds["giuk"].ToString(),
+                BalticApproachesRegionId: seed.RegionIds["baltap"].ToString(),
+                TacticalDemoEntityId: seed.EntityIds["pharris"].ToString());
+            var staged = new List<CampaignAppendEntry>(
+                seed.Regions.Count + seed.Bases.Count + seed.Entities.Count + seed.Groups.Count + seed.Orders.Count);
+            CampaignState Stage(CampaignCommand command)
+            {
+                var campaignEvent = CampaignKernel.Decide(state, command, state.Head.Next());
+                staged.Add(new CampaignAppendEntry(command, campaignEvent));
+                return CampaignKernel.Apply(state, campaignEvent);
+            }
+
             foreach (var region in seed.Regions)
             {
                 var neighbors = region.NeighborKeys.Select(key => seed.RegionIds[key]).ToArray();
-                state = await CommitAsync(state, Command(
+                state = Stage(Command(
                     state,
                     CampaignSubject.Region(region.RegionId),
                     EntityRevision.None,
                     new RegisterRegionCommand(region.RegionId, region.Name, neighbors),
-                    $"fulda-region-{region.Key}"), cancellationToken);
+                    $"fulda-region-{region.Key}"));
             }
 
             foreach (var campaignBase in seed.Bases)
             {
-                state = await CommitAsync(state, Command(
+                state = Stage(Command(
                     state,
                     CampaignSubject.Base(campaignBase.BaseId),
                     EntityRevision.None,
@@ -179,12 +214,12 @@ public sealed class CampaignCoordinator(
                         seed.RegionIds[campaignBase.RegionKey],
                         campaignBase.Coordinate,
                         FuldaResources(baseSupply: true)),
-                    $"fulda-base-{campaignBase.Key}"), cancellationToken);
+                    $"fulda-base-{campaignBase.Key}"));
             }
 
             foreach (var entity in seed.Entities)
             {
-                state = await CommitAsync(state, Command(
+                state = Stage(Command(
                     state,
                     CampaignSubject.Entity(entity.EntityId),
                     EntityRevision.None,
@@ -204,23 +239,23 @@ public sealed class CampaignCoordinator(
                         entity.MaximumFidelity,
                         entity.CatalogLoadoutId,
                         entity.OperationalWeapons),
-                    $"fulda-entity-{entity.Key}"), cancellationToken);
+                    $"fulda-entity-{entity.Key}"));
             }
 
             foreach (var group in seed.Groups)
             {
-                state = await CommitAsync(state, Command(
+                state = Stage(Command(
                     state,
                     CampaignSubject.Group(group.GroupId),
                     EntityRevision.None,
                     new FormGroupCommand(group.GroupId, group.Name, group.CoalitionId, group.Members),
-                    $"fulda-group-{group.Key}"), cancellationToken);
+                    $"fulda-group-{group.Key}"));
             }
 
             foreach (var order in seed.Orders)
             {
                 var group = state.Groups[order.GroupId];
-                state = await CommitAsync(state, Command(
+                state = Stage(Command(
                     state,
                     CampaignSubject.Group(order.GroupId),
                     group.Revision,
@@ -231,39 +266,51 @@ public sealed class CampaignCoordinator(
                         order.DestinationRegionId,
                         state.Time,
                         new CampaignTime(720)),
-                    $"fulda-order-{order.OrderId}"), cancellationToken);
+                    $"fulda-order-{order.OrderId}"));
             }
+
+            var lease = await RequireLeaseAsync(campaignId, cancellationToken);
+            seed = null!;
+            state = null!;
+            var append = await journal.AppendBatchAsync(lease, staged, DateTimeOffset.UtcNow, cancellationToken);
+            if (sessions.HasSessionsForCampaign(campaignId.ToString()))
+            {
+                foreach (var entry in staged)
+                {
+                    BroadcastCommittedEvent(entry.CampaignEvent);
+                }
+            }
+            staged.Clear();
 
             return new FuldaGapBootstrapResult(
                 campaignId.ToString(),
                 "Fulda Gap Gone Hot — Global War, September 1989",
-                seed.ForceMultiplier,
-                seed.BlueCoalitionId.ToString(),
-                seed.RedCoalitionId.ToString(),
-                seed.Regions.Count,
-                seed.Bases.Count,
-                seed.Entities.Count,
-                seed.Groups.Count,
-                seed.Orders.Count,
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Maritime),
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Air),
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.RotaryWing),
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Logistics),
-                seed.Entities.Count(item => item.SimulationDomain is SimulationDomain.LandAbstract
-                    or SimulationDomain.Ground or SimulationDomain.Installation),
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Ground),
-                seed.Entities.Count(item => item.SimulationDomain == SimulationDomain.Installation),
-                seed.Entities.Count(item => item.CatalogUnitId == "abstract_land_formation"),
-                seed.Entities.Count(FuldaGapCampaignSeed.IsCivilianTraffic),
-                seed.Entities.Count(FuldaGapCampaignSeed.IsFixedSite),
-                seed.Entities.Count(FuldaGapCampaignSeed.IsResidentStrategicSystem),
-                seed.Entities.Count(item => item.MaximumFidelity == FidelityState.Tactical),
-                seed.RegionIds["fulda"].ToString(),
-                seed.RegionIds["giuk"].ToString(),
-                seed.RegionIds["baltap"].ToString(),
-                seed.EntityIds["pharris"].ToString(),
-                state.Head.Value,
-                CampaignCanonicalSerializer.ComputeHash(state));
+                resultMetrics.ForceMultiplier,
+                resultMetrics.BlueCoalitionId,
+                resultMetrics.RedCoalitionId,
+                resultMetrics.RegionCount,
+                resultMetrics.BaseCount,
+                resultMetrics.EntityCount,
+                resultMetrics.TaskForceCount,
+                resultMetrics.OpeningOrderCount,
+                resultMetrics.MaritimeEntityCount,
+                resultMetrics.AirEntityCount,
+                resultMetrics.RotaryWingEntityCount,
+                resultMetrics.LogisticsEntityCount,
+                resultMetrics.LandEntityCount,
+                resultMetrics.GroundUnitCount,
+                resultMetrics.InstallationEntityCount,
+                resultMetrics.AbstractLandFormationCount,
+                resultMetrics.CivilianTrafficCount,
+                resultMetrics.FixedSiteCount,
+                resultMetrics.ResidentStrategicSystemCount,
+                resultMetrics.TacticalEligibleEntityCount,
+                resultMetrics.FuldaRegionId,
+                resultMetrics.GiukRegionId,
+                resultMetrics.BalticApproachesRegionId,
+                resultMetrics.TacticalDemoEntityId,
+                append.LastCommitPosition.Value,
+                append.CanonicalHash);
         }
         finally
         {
@@ -2800,19 +2847,7 @@ public sealed class CampaignCoordinator(
         var campaignEvent = CampaignKernel.Decide(state, command, state.Head.Next());
         var lease = await RequireLeaseAsync(state.Metadata.CampaignId, cancellationToken);
         var result = await journal.AppendAsync(lease, command, campaignEvent, DateTimeOffset.UtcNow, cancellationToken);
-        var json = CampaignContractJson.Serialize(result.CampaignEvent);
-        _ = sessions.TryBroadcastForCampaign(
-            state.Metadata.CampaignId.ToString(),
-            new ServiceFrame
-            {
-                CommittedEvent = new CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent
-                {
-                    CommitPosition = result.CampaignEvent.CommitPosition.Value,
-                    EventId = result.CampaignEvent.EventId.ToString(),
-                    EventJson = ByteString.CopyFrom(json),
-                    EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
-                },
-            });
+        BroadcastCommittedEvent(result.CampaignEvent);
         var committed = CampaignKernel.Apply(state, result.CampaignEvent);
         if (committed.Head.Value > 0 && committed.Head.Value % SnapshotIntervalCommits == 0)
         {
@@ -2823,6 +2858,23 @@ public sealed class CampaignCoordinator(
                 cancellationToken);
         }
         return committed;
+    }
+
+    private void BroadcastCommittedEvent(CrimeanTom.Campaign.Contracts.CommittedCampaignEvent campaignEvent)
+    {
+        var json = CampaignContractJson.Serialize(campaignEvent);
+        _ = sessions.TryBroadcastForCampaign(
+            campaignEvent.CampaignId.ToString(),
+            new ServiceFrame
+            {
+                CommittedEvent = new CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent
+                {
+                    CommitPosition = campaignEvent.CommitPosition.Value,
+                    EventId = campaignEvent.EventId.ToString(),
+                    EventJson = ByteString.CopyFrom(json),
+                    EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
+                },
+            });
     }
 
     private async Task<CampaignWriterLease> RequireLeaseAsync(

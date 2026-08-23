@@ -58,6 +58,29 @@ carrier and two battleship groups. Sources:
 [Enterprise 1986–1990](https://www.history.navy.mil/research/histories/ship-histories/danfs/e/enterprise-cvan-65-viii-1986-1990.html),
 and [Antietam](https://www.history.navy.mil/research/histories/ship-histories/danfs/a/antietam-iii.html).
 
+The Soviet expansion treats the Northern, Pacific, Baltic, Black Sea, and
+Mediterranean forces as a combined wartime system of surface combatants,
+submarines, naval aviation, amphibious lift, auxiliaries, intelligence ships,
+and mobilized merchant support. A declassified estimate put the peacetime
+Mediterranean Squadron near 45 ships and identified the Black Sea Fleet as its
+main surface-force source; another assessment allowed a prewar surge of up to
+12 Black Sea major combatants through the Turkish Straits. These are scale and
+force-flow anchors, while the generated hull-by-hull distribution remains an
+**authored extrapolation**. Sources: [Soviet Mediterranean Squadron
+assessment](https://www.cia.gov/readingroom/docs/CIA-RDP87T00126R000400510003-7.pdf),
+[Black Sea Fleet augmentation
+assessment](https://www.cia.gov/readingroom/docs/1979-01-31b.pdf), and the
+[Department of Defense Annual Report FY
+1990](https://history.defense.gov/Portals/70/Documents/annual_reports/1990a_DoD_AR.pdf).
+
+The installed catalog deliberately includes what-if platforms. The seed labels
+Project 1160 **Orel** carriers and US **Alaska-class CSGN** cruisers as
+hypothetical in entity names, and labels reactivated legacy hulls as mobilized
+or reserve forces. Their presence is a scenario premise and catalog-coverage
+test, not a historical commissioning claim. The 1,329 maritime entities are a
+maximum-stress global campaign representation, not an exact 1989 deployment
+ledger.
+
 ### Central Front and reinforcement
 
 NATO's contemporary public force comparison describes a Warsaw Pact advantage
@@ -76,6 +99,42 @@ The campaign represents individual air-defense, airfield, radar, depot, and
 shore-defense components, but corps/division warfare remains abstract. The
 exact number and placement of generated formations are **representative
 abstractions**, not a digitized NATO or Warsaw Pact classified OOB.
+
+### Global land and air participation
+
+The US Army's FY 1989 historical summary records a 28-division Total Army: 18
+active divisions and 10 Army National Guard divisions, with heavy, light,
+airborne, and air-assault forces. Japan's contemporary 1989 defense white paper
+describes a standing 13-squadron fighter force, including three support-fighter
+squadrons, tied to radar warning, interceptor, and surface-to-air-missile
+organizations. These are **historical anchors** for representing land and air
+forces as formations, squadrons, batteries, and network nodes rather than as a
+few individual vehicles. Sources: [Department of the Army Historical Summary,
+FY 1989](https://history.army.mil/portals/143/Images/Publications/catalog/101-21.pdf)
+and [Defense of Japan 1989, part
+III](https://www.clearing.mod.go.jp/hakusho_data/1989/w1989_03.html).
+
+Declassified US assessments describe the Soviet Far East as roughly a quarter
+of Soviet ground and tactical air power, with more than 50 divisions, about
+500,000 ground troops, and approximately 2,000 aircraft in the theater. They
+also describe China's much larger but less mobile ground force, its emphasis on
+large quantities of older conventional equipment, and point defenses around
+urban, industrial, military, and strategic sites. Those assessments are
+**historical scale and force-character anchors**, not a claim that China and
+the USSR were allies in 1989. Sources: [Soviet capabilities in East
+Asia](https://www.cia.gov/readingroom/docs/DOC_0000261287.pdf), [China: New
+Weapons for the Conventional
+Forces](https://www.cia.gov/readingroom/document/cia-rdp85t00287r000401510001-2),
+and [The Sino-Soviet Relationship: The Military
+Aspects](https://www.cia.gov/readingroom/document/loc-hak-541-8-2-0).
+
+The current campaign contract has only two coalitions. China, Iran, Iraq,
+Syria, North Korea, Vietnam, and Cuba are assigned to the red gameplay scope;
+Japan, South Korea, Taiwan, Israel, Australia, France, the United Kingdom, and
+other NATO participants are assigned to blue. This is an explicit **authored
+WW3++ extrapolation and product limitation**, not a statement of the actual
+1989 diplomatic alignment. Neutral/nonaligned actors, hostility matrices, and
+coalition changes remain required campaign features.
 
 ### Cuba
 
@@ -106,7 +165,7 @@ The former handful of convoy counters could not validate contact load,
 deconfliction, protection, or unintended-effects behavior at that scale.
 Source: [Review of Maritime Transport 1989](https://unctad.org/system/files/official-document/rmt1989_en.pdf).
 
-The campaign samples 90 civilian, merchant, fishing, sealift, and auxiliary
+The campaign samples 158 civilian aircraft, merchant, fishing, sealift, and auxiliary
 entities across Atlantic and Pacific routes. This is a **representative traffic
 sample**, not a literal global AIS picture. Until the campaign has diplomacy
 and noncombatant rules, traffic is assigned to Western or Soviet-aligned
@@ -125,7 +184,7 @@ the exact 1989 network. Sources:
 [AFDP 3-01 counterair planning](https://www.doctrine.af.mil/Portals/61/documents/Annex_3-01/3-01-D09-AIR-Planning.PDF)
 and [Defending Air Bases in an Age of Insurgency, volume II](https://www.airuniversity.af.edu/Portals/10/AUPress/Books/B_0154_CAUDILL_DEFENDING_AIR_BASES_IN_AN_AGE_OF_INSURGENCY_VOL_II.PDF).
 
-Each of 20 opening airbase defense complexes therefore contains:
+Each of 38 opening airbase defense complexes therefore contains:
 
 1. a streamable airfield/runway and operations object;
 2. an early-warning radar;
@@ -136,12 +195,12 @@ Each of 20 opening airbase defense complexes therefore contains:
 The larger theater also contains additional radar/SAM packages, shore-defense
 batteries, ports, depots, fleet auxiliaries, and convoy routes. Fixed-site and
 ground catalog objects are tactically eligible so future ground streaming is
-tested by the data model. Each of the 26 army/corps/division-scale abstractions
+tested by the data model. Each of the 90 army/corps/division-scale abstractions
 also projects two physical armor targets and one low-end SHORAD target into its
 task group. The parent remains the Operational maneuver/sustainment model and
 cannot attack its own target projection; the physical objects exist primarily
 for aircraft, helicopters, bombers, missiles, and naval gunfire to attack. Only
-the 26 parent abstractions retain an Operational maximum-fidelity ceiling.
+the 90 parent abstractions retain an Operational maximum-fidelity ceiling.
 
 Strategic SAMs, early-warning radars, and ballistic-missile launchers are
 resident systems: the fidelity scheduler keeps their coupled islands Tactical
@@ -166,26 +225,26 @@ The default deterministic seed now commits:
 
 | Category | Count | Meaning |
 | --- | ---: | --- |
-| Regions | 39 | Global route graph, including Florida, Caribbean, Cuba, US West Coast, Pacific Northwest, and Hawaii |
-| Bases | 61 | Naval, air, logistics, intelligence, and staging locations |
-| Campaign entities | 905 | Ships, fixed- and rotary-wing air, commerce, installations, physical ground targets, and land abstractions |
-| Groups | 293 | Task groups, convoys, defense complexes, sortie packages, helicopter flights, and ballistic units |
-| Groups with opening orders | 221 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement |
-| Maritime-domain entities | 324 | Surface combatants and submarines |
-| Fixed-wing air-domain entities | 107 | Squadron-, wing-, or mission-sized packages |
-| Rotary-wing entities | 21 | Attack, lift, maritime-patrol, and ASW helicopters |
-| Logistics-domain entities | 165 | Auxiliaries, commerce, sealift, fuel, ammunition, and warehouses |
-| Ground entities | 88 | 52 armor targets, 26 low-end SHORAD targets, and 10 ballistic TEL visual proxies |
-| Installation entities | 174 | Airfields, radars, strategic GBAD, and coastal-defense components |
-| Operational land abstractions | 26 | Campaign-scale formations and rear-area commands |
-| Civilian/merchant catalog entities | 90 | Coalition-affiliated traffic sample pending neutral diplomacy |
-| Fixed-site components | 220 | Airfields, radars, GBAD, shore defense, fuel, ammunition, and warehouses |
-| Resident strategic systems | 73 | Strategic SAM, radar, and ballistic systems that never demote below Operational |
-| Tactical-eligible entities | 879 | Catalog-backed workload intended for eventual streaming |
+| Regions | 55 | Global sea-route and land-zone graph, including the Black Sea, Alaska, Europe, China, Japan, Korea, Taiwan, Vietnam, Iran, Iraq, and the Levant |
+| Bases | 81 | Naval, air, logistics, intelligence, and staging locations |
+| Campaign entities | 4,096 | Ships, fixed- and rotary-wing air, commerce, installations, physical ground targets, and land abstractions |
+| Groups | 919 | Task groups, convoys, defense complexes, sortie packages, helicopter flights, and ballistic units |
+| Groups with opening orders | 741 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement |
+| Maritime-domain entities | 1,329 | Surface combatants and submarines |
+| Fixed-wing air-domain entities | 491 | Squadron-, wing-, or mission-sized packages |
+| Rotary-wing entities | 149 | Attack, lift, maritime-patrol, ASW, and unmanned helicopters |
+| Logistics-domain entities | 399 | Auxiliaries, commerce, sealift, fuel, ammunition, industry, and warehouses |
+| Ground entities | 984 | Physical armor, mechanized, artillery, local-GBAD, coastal-defense, support, and ballistic-launcher targets |
+| Installation entities | 654 | Airfields, ports, radar/IADS nodes, industry, strategic GBAD, and coastal-defense components |
+| Operational land abstractions | 90 | Campaign-scale formations and rear-area commands |
+| Civilian/merchant catalog entities | 158 | Coalition-affiliated air and sea traffic sample pending neutral diplomacy |
+| Fixed-site components | 838 | Airfields, ports, radar/GBAD, shore defense, fuel, ammunition, industry, and warehouses |
+| Resident strategic systems | 325 | Strategic SAM, radar, and ballistic systems that never demote below Operational |
+| Tactical-eligible entities | 4,006 | Catalog-backed workload intended for eventual streaming |
 
 `forceMultiplier` remains available for larger synthetic runs. It replicates
-the complete 905-entity echelon deterministically, so multiplier 2 represents
-1,810 entities rather than the old 120.
+the complete 4,096-entity echelon deterministically, so multiplier 2 represents
+8,192 entities rather than the old 120.
 
 ## Installed catalog provenance
 
@@ -193,9 +252,18 @@ The seed was checked against the installed Sea Power
 `0.8.2-23444+s358` English catalog on 23 August 2026. It uses real identifiers
 from `vessel_names.ini`, `aircraft_names.ini`, and `land_units_names.ini`,
 including US and Soviet ship classes; civilian freighters, Ro/Ro ships,
-trawlers, and fishing vessels; NATO and Warsaw Pact aircraft; airfields; NATO
-MIM-23/Nike/Skyguard components; Soviet SA-2/3/5/6/10/11 components; radars;
-coastal missiles; fuel tanks; ammunition depots; and warehouses.
+trawlers, and fishing vessels; NATO, Warsaw Pact, Chinese, Japanese, French,
+Israeli, Iranian, Iraqi, and civilian aircraft; armor and support vehicles;
+airfields and ports; NATO MIM-23/Nike/Skyguard components; Soviet
+SA-2/3/4/5/6/7/8/10/11 components; Chinese and Vietnamese coastal defenses;
+radars; fuel tanks; ammunition depots; industry; and warehouses.
+
+The authored seed instantiates every usable base catalog definition in that
+installed build: **241/241 vessels, 111/111 aircraft, and 187/187 land
+units/sites**. Variant and squadron companion INIs are intentionally not counted
+as separate platform definitions; aggregate/test selectors are excluded. Full
+catalog coverage is an engineering stress boundary, not a claim that every
+platform was operational, co-located, or on the same side in September 1989.
 
 Catalog presence proves that Sea Power has an object definition, not that the
 runtime bridge can already materialize and synchronize every family. The
@@ -212,9 +280,17 @@ streaming support is visible as work rather than silently excluded.
 | [Naval Station Mayport](https://www.history.navy.mil/content/history/nhhc/browse-by-topic/organization-and-administration/installations/naval-station-mayport.html) | NHHC installation history | Major surface/air facility; NAS designation in 1988 | Florida fleet and aviation cluster |
 | [Enterprise 1986–1990](https://www.history.navy.mil/research/histories/ship-histories/danfs/e/enterprise-cvan-65-viii-1986-1990.html) | NHHC ship history | Alameda, West Coast training, PACEX 89 | Pacific force concentration; opening placement is extrapolated |
 | [Antietam](https://www.history.navy.mil/research/histories/ship-histories/danfs/a/antietam-iii.html) | NHHC ship history | Long Beach and PACEX 89 scale | Pacific route and fleet package anchor |
+| [Soviet Mediterranean Squadron assessment](https://www.cia.gov/readingroom/docs/CIA-RDP87T00126R000400510003-7.pdf) | Declassified US intelligence assessment | Approximately 45 deployed ships; Black Sea surface and Northern submarine sourcing | Mediterranean/Black Sea flow anchor, not exact generated OOB |
+| [Black Sea Fleet augmentation assessment](https://www.cia.gov/readingroom/docs/1979-01-31b.pdf) | Declassified US intelligence assessment | Potential prewar surge of Black Sea major combatants through Turkish Straits | Black Sea/Bosporus mobilization premise |
+| [Department of Defense Annual Report FY 1990](https://history.defense.gov/Portals/70/Documents/annual_reports/1990a_DoD_AR.pdf) | US Department of Defense official report | Soviet combined naval and naval-aviation threat context | Combined fleet/air/logistics architecture anchor |
 | [NATO–Warsaw Pact force comparison](https://archives.nato.int/force-comparison-1987-nato-and-warsaw-pact) | NATO contemporary publication/archive | Force imbalance, regional comparison, methodology | Central Front density and reinforcement demand |
 | [Conventional forces in Europe](https://archives.nato.int/uploads/r/null/1/4/141514/CONVENTIONAL_FORCES_IN_EUROPE_-_THE_FACTS_ENG.pdf) | NATO contemporary publication | Air-defense-system and conventional-force comparison | Dense GBAD/radar representation; not site-level OOB |
 | [Army Command Post and Defense Reshaping](https://history.army.mil/portals/143/Images/Publications/catalog/40-4-1.pdf) | US Army official history | 1989 POMCUS, airlift, sealift, and reinforcement shortfalls | POMCUS, depots, airheads, convoys |
+| [Department of the Army Historical Summary, FY 1989](https://history.army.mil/portals/143/Images/Publications/catalog/101-21.pdf) | US Army official history | 28-division Total Army and 1989 force structure | Formation-scale anchor; entity counts are representative |
+| [Defense of Japan 1989, part III](https://www.clearing.mod.go.jp/hakusho_data/1989/w1989_03.html) | Japan Defense Agency contemporary white paper | 13 fighter squadrons; integrated radar, interceptor, and SAM posture | Japanese airbase/IADS and sortie-package scale |
+| [Soviet capabilities in East Asia](https://www.cia.gov/readingroom/docs/DOC_0000261287.pdf) | Declassified US intelligence assessment | Soviet Far East ground and air scale | Far East mobilization anchor; generated disposition is extrapolated |
+| [China: New Weapons for the Conventional Forces](https://www.cia.gov/readingroom/document/cia-rdp85t00287r000401510001-2) | Declassified US intelligence assessment | Chinese mass, legacy equipment, modernization and defensive emphasis | Chinese armor, air defense, and coastal packages |
+| [The Sino-Soviet Relationship: The Military Aspects](https://www.cia.gov/readingroom/document/loc-hak-541-8-2-0) | Declassified US intelligence assessment | Chinese force scale and point-defense character; Sino-Soviet opposition | Scale anchor and warning against reading red gameplay scope as historical alliance |
 | [The Cuban-Soviet Connection](https://www.cia.gov/readingroom/docs/CIA-RDP04T00794R000100080001-0.pdf) | Declassified US intelligence assessment | Lourdes, Soviet support, Cuban IADS and aircraft upgrades | Soviet-aligned Cuba and layered defense |
 | [Cuba: Soviet Military](https://www.cia.gov/readingroom/docs/CIA-RDP85S00317R000100110005-3.pdf) | Declassified US intelligence assessment | Cuban threat to Gulf/Caribbean shipping and US diversion | Florida/Caribbean pressure and coastal defense |
 | [Review of Maritime Transport 1989](https://unctad.org/system/files/official-document/rmt1989_en.pdf) | UNCTAD contemporary statistical report | Merchant fleet and trade scale | Representative civilian traffic load |

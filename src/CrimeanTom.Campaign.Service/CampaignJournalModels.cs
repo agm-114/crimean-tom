@@ -13,6 +13,17 @@ public sealed record CampaignAppendResult(
     CommittedCampaignEvent CampaignEvent,
     bool Duplicate);
 
+public sealed record CampaignAppendEntry(
+    CampaignCommand Command,
+    CommittedCampaignEvent CampaignEvent);
+
+public sealed record CampaignBatchAppendResult(
+    CommitPosition FirstCommitPosition,
+    CommitPosition LastCommitPosition,
+    int Count,
+    bool Duplicate,
+    string CanonicalHash);
+
 public sealed record CampaignSnapshotInfo(
     CampaignId CampaignId,
     CommitPosition CommitPosition,

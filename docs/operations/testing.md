@@ -314,7 +314,7 @@ authored mission, use the same camera/weather/pause state, and run for the same
 duration and sample interval. The current proving mission is
 `Fulda Gap Gone Hot - GIUK Dynamic Campaign Window`: vanilla contains its four
 authored combat units; the candidate binds the complete Fulda proving campaign
-(39 regions, 61 bases, 905 entities, 293 groups) and adds the currently visible
+(55 regions, 81 bases, 4,096 entities, 919 groups) and adds the currently visible
 presentation-only proxies. Do not compare the one-unit worker shell to the full
 campaign or call a warmed process a paired run.
 
@@ -339,7 +339,7 @@ every timed sample, then capture:
 ```powershell
 pnpm performance:capture -- `
   -Label dynamic-full-campaign `
-  -Workload full-905-entity-ww3-plus-campaign-with-one-visual-proxy `
+  -Workload full-4096-entity-ww3-plus-campaign-with-one-visual-proxy `
   -CampaignId <32-char-guid> `
   -DurationSeconds 20 -SampleIntervalSeconds 2 `
   -OutputPath .run/performance/dynamic-full-campaign.json

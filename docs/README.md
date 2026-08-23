@@ -38,7 +38,7 @@ The folders separate evidence from design commitments:
    operational model they expose.
 7. [WW3++ 1989 scenario research](research/ww3-plus-1989-scenario-basis.md) records the
    historical anchors, authored extrapolations, source register, and implemented
-   905-entity combined-arms validation inventory.
+   4,096-entity full-catalog combined-arms validation inventory.
 8. [Dynamic campaign architecture](architecture/dynamic-campaign-design.md) gives the concise
    product and architecture overview.
 9. [System architecture](architecture/system-architecture.md) is the normative specification
@@ -105,10 +105,11 @@ The folders separate evidence from design commitments:
 32. [WW3++ 801-entity headless performance](evidence/ww3-plus-801-headless-performance-2026-08-23.md)
     is historical evidence for the pre-combined-arms seed.
 33. [Combined-arms Operational emulator evidence](evidence/combined-arms-operational-emulator-2026-08-23.md)
-    records the 905-entity domain inventory, representative exchanges, resident
+    is the historical 905-entity proof for representative exchanges, resident
     strategic-system policy, and explicit runtime limitations.
-    records the expanded scenario inventory, deterministic hashes, bootstrap
-    cost, and 30-quanta Operational throughput.
+34. [Full-catalog WW3++ expansion evidence](evidence/full-catalog-ww3-plus-expansion-2026-08-23.md)
+    records the 4,096-entity inventory, installed-platform coverage, local
+    verification, and historical/authored-scenario boundary.
 
 ## Evidence labels
 

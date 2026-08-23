@@ -1,5 +1,9 @@
 # Combined-arms Operational emulator evidence — 23 August 2026
 
+> Historical snapshot: this proof qualifies the earlier 905-entity seed. The
+> current full-catalog seed contains 4,096 entities; its inventory and checks
+> are recorded in the full-catalog expansion evidence.
+
 ## Claim
 
 The deterministic Operational analogue now represents fixed-wing aircraft,

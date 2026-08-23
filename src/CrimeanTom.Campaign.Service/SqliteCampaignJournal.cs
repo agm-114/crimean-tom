@@ -12,6 +12,7 @@ namespace CrimeanTom.Campaign.Service;
 public sealed class SqliteCampaignJournal
 {
     private const int DatabaseSchemaVersion = 3;
+    private const int MaximumBatchAppendCount = 10_000;
     private readonly string _databasePath;
     private readonly string _connectionString;
     private readonly ContentAddressedBlobStore _blobStore;
@@ -294,19 +295,7 @@ public sealed class SqliteCampaignJournal
             return new CampaignAppendResult(duplicate, Duplicate: true);
         }
 
-        if (campaignEvent.CampaignId != lease.CampaignId
-            || command.CampaignId != lease.CampaignId
-            || campaignEvent.CausalCommandId != command.CommandId
-            || campaignEvent.Subject != command.Subject
-            || campaignEvent.EffectiveTime != command.EffectiveAt
-            || campaignEvent.SchemaVersion != CampaignSchema.Version
-            || campaignEvent.AlgorithmVersion != CampaignSchema.AlgorithmVersion
-            || command.SchemaVersion != CampaignSchema.Version
-            || campaignEvent.CommitPosition.Value <= 0
-            || campaignEvent.NewSubjectRevision != command.ExpectedSubjectRevision.Next())
-        {
-            throw Conflict("append-envelope-conflict", "The command, event, and writer lease do not describe one append.");
-        }
+        ValidateAppendEnvelope(lease, command, campaignEvent);
 
         var expectedHead = campaignEvent.CommitPosition.Value - 1;
         await RequireHeadAndRevisionAsync(connection, transaction, command, expectedHead, cancellationToken);
@@ -341,6 +330,212 @@ public sealed class SqliteCampaignJournal
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
         return new CampaignAppendResult(campaignEvent, Duplicate: false);
+        }, cancellationToken);
+    }
+
+    public async Task<CampaignBatchAppendResult> AppendBatchAsync(
+        CampaignWriterLease lease,
+        IReadOnlyList<CampaignAppendEntry> entries,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count is <= 0 or > MaximumBatchAppendCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(entries),
+                $"A batch append requires between 1 and {MaximumBatchAppendCount} entries.");
+        }
+        if (entries.Any(item => item is null || item.Command is null || item.CampaignEvent is null))
+        {
+            throw new ArgumentException("Every batch append entry requires a command and event.", nameof(entries));
+        }
+
+        return await WithContentionRetryAsync(async () =>
+        {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
+        var durableHead = await ReadHeadAsync(connection, transaction, lease.CampaignId, cancellationToken);
+
+        var first = entries[0];
+        ValidateAppendEnvelope(lease, first.Command, first.CampaignEvent);
+        var firstCommandJson = CampaignContractJson.Serialize(first.Command);
+        var firstDuplicate = await ReadDuplicateAsync(
+            connection,
+            transaction,
+            first.Command,
+            Hash(firstCommandJson),
+            cancellationToken);
+        if (firstDuplicate is not null)
+        {
+            if (durableHead != entries[^1].CampaignEvent.CommitPosition)
+            {
+                throw Conflict(
+                    "batch-idempotency-conflict",
+                    "A retried batch must exactly describe the current durable campaign head.");
+            }
+            foreach (var entry in entries)
+            {
+                ValidateAppendEnvelope(lease, entry.Command, entry.CampaignEvent);
+                var commandJson = CampaignContractJson.Serialize(entry.Command);
+                var duplicate = await ReadDuplicateAsync(
+                    connection,
+                    transaction,
+                    entry.Command,
+                    Hash(commandJson),
+                    cancellationToken);
+                if (duplicate is null || !CryptographicOperations.FixedTimeEquals(
+                        CampaignContractJson.Serialize(duplicate),
+                        CampaignContractJson.Serialize(entry.CampaignEvent)))
+                {
+                    throw Conflict(
+                        "batch-idempotency-conflict",
+                        "A retried batch must already exist in full with identical canonical events.");
+                }
+            }
+
+            string canonicalHash;
+            await using (var snapshot = connection.CreateCommand())
+            {
+                snapshot.Transaction = transaction;
+                snapshot.CommandText = "SELECT state_hash FROM snapshots WHERE campaign_id = $campaign_id AND commit_position = $position;";
+                snapshot.Parameters.AddWithValue("$campaign_id", lease.CampaignId.ToString());
+                snapshot.Parameters.AddWithValue("$position", durableHead.Value);
+                canonicalHash = Convert.ToString(await snapshot.ExecuteScalarAsync(cancellationToken)) ?? string.Empty;
+                if (canonicalHash.Length == 0)
+                {
+                    throw Conflict(
+                        "batch-idempotency-conflict",
+                        "A retried batch is missing its atomic final snapshot.");
+                }
+            }
+
+            await transaction.RollbackAsync(cancellationToken);
+            return new CampaignBatchAppendResult(
+                first.CampaignEvent.CommitPosition,
+                entries[^1].CampaignEvent.CommitPosition,
+                entries.Count,
+                Duplicate: true,
+                canonicalHash);
+        }
+
+        if (first.CampaignEvent.CommitPosition != durableHead.Next())
+        {
+            throw Conflict("head-conflict", "The batch does not begin at the next durable commit position.");
+        }
+
+        var recovered = await RecoverAsync(connection, transaction, lease.CampaignId, durableHead, cancellationToken);
+        var state = recovered.State;
+        foreach (var entry in entries)
+        {
+            var command = entry.Command;
+            var campaignEvent = entry.CampaignEvent;
+            ValidateAppendEnvelope(lease, command, campaignEvent);
+            if (campaignEvent.CommitPosition != state.Head.Next())
+            {
+                throw Conflict("journal-gap", "Batch events must have contiguous commit positions.");
+            }
+
+            var commandJson = CampaignContractJson.Serialize(command);
+            var eventJson = CampaignContractJson.Serialize(campaignEvent);
+            var duplicate = await ReadDuplicateAsync(
+                connection,
+                transaction,
+                command,
+                Hash(commandJson),
+                cancellationToken);
+            if (duplicate is not null)
+            {
+                throw Conflict(
+                    "batch-idempotency-conflict",
+                    "A new batch cannot overlap commands that are already durable.");
+            }
+
+            CommittedCampaignEvent expectedEvent;
+            try
+            {
+                expectedEvent = CampaignKernel.Decide(state, command, campaignEvent.CommitPosition);
+            }
+            catch (CampaignRuleViolation exception)
+            {
+                throw Conflict("event-decision-conflict", $"A batch command is invalid at the durable head: {exception.Code}.");
+            }
+            if (!CryptographicOperations.FixedTimeEquals(
+                    CampaignContractJson.Serialize(expectedEvent),
+                    eventJson))
+            {
+                throw Conflict(
+                    "event-decision-conflict",
+                    "A supplied batch event is not the canonical decision for its durable predecessor.");
+            }
+
+            _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterValidation);
+            await InsertCommandAsync(
+                connection,
+                transaction,
+                command,
+                campaignEvent.CommitPosition,
+                commandJson,
+                Hash(commandJson),
+                cancellationToken);
+            _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommandInsert);
+            await InsertEventAsync(
+                connection,
+                transaction,
+                campaignEvent,
+                eventJson,
+                Hash(eventJson),
+                cancellationToken);
+            _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterEventInsert);
+            await UpdateSubjectRevisionAsync(connection, transaction, campaignEvent, cancellationToken);
+            _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterRevisionUpdate);
+            state = CampaignKernel.Apply(state, campaignEvent);
+        }
+
+        CampaignStateValidator.Validate(state);
+        var snapshotJson = CampaignCanonicalSerializer.Serialize(state);
+        var stateHash = Hash(snapshotJson);
+        var decoded = CampaignCanonicalSerializer.Deserialize(snapshotJson);
+        if (CampaignCanonicalSerializer.ComputeHash(decoded) != stateHash)
+        {
+            throw Conflict("snapshot-roundtrip", "The batch's canonical snapshot did not survive its own decoder.");
+        }
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterValidation);
+        await using (var snapshot = connection.CreateCommand())
+        {
+            snapshot.Transaction = transaction;
+            snapshot.CommandText = """
+                INSERT INTO snapshots (campaign_id, commit_position, state_hash, snapshot_json)
+                VALUES ($campaign_id, $position, $hash, $json);
+                """;
+            snapshot.Parameters.AddWithValue("$campaign_id", lease.CampaignId.ToString());
+            snapshot.Parameters.AddWithValue("$position", state.Head.Value);
+            snapshot.Parameters.AddWithValue("$hash", stateHash);
+            snapshot.Parameters.AddWithValue("$json", snapshotJson);
+            await snapshot.ExecuteNonQueryAsync(cancellationToken);
+        }
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
+
+        await AdvanceHeadAsync(
+            connection,
+            transaction,
+            lease,
+            now,
+            durableHead.Value,
+            state.Head,
+            cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterHeadUpdate);
+        await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
+        return new CampaignBatchAppendResult(
+            first.CampaignEvent.CommitPosition,
+            entries[^1].CampaignEvent.CommitPosition,
+            entries.Count,
+            Duplicate: false,
+            stateHash);
         }, cancellationToken);
     }
 
@@ -1024,6 +1219,26 @@ public sealed class SqliteCampaignJournal
             throw Conflict("event-corrupt", "The duplicate command's stored event failed its content hash.");
         }
         return CampaignContractJson.DeserializeEvent(json);
+    }
+
+    private static void ValidateAppendEnvelope(
+        CampaignWriterLease lease,
+        CampaignCommand command,
+        CommittedCampaignEvent campaignEvent)
+    {
+        if (campaignEvent.CampaignId != lease.CampaignId
+            || command.CampaignId != lease.CampaignId
+            || campaignEvent.CausalCommandId != command.CommandId
+            || campaignEvent.Subject != command.Subject
+            || campaignEvent.EffectiveTime != command.EffectiveAt
+            || campaignEvent.SchemaVersion != CampaignSchema.Version
+            || campaignEvent.AlgorithmVersion != CampaignSchema.AlgorithmVersion
+            || command.SchemaVersion != CampaignSchema.Version
+            || campaignEvent.CommitPosition.Value <= 0
+            || campaignEvent.NewSubjectRevision != command.ExpectedSubjectRevision.Next())
+        {
+            throw Conflict("append-envelope-conflict", "The command, event, and writer lease do not describe one append.");
+        }
     }
 
     private static async Task RequireHeadAndRevisionAsync(

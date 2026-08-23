@@ -232,6 +232,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.Equal("7e324dbbcdbfe36615faa6ac0f645b2b9434f27f55dd39d420d5b13adee59100", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
+        await ProveAtomicBatchJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
         await ProveIndependentWriterFencingAsync(migrated);
@@ -1097,6 +1098,58 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             var successor = await journal.AcquireWriterAsync(Ids.Campaign, coordinatorB, now, TimeSpan.FromMinutes(2));
             Assert.True(successor.WriterEpoch.Value > replacement.WriterEpoch.Value);
             await journal.ReleaseWriterAsync(successor);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task ProveAtomicBatchJournalAsync(TheaterResult theater)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"crimean-tom-campaign-batch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var injector = new ControlledCampaignPersistenceFaultInjector();
+            var journal = new SqliteCampaignJournal(Path.Combine(directory, "campaign.db"), faultInjector: injector);
+            await journal.InitializeAsync();
+            await journal.CreateCampaignAsync(theater.State.Metadata);
+            var now = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+            var lease = await journal.AcquireWriterAsync(
+                Ids.Campaign,
+                new CoordinatorId(Guid.Parse("a0000000-0000-0000-0000-000000000003")),
+                now,
+                TimeSpan.FromMinutes(10));
+            var entries = theater.Commands
+                .Zip(theater.Events, (command, campaignEvent) => new CampaignAppendEntry(command, campaignEvent))
+                .ToArray();
+
+            injector.Arm(CampaignPersistenceBoundary.AppendAfterEventInsert);
+            _ = await Assert.ThrowsAsync<CampaignInjectedPersistenceFault>(() =>
+                journal.AppendBatchAsync(lease, entries, now));
+            Assert.Equal(CommitPosition.Origin, await journal.ReadHeadAsync(Ids.Campaign));
+            Assert.Empty(await journal.ReadEventsAsync(Ids.Campaign, CommitPosition.Origin));
+
+            var append = await journal.AppendBatchAsync(lease, entries, now);
+            Assert.False(append.Duplicate);
+            Assert.Equal(entries.Length, append.Count);
+            Assert.Equal(new CommitPosition(1), append.FirstCommitPosition);
+            Assert.Equal(theater.State.Head, append.LastCommitPosition);
+
+            var recovered = await journal.RecoverAsync(Ids.Campaign);
+            Assert.Equal(theater.State.Head, recovered.SnapshotPosition);
+            Assert.Equal(theater.Hash, recovered.CanonicalHash);
+            Assert.Equal(
+                CampaignCanonicalSerializer.Serialize(theater.State),
+                CampaignCanonicalSerializer.Serialize(recovered.State));
+
+            var duplicate = await journal.AppendBatchAsync(lease, entries, now);
+            Assert.True(duplicate.Duplicate);
+            Assert.Equal(theater.State.Head, await journal.ReadHeadAsync(Ids.Campaign));
+            var integrity = await journal.VerifyIntegrityAsync();
+            Assert.Equal(entries.Length, integrity.EventCount);
+            Assert.Equal(1, integrity.SnapshotCount);
         }
         finally
         {

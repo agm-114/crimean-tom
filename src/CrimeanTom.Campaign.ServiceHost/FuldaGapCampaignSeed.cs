@@ -256,7 +256,16 @@ internal static partial class FuldaGapCampaignSeed
         || catalogUnitId.StartsWith("usn_ch-", StringComparison.Ordinal)
         || catalogUnitId.StartsWith("usmc_ah-", StringComparison.Ordinal)
         || catalogUnitId.StartsWith("usaf_hh-", StringComparison.Ordinal)
-        || catalogUnitId.Contains("_sh-3", StringComparison.Ordinal);
+        || catalogUnitId.Contains("_sh-3", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("fr_alouette_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("fr_as-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("fr_h700", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("fr_sa-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("iaf_md", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("iqaf_md", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("iriaf_ah-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("jmsdf_hss-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("pla_z-", StringComparison.Ordinal);
 
     private static IReadOnlyList<OperationalWeaponCapability> ResolveOperationalWeapons(
         string catalogUnitId,

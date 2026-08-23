@@ -36,6 +36,9 @@ internal static partial class FuldaGapCampaignSeed
         Region(campaignId, "uswc", "US West Coast fleet concentration", ["northpac"]),
         Region(campaignId, "pnw", "Puget Sound and Pacific Northwest", ["uswc", "northpac"]),
         Region(campaignId, "hawaii", "Hawaii and Central Pacific staging area", ["uswc", "northpac", "southpac"]),
+        Region(campaignId, "bosporus", "Aegean, Turkish Straits, and Bosporus naval choke point", ["med"]),
+        Region(campaignId, "blacksea", "Black Sea Fleet bastion and amphibious operating area", ["bosporus"]),
+        .. LandAirExpansionRegions(campaignId),
     ];
 
     private static IReadOnlyList<FuldaBaseSeed> Ww3PlusBases(
@@ -73,6 +76,9 @@ internal static partial class FuldaGapCampaignSeed
         Base(campaignId, "gander", "Gander reinforcement airfield", blue, "midatl", 48_937_000, -54_568_000),
         Base(campaignId, "lajes", "Lajes Atlantic staging field", blue, "midatl", 38_762_000, -27_091_000),
         Base(campaignId, "andersen", "Andersen Pacific staging field", blue, "northpac", 13_584_000, 144_930_000),
+        Base(campaignId, "sevastopol", "Sevastopol Black Sea Fleet base", red, "blacksea", 44_616_000, 33_525_000),
+        Base(campaignId, "novorossiysk", "Novorossiysk naval and reinforcement base", red, "blacksea", 44_720_000, 37_780_000),
+        .. LandAirExpansionBases(campaignId, blue, red),
     ];
 
     private static IReadOnlyList<FuldaEntitySeed> Ww3PlusEntities(
@@ -215,6 +221,7 @@ internal static partial class FuldaGapCampaignSeed
         Airbase("red-cam-ranh-complex", "Cam Ranh", red, "southchina", "cam-ranh", 11_890_000, 109_170_000, "southchina", "wp_airbase_1", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-21", "wp_su-24m", "wp_tu-16k"]),
         Airbase("red-severomorsk-complex", "Severomorsk", red, "barents", "severomorsk", 69_070_000, 33_420_000, "giuk", "wp_large_pvo_airbase", "wp_p-14_radar", ["wp_sam_site_sa-11", "wp_sam_site_sa-5", "wp_sam_site_sa-10"], ["wp_mig-25pd", "wp_tu-142m", "wp_il-38"]),
         Airbase("red-baltiysk-complex", "Baltiysk", red, "baltic", "baltiysk", 54_650_000, 19_910_000, "baltap", "wp_airbase_4", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-10"], ["wp_mig-23mld", "wp_su-24m", "wp_mig-25pd"]),
+        .. LandAirExpansionAirbaseComplexes(blue, red),
     ];
 
     private static Ww3AirbaseComplex Airbase(
@@ -325,12 +332,12 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-allied-south", "Mediterranean or Indian Ocean allied combatant", ["es_ffg_baleares", "fr_ss_agosta", "wp_skr_petya3", "ran_ddg_perth"], blue, "med", "rota", SimulationDomain.Maritime, 8, 4, 37_000_000, 8_000_000, "levant", OrderKind.Patrol),
 
         // Civilian and merchant traffic. They remain coalition-affiliated until diplomacy/noncombatant rules exist.
-        Package("blue-civil-atlantic", "Western transatlantic merchant", ["civ_ms_c7s68", "civ_ms_roro_a", "civ_ms_bulk", "civ_ms_car_carrier_a"], blue, "midatl", "hampton", SimulationDomain.Logistics, 18, 6, 43_000_000, -38_000_000, "wapp", OrderKind.Transit),
-        Package("blue-civil-pacific", "Western Pacific merchant", ["civ_ms_sealift_pacific", "civ_ms_mairangi_bay", "civ_ms_roro_c", "civ_ms_bulk"], blue, "northpac", "pearl-harbor", SimulationDomain.Logistics, 18, 6, 35_000_000, -170_000_000, "japan", OrderKind.Transit),
-        Package("red-civil-atlantic", "Soviet-bloc Atlantic merchant", ["civ_ms_kommunist", "civ_ms_slavyansk", "civ_ms_poltava", "civ_ms_metallurg_anosov"], red, "southatl", "havana", SimulationDomain.Logistics, 12, 6, 10_000_000, -35_000_000, "caribbean", OrderKind.Transit),
+        Package("blue-civil-atlantic", "Western transatlantic merchant", ["civ_ms_c7s68", "civ_ms_roro_a", "civ_ms_bulk", "civ_ms_car_carrier_a", "civ_ms_act_1", "civ_ms_amra", "civ_ms_c8", "civ_ms_encounter", "civ_ms_freighter_a", "civ_ms_freighter_b", "civ_ms_freighter_d", "civ_ms_super_p"], blue, "midatl", "hampton", SimulationDomain.Logistics, 18, 6, 43_000_000, -38_000_000, "wapp", OrderKind.Transit),
+        Package("blue-civil-pacific", "Western Pacific merchant", ["civ_ms_sealift_pacific", "civ_ms_mairangi_bay", "civ_ms_roro_c", "civ_ms_bulk", "civ_ms_mercur", "civ_ms_ritina", "civ_ms_roro_b"], blue, "northpac", "pearl-harbor", SimulationDomain.Logistics, 18, 6, 35_000_000, -170_000_000, "japan", OrderKind.Transit),
+        Package("red-civil-atlantic", "Soviet-bloc Atlantic merchant", ["civ_ms_kommunist", "civ_ms_slavyansk", "civ_ms_poltava", "civ_ms_metallurg_anosov", "civ_ms_ivan_franko"], red, "southatl", "havana", SimulationDomain.Logistics, 12, 6, 10_000_000, -35_000_000, "caribbean", OrderKind.Transit),
         Package("red-civil-pacific", "Soviet-bloc Pacific merchant", ["civ_ms_irkutsk", "civ_ms_andizhan", "civ_ms_yuniy_partizan", "civ_ms_murom"], red, "northpac", "vladivostok", SimulationDomain.Logistics, 8, 4, 45_000_000, 165_000_000, "japan", OrderKind.Transit),
-        Package("blue-fishing-traffic", "Western fishing vessel", ["civ_fv_crabboat", "civ_fv_sterntrawler_a", "civ_fv_fishingboat_b"], blue, "giuk", "keflavik", SimulationDomain.Logistics, 8, 4, 61_000_000, -22_000_000, "norsea", OrderKind.Transit),
-        Package("red-fishing-traffic", "Soviet fishing or intelligence-adjacent vessel", ["civ_fv_okean", "civ_fv_sidetrawler", "civ_fv_sterntrawler_c"], red, "barents", "severomorsk", SimulationDomain.Logistics, 8, 4, 68_000_000, 25_000_000, "norsea", OrderKind.Transit),
+        Package("blue-fishing-traffic", "Western fishing vessel", ["civ_fv_crabboat", "civ_fv_sterntrawler_a", "civ_fv_fishingboat_b", "civ_fv_fishingboat_a", "civ_fv_fishingboat_c", "civ_fv_fishingboat_d", "civ_fv_sterntrawler_b"], blue, "giuk", "keflavik", SimulationDomain.Logistics, 8, 4, 61_000_000, -22_000_000, "norsea", OrderKind.Transit),
+        Package("red-fishing-traffic", "Soviet fishing or intelligence-adjacent vessel", ["civ_fv_okean", "civ_fv_sidetrawler", "civ_fv_sterntrawler_c", "civ_fv_dhow", "civ_fv_sampan", "civ_fv_sterntrawler_d"], red, "barents", "severomorsk", SimulationDomain.Logistics, 8, 4, 68_000_000, 25_000_000, "norsea", OrderKind.Transit),
 
         // Air formations: one campaign entity represents a squadron-, wing-, or mission-sized package.
         Package("blue-usec-air", "US East Coast air formation", ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a", "usaf_kc-135a"], blue, "usec", "oceana", SimulationDomain.Air, 8, 4, 36_500_000, -77_000_000, "midatl", OrderKind.Cap),
@@ -369,6 +376,8 @@ internal static partial class FuldaGapCampaignSeed
         Package("red-cuba-ground", "Cuban ground formation", ["abstract_land_formation"], red, "cuba", null, SimulationDomain.LandAbstract, 4, 2, 22_200_000, -79_800_000, maximumFidelity: FidelityState.Operational),
         Package("blue-rear-area", "NATO rear-area command", ["abstract_land_formation"], blue, "northag", null, SimulationDomain.LandAbstract, 2, 2, 50_600_000, 8_000_000, maximumFidelity: FidelityState.Operational),
         Package("red-rear-area", "Soviet rear-area command", ["abstract_land_formation"], red, "baltic", null, SimulationDomain.LandAbstract, 2, 2, 53_900_000, 13_500_000, maximumFidelity: FidelityState.Operational),
+        .. LandAirExpansionPackages(blue, red),
+        .. NavalExpansionPackages(blue, red),
     ];
 
     private static Ww3PlusPackage Package(

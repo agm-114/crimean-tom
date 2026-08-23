@@ -129,6 +129,17 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public bool HasSessionsForCampaign(string campaignId)
+    {
+        lock (_gate)
+        {
+            return _activeByClient.Values.Any(session => string.Equals(
+                session.Hello.CampaignId,
+                campaignId,
+                StringComparison.Ordinal));
+        }
+    }
+
     public CampaignBroadcastResult TryBroadcastForCampaign(string campaignId, ServiceFrame frame)
     {
         lock (_gate)

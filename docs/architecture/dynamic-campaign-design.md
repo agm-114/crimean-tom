@@ -52,16 +52,19 @@ and most validation belong in the companion or service.
 
 The representative validation campaign is **Fulda Gap Gone Hot — Global War**, a
 deterministic alternate-1989 conflict anchored on the Central Front but fought
-across the world ocean. It is intentionally one continuous campaign rather than
-a sequence of generated scenarios. The 39-region opening graph spans both US
+across the global maritime, air, and littoral battlespace. It is intentionally
+one continuous campaign rather than a sequence of generated scenarios. The
+55-region opening graph spans both US
 coasts, Hawaii, the Caribbean and Soviet-aligned Cuba, plus the Atlantic
 reinforcement route; GIUK, Norway, the Barents, North
 Sea, BALTAP and Fulda; the South Atlantic and Patagonia; the Mediterranean,
 Levant, Red Sea, Gulf and Indian Ocean; and the South China Sea, Taiwan, Korea,
 Japan, Okhotsk,
-North Pacific, South Pacific and Australian approaches.
+North Pacific, South Pacific and Australian approaches. Dedicated land zones
+cover Alaska, the UK, France, Scandinavia, the Black Sea, China, Japan, Korea,
+Taiwan, Vietnam, Iran, Iraq, and the Levant.
 
-The 905-entity opening order of battle uses catalog IDs present in the installed
+The 4,096-entity opening order of battle uses catalog IDs present in the installed
 Sea Power 0.8.2 content for the United States, Soviet/Warsaw Pact, UK, Canada,
 West Germany, France, Spain, Portugal, Norway, Israel, Iran, Libya, India,
 Pakistan, China, Taiwan, North Korea, South Korea, Japan, Australia and Vietnam.
@@ -71,20 +74,26 @@ Argentine nation prefix, its operational sealift uses available civilian and
 Soviet cargo hulls and is labelled as a substitution. Nearby late-Cold-War
 catalog units may be used where the game does not contain an exact September
 1989 hull; these are scenario substitutions, not claims about historical
-deployment. Its source-backed scale anchors and authored extrapolations are
+deployment. It instantiates all usable base platform definitions in the pinned
+build: 241 vessels, 111 aircraft, and 187 land units/sites. Hypothetical Orel
+carriers and Alaska CGNs, reserve hulls, and the two-coalition alignment of
+nonaligned states are explicitly labelled authored WW3++ premises. Its
+source-backed scale anchors and authored extrapolations are
 tracked in [WW3++ 1989 scenario research](../research/ww3-plus-1989-scenario-basis.md).
 
 Sea Power is authoritative only where it is a credible tactical resolver. Naval,
 air, rotary-wing, installation, air-defense, logistics, and ground interactions
 may promote to Tactical fidelity as their streaming adapters are implemented.
-The seed uses catalog IDs and leaves 879 entities tactically eligible so missing
-family support is exposed rather than designed out. Only 26 army/corps/division
+The seed uses catalog IDs and leaves 4,006 entities tactically eligible so missing
+family support is exposed rather than designed out. Only 90 army/corps/division
 campaign abstractions retain a hard `Operational` ceiling; they may affect ports,
 reinforcement demand, objectives, readiness, and the naval campaign, but cannot
 masquerade as individual tactically simulated ground units.
 
 Every formation abstraction projects two armor objects and one low-end SHORAD
-object into its coupled task group. Those 78 physical objects are tactical
+object into its coupled task group. Those 270 physical objects, plus direct
+armor, mechanized, artillery, transport, local-GBAD, and coastal-defense
+packages, are tactical
 targets, not a second ground-maneuver simulation: the parent abstraction does
 not select physical ground/installations as targets, while air, rotary-wing,
 surface, and ballistic weapons can detect and damage them. Strategic SAMs,
@@ -94,7 +103,7 @@ worker can host them, and otherwise remain under the Operational analogue; they
 are never reduced to Strategic fidelity.
 
 `POST /control/campaigns/{campaignId}/bootstrap/fulda-gap` creates the fixed
-39-region, 61-base, 905-entity opening state and returns category counts, its
+55-region, 81-base, 4,096-entity opening state and returns category counts, its
 committed head, and canonical hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
 and uses stable campaign-derived IDs so the same campaign ID and content version
 reproduce the same world.
@@ -105,11 +114,11 @@ adapter can materialize safely. USS Honolulu is a separate singleton submarine
 patrol until live detection, formation, weapon or physical relationships couple
 it to another force. The shipped tactical-window mission represents that later
 local event with Pharris and Honolulu against a Victor III and Oscar I. It does
-not materialize the other 901 campaign entities into the Unity scene; they remain
+not materialize the other 4,092 campaign entities into the Unity scene; they remain
 under operational authority until their own interaction islands need tactical
 resolution. Unsupported mixed groups continue to fail closed.
 
-Twenty explicit airbase defense complexes combine an airfield, early-warning
+Thirty-eight explicit airbase defense complexes combine an airfield, early-warning
 radar, three GBAD layers, fuel, ammunition, and opening fighter/strike/support
 sorties. Additional theater IADS, shore-defense, depot, convoy, and civilian
 traffic packages validate A2/AD-shaped interactions and high entity counts. The

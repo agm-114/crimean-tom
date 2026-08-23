@@ -693,20 +693,23 @@ migration remain unproven.
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
   the large representative theater used while implementing the remaining Phase
-  5 engine, scheduler, monitor, and live-game flows. Its 39 regions, 61 bases,
-  905 opening entities and 293 groups cover both US coasts, Cuba and the
+  5 engine, scheduler, monitor, and live-game flows. Its 55 regions, 81 bases,
+  4,096 opening entities and 919 groups cover both US coasts, Cuba and the
   Caribbean, the Central Front, Atlantic, South Atlantic, Middle East, Indian
-  Ocean and Asia-Pacific. Twenty airbase defense complexes and additional
+  Ocean and Asia-Pacific. Thirty-eight airbase defense complexes and additional
   theater radar, GBAD, shore-defense, supply, commerce, and civilian packages
-  make 879 catalog-backed entities eligible for eventual tactical streaming.
-  Twenty-six campaign-scale land formations remain Operational abstractions;
+  make 4,006 catalog-backed entities eligible for eventual tactical streaming.
+  Ninety campaign-scale land formations remain Operational abstractions;
   each exposes two armor and one low-end SHORAD physical targets. Strategic
   SAM/radar and ballistic systems are resident Tactical candidates and never
   demote below the Operational analogue. Rotary-wing, ground, and installation
   behavior now exists in that analogue; their live materialization adapters
-  remain to be built.
-  Catalog-backed forces cover the major
-  shipped national fleets, while Argentina's requested Soviet support is a
+  remain to be built. The seed now instantiates all usable base definitions in
+  the pinned catalog: 241 vessels, 111 aircraft, and 187 land units/sites. It
+  exercises Chinese and Japanese ground, air, IADS, coastal, and infrastructure
+  families as well as the broader European, Middle Eastern, Asian, and civilian
+  catalog. Catalog-backed forces cover the major shipped national fleets, while
+  Argentina's requested Soviet support is a
   clearly labelled alternate-history logistics substitution because the game
   has no Argentine nation prefix. Historical anchors, source links, and authored
   extrapolations are tracked in the WW3++ scenario research ledger.

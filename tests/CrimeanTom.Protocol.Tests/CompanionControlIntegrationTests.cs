@@ -44,7 +44,10 @@ public sealed class CompanionControlIntegrationTests
             return;
         }
 
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(600));
+        // The full-catalog 4,096-entity bootstrap intentionally exercises the
+        // current per-record durability path; keep the broad story bounded but
+        // allow enough time to expose its measured cost on local hardware.
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(1_200));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
@@ -234,23 +237,23 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaBootstrap = JsonDocument.Parse(
                 await fuldaBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(1, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
-            Assert.Equal(39, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
-            Assert.Equal(61, fuldaBootstrap.RootElement.GetProperty("baseCount").GetInt32());
-            Assert.Equal(905, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(293, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
-            Assert.Equal(221, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
-            Assert.Equal(324, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
-            Assert.Equal(107, fuldaBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
-            Assert.Equal(21, fuldaBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
-            Assert.Equal(165, fuldaBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
-            Assert.Equal(288, fuldaBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
-            Assert.Equal(88, fuldaBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
-            Assert.Equal(174, fuldaBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
-            Assert.Equal(26, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
-            Assert.Equal(90, fuldaBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
-            Assert.Equal(220, fuldaBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
-            Assert.Equal(73, fuldaBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
-            Assert.Equal(879, fuldaBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
+            Assert.Equal(55, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
+            Assert.Equal(81, fuldaBootstrap.RootElement.GetProperty("baseCount").GetInt32());
+            Assert.Equal(4_096, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(919, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
+            Assert.Equal(741, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
+            Assert.Equal(1_329, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
+            Assert.Equal(491, fuldaBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
+            Assert.Equal(149, fuldaBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
+            Assert.Equal(399, fuldaBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
+            Assert.Equal(1_728, fuldaBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
+            Assert.Equal(984, fuldaBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
+            Assert.Equal(654, fuldaBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
+            Assert.Equal(90, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            Assert.Equal(158, fuldaBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
+            Assert.Equal(838, fuldaBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
+            Assert.Equal(325, fuldaBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
+            Assert.Equal(4_006, fuldaBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
             var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
             var blueCoalitionId = fuldaBootstrap.RootElement.GetProperty("blueCoalitionId").GetString()!;
             var redCoalitionId = fuldaBootstrap.RootElement.GetProperty("redCoalitionId").GetString()!;
@@ -261,7 +264,7 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaView = JsonDocument.Parse(
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
-            Assert.Equal(905, fuldaEntities.Length);
+            Assert.Equal(4_096, fuldaEntities.Length);
             var tacticalDemoGroup = Assert.Single(
                 fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
                 item => item.GetProperty("memberEntityIds").EnumerateArray()
@@ -286,9 +289,38 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(fuldaEntityNames, name => name.Contains("physical low-altitude GBAD target", StringComparison.Ordinal));
             Assert.Contains(fuldaEntityNames, name => name.Contains("attack or lift helicopter", StringComparison.Ordinal));
             Assert.Contains(fuldaEntityNames, name => name.Contains("ballistic-missile TEL visual proxy", StringComparison.Ordinal));
-            Assert.Equal(88, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "Ground"));
-            Assert.Equal(174, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "Installation"));
-            Assert.Equal(21, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "RotaryWing"));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Orel hypothetical carrier", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Iowa battleship", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Alaska-class CGN hypothetical", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Black Sea aviation cruiser", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("JGSDF armor", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("PLA armor", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Chinese strategic air-defense", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("JASDF or JMSDF fixed-wing", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Iranian or Iraqi helicopter", StringComparison.Ordinal));
+            Assert.Equal(
+                542,
+                fuldaEntities
+                    .Select(item => item.GetProperty("catalogUnitId").GetString()!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            var militaryVesselPrefixes = new[]
+            {
+                "es_", "fgs_", "fr_", "ins_", "ir_", "jmsdf_", "knm_", "ln_", "nrp_",
+                "nv_", "pns_", "plan_", "ran_", "rcn_", "rn_", "usn_", "wp_",
+            };
+            Assert.Equal(
+                200,
+                fuldaEntities
+                    .Where(item => item.GetProperty("simulationDomain").GetString()
+                        is "Maritime" or "Logistics")
+                    .Select(item => item.GetProperty("catalogUnitId").GetString()!)
+                    .Where(id => militaryVesselPrefixes.Any(prefix => id.StartsWith(prefix, StringComparison.Ordinal)))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Equal(984, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "Ground"));
+            Assert.Equal(654, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "Installation"));
+            Assert.Equal(149, fuldaEntities.Count(item => item.GetProperty("simulationDomain").GetString() == "RotaryWing"));
             using var fuldaAdvanceResponse = await campaignClient.PostAsync(
                 $"/control/campaigns/{fuldaCampaignId}/advance/30",
                 content: null,
