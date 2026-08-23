@@ -82,6 +82,30 @@ public static class CampaignCanonicalSerializer
                 item.MustCompleteBy is null ? null : new CampaignTime(item.MustCompleteBy.Value),
                 item.CompletedAt is null ? null : new CampaignTime(item.CompletedAt.Value),
                 new EntityRevision(item.Revision))).ToImmutableSortedDictionary(item => item.OrderId, item => item),
+            StrategicObjectives = document.StrategicObjectives.Select(item => new StrategicObjectiveState(
+                ParseId(item.Id, value => new StrategicObjectiveId(value)),
+                ParseId(item.CoalitionId, value => new CoalitionId(value)),
+                ParseId(item.RegionId, value => new RegionId(value)),
+                ParseEnum<StrategicObjectiveKind>(item.Kind),
+                item.PriorityMilliUnits,
+                new CampaignTime(item.CreatedAt),
+                item.Epoch,
+                new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.ObjectiveId, item => item),
+            GroupCommitments = document.GroupCommitments.Select(item => new GroupCommitmentState(
+                ParseId(item.GroupId, value => new GroupId(value)),
+                item.ObjectiveId is null ? null : ParseId(item.ObjectiveId, value => new StrategicObjectiveId(value)),
+                new CampaignTime(item.ExpiresAt),
+                item.WithdrawLatched,
+                new CampaignTime(item.LatchReleaseAt),
+                new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.GroupId, item => item),
+            CoalitionStrategies = document.CoalitionStrategies.Select(item => new CoalitionStrategyState(
+                ParseId(item.CoalitionId, value => new CoalitionId(value)),
+                new CampaignTime(item.NextDirectorAt),
+                item.Epoch,
+                new EntityRevision(item.Revision)))
+                .ToImmutableSortedDictionary(item => item.CoalitionId, item => item),
             Intelligence = document.Intelligence.Select(item =>
             {
                 var key = new IntelligenceKey(
@@ -180,6 +204,9 @@ public static class CampaignCanonicalSerializer
         WriteEntities(writer, state);
         WriteGroups(writer, state);
         WriteOrders(writer, state);
+        WriteStrategicObjectives(writer, state);
+        WriteGroupCommitments(writer, state);
+        WriteCoalitionStrategies(writer, state);
         WriteIntelligence(writer, state);
         WriteWeather(writer, state);
         WriteAssignments(writer, state);
@@ -374,6 +401,64 @@ public static class CampaignCanonicalSerializer
             writer.WriteNumber("quality", (int)item.Quality);
             writer.WriteNumber("observedHeadingMilliDegrees", item.ObservedHeadingMilliDegrees);
             writer.WriteNumber("observedSpeedMetersPerTick", item.ObservedSpeedMetersPerTick);
+            writer.WriteNumber("revision", item.Revision.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteStrategicObjectives(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("strategicObjectives");
+        foreach (var item in state.StrategicObjectives.Values)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", item.ObjectiveId.ToString());
+            writer.WriteString("coalitionId", item.CoalitionId.ToString());
+            writer.WriteString("regionId", item.RegionId.ToString());
+            writer.WriteNumber("kind", (int)item.Kind);
+            writer.WriteNumber("priorityMilliUnits", item.PriorityMilliUnits);
+            writer.WriteNumber("createdAt", item.CreatedAt.Quanta);
+            writer.WriteNumber("epoch", item.Epoch);
+            writer.WriteNumber("revision", item.Revision.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteGroupCommitments(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("groupCommitments");
+        foreach (var item in state.GroupCommitments.Values)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("groupId", item.GroupId.ToString());
+            if (item.ObjectiveId is { } objectiveId)
+            {
+                writer.WriteString("objectiveId", objectiveId.ToString());
+            }
+            else
+            {
+                writer.WriteNull("objectiveId");
+            }
+            writer.WriteNumber("expiresAt", item.ExpiresAt.Quanta);
+            writer.WriteBoolean("withdrawLatched", item.WithdrawLatched);
+            writer.WriteNumber("latchReleaseAt", item.LatchReleaseAt.Quanta);
+            writer.WriteNumber("revision", item.Revision.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteCoalitionStrategies(Utf8JsonWriter writer, CampaignState state)
+    {
+        writer.WriteStartArray("coalitionStrategies");
+        foreach (var item in state.CoalitionStrategies.Values)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("coalitionId", item.CoalitionId.ToString());
+            writer.WriteNumber("nextDirectorAt", item.NextDirectorAt.Quanta);
+            writer.WriteNumber("epoch", item.Epoch);
             writer.WriteNumber("revision", item.Revision.Value);
             writer.WriteEndObject();
         }
@@ -605,6 +690,9 @@ public static class CampaignCanonicalSerializer
         public required EntityDocument[] Entities { get; init; }
         public required GroupDocument[] Groups { get; init; }
         public required OrderDocument[] Orders { get; init; }
+        public required StrategicObjectiveDocument[] StrategicObjectives { get; init; }
+        public required GroupCommitmentDocument[] GroupCommitments { get; init; }
+        public required CoalitionStrategyDocument[] CoalitionStrategies { get; init; }
         public required IntelligenceDocument[] Intelligence { get; init; }
         public required WeatherDocument[] Weather { get; init; }
         public required AssignmentDocument[] Assignments { get; init; }
@@ -704,6 +792,36 @@ public static class CampaignCanonicalSerializer
         public required long StartsAt { get; init; }
         public long? MustCompleteBy { get; init; }
         public long? CompletedAt { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class StrategicObjectiveDocument
+    {
+        public required string Id { get; init; }
+        public required string CoalitionId { get; init; }
+        public required string RegionId { get; init; }
+        public required int Kind { get; init; }
+        public required int PriorityMilliUnits { get; init; }
+        public required long CreatedAt { get; init; }
+        public required long Epoch { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class GroupCommitmentDocument
+    {
+        public required string GroupId { get; init; }
+        public string? ObjectiveId { get; init; }
+        public required long ExpiresAt { get; init; }
+        public required bool WithdrawLatched { get; init; }
+        public required long LatchReleaseAt { get; init; }
+        public required long Revision { get; init; }
+    }
+
+    private sealed class CoalitionStrategyDocument
+    {
+        public required string CoalitionId { get; init; }
+        public required long NextDirectorAt { get; init; }
+        public required long Epoch { get; init; }
         public required long Revision { get; init; }
     }
 

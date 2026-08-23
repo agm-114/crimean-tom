@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 9;
-    public const int AlgorithmVersion = 11;
+    public const int Version = 10;
+    public const int AlgorithmVersion = 12;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -62,6 +62,14 @@ public enum OrderKind
     Intercept,
     Cap,
     Asw,
+}
+
+public enum StrategicObjectiveKind
+{
+    Defend,
+    Interdict,
+    Sustain,
+    ProjectForce,
 }
 
 public enum AssignmentRole
@@ -558,6 +566,30 @@ public sealed record ScheduledCampaignActivity(
     CampaignTime DueAt,
     EntityRevision Revision);
 
+public sealed record SimulatedStrategicObjectiveUpdate(
+    StrategicObjectiveId ObjectiveId,
+    CoalitionId CoalitionId,
+    RegionId RegionId,
+    StrategicObjectiveKind Kind,
+    int PriorityMilliUnits,
+    CampaignTime CreatedAt,
+    long Epoch,
+    EntityRevision Revision);
+
+public sealed record SimulatedGroupCommitmentUpdate(
+    GroupId GroupId,
+    StrategicObjectiveId? ObjectiveId,
+    CampaignTime ExpiresAt,
+    bool WithdrawLatched,
+    CampaignTime LatchReleaseAt,
+    EntityRevision Revision);
+
+public sealed record SimulatedCoalitionStrategyUpdate(
+    CoalitionId CoalitionId,
+    CampaignTime NextDirectorAt,
+    long Epoch,
+    EntityRevision Revision);
+
 public sealed record CampaignSimulatedEvent(
     CampaignTime NewTime,
     IReadOnlyList<SimulatedEntityUpdate> Entities,
@@ -567,7 +599,10 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedIntelligenceUpdate> Intelligence,
     IReadOnlyList<OperationalOutcome> Outcomes,
     IReadOnlyList<ScheduledCampaignActivity> PendingActivities,
-    IReadOnlyList<InFlightOrdnance>? InFlight = null)
+    IReadOnlyList<InFlightOrdnance>? InFlight = null,
+    IReadOnlyList<SimulatedStrategicObjectiveUpdate>? StrategicObjectives = null,
+    IReadOnlyList<SimulatedGroupCommitmentUpdate>? GroupCommitments = null,
+    IReadOnlyList<SimulatedCoalitionStrategyUpdate>? CoalitionStrategies = null)
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;

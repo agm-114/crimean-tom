@@ -140,6 +140,49 @@ public static class CampaignStateValidator
             }
         }
 
+        foreach (var (key, objective) in state.StrategicObjectives)
+        {
+            if (key != objective.ObjectiveId
+                || objective.Revision.Value <= 0
+                || objective.Epoch <= 0
+                || objective.CreatedAt.Quanta < 0
+                || objective.CreatedAt.Quanta > state.Time.Quanta
+                || objective.PriorityMilliUnits is < 0 or > 1_000_000
+                || !Enum.IsDefined(objective.Kind)
+                || !state.Regions.ContainsKey(objective.RegionId))
+            {
+                throw Invalid("strategic-objective", "A strategic objective is invalid.");
+            }
+            CampaignInvariants.RequireId(objective.CoalitionId);
+        }
+
+        foreach (var (key, commitment) in state.GroupCommitments)
+        {
+            if (key != commitment.GroupId
+                || commitment.Revision.Value <= 0
+                || !state.Groups.ContainsKey(key)
+                || commitment.ExpiresAt.Quanta < 0
+                || commitment.LatchReleaseAt.Quanta < 0
+                || commitment.ObjectiveId is { } objectiveId
+                    && (!state.StrategicObjectives.TryGetValue(objectiveId, out var objective)
+                        || objective.CoalitionId != state.Groups[key].CoalitionId))
+            {
+                throw Invalid("group-commitment", "A strategic group commitment is invalid.");
+            }
+        }
+
+        foreach (var (key, strategy) in state.CoalitionStrategies)
+        {
+            if (key != strategy.CoalitionId
+                || strategy.Revision.Value <= 0
+                || strategy.Epoch <= 0
+                || strategy.NextDirectorAt.Quanta <= state.Time.Quanta)
+            {
+                throw Invalid("coalition-strategy", "A coalition strategy cursor is invalid.");
+            }
+            CampaignInvariants.RequireId(key);
+        }
+
         foreach (var (key, estimate) in state.Intelligence)
         {
             if (key != estimate.Key || estimate.Revision.Value <= 0 || !state.Entities.ContainsKey(key.ContactEntityId)

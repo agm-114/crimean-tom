@@ -91,12 +91,24 @@ internal static class CampaignSimulation
                 .ToArray(),
             outcomes,
             activities.Values.Select(ToContract).ToArray(),
-            world.InFlight.ToArray());
+            world.InFlight.ToArray(),
+            world.StrategicObjectives.Values
+                .Where(item => !state.StrategicObjectives.TryGetValue(item.ObjectiveId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.GroupCommitments.Values
+                .Where(item => !state.GroupCommitments.TryGetValue(item.GroupId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.CoalitionStrategies.Values
+                .Where(item => !state.CoalitionStrategies.TryGetValue(item.CoalitionId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray());
     }
 
     private static TickResult ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
     {
-        var withIntent = ResolveAiIntent(state, dueAt);
+        var withIntent = CampaignStrategicAi.ResolveIntent(state, dueAt);
         var hostileCoalitionsByRegion = withIntent.Entities.Values
             .Where(item => CanBeAttacked(withIntent, item))
             .GroupBy(item => item.RegionId)
@@ -136,97 +148,6 @@ internal static class CampaignSimulation
         var ordnance = ResolveInFlightOrdnance(engagement.State, dueAt, engagement.Outcomes);
         var intelligence = ResolveIntelligence(ordnance.State, dueAt, ordnance.Outcomes);
         return new TickResult(intelligence.State, [.. ordnance.Outcomes, .. intelligence.Outcomes]);
-    }
-
-    private static CampaignState ResolveAiIntent(CampaignState state, CampaignTime dueAt)
-    {
-        var groups = state.Groups;
-        var orders = state.Orders;
-        foreach (var group in state.Groups.Values)
-        {
-            if (group.ActiveOrderId is not null)
-            {
-                continue;
-            }
-
-            var activeMembers = group.Members
-                .Select(id => state.Entities[id])
-                .Where(item => IsOperational(state, item))
-                .ToArray();
-            if (activeMembers.Length == 0)
-            {
-                continue;
-            }
-
-            var first = activeMembers[0];
-            var requiresRecovery = ShouldWithdraw(activeMembers)
-                || activeMembers.Max(item => item.DamageMilliUnits) >= 400_000;
-            var homeRegions = activeMembers
-                .Select(item => item.HomeBaseId)
-                .Where(item => item is not null)
-                .Select(item => state.Bases[item!.Value].RegionId)
-                .Distinct()
-                .OrderBy(item => item)
-                .ToArray();
-            if (requiresRecovery && homeRegions.Contains(first.RegionId))
-            {
-                // Leave the group idle so sustainment can repair and replenish it this tick.
-                continue;
-            }
-            var intercepts = state.Intelligence.Values
-                .Where(item => item.Key.ObserverCoalitionId == group.CoalitionId
-                    && item.Confidence >= IntelligenceConfidence.Probable
-                    && item.EstimatedRegionId != first.RegionId)
-                .Select(item => item.EstimatedRegionId)
-                .Distinct()
-                .OrderBy(item => item)
-                .ToArray();
-            var neighbors = Neighbors(state, first.RegionId);
-            var home = homeRegions.FirstOrDefault(item => item != first.RegionId);
-            var safeRecoveryNeighbors = neighbors
-                .Where(candidate => !state.Entities.Values.Any(item => item.RegionId == candidate
-                    && item.CoalitionId != group.CoalitionId && CanBeAttacked(state, item)))
-                .ToArray();
-            if ((requiresRecovery && home == default && safeRecoveryNeighbors.Length == 0)
-                || (!requiresRecovery && neighbors.Count == 0 && intercepts.Length == 0))
-            {
-                continue;
-            }
-
-            var destination = requiresRecovery
-                ? home != default
-                    ? home
-                    : safeRecoveryNeighbors[
-                        KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-recovery")
-                        % safeRecoveryNeighbors.Length]
-                : !requiresRecovery && intercepts.Length > 0
-                    ? intercepts[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-intercept") % intercepts.Length]
-                    : neighbors.Count > 0
-                        ? neighbors[KeyedValue(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-destination") % neighbors.Count]
-                        : intercepts[0];
-            var kind = requiresRecovery ? OrderKind.Withdraw
-                : intercepts.Length > 0 ? OrderKind.Intercept
-                : first.SimulationDomain == SimulationDomain.Air ? OrderKind.Cap
-                : Classify(first) == ContactClassification.Subsurface ? OrderKind.Asw
-                : OrderKind.Patrol;
-            var orderId = new OrderId(KeyedGuid(state.Metadata.Seed, group.GroupId.Value, dueAt, "ai-order"));
-            var order = new OrderState(
-                orderId,
-                group.GroupId,
-                kind,
-                destination,
-                dueAt,
-                new CampaignTime(checked(dueAt.Quanta + 30)),
-                CompletedAt: null,
-                new EntityRevision(1));
-            orders = orders.SetItem(orderId, order);
-            groups = groups.SetItem(group.GroupId, group with
-            {
-                ActiveOrderId = orderId,
-                Revision = group.Revision.Next(),
-            });
-        }
-        return state with { Groups = groups, Orders = orders };
     }
 
     private static GroupMovementResult ResolveMovement(
@@ -2381,6 +2302,17 @@ internal static class CampaignSimulation
         item.EstimatedCoordinate, item.Confidence, item.ObservedAt, item.UncertaintyRadiusMeters,
         item.Classification, item.Revision, item.Channel, item.Quality,
         item.ObservedHeadingMilliDegrees, item.ObservedSpeedMetersPerTick);
+
+    private static SimulatedStrategicObjectiveUpdate ToUpdate(StrategicObjectiveState item) => new(
+        item.ObjectiveId, item.CoalitionId, item.RegionId, item.Kind, item.PriorityMilliUnits,
+        item.CreatedAt, item.Epoch, item.Revision);
+
+    private static SimulatedGroupCommitmentUpdate ToUpdate(GroupCommitmentState item) => new(
+        item.GroupId, item.ObjectiveId, item.ExpiresAt, item.WithdrawLatched,
+        item.LatchReleaseAt, item.Revision);
+
+    private static SimulatedCoalitionStrategyUpdate ToUpdate(CoalitionStrategyState item) => new(
+        item.CoalitionId, item.NextDirectorAt, item.Epoch, item.Revision);
 
     private static ScheduledCampaignActivity ToContract(ScheduledActivityState item) => new(
         item.ActivityId, item.Kind, item.Subject, item.DueAt, item.Revision);

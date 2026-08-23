@@ -68,6 +68,30 @@ public sealed record OrderState(
     CampaignTime? CompletedAt,
     EntityRevision Revision);
 
+public sealed record StrategicObjectiveState(
+    StrategicObjectiveId ObjectiveId,
+    CoalitionId CoalitionId,
+    RegionId RegionId,
+    StrategicObjectiveKind Kind,
+    int PriorityMilliUnits,
+    CampaignTime CreatedAt,
+    long Epoch,
+    EntityRevision Revision);
+
+public sealed record GroupCommitmentState(
+    GroupId GroupId,
+    StrategicObjectiveId? ObjectiveId,
+    CampaignTime ExpiresAt,
+    bool WithdrawLatched,
+    CampaignTime LatchReleaseAt,
+    EntityRevision Revision);
+
+public sealed record CoalitionStrategyState(
+    CoalitionId CoalitionId,
+    CampaignTime NextDirectorAt,
+    long Epoch,
+    EntityRevision Revision);
+
 public sealed record ScheduledActivityState(
     ScheduledActivityId ActivityId,
     CampaignActivityKind Kind,
@@ -143,6 +167,9 @@ public sealed record CampaignState
     public ImmutableSortedDictionary<EntityId, EntityState> Entities { get; init; } = ImmutableSortedDictionary<EntityId, EntityState>.Empty;
     public ImmutableSortedDictionary<GroupId, GroupState> Groups { get; init; } = ImmutableSortedDictionary<GroupId, GroupState>.Empty;
     public ImmutableSortedDictionary<OrderId, OrderState> Orders { get; init; } = ImmutableSortedDictionary<OrderId, OrderState>.Empty;
+    public ImmutableSortedDictionary<StrategicObjectiveId, StrategicObjectiveState> StrategicObjectives { get; init; } = ImmutableSortedDictionary<StrategicObjectiveId, StrategicObjectiveState>.Empty;
+    public ImmutableSortedDictionary<GroupId, GroupCommitmentState> GroupCommitments { get; init; } = ImmutableSortedDictionary<GroupId, GroupCommitmentState>.Empty;
+    public ImmutableSortedDictionary<CoalitionId, CoalitionStrategyState> CoalitionStrategies { get; init; } = ImmutableSortedDictionary<CoalitionId, CoalitionStrategyState>.Empty;
     public ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate> Intelligence { get; init; } = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty;
     public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
     public ImmutableSortedDictionary<AssignmentId, AssignmentState> Assignments { get; init; } = ImmutableSortedDictionary<AssignmentId, AssignmentState>.Empty;

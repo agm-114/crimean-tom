@@ -1064,6 +1064,42 @@ public static class CampaignKernel
                 update.ObservedSpeedMetersPerTick));
         }
 
+        var strategicObjectives = state.StrategicObjectives;
+        foreach (var update in value.StrategicObjectives ?? [])
+        {
+            strategicObjectives = strategicObjectives.SetItem(update.ObjectiveId, new StrategicObjectiveState(
+                update.ObjectiveId,
+                update.CoalitionId,
+                update.RegionId,
+                update.Kind,
+                update.PriorityMilliUnits,
+                update.CreatedAt,
+                update.Epoch,
+                update.Revision));
+        }
+
+        var groupCommitments = state.GroupCommitments;
+        foreach (var update in value.GroupCommitments ?? [])
+        {
+            groupCommitments = groupCommitments.SetItem(update.GroupId, new GroupCommitmentState(
+                update.GroupId,
+                update.ObjectiveId,
+                update.ExpiresAt,
+                update.WithdrawLatched,
+                update.LatchReleaseAt,
+                update.Revision));
+        }
+
+        var coalitionStrategies = state.CoalitionStrategies;
+        foreach (var update in value.CoalitionStrategies ?? [])
+        {
+            coalitionStrategies = coalitionStrategies.SetItem(update.CoalitionId, new CoalitionStrategyState(
+                update.CoalitionId,
+                update.NextDirectorAt,
+                update.Epoch,
+                update.Revision));
+        }
+
         var scheduled = value.PendingActivities.Select(item => new ScheduledActivityState(
                 item.ActivityId,
                 item.Kind,
@@ -1078,6 +1114,9 @@ public static class CampaignKernel
             Bases = bases,
             Groups = groups,
             Orders = orders,
+            StrategicObjectives = strategicObjectives,
+            GroupCommitments = groupCommitments,
+            CoalitionStrategies = coalitionStrategies,
             Intelligence = intelligence,
             ScheduledActivities = scheduled,
             RecentOperationalOutcomes = [.. value.Outcomes],
