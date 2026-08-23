@@ -546,6 +546,22 @@ app.MapPost("/game/mutations/surface/materialize", (
             cancellationToken);
 });
 
+app.MapPost("/game/mutations/land/materialize", (
+    MaterializeOwnedLandUnitRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateLandMutationRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.MaterializeOwnedLandUnit,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+});
+
 app.MapPost("/game/mutations/surface/checkpoint", (
     OwnedSurfaceEntityRequestPayload request,
     GamePipeBroker broker,
@@ -889,6 +905,62 @@ static IResult? ValidateSurfaceMutationRequest(
         "after-owned-tag",
         "after-state-apply",
         "after-registry-add");
+}
+
+static IResult? ValidateLandMutationRequest(
+    MaterializeOwnedLandUnitRequestPayload request,
+    GamePipeBroker broker)
+{
+    if (request.Context is null)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned land mutation context is required.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    var sessionError = ValidateMutationSession(request.Context.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    string[] supportedUnitTypes =
+    [
+        "usa_mbt_m60",
+        "usa_apc_m113",
+        "usa_aaa_vulcan",
+        "usa_mim-23_launcher",
+        "nato_ewr_station",
+        "nato_small_airbase",
+    ];
+    if (string.IsNullOrWhiteSpace(request.Context.AssignmentId)
+        || request.Context.AssignmentId.Length > 128
+        || !request.Context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+        || request.Context.AuthorityEpoch < 1
+        || request.Context.ExpectedRevision != 0
+        || string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+        || request.Context.IdempotencyKey.Length > 128
+        || string.IsNullOrWhiteSpace(request.EntityId)
+        || request.EntityId.Length > 128
+        || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || !supportedUnitTypes.Contains(request.UnitTypeId, StringComparer.Ordinal)
+        || !string.Equals(request.VariantId, "Default", StringComparison.Ordinal)
+        || !string.Equals(request.LoadoutId, "Default", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.TaskforceId)
+        || !double.IsFinite(request.Latitude)
+        || !double.IsFinite(request.Longitude)
+        || !double.IsFinite(request.HeadingDegrees)
+        || request.Latitude is < -90d or > 90d
+        || request.Longitude is < -180d or >= 180d
+        || request.Telegraph is < -1 or > 5)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The owned land mutation payload is incomplete or invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
 }
 
 static IResult? ValidateFaultInjectionRequest(

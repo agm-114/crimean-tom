@@ -171,6 +171,8 @@ internal static class RuntimeCapabilityCollector
                     LoadoutId = RuntimeOwnedMutationAdapter.SupportedLoadout,
                 },
             ],
+            OwnedLandMaterializationProfiles =
+                RuntimeOwnedLandMutationAdapter.SupportedProfiles(),
             PlayerTaskforceId = RuntimeOwnedMutationAdapter.GetPlayerTaskforceId(),
             MutationModeExpiresAtUnixMilliseconds =
                 RuntimeOwnedMutationAdapter.ExpiresAtUnixMilliseconds,

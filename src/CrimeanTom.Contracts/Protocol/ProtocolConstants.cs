@@ -81,6 +81,7 @@ public static class GameCommandTypes
     public const string GetSceneState = "get-scene-state";
     public const string GetWorldSnapshot = "get-world-snapshot";
     public const string ProbeTerrainPlacement = "probe-terrain-placement";
+    public const string MaterializeOwnedLandUnit = "materialize-owned-land-unit";
     public const string GetTacticalCouplingState = "get-tactical-coupling-state";
     public const string GetUnitCatalogPage = "get-unit-catalog-page";
     public const string GetReferenceCatalogPage = "get-reference-catalog-page";
@@ -166,6 +167,7 @@ public static class GameCommandTypes
     public static readonly string[] MutationCommands =
     {
         MaterializeOwnedSurfaceUnit,
+        MaterializeOwnedLandUnit,
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
@@ -207,6 +209,7 @@ public static class GameCommandTypes
         RunControlledTickExperiment,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
+        MaterializeOwnedLandUnit,
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,

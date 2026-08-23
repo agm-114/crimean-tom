@@ -138,6 +138,8 @@ internal static class GameCommandDispatcher
                         executionThreadGuardSelfTest),
                     GameCommandTypes.MaterializeOwnedSurfaceUnit =>
                         MaterializeOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.MaterializeOwnedLandUnit =>
+                        MaterializeOwnedLandUnit(command.PayloadJson, command.SessionId),
                     GameCommandTypes.CaptureOwnedSurfaceCheckpoint =>
                         CaptureOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
                     GameCommandTypes.UpdateOwnedSurfaceUnit =>
@@ -1700,6 +1702,19 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new MaterializeOwnedSurfaceUnitRequestPayload();
         var result = RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload MaterializeOwnedLandUnit(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<MaterializeOwnedLandUnitRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new MaterializeOwnedLandUnitRequestPayload();
+        var result = RuntimeOwnedLandMutationAdapter.Materialize(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);

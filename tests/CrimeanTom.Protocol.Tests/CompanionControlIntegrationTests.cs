@@ -1880,6 +1880,43 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("stableUnitId")
                     .GetString());
 
+            using var materializedLand = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/land/materialize",
+                JsonSerializer.Serialize(new MaterializeOwnedLandUnitRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-land",
+                        AuthorityEpoch = 8,
+                        ExpectedRevision = 0,
+                        IdempotencyKey = "integration-m60-1",
+                    },
+                    EntityId = "unit:crimean-tom:integration-m60-1",
+                    UnitTypeId = "usa_mbt_m60",
+                    VariantId = "Default",
+                    LoadoutId = "Default",
+                    TaskforceId = "taskforce:Blue",
+                    Latitude = 54.1,
+                    Longitude = 9.4,
+                    HeadingDegrees = 180,
+                    Telegraph = 0,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "owned-land-unit-materialized-above-finalized-terrain-and-read-back",
+                materializedLand.RootElement.GetProperty("postcondition").GetString());
+            Assert.True(materializedLand.RootElement
+                .GetProperty("terrain")
+                .GetProperty("placementReady")
+                .GetBoolean());
+            Assert.True(materializedLand.RootElement
+                .GetProperty("realizedUnit")
+                .GetProperty("groundClearanceMeters")
+                .GetDouble() >= 0d);
+
             using var ownedResources = await GetAuthorizedJsonAsync(
                 client,
                 token,
@@ -2739,6 +2776,16 @@ public sealed class CompanionControlIntegrationTests
                             LoadoutId = "Default",
                         },
                     ],
+                    OwnedLandMaterializationProfiles =
+                    [
+                        new OwnedLandMaterializationProfilePayload
+                        {
+                            UnitTypeId = "usa_mbt_m60",
+                            VariantId = "Default",
+                            LoadoutId = "Default",
+                            SimulationDomain = "Ground",
+                        },
+                    ],
                     RuntimeFingerprint = new RuntimeCapabilityFingerprintPayload
                     {
                         FingerprintSha256 = runtimeFingerprintSha256,
@@ -2965,6 +3012,46 @@ public sealed class CompanionControlIntegrationTests
                             Longitude = 44.5,
                             HeadingDegrees = 90,
                             Telegraph = 0,
+                        },
+                    },
+                    JsonOptions),
+                GameCommandTypes.MaterializeOwnedLandUnit => JsonSerializer.Serialize(
+                    new MaterializeOwnedLandUnitResultPayload
+                    {
+                        Outcome = "materialized",
+                        Postcondition =
+                            "owned-land-unit-materialized-above-finalized-terrain-and-read-back",
+                        AssignmentId = "assignment:integration-land",
+                        AuthorityEpoch = 8,
+                        Revision = 1,
+                        IdempotencyKey = "integration-m60-1",
+                        RecoverableOwnedObject = true,
+                        SynchronousDurationMicroseconds = 3200,
+                        RealizedUnit = new OwnedLandUnitStatePayload
+                        {
+                            StableUnitId =
+                                "campaign-unit:unit:crimean-tom:integration-m60-1",
+                            GameUniqueId = 45,
+                            EntityId = "unit:crimean-tom:integration-m60-1",
+                            UnitTypeId = "usa_mbt_m60",
+                            VariantId = "Default",
+                            LoadoutId = "Default",
+                            TaskforceId = "taskforce:Blue",
+                            Latitude = 54.1,
+                            Longitude = 9.4,
+                            HeadingDegrees = 180,
+                            TerrainHeightMeters = 37.5,
+                            GroundClearanceMeters = 0.01,
+                            FlatteningFinishedForLandUnits = true,
+                        },
+                        Terrain = new TerrainPlacementProbeResultPayload
+                        {
+                            Latitude = 54.1,
+                            Longitude = 9.4,
+                            PlacementReady = true,
+                            IsLand = true,
+                            TerrainHeightMeters = 37.5,
+                            Postcondition = "terrain-land-placement-ready",
                         },
                     },
                     JsonOptions),
@@ -6119,6 +6206,7 @@ public sealed class CompanionControlIntegrationTests
 
         private static bool IsMutationCommand(string commandType) =>
             commandType is GameCommandTypes.MaterializeOwnedSurfaceUnit
+                or GameCommandTypes.MaterializeOwnedLandUnit
                 or GameCommandTypes.CaptureOwnedSurfaceCheckpoint
                 or GameCommandTypes.UpdateOwnedSurfaceUnit
                 or GameCommandTypes.SetOwnedSurfaceSuspension
