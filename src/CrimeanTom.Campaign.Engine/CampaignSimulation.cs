@@ -26,13 +26,8 @@ namespace CrimeanTom.Campaign.Engine;
 internal static class CampaignSimulation
 {
     private const long ActivityInterval = 10;
-    private const long FuelPerMovement = 25_000;
-    private const long AirFuelPerTick = 20_000;
-    private const long RotaryWingFuelPerTick = 12_000;
-    private const long StoresPerActivity = 5_000;
     private const long RepairPerActivity = 50_000;
     private const long MeanEarthRadiusMeters = 6_371_000;
-    private const long MetersPerRegionHop = 160_000;
     private const long VisualContactMeters = 20_000;
     private const long StandoffMeters = 8_000;
     private const long MaximumSensorHorizonMeters = 350_000;
@@ -198,7 +193,11 @@ internal static class CampaignSimulation
                 []);
         }
 
-        var destination = RegionAnchor(state, order.DestinationRegionId, activeMembers[0].CoalitionId, activeMembers[0].Coordinate);
+        var destination = RegionAnchor(
+            state,
+            order.DestinationRegionId,
+            activeMembers[0].CoalitionId,
+            activeMembers[0].Coordinate);
         var entityUpdates = group.Members.Select(id =>
         {
             var entity = state.Entities[id];
@@ -207,6 +206,7 @@ internal static class CampaignSimulation
                 return entity;
             }
             var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
+            var legDestination = RegionAnchor(state, next, entity.CoalitionId, destination);
             var inbound = state.InFlight
                 .Where(item => item.TargetEntityId == entity.EntityId)
                 .OrderBy(item => item.OrdnanceId, StringComparer.Ordinal)
@@ -217,9 +217,7 @@ internal static class CampaignSimulation
                 .ToArray();
             var inboundTorpedo = inboundTorpedoes.Length > 0;
             var inboundMissile = inbound.Any(item => item.Kind is OrdnanceKind.Missile or OrdnanceKind.Bomb);
-            var effectiveNext = inboundTorpedo ? entity.RegionId : next;
-            var moved = effectiveNext != entity.RegionId;
-            var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
+            var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, legDestination);
             var hostileAhead = HasHostileInRegion(hostileCoalitionsByRegion, next, entity.CoalitionId);
             var desired = hostileAhead && remaining > StandoffMeters
                 ? remaining - StandoffMeters
@@ -237,21 +235,15 @@ internal static class CampaignSimulation
             var hopLimit = HopMeters(entity, telegraph)
                 * Math.Max(100, entity.Analogue.PropulsionIntegrityMilliUnits) / 1_000;
             var hop = Math.Min(hopLimit, inboundTorpedo ? hopLimit : desired);
+            var reachedLeg = !inboundTorpedo && desired <= hopLimit;
+            var effectiveNext = reachedLeg ? next : entity.RegionId;
             var resources = entity.Resources;
-            if (hop > 0)
+            if (hop > 0 || entity.SimulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing)
             {
-                resources = Consume(resources, ResourceKind.Fuel, FuelPerMovement);
+                resources = Consume(resources, ResourceKind.Fuel, FuelBurnPerActivity(entity, telegraph));
             }
-            if (entity.SimulationDomain == SimulationDomain.Air)
-            {
-                resources = Consume(resources, ResourceKind.Fuel, AirFuelPerTick);
-            }
-            else if (entity.SimulationDomain == SimulationDomain.RotaryWing)
-            {
-                resources = Consume(resources, ResourceKind.Fuel, RotaryWingFuelPerTick);
-            }
-            resources = Consume(resources, ResourceKind.Stores, StoresPerActivity);
-            var bearingMilli = BearingMilliDegrees(entity.Coordinate, destination);
+            resources = Consume(resources, ResourceKind.Stores, StoresBurnPerActivity(entity));
+            var bearingMilli = BearingMilliDegrees(entity.Coordinate, legDestination);
             if (inboundTorpedo)
             {
                 bearingMilli = BearingMilliDegrees(entity.Coordinate, inboundTorpedoes[0].Coordinate);
@@ -309,7 +301,7 @@ internal static class CampaignSimulation
                     : Math.Max(0, entity.Analogue.EcmMilliUnits - 80),
                 SnorkelCycle = snorkel,
             };
-            var changed = moved
+            var changed = effectiveNext != entity.RegionId
                 || hop > 0
                 || heading != entity.Heading
                 || telegraph != entity.Telegraph
@@ -324,37 +316,32 @@ internal static class CampaignSimulation
                     Telegraph = telegraph,
                     Resources = resources,
                     Analogue = analogue,
-                    DamageMilliUnits = hop > 0 ? Math.Min(1_000_000, entity.DamageMilliUnits + 10_000) : entity.DamageMilliUnits,
                     Revision = entity.Revision.Next(),
                 }
                 : entity;
         }).ToArray();
         entityUpdates = ApplyFormationStations(state, entityUpdates);
 
-        var arrived = activeMembers.All(entity =>
+        var arrived = entityUpdates
+            .Where(entity => activeMembers.Any(active => active.EntityId == entity.EntityId))
+            .All(entity =>
             {
-                if (state.InFlight.Any(item => item.TargetEntityId == entity.EntityId
-                    && (item.Kind == OrdnanceKind.Torpedo
-                        || ContainsToken(item.AmmunitionId, "torpedo"))))
-                {
-                    return false;
-                }
-                var next = NextRegion(state, entity.RegionId, order.DestinationRegionId);
-                if (next != order.DestinationRegionId)
+                if (entity.RegionId != order.DestinationRegionId
+                    || state.InFlight.Any(item => item.TargetEntityId == entity.EntityId
+                        && (item.Kind == OrdnanceKind.Torpedo
+                            || ContainsToken(item.AmmunitionId, "torpedo"))))
                 {
                     return false;
                 }
                 var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
-                var hostileAhead = HasHostileInRegion(hostileCoalitionsByRegion, next, entity.CoalitionId);
-                var desired = hostileAhead && remaining > StandoffMeters
-                    ? remaining - StandoffMeters
-                    : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
-                var movementTelegraph = order.Kind == OrderKind.Withdraw ? TelegraphFlank
-                    : order.Kind == OrderKind.Intercept ? TelegraphIntercept
-                    : TelegraphCruise;
-                var hopLimit = HopMeters(entity, movementTelegraph)
-                    * Math.Max(100, entity.Analogue.PropulsionIntegrityMilliUnits) / 1_000;
-                return desired <= hopLimit;
+                var hostileAtDestination = HasHostileInRegion(
+                    hostileCoalitionsByRegion,
+                    order.DestinationRegionId,
+                    entity.CoalitionId);
+                var arrivalRadius = hostileAtDestination
+                    ? StandoffMeters
+                    : HopMeters(entity, entity.Telegraph);
+                return remaining <= Math.Max(1, arrivalRadius);
             });
         if (!arrived)
         {
@@ -1998,19 +1985,63 @@ internal static class CampaignSimulation
 
     private static long HopMeters(EntityState entity, int telegraph)
     {
-        var cruise = entity.SimulationDomain switch
+        var cruiseMetersPerActivity = entity.SimulationDomain switch
         {
-            SimulationDomain.Air => 280_000L,
-            SimulationDomain.RotaryWing => 95_000L,
-            SimulationDomain.Ground => 35_000L,
+            // Ten campaign quanta are ten seconds. These are conservative
+            // physical cruise distances, not one abstract region hop.
+            SimulationDomain.Air => 2_300L,
+            SimulationDomain.RotaryWing => 620L,
+            SimulationDomain.Ground => 85L,
             SimulationDomain.Installation => 0L,
-            SimulationDomain.LandAbstract => 35_000L,
-            SimulationDomain.Logistics => 140_000L,
-            _ when Classify(entity) == ContactClassification.Subsurface => 90_000L,
-            _ => MetersPerRegionHop,
+            SimulationDomain.LandAbstract => 50L,
+            SimulationDomain.Logistics => 80L,
+            _ when Classify(entity) == ContactClassification.Subsurface => 45L,
+            _ => 56L,
         };
-        return telegraph == TelegraphFlank ? cruise + cruise / 5 : cruise;
+        var multiplierMilliUnits = telegraph switch
+        {
+            < 0 => 350,
+            TelegraphStop => 0,
+            1 => 500,
+            TelegraphCruise => 1_000,
+            TelegraphIntercept => 1_200,
+            TelegraphFlank => 1_400,
+            _ => 1_600,
+        };
+        return cruiseMetersPerActivity * multiplierMilliUnits / 1_000;
     }
+
+    private static long FuelBurnPerActivity(EntityState entity, int telegraph)
+    {
+        var cruiseBurn = entity.SimulationDomain switch
+        {
+            SimulationDomain.Air => 700L,
+            SimulationDomain.RotaryWing => 900L,
+            SimulationDomain.Ground => 120L,
+            SimulationDomain.Installation => 0L,
+            SimulationDomain.LandAbstract => 60L,
+            SimulationDomain.Logistics => 30L,
+            _ when Classify(entity) == ContactClassification.Subsurface => 15L,
+            _ => 20L,
+        };
+        return telegraph switch
+        {
+            TelegraphFlank => cruiseBurn * 2,
+            TelegraphIntercept => cruiseBurn + cruiseBurn / 2,
+            1 => Math.Max(1, cruiseBurn / 2),
+            < 0 => Math.Max(1, cruiseBurn / 3),
+            TelegraphStop => 0,
+            _ => cruiseBurn,
+        };
+    }
+
+    private static long StoresBurnPerActivity(EntityState entity) => entity.SimulationDomain switch
+    {
+        SimulationDomain.Air or SimulationDomain.RotaryWing => 20L,
+        SimulationDomain.Ground or SimulationDomain.LandAbstract => 10L,
+        SimulationDomain.Installation => 2L,
+        _ => 5L,
+    };
 
     private static int PointDefensePenalty(EntityState target, long distanceMeters)
     {

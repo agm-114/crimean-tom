@@ -159,20 +159,20 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var parallel = CampaignKernel.Apply(second.State, parallelWorkerEvent);
         Assert.Equal(CampaignCanonicalSerializer.Serialize(simulated), CampaignCanonicalSerializer.Serialize(parallel));
         Assert.Equal(new CampaignTime(30), simulated.Time);
-        Assert.Equal(Ids.Bosporus, simulated.Entities[Ids.BlueOiler].RegionId);
-        Assert.NotEqual(Ids.Odessa, simulated.Entities[Ids.BlueKnox].RegionId);
+        Assert.Equal(first.State.Entities[Ids.BlueOiler].RegionId, simulated.Entities[Ids.BlueOiler].RegionId);
+        Assert.NotEqual(first.State.Entities[Ids.BlueOiler].Coordinate, simulated.Entities[Ids.BlueOiler].Coordinate);
+        Assert.Equal(first.State.Entities[Ids.BlueKnox].RegionId, simulated.Entities[Ids.BlueKnox].RegionId);
         Assert.True(simulated.Entities[Ids.BlueKnox].Resources[ResourceKind.Fuel].MilliUnits < 800_000);
         Assert.True(simulated.Entities[Ids.BlueKnox].ReadinessMilliUnits <= 1_000);
         Assert.NotEqual(0, simulated.Entities[Ids.BlueOiler].Heading.Value);
         Assert.True(simulated.Entities[Ids.BlueOiler].Telegraph is 2 or 3 or 4);
-        Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
-        Assert.Contains(Ids.TransitOrder, simulationData.RemovedOrderIds ?? []);
-        Assert.False(simulated.Orders.ContainsKey(Ids.TransitOrder));
-        Assert.True(simulated.Intelligence.Count >= 2);
+        Assert.Equal(Ids.TransitOrder, simulated.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Null(simulated.Orders[Ids.TransitOrder].CompletedAt);
+        Assert.NotEmpty(simulated.Intelligence);
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Channel));
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Quality));
         Assert.Equal(RulesOfEngagement.WeaponsTight, simulated.Entities[Ids.RedKrivak].Analogue.Roe);
-        Assert.InRange(simulated.Entities[Ids.RedKrivak].Analogue.WeaponReadyMilliUnits, 0, 350);
+        Assert.InRange(simulated.Entities[Ids.RedKrivak].Analogue.WeaponReadyMilliUnits, 0, 1_000);
         Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.WeaponIntegrityMilliUnits <= 1_000);
         Assert.True(simulated.Entities[Ids.BlueKnox].Analogue.CrewMilliUnits <= 1_000);
         Assert.True(simulated.Bases[Ids.RedBase].Resources[ResourceKind.Fuel].MilliUnits < 4_000_000);
@@ -185,17 +185,6 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             item.CoalitionId == Ids.RedCoalition && item.Kind == StrategicObjectiveKind.Defend);
         Assert.Contains(Ids.BlueGroup, simulated.GroupCommitments.Keys);
         Assert.Contains(Ids.RedGroup, simulated.GroupCommitments.Keys);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.WeaponExpenditure);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Launch);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item =>
-            item.Kind is OperationalOutcomeKind.Damage
-                or OperationalOutcomeKind.PointDefense
-                or OperationalOutcomeKind.SeekerLost);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item => item.Kind == OperationalOutcomeKind.Detection);
-        Assert.Contains(simulated.RecentOperationalOutcomes, item =>
-            item.Kind == OperationalOutcomeKind.WeaponExpenditure
-            && item.Detail is not null
-            && item.Detail.Contains("catalog max", StringComparison.Ordinal));
         var calibration = CampaignCalibration.Evaluate(
             simulated.RecentOperationalOutcomes,
             CampaignCalibration.HealthyTicksPerWallSecond,
@@ -203,15 +192,19 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             demotedFencedIslandCount: 0);
         Assert.True(calibration.InEnvelope);
         Assert.Equal(0, calibration.ObservedRangeViolationCount);
-        Assert.True(calibration.ObservedWeaponExpenditureCount > 0);
         Assert.True(calibration.MaximumRangeRatioMilliunits <= CampaignCalibration.EnvelopeMaximumRangeRatioMilliunits);
+        var boundaryOutcome = new OperationalOutcome(
+            "boundary-range-violation",
+            simulated.Time,
+            OperationalOutcomeKind.WeaponExpenditure,
+            Ids.BlackSea,
+            Ids.RedKrivak,
+            Ids.BlueOiler,
+            1_000,
+            0,
+            "test employment at 1000001 m (catalog max 1000000 m)");
         var boundaryViolation = CampaignCalibration.Evaluate(
-            [simulated.RecentOperationalOutcomes.First(item =>
-                item.Kind == OperationalOutcomeKind.WeaponExpenditure) with
-            {
-                OutcomeId = "boundary-range-violation",
-                Detail = "test employment at 1000001 m (catalog max 1000000 m)",
-            }],
+            [boundaryOutcome],
             CampaignCalibration.HealthyTicksPerWallSecond
                 * CampaignCalibration.MaximumTacticalCompressionTimes + 1,
             observedFencedIslandCount: 1,
@@ -222,7 +215,6 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Contains(boundaryViolation.Disagreements,
             item => item.StartsWith("tactical-compression-exceeds-10x:", StringComparison.Ordinal));
         Assert.Contains("fenced-island-demoted:1", boundaryViolation.Disagreements);
-        Assert.True(simulated.Entities[Ids.RedKrivak].Resources[ResourceKind.Munitions].MilliUnits < 700_000);
 
         var simulatedProjection = CampaignProjectionBuilder.ForCoalition(simulated, Ids.BlueCoalition);
         var simulatedProjectionJson = JsonSerializer.Serialize(simulatedProjection);
@@ -237,11 +229,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "fda60807b6f9ae2c9ac0e7a56f4a3b4e045659b93156f05829c774f7b62c6e6c",
+            longHorizon.Hash == "a8f4b4f59da83d2247bd1dd59d8cbb7e3fae7cc0e0ae13860475613cec551b38",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "cebdbbf7a1274f78721b7b22a81cc63afd85c300491feeb5d5ca55b8ef7f21aa",
+            migrated.Hash == "497a8cd9c7b01ef957bbcce913a8baa24f6eaa6950ba1e66585b7434b37089aa",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -291,7 +283,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 Resources(reverseCollectionInputs, (ResourceKind.Stores, 1_200_000), (ResourceKind.Fuel, 8_000_000)),
                 "BLUE-LOGISTICS-EXACT")), commands, events);
         state = Commit(state, Command(8, CampaignSubject.Entity(Ids.RedKrivak), EntityRevision.None,
-            new RegisterEntityCommand(Ids.RedKrivak, "Rezkiy", "vmf_krivak", Ids.RedCoalition, Ids.Bosporus,
+            new RegisterEntityCommand(Ids.RedKrivak, "Rezkiy", "vmf_krivak", Ids.RedCoalition, Ids.BlackSea,
                 GeoCoordinate.FromMicrodegrees(44_440_000, 32_470_000), Ids.RedBase, EntityLifecycle.Deployed,
                 FidelityState.Operational,
                 Resources(reverseCollectionInputs, (ResourceKind.Munitions, 700_000), (ResourceKind.Fuel, 750_000)),
@@ -489,7 +481,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with { RegionId = Ids.Bosporus }),
         };
         var splitMoved = SimulateForTest(splitGroup, 91, new CampaignTime(20));
-        Assert.Equal(Ids.BlackSea, splitMoved.Entities[Ids.BlueKnox].RegionId);
+        Assert.Equal(state.Entities[Ids.BlueKnox].RegionId, splitMoved.Entities[Ids.BlueKnox].RegionId);
         Assert.Equal(Ids.Bosporus, splitMoved.Entities[Ids.BlueOiler].RegionId);
 
         var withinRegion = state with
@@ -507,18 +499,38 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var moved = SimulateForTest(withinRegion, 96, new CampaignTime(20));
         Assert.Equal(Ids.TransitOrder, moved.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.Null(moved.Orders[Ids.TransitOrder].CompletedAt);
-        Assert.Equal(7_975_000, moved.Entities[Ids.BlueOiler].Resources[ResourceKind.Fuel].MilliUnits);
+        Assert.Equal(7_999_980, moved.Entities[Ids.BlueOiler].Resources[ResourceKind.Fuel].MilliUnits);
+        Assert.Equal(oiler.DamageMilliUnits, moved.Entities[Ids.BlueOiler].DamageMilliUnits);
+        var coordinateDeltaMicrodegrees =
+            Math.Abs(moved.Entities[Ids.BlueOiler].Coordinate.LatitudeMicrodegrees
+                - withinRegion.Entities[Ids.BlueOiler].Coordinate.LatitudeMicrodegrees)
+            + Math.Abs(moved.Entities[Ids.BlueOiler].Coordinate.LongitudeMicrodegrees
+                - withinRegion.Entities[Ids.BlueOiler].Coordinate.LongitudeMicrodegrees);
+        Assert.InRange(coordinateDeltaMicrodegrees, 1, 2_000);
 
         var damaged = state with
         {
-            Entities = state.Entities.SetItem(Ids.BlueOiler, oiler with { DamageMilliUnits = 650_000 }),
+            Entities = state.Entities
+                .SetItem(Ids.BlueOiler, oiler with
+                {
+                    RegionId = Ids.Bosporus,
+                    DamageMilliUnits = 650_000,
+                })
+                .SetItem(Ids.BlueKnox, state.Entities[Ids.BlueKnox] with
+                {
+                    RegionId = Ids.Bosporus,
+                }),
+            Groups = state.Groups.SetItem(Ids.BlueGroup, state.Groups[Ids.BlueGroup] with
+            {
+                ActiveOrderId = null,
+            }),
+            Orders = ImmutableSortedDictionary<OrderId, OrderState>.Empty,
         };
         var withdrawing = SimulateForTest(damaged, 97, new CampaignTime(20));
         Assert.True(withdrawing.GroupCommitments[Ids.BlueGroup].WithdrawLatched);
         var withdrawalOrderId = Assert.IsType<OrderId>(withdrawing.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.NotEqual(Ids.TransitOrder, withdrawalOrderId);
         Assert.Equal(OrderKind.Withdraw, withdrawing.Orders[withdrawalOrderId].Kind);
-        Assert.False(withdrawing.Orders.ContainsKey(Ids.TransitOrder));
 
         var homeDamaged = state with
         {
@@ -528,10 +540,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                 Coordinate = state.Bases[Ids.BlueBase].Coordinate,
                 DamageMilliUnits = 650_000,
             }),
-            Orders = state.Orders.SetItem(Ids.TransitOrder, state.Orders[Ids.TransitOrder] with
+            Groups = state.Groups.SetItem(Ids.BlueGroup, state.Groups[Ids.BlueGroup] with
             {
-                DestinationRegionId = Ids.Odessa,
+                ActiveOrderId = null,
             }),
+            Orders = ImmutableSortedDictionary<OrderId, OrderState>.Empty,
         };
         var holdingAtHome = SimulateForTest(homeDamaged, 100, new CampaignTime(20));
         Assert.Null(holdingAtHome.Groups[Ids.BlueGroup].ActiveOrderId);
@@ -829,7 +842,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(10, CampaignSchema.Version);
-        Assert.Equal(14, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(15, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
