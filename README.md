@@ -29,7 +29,7 @@ pnpm status      # show paths, process state, hashes, and current load state
 pnpm inventory:determinism # generate the pinned compiled call-site manifest
 ```
 
-The Phase 5 operator monitor is served by the campaign service:
+The operator monitor is served by the implemented campaign service:
 
 ```powershell
 pnpm campaign:server
@@ -44,7 +44,8 @@ current-user-only token file. Its map and inspector also expose task-force
 interaction islands, current and desired fidelity, client eligibility/backlog,
 load-shedding decisions, and fixed-step target tempo. The theater is rendered as
 a black-and-white wireframe command plot with square force/event registers and
-green, red, amber, and white semantic highlights.
+green, red, amber, and white semantic highlights. This is an operator diagnostic
+surface that polls HTTP every two seconds; it is not yet the realtime player UI.
 
 For iteration with backend restart and frontend hot-module replacement, run:
 
@@ -59,7 +60,9 @@ bundle so production monitor rebuilds do not trigger a backend rescan storm.
 
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main
-thread. The first slice is deliberately read-only:
+thread. The allow-listed surface includes read state, screenshots, typed UI
+automation, collider capture, experimental probes, and explicitly armed/fenced
+owned-surface mutations:
 
 ```powershell
 pnpm companion:status   # companion health and game-pipe connection
@@ -70,6 +73,7 @@ pnpm game:scene         # read active scene and manager/object counts
 pnpm game:world         # read live task forces and canonical unit state
 pnpm game:ui            # inspect current window, HUD, pause, and selection
 pnpm game:screenshot    # capture the Unity framebuffer to a PNG
+pnpm game:colliders     # inspect cached live collider geometry
 pnpm game:control-test  # exercise and validate all of the above
 ```
 
@@ -89,10 +93,12 @@ pipe, and experimental checkpoint, but they do not relocate Sea Power's native
 `Application.persistentDataPath` or Unity `PlayerPrefs`. A process is not a safe
 paired replica until those native paths are isolated too.
 
-The planned campaign application is local-first: packaged .NET 8, SQLite WAL,
+The campaign application is local-first: .NET 8, SQLite WAL,
 and content-addressed local checkpoint files. Named pipes remain the same-machine
 game bridge. Generated gRPC/Protobuf services connect .NET companions and
-simulation workers; SignalR with MessagePack serves player-facing realtime UI.
+simulation workers. SignalR with MessagePack is the target player-facing
+realtime transport, but it is not implemented; the current monitor and coalition
+projection use HTTP.
 Single-player, LAN/private co-op, and a basic dedicated campaign will not require
 PostgreSQL, Redis, Docker, or an external object store.
 
@@ -100,6 +106,10 @@ The concise design is in
 [`docs/architecture/dynamic-campaign-design.md`](docs/architecture/dynamic-campaign-design.md); the
 normative ownership, time, materialization, protocol, persistence, and failure
 contracts are in [`docs/architecture/system-architecture.md`](docs/architecture/system-architecture.md).
+The code-to-process map is in
+[`docs/architecture/implementation-map.md`](docs/architecture/implementation-map.md), and the
+current feature/gap ledger is in
+[`docs/planning/current-status.md`](docs/planning/current-status.md).
 The controlled clock, scheduling, RNG, and ordering layer required for hot Unity
 replicas is specified in
 [`docs/architecture/deterministic-runtime-adapter.md`](docs/architecture/deterministic-runtime-adapter.md).

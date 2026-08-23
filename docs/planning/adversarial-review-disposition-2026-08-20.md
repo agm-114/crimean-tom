@@ -2,10 +2,11 @@
 
 ## Purpose
 
-The [adversarial review](adversarial-architecture-review-2026-08-20.md) is a
-valuable attempt to falsify the design, but it is not itself normative. This
-record separates findings accepted into the architecture from claims corrected
-by source inspection and questions that remain experimental gates.
+An adversarial working review attempted to falsify the design. The raw draft was
+removed after disposition because it duplicated stale code paths, line numbers,
+and abandoned technology conclusions. This durable record separates findings
+accepted into the architecture from claims corrected by source inspection and
+questions that remain experimental gates.
 
 The review was assessed against the decompiled installed Sea Power build
 `0.8.2-23444+s358`, the repository implementation, and the current architecture.

@@ -14,6 +14,10 @@ mission for every important engagement. Importing or generating a conventional
 scenario remains useful as a compatibility and recovery path, not the normal
 runtime boundary.
 
+This is the concise target design. The implemented subset and product gaps are
+tracked in [Implemented architecture map](implementation-map.md) and
+[Current code and product status](../planning/current-status.md).
+
 ## System boundary
 
 ```text
@@ -486,26 +490,35 @@ The plugin maps catalog and stable campaign IDs to the installed version's
 runtime types. A game or mod update invalidates the catalog fingerprint and
 blocks incompatible authority assignment until migrated or rebuilt.
 
-## Target projects
+## Implemented projects
 
 ```text
 src/
   SeaPower.RuntimeBridge/       # generic thin AnchorChain/Unity adapter
   CrimeanTom.Contracts/          # dependency-free local wire contracts
   CrimeanTom.Companion/          # local pipe broker and control/remote client
+  CrimeanTom.LoadAcceleration/   # installed-data, file-hash, collider caches
+  CrimeanTom.Campaign.Contracts/ # typed campaign commands/events and IDs
   CrimeanTom.Campaign.Domain/    # pure durable state and rules
-  CrimeanTom.Campaign.Engine/    # clock, events, systems, reconciliation
-  CrimeanTom.Campaign.Contracts/ # network/save DTOs and schema versions
-  CrimeanTom.Campaign.Catalog/   # installed-data normalization
-  CrimeanTom.Campaign.Service/   # coordinator, persistence, assignments
-  CrimeanTom.Campaign.Worker/    # optional headless strategic/operational worker
-  CrimeanTom.Campaign.Tests/     # replay, determinism, property, failover tests
+  CrimeanTom.Campaign.Engine/    # reducers and operational simulation
+  CrimeanTom.Campaign.Service/   # SQLite journal, blobs, backup/restore
+  CrimeanTom.Campaign.Transport/ # generated gRPC/Protobuf machine protocol
+  CrimeanTom.Campaign.ServiceHost/ # coordinator, HTTP, scheduler, supervision
+  CrimeanTom.Campaign.OperationalWorker/ # Track A placement worker
+  CrimeanTom.CallsiteInventory/  # deterministic-hook diagnostic
+  CrimeanTom.Campaign.PersistenceProbe/ # persistence fault diagnostic
+tests/
+  CrimeanTom.Campaign.IntegrationTests/
+  CrimeanTom.Protocol.Tests/
+apps/
+  campaign-monitor/              # HTTP-polling operator dashboard
 ```
 
-The first three projects now exist. Sea Power Runtime Bridge deliberately has no
-campaign product name; Crimean Tom owns the contracts, companion, campaign, and
-networking layers. Together they establish the local control boundary
-before game mutations or remote multiplayer are enabled.
+All listed projects exist. Their current responsibilities and the important
+differences from the target architecture are mapped in
+[Implemented architecture map](implementation-map.md). Sea Power Runtime Bridge
+deliberately has no campaign product name; Crimean Tom owns the contracts,
+companion, campaign, persistence, and networking layers.
 
 ## Delivery plan
 
@@ -513,16 +526,14 @@ The authoritative phase definitions, dependencies, mandatory scenarios, exit
 gates, deferred-decision deadlines, and adversarial review questions are in
 [Implementation plan](../planning/implementation-plan.md). Its critical path is:
 
-1. harden the current read-only control baseline;
-2. prove catalog identity and canonical extraction;
-3. prove bounded, reversible materialization for one entity family;
-4. build the deterministic journaled campaign kernel;
-5. complete a continuous single-client campaign-to-tactical round trip;
-6. add operational simulation and dynamic fidelity;
-7. add redundant replicas, divergence handling, and fenced failover;
-8. add realtime multiplayer and information-filtered projections;
-9. add durable scale/service availability;
-10. complete security, compatibility, soak, and release qualification.
+1. retain the hardened authenticated control and catalog baseline;
+2. close portable materialization/state gaps beyond the first surface family;
+3. turn the deterministic journaled kernel into a player-commanded campaign;
+4. complete a guided single-client campaign-to-tactical round trip;
+5. move Operational work from placement-only workers into fenced execution;
+6. qualify live migration/cold recovery before considering hot replicas;
+7. add realtime multiplayer delivery after canonical player orders exist;
+8. package, soak, secure, and release-qualify the supported profile.
 
 No phase proceeds merely because its code compiles. Each has a measured exit
 gate. Unknown timing, checkpoint, scale, and fidelity constants have explicit

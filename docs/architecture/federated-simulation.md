@@ -2,8 +2,10 @@
 
 This document specifies how several clients can simulate the same campaign
 entity while retaining one coherent outcome. It is the target distributed
-architecture; the implemented first slice is currently the local read-only
-companion-to-game pipe described in [Dynamic campaign architecture](dynamic-campaign-design.md).
+architecture. The repository implements authority epochs, assignment roles,
+hash-disagreement fencing, cold checkpoint reconstruction, and migration
+control-plane primitives, but not qualified hot replica convergence or live
+two-Sea-Power failover. See [Implemented architecture map](implementation-map.md).
 
 Sea Power replicas are promotion eligible only when running a validated version
 of the [Deterministic tactical runtime adapter](deterministic-runtime-adapter.md).

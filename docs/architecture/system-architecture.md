@@ -7,14 +7,19 @@ continuous campaign whose detailed tactical work can be distributed across Sea
 Power clients. It supersedes any earlier assumption that the campaign normally
 stops to generate an isolated Sea Power mission.
 
-The current code implements only the first local, read-only control-plane
-slice. Statements marked **decision** are architectural commitments. Statements
-marked **validation gate** require measurement against the installed game
-before their constants or field mappings become contractual.
+The repository now implements the local control boundary, deterministic
+campaign kernel, SQLite journal, HTTP/gRPC service, operator monitor,
+owned-surface materialization, Operational analogue, and Track A worker
+supervision. It does not implement every component or exit gate in this target.
+The exact boundary is maintained in [Implemented architecture map](implementation-map.md)
+and [Current code and product status](../planning/current-status.md). Statements
+marked **decision** are architectural commitments. Statements marked
+**validation gate** require measurement against the installed game before their
+constants or field mappings become contractual.
 
-The findings from the 2026-08-20 adversarial review are tracked in its
-[disposition record](../planning/adversarial-review-disposition-2026-08-20.md); the review
-itself is evidence and critique, not a normative replacement for this document.
+The findings from the 2026-08-20 adversarial working review are preserved in its
+[disposition record](../planning/adversarial-review-disposition-2026-08-20.md),
+not as a normative replacement for this document.
 
 ## Product goals
 
@@ -85,9 +90,9 @@ vertical slices are proven.
 ## Logical topology
 
 ```text
-                       operators / campaign UI
+                       operators / player UI
                                 |
-                    HTTPS API / SignalR UI
+             HTTP API today / SignalR target
                                 |
               +-----------------v------------------+
               | Campaign service / coordinator     |
@@ -123,12 +128,13 @@ order events.
 | `SeaPower.RuntimeBridge` | .NET Standard 2.1, inside Sea Power | Campaign-agnostic Unity main-thread dispatch, stable-ID mapping, extraction, controlled mutation, deterministic runtime hooks, local protocol | Crimean Tom campaign policy, remote credentials, durable storage |
 | `CrimeanTom.Contracts` | .NET Standard 2.1 | Dependency-free local envelope and payload types | Game references or campaign policy |
 | `CrimeanTom.Companion` | .NET 8 process beside each game | Named-pipe broker, remote client, buffering, auth, health, logs, local operator API | Canonical campaign truth |
-| Campaign network contracts | Shared modern .NET library | Versioned Protobuf/gRPC contracts, generated clients/services, event/command/checkpoint identifiers | Unity/game references |
-| Campaign domain/engine | Pure .NET library | State, reducers, clock, deterministic systems, validation | Unity/game assemblies |
-| Campaign service | ASP.NET Core service | Commands, event ordering, persistence, leases, scheduler, player sessions | Unity objects |
-| Operational worker | .NET worker | Deterministic unattended simulation for assigned shards/islands | Authority allocation |
-| Catalog builder | Local/versioned tool | Normalize installed game data and compute fingerprints | Live campaign mutation |
-| Campaign client UI | Separate app or web UI | Theater map, orders, health, diagnostics, administration | Direct game mutation |
+| `CrimeanTom.LoadAcceleration` | .NET Standard 2.1 | Installed-data lookup plus file-hash and collider caches | Campaign authority |
+| `CrimeanTom.Campaign.Transport` | Shared modern .NET library | Versioned Protobuf/gRPC contracts and generated clients/services | Unity/game references |
+| `CrimeanTom.Campaign.Contracts` / `.Domain` / `.Engine` | Pure .NET libraries | IDs, commands/events, immutable state, reducers, deterministic systems | Unity/game assemblies or storage writes |
+| `CrimeanTom.Campaign.Service` | .NET 8 library | SQLite WAL journal, blobs, integrity, backup/restore | HTTP or Unity objects |
+| `CrimeanTom.Campaign.ServiceHost` | ASP.NET Core service | Commands, event ordering, persistence orchestration, leases, scheduler, sessions, worker supervision | Unity objects |
+| `CrimeanTom.Campaign.OperationalWorker` | .NET worker | Operational placement, health, and capacity; later leased execution | Authority allocation or journal writes |
+| `apps/campaign-monitor` | TypeScript/Babylon web app | Current operator diagnostics and demo bootstrap over polling HTTP | Canonical mutation or player truth filtering |
 
 The Operational worker is specified as a **campaign-owned standalone process**
 in [Standalone simulation workers](standalone-sim-worker.md). Track A is a .NET
@@ -136,6 +142,11 @@ in [Standalone simulation workers](standalone-sim-worker.md). Track A is a .NET
 instance. Unattended Operational islands may be assigned to Track A workers for
 capacity and fencing. The journal writer still resolves Operational ticks
 in-process.
+
+The exact implemented process and data-flow map is maintained in
+[Implemented architecture map](implementation-map.md). SignalR/MessagePack is a
+target player transport; there is currently no SignalR hub or client in the
+repository.
 
 ## Technology and packaging baseline
 

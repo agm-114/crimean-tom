@@ -51,49 +51,52 @@ The folders separate evidence from design commitments:
     replicas, authority leases, health checks, reconciliation, and failover.
 12. [Load management](architecture/load-management.md) defines stress signals, client
     simulation eligibility, island migration, degradation, and global tempo.
-13. [Standalone simulation workers](architecture/standalone-sim-worker.md) is the
+13. [Implemented architecture map](architecture/implementation-map.md) maps the
+    actual projects, processes, data flows, and deliberate gaps from the target.
+14. [Standalone simulation workers](architecture/standalone-sim-worker.md) is the
     Track A Operational worker the campaign can spawn for islands no player Sea
     Power owns. It is not a headless Sea Power process. Track B is not
     implemented.
-14. [Adversarial review disposition](planning/adversarial-review-disposition-2026-08-20.md)
+15. [Adversarial review disposition](planning/adversarial-review-disposition-2026-08-20.md)
     records which review findings were accepted, corrected, or left as gates.
-15. [Implementation plan](planning/implementation-plan.md) defines the critical path,
+16. [Implementation plan](planning/implementation-plan.md) defines the critical path,
     phase deliverables, acceptance gates, deferred-decision deadlines, and
     adversarial review checklist.
-16. [Current implementation handoff](planning/current-handoff.md) records the latest
-    verified state, working-tree constraints, and the exact next safety slice.
-17. [Supported claims](planning/supported-claims.md) lists what the tree actually
+17. [Current code and product status](planning/current-status.md) records what is
+    implemented, where documentation drifted, which product features are
+    missing, and the recommended work order.
+18. [Supported claims](planning/supported-claims.md) lists what the tree actually
     claims, including fail-closed compatibility and explicit non-claims.
-18. [Threat model](planning/threat-model.md) covers pipe, companion, operator API,
+19. [Threat model](planning/threat-model.md) covers pipe, companion, operator API,
     storage, projections, and update fingerprints.
-19. [Packaged SQLite profile](planning/packaged-sqlite-profile.md) is the ordinary
+20. [Packaged SQLite profile](planning/packaged-sqlite-profile.md) is the ordinary
     local-file deployment with backup/restore and operator pause/drain.
-20. [Testing and observation](operations/testing.md) defines repeatable source, launch,
+21. [Testing and observation](operations/testing.md) defines repeatable source, launch,
     plugin, UI, and campaign-contract checks.
-21. [Source map](research/source-map.md) points future investigators at the highest-value
+22. [Source map](research/source-map.md) points future investigators at the highest-value
     decompiled types.
-22. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
+23. [Determinism call-site audit](evidence/determinism-callsite-audit-2026-08-20.md)
     records D0 scan coverage, initial time/RNG/job/coroutine classification, and
     the fail-closed clock-rebase verdict for the pinned build.
-23. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
+24. [Phase 2 live evidence](evidence/phase-2-live-evidence-2026-08-20.md)
     records authenticated mutation admission, materialization, fenced lifecycle,
     checkpoint restore, scene reload, reconnect, and negative-path observations.
-24. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
+25. [Phase 2 surface field tolerances](evidence/phase-2-surface-field-tolerances.md)
     defines the promotion-critical comparison contract for the first surface
     family.
-25. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
+26. [Phase 2 exit-gate matrix](evidence/phase-2-exit-gate-matrix.md) maps every
     bounded-mutation exit condition to live evidence and records the narrow
     gate disposition.
-26. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
+27. [Phase 3A kernel evidence](evidence/phase-3a-kernel-evidence-2026-08-20.md)
     records the game-independent deterministic domain, contract, canonical hash,
     and information-filtering slice.
-27. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
+28. [Phase 3B journal evidence](evidence/phase-3b-journal-evidence-2026-08-20.md)
     records the in-progress WAL journal, writer-epoch, transactional append,
     idempotency, and durable replay slice.
-28. [Live two-container migrate driver](evidence/phase-5-live-migrate-driver-2026-08-22.md)
+29. [Live two-container migrate driver](evidence/phase-5-live-migrate-driver-2026-08-22.md)
     records the operator path that pins source preparation across named workers.
     It does not claim a successful live migrate.
-29. [E1a divergence sampler](evidence/e1a-divergence-sampler-2026-08-22.md)
+30. [E1a divergence sampler](evidence/e1a-divergence-sampler-2026-08-22.md)
     records the two-process read-only hash/clock sampler. It does not claim hot
     replicas.
 

@@ -10,14 +10,15 @@ The [adversarial review disposition](adversarial-review-disposition-2026-08-20.m
 records which findings changed this plan, which source claims were corrected,
 and which disagreements remain mandatory experiments.
 
-The [current implementation handoff](current-handoff.md) records the latest
-verified repository state and the exact next implementation slice.
+The [current code and product status](current-status.md) records the implemented
+state, open product gaps, and recommended next slices. Phase headings below are
+target and gate definitions. A completed infrastructure slice does not imply
+that a whole phase exit gate is closed.
 
-Phases 0 through 9 now have stacked implementation in this repository. Phases
-0-4 are live-evidenced. Later phases are implemented and covered by the broad
-kernel/protocol stories; remaining qualification (soak, clean-machine runbook,
-live two-container Sea Power migration, hot-shadow recovery) is listed as
-unsupported in [supported claims](supported-claims.md).
+Phases 0-4 have live-evidenced foundation slices. Phases 5-9 contain substantial
+implementation, but their player-loop, distributed execution, realtime,
+packaging, scale, and release gates remain open. The narrow claims are listed in
+[supported claims](supported-claims.md).
 
 The local
 control plane, authenticated bounded transport, Unity-main-thread dispatch,
@@ -609,9 +610,12 @@ single-player prototype.
 
 ## Phase 5 - operational simulation and dynamic fidelity
 
-**Status: implemented (22 August 2026).** Per-worker health/eligibility and the
-operational calibration envelope are in the stacked PRs. Authenticated live
-two-container Sea Power migration remains unproven.
+**Status: infrastructure and in-process analogue implemented; P5 exit gate
+open (23 August 2026).** Per-worker health/eligibility, unattended in-process
+simulation, operational combat/ordnance, collider-assisted terminal silhouettes,
+and the calibration envelope exist. A complete player loop, broader calibration,
+out-of-process execution, and authenticated live two-container Sea Power
+migration remain unproven.
 
 ### Current implementation slice
 
@@ -808,10 +812,11 @@ player interest and coupling.
 
 ## Phase 6 - redundant replicas and failover
 
-**Status: implemented with a cold-failover claim (22 August 2026).** Replica
-checkpoint hash disagreement refuses majority; RenderProxy cannot receive
-simulation authority; Observer cannot activate without complete hidden state.
-Hot-shadow recovery is unsupported.
+**Status: cold fencing/checkpoint primitives implemented; P6 exit gate open
+(23 August 2026).** Replica checkpoint hash disagreement refuses majority;
+RenderProxy cannot receive simulation authority; Observer cannot activate
+without complete hidden state. Live two-process recovery, measured recovery
+objectives, and hot-shadow convergence are unsupported.
 
 ### Objective
 
@@ -898,9 +903,11 @@ capacity reports, and migration storms.
 
 ## Phase 7 - realtime multiplayer experience
 
-**Status: implemented for trusted/private HTTP projections (22 August 2026).**
-Coalition-filtered snapshots, reconnectable player sessions, and ordered
-player-command envelopes are live. SignalR is not a canonical commit path.
+**Status: HTTP projection/session scaffolding implemented; P7 exit gate open
+(23 August 2026).** Coalition-filtered snapshots, reconnectable player sessions,
+and bounded presentation envelopes exist. There is no SignalR hub, complete
+player client, or canonical player order path; accepted envelopes do not commit
+campaign commands or outcomes.
 
 ### Objective
 
@@ -964,9 +971,11 @@ outside the release claim until Phase 9 security evidence exists.
 
 ## Phase 8 - scale, persistence, and service availability
 
-**Status: implemented for the packaged SQLite profile (22 August 2026).** Online
-backup/restore, operator pause, and drain are operator HTTP. Clean-machine soak
-and PostgreSQL adapters are not claimed.
+**Status: SQLite durability/operator slice implemented; P8 exit gate open
+(23 August 2026).** Online backup/side-directory restore, integrity verification,
+operator pause, and drain are HTTP controls. Packaging, clean-machine install,
+campaign import/export, retention/compaction, soak, and measured scale/recovery
+objectives are not claimed.
 
 ### Objective
 
@@ -1005,7 +1014,8 @@ Move from a working trusted campaign to a long-running, recoverable deployment.
 
 ## Phase 9 - hardening and release qualification
 
-**Status: claims and threat model documented (22 August 2026).** See
+**Status: claims and threat model documented; P9 exit gate open (23 August
+2026).** See
 [supported claims](supported-claims.md) and [threat model](threat-model.md).
 Soak, hostile-client adjudication, and a full clean-machine runbook remain
 unsupported.

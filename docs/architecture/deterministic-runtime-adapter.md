@@ -250,7 +250,7 @@ save/load restore or full island reconstruction rather than field-level edits.
 - If checkpoint correction cannot restore promotable state, failover uses the
   operational resolver or a cold tactical reconstruction.
 - If deterministic mode harms ordinary gameplay, it can be disabled without
-  disabling the read-only control bridge.
+  disabling the ordinary authenticated control bridge.
 
 ## Verification program
 

@@ -2,6 +2,11 @@
 
 ## Decision
 
+This table is the target boundary decision. The named pipe and gRPC machine
+paths are implemented. The current operator monitor and coalition projection
+use HTTP, and there is no SignalR hub/client or MessagePack player DTO surface
+yet. See [Implemented architecture map](implementation-map.md).
+
 Use different transports at boundaries with different requirements:
 
 | Boundary | Default transport | Contract format | Reason |
