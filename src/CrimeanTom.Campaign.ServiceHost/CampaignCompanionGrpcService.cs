@@ -20,6 +20,8 @@ public sealed class CampaignCompanionGrpcService(
     ILogger<CampaignCompanionGrpcService> logger)
     : CampaignCompanionTransport.CampaignCompanionTransportBase
 {
+    private const int CatchUpPageSize = 16;
+
     public override async Task Connect(
         IAsyncStreamReader<CompanionFrame> requestStream,
         IServerStreamWriter<ServiceFrame> responseStream,
@@ -108,25 +110,13 @@ public sealed class CampaignCompanionGrpcService(
                 },
             });
 
-            var events = await journal.ReadEventsAsync(
+            await ReplayCommittedEventsAsync(
                 campaignId,
                 new CommitPosition(hello.ReconnectCommitPosition),
+                currentHead,
+                session,
+                responseStream,
                 context.CancellationToken);
-            foreach (var campaignEvent in events.Where(item => item.CommitPosition.Value <= currentHead.Value))
-            {
-                var json = CampaignContractJson.Serialize(campaignEvent);
-                await responseStream.WriteAsync(new ServiceFrame
-                {
-                    Sequence = session.NextSequence(),
-                    CommittedEvent = new CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent
-                    {
-                        CommitPosition = campaignEvent.CommitPosition.Value,
-                        EventId = campaignEvent.EventId.ToString(),
-                        EventJson = ByteString.CopyFrom(json),
-                        EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
-                    },
-                });
-            }
 
             var incoming = ReadIncomingAsync(requestStream, session, context.CancellationToken);
             await foreach (var frame in session.Outgoing.ReadAllAsync(context.CancellationToken))
@@ -153,6 +143,56 @@ public sealed class CampaignCompanionGrpcService(
                     session.SessionId,
                     hello.ClientInstanceId,
                     session.Snapshot().LastAppliedCommitPosition);
+            }
+        }
+    }
+
+    private async Task ReplayCommittedEventsAsync(
+        CampaignId campaignId,
+        CommitPosition after,
+        CommitPosition through,
+        CampaignCompanionSession session,
+        IServerStreamWriter<ServiceFrame> responseStream,
+        CancellationToken cancellationToken)
+    {
+        var cursor = after;
+        while (cursor.Value < through.Value)
+        {
+            var events = await journal.ReadEventsPageAsync(
+                campaignId,
+                cursor,
+                through,
+                CatchUpPageSize,
+                cancellationToken);
+            if (events.Count == 0)
+            {
+                throw new RpcException(new Status(
+                    StatusCode.DataLoss,
+                    $"Campaign catch-up ended before durable head {through.Value}."));
+            }
+
+            foreach (var campaignEvent in events)
+            {
+                if (campaignEvent.CommitPosition != cursor.Next())
+                {
+                    throw new RpcException(new Status(
+                        StatusCode.DataLoss,
+                        "Campaign catch-up contains a commit gap."));
+                }
+
+                var json = CampaignContractJson.Serialize(campaignEvent);
+                await responseStream.WriteAsync(new ServiceFrame
+                {
+                    Sequence = session.NextSequence(),
+                    CommittedEvent = new CrimeanTom.Campaign.Transport.V1.CommittedCampaignEvent
+                    {
+                        CommitPosition = campaignEvent.CommitPosition.Value,
+                        EventId = campaignEvent.EventId.ToString(),
+                        EventJson = ByteString.CopyFrom(json),
+                        EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
+                    },
+                });
+                cursor = campaignEvent.CommitPosition;
             }
         }
     }

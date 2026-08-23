@@ -1083,6 +1083,50 @@ public sealed class SqliteCampaignJournal
         return (IReadOnlyList<CommittedCampaignEvent>)result;
         }, cancellationToken);
 
+    public Task<IReadOnlyList<CommittedCampaignEvent>> ReadEventsPageAsync(
+        CampaignId campaignId,
+        CommitPosition after,
+        CommitPosition through,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (after.Value > through.Value)
+        {
+            throw new ArgumentOutOfRangeException(nameof(after), "The event-page cursor cannot exceed its upper bound.");
+        }
+        if (limit is < 1 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "Event pages must contain between 1 and 1,000 events.");
+        }
+
+        return WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT event_json, event_hash FROM events
+                WHERE campaign_id = $campaign_id
+                    AND commit_position > $after
+                    AND commit_position <= $through
+                ORDER BY commit_position
+                LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            command.Parameters.AddWithValue("$after", after.Value);
+            command.Parameters.AddWithValue("$through", through.Value);
+            command.Parameters.AddWithValue("$limit", limit);
+            var result = new List<CommittedCampaignEvent>(limit);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var json = (byte[])reader[0];
+                VerifyHash(json, reader.GetString(1), "event-corrupt");
+                result.Add(CampaignContractJson.DeserializeEvent(json));
+            }
+            return (IReadOnlyList<CommittedCampaignEvent>)result;
+        }, cancellationToken);
+    }
+
     public Task<CommitPosition> ReadHeadAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken = default) =>
