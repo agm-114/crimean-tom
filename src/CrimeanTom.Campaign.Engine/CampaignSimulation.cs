@@ -67,11 +67,12 @@ internal static class CampaignSimulation
             activities = CreateActivities(world, new CampaignTime(checked(dueAt.Quanta + ActivityInterval)));
         }
 
+        var compactActivityDueAt = CompactActivityDueAt(world, activities);
         return new CampaignSimulatedEvent(
             target,
             world.Entities.Values
                 .Where(item => !state.Entities.TryGetValue(item.EntityId, out var prior) || item != prior)
-                .Select(ToUpdate)
+                .Select(item => ToUpdate(item, state.Entities[item.EntityId]))
                 .ToArray(),
             world.Bases.Values
                 .Where(item => !state.Bases.TryGetValue(item.BaseId, out var prior) || item != prior)
@@ -90,7 +91,7 @@ internal static class CampaignSimulation
                 .Select(ToUpdate)
                 .ToArray(),
             outcomes,
-            activities.Values.Select(ToContract).ToArray(),
+            compactActivityDueAt is null ? activities.Values.Select(ToContract).ToArray() : [],
             world.InFlight.ToArray(),
             world.StrategicObjectives.Values
                 .Where(item => !state.StrategicObjectives.TryGetValue(item.ObjectiveId, out var prior) || item != prior)
@@ -103,7 +104,8 @@ internal static class CampaignSimulation
             world.CoalitionStrategies.Values
                 .Where(item => !state.CoalitionStrategies.TryGetValue(item.CoalitionId, out var prior) || item != prior)
                 .Select(ToUpdate)
-                .ToArray());
+                .ToArray(),
+            compactActivityDueAt);
     }
 
     private static TickResult ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
@@ -1007,7 +1009,7 @@ internal static class CampaignSimulation
         return new TickResult(state with { Intelligence = intelligence }, outcomes);
     }
 
-    private static ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> CreateActivities(
+    internal static ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> CreateActivities(
         CampaignState state,
         CampaignTime dueAt)
     {
@@ -2282,10 +2284,73 @@ internal static class CampaignSimulation
         return new Guid(bytes.AsSpan(0, 16));
     }
 
-    private static SimulatedEntityUpdate ToUpdate(EntityState item) => new(
-        item.EntityId, item.RegionId, item.Coordinate, item.Lifecycle, item.Resources,
-        item.ReadinessMilliUnits, item.DamageMilliUnits, item.Revision,
-        item.Heading.Value, item.Telegraph, item.Analogue);
+    private static SimulatedEntityUpdate ToUpdate(EntityState item, EntityState prior)
+    {
+        var resourceChanges = item.Resources
+            .Where(pair => !prior.Resources.TryGetValue(pair.Key, out var value) || value != pair.Value)
+            .ToImmutableSortedDictionary();
+        var analogueChanges = ToPatch(item.Analogue, prior.Analogue);
+        return new SimulatedEntityUpdate(
+            item.EntityId,
+            item.Revision,
+            item.RegionId == prior.RegionId ? null : item.RegionId,
+            item.Coordinate == prior.Coordinate ? null : item.Coordinate,
+            item.Lifecycle == prior.Lifecycle ? null : item.Lifecycle,
+            Resources: null,
+            ResourceChanges: resourceChanges.Count == 0 ? null : resourceChanges,
+            ReadinessMilliUnits: item.ReadinessMilliUnits == prior.ReadinessMilliUnits ? null : item.ReadinessMilliUnits,
+            DamageMilliUnits: item.DamageMilliUnits == prior.DamageMilliUnits ? null : item.DamageMilliUnits,
+            HeadingMilliDegrees: item.Heading == prior.Heading ? null : item.Heading.Value,
+            Telegraph: item.Telegraph == prior.Telegraph ? null : item.Telegraph,
+            Analogue: null,
+            AnalogueChanges: analogueChanges);
+    }
+
+    private static SimulatedAnaloguePatch? ToPatch(
+        AnalogueTacticalCondition item,
+        AnalogueTacticalCondition prior)
+    {
+        var patch = new SimulatedAnaloguePatch(
+            item.AltitudeOrDepthMeters == prior.AltitudeOrDepthMeters ? null : item.AltitudeOrDepthMeters,
+            item.FireMilliUnits == prior.FireMilliUnits ? null : item.FireMilliUnits,
+            item.FloodMilliUnits == prior.FloodMilliUnits ? null : item.FloodMilliUnits,
+            item.PropulsionIntegrityMilliUnits == prior.PropulsionIntegrityMilliUnits ? null : item.PropulsionIntegrityMilliUnits,
+            item.SensorIntegrityMilliUnits == prior.SensorIntegrityMilliUnits ? null : item.SensorIntegrityMilliUnits,
+            item.WeaponIntegrityMilliUnits == prior.WeaponIntegrityMilliUnits ? null : item.WeaponIntegrityMilliUnits,
+            item.Emcon == prior.Emcon ? null : item.Emcon,
+            item.Roe == prior.Roe ? null : item.Roe,
+            item.Alert == prior.Alert ? null : item.Alert,
+            item.MagazineIntegrityMilliUnits == prior.MagazineIntegrityMilliUnits ? null : item.MagazineIntegrityMilliUnits,
+            item.FlightDeckIntegrityMilliUnits == prior.FlightDeckIntegrityMilliUnits ? null : item.FlightDeckIntegrityMilliUnits,
+            item.CrewMilliUnits == prior.CrewMilliUnits ? null : item.CrewMilliUnits,
+            item.PortIntegrityMilliUnits == prior.PortIntegrityMilliUnits ? null : item.PortIntegrityMilliUnits,
+            item.StarboardIntegrityMilliUnits == prior.StarboardIntegrityMilliUnits ? null : item.StarboardIntegrityMilliUnits,
+            item.EcmMilliUnits == prior.EcmMilliUnits ? null : item.EcmMilliUnits,
+            item.CountermeasureMilliUnits == prior.CountermeasureMilliUnits ? null : item.CountermeasureMilliUnits,
+            item.WeaponReadyMilliUnits == prior.WeaponReadyMilliUnits ? null : item.WeaponReadyMilliUnits,
+            item.HostedAircraft == prior.HostedAircraft ? null : item.HostedAircraft,
+            item.SnorkelCycle == prior.SnorkelCycle ? null : item.SnorkelCycle);
+        return patch == new SimulatedAnaloguePatch() ? null : patch;
+    }
+
+    private static CampaignTime? CompactActivityDueAt(
+        CampaignState world,
+        ImmutableSortedDictionary<ScheduledActivityId, ScheduledActivityState> activities)
+    {
+        if (activities.Count == 0)
+        {
+            return null;
+        }
+
+        var dueAt = activities.Values.First().DueAt;
+        if (activities.Values.Any(item => item.DueAt != dueAt))
+        {
+            return null;
+        }
+
+        var regenerated = CreateActivities(world, dueAt);
+        return activities.SequenceEqual(regenerated) ? dueAt : null;
+    }
 
     private static SimulatedBaseUpdate ToUpdate(BaseState item) =>
         new(item.BaseId, item.Resources, item.Revision);

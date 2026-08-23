@@ -6,7 +6,7 @@ namespace CrimeanTom.Campaign.Contracts;
 public static class CampaignSchema
 {
     public const int Version = 10;
-    public const int AlgorithmVersion = 12;
+    public const int AlgorithmVersion = 13;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -503,18 +503,41 @@ public sealed record IntelligenceReportedEvent(ReportIntelligenceCommand Report)
 public sealed record WeatherSetEvent(SetWeatherCommand Weather) : CampaignEventData;
 public sealed record ClockAdvancedEvent(AdvanceClockCommand Clock) : CampaignEventData;
 
+public sealed record SimulatedAnaloguePatch(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? AltitudeOrDepthMeters = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? FireMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? FloodMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? PropulsionIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? SensorIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? WeaponIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EmconState? Emcon = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RulesOfEngagement? Roe = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AlertState? Alert = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MagazineIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? FlightDeckIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CrewMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? PortIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? StarboardIntegrityMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EcmMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountermeasureMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? WeaponReadyMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? HostedAircraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? SnorkelCycle = null);
+
 public sealed record SimulatedEntityUpdate(
     EntityId EntityId,
-    RegionId RegionId,
-    GeoCoordinate Coordinate,
-    EntityLifecycle Lifecycle,
-    IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
-    int ReadinessMilliUnits,
-    int DamageMilliUnits,
     EntityRevision Revision,
-    int HeadingMilliDegrees = 0,
-    int Telegraph = 0,
-    AnalogueTacticalCondition? Analogue = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RegionId? RegionId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GeoCoordinate? Coordinate = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EntityLifecycle? Lifecycle = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<ResourceKind, ResourceAmount>? Resources = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<ResourceKind, ResourceAmount>? ResourceChanges = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReadinessMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DamageMilliUnits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? HeadingMilliDegrees = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Telegraph = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnalogueTacticalCondition? Analogue = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SimulatedAnaloguePatch? AnalogueChanges = null);
 
 public sealed record SimulatedBaseUpdate(
     BaseId BaseId,
@@ -602,7 +625,8 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<InFlightOrdnance>? InFlight = null,
     IReadOnlyList<SimulatedStrategicObjectiveUpdate>? StrategicObjectives = null,
     IReadOnlyList<SimulatedGroupCommitmentUpdate>? GroupCommitments = null,
-    IReadOnlyList<SimulatedCoalitionStrategyUpdate>? CoalitionStrategies = null)
+    IReadOnlyList<SimulatedCoalitionStrategyUpdate>? CoalitionStrategies = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CampaignTime? PendingActivityDueAt = null)
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;

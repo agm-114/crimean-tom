@@ -996,17 +996,30 @@ public static class CampaignKernel
                     "invalid-simulated-entity",
                     "Simulated heading or telegraph is outside the canonical range.");
             }
+            var resources = update.Resources?.ToImmutableSortedDictionary() ?? current.Resources;
+            foreach (var change in update.ResourceChanges
+                ?? ImmutableSortedDictionary<ResourceKind, ResourceAmount>.Empty)
+            {
+                resources = resources.SetItem(change.Key, change.Value);
+            }
+            var analogue = update.Analogue ?? current.Analogue;
+            if (update.AnalogueChanges is { } analogueChanges)
+            {
+                analogue = ApplyAnalogueChanges(analogue, analogueChanges);
+            }
             entities = entities.SetItem(update.EntityId, current with
             {
-                RegionId = update.RegionId,
-                Coordinate = update.Coordinate,
-                Lifecycle = update.Lifecycle,
-                Resources = update.Resources.ToImmutableSortedDictionary(),
-                ReadinessMilliUnits = update.ReadinessMilliUnits,
-                DamageMilliUnits = update.DamageMilliUnits,
-                Heading = HeadingMilliDegrees.FromMilliDegrees(update.HeadingMilliDegrees),
-                Telegraph = update.Telegraph,
-                Analogue = update.Analogue ?? current.Analogue,
+                RegionId = update.RegionId ?? current.RegionId,
+                Coordinate = update.Coordinate ?? current.Coordinate,
+                Lifecycle = update.Lifecycle ?? current.Lifecycle,
+                Resources = resources,
+                ReadinessMilliUnits = update.ReadinessMilliUnits ?? current.ReadinessMilliUnits,
+                DamageMilliUnits = update.DamageMilliUnits ?? current.DamageMilliUnits,
+                Heading = update.HeadingMilliDegrees is { } heading
+                    ? HeadingMilliDegrees.FromMilliDegrees(heading)
+                    : current.Heading,
+                Telegraph = update.Telegraph ?? current.Telegraph,
+                Analogue = analogue,
                 Revision = update.Revision,
             });
         }
@@ -1101,12 +1114,12 @@ public static class CampaignKernel
         }
 
         var scheduled = value.PendingActivities.Select(item => new ScheduledActivityState(
-                item.ActivityId,
-                item.Kind,
-                item.Subject,
-                item.DueAt,
-                item.Revision))
-            .ToImmutableSortedDictionary(item => item.ActivityId, item => item);
+                    item.ActivityId,
+                    item.Kind,
+                    item.Subject,
+                    item.DueAt,
+                    item.Revision))
+                .ToImmutableSortedDictionary(item => item.ActivityId, item => item);
         var updated = state with
         {
             Time = value.NewTime,
@@ -1122,9 +1135,41 @@ public static class CampaignKernel
             RecentOperationalOutcomes = [.. value.Outcomes],
             InFlight = [.. (value.InFlight ?? []).OrderBy(item => item.OrdnanceId, StringComparer.Ordinal)],
         };
+        if (value.PendingActivityDueAt is { } compactDueAt)
+        {
+            updated = updated with
+            {
+                ScheduledActivities = CampaignSimulation.CreateActivities(updated, compactDueAt),
+            };
+        }
         CampaignStateValidator.Validate(updated);
         return updated;
     }
+
+    private static AnalogueTacticalCondition ApplyAnalogueChanges(
+        AnalogueTacticalCondition current,
+        SimulatedAnaloguePatch changes) => current with
+    {
+        AltitudeOrDepthMeters = changes.AltitudeOrDepthMeters ?? current.AltitudeOrDepthMeters,
+        FireMilliUnits = changes.FireMilliUnits ?? current.FireMilliUnits,
+        FloodMilliUnits = changes.FloodMilliUnits ?? current.FloodMilliUnits,
+        PropulsionIntegrityMilliUnits = changes.PropulsionIntegrityMilliUnits ?? current.PropulsionIntegrityMilliUnits,
+        SensorIntegrityMilliUnits = changes.SensorIntegrityMilliUnits ?? current.SensorIntegrityMilliUnits,
+        WeaponIntegrityMilliUnits = changes.WeaponIntegrityMilliUnits ?? current.WeaponIntegrityMilliUnits,
+        Emcon = changes.Emcon ?? current.Emcon,
+        Roe = changes.Roe ?? current.Roe,
+        Alert = changes.Alert ?? current.Alert,
+        MagazineIntegrityMilliUnits = changes.MagazineIntegrityMilliUnits ?? current.MagazineIntegrityMilliUnits,
+        FlightDeckIntegrityMilliUnits = changes.FlightDeckIntegrityMilliUnits ?? current.FlightDeckIntegrityMilliUnits,
+        CrewMilliUnits = changes.CrewMilliUnits ?? current.CrewMilliUnits,
+        PortIntegrityMilliUnits = changes.PortIntegrityMilliUnits ?? current.PortIntegrityMilliUnits,
+        StarboardIntegrityMilliUnits = changes.StarboardIntegrityMilliUnits ?? current.StarboardIntegrityMilliUnits,
+        EcmMilliUnits = changes.EcmMilliUnits ?? current.EcmMilliUnits,
+        CountermeasureMilliUnits = changes.CountermeasureMilliUnits ?? current.CountermeasureMilliUnits,
+        WeaponReadyMilliUnits = changes.WeaponReadyMilliUnits ?? current.WeaponReadyMilliUnits,
+        HostedAircraft = changes.HostedAircraft ?? current.HostedAircraft,
+        SnorkelCycle = changes.SnorkelCycle ?? current.SnorkelCycle,
+    };
 
     private static void RequireSubject(CampaignCommand command, CampaignSubject expected)
     {

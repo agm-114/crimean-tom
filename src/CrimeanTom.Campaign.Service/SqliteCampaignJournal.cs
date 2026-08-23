@@ -969,7 +969,8 @@ public sealed class SqliteCampaignJournal
             while (await reader.ReadAsync(cancellationToken))
             {
                 var campaign = reader.GetString(0);
-                var campaignEvent = CampaignContractJson.DeserializeEvent((byte[])reader[1]);
+                var campaignEvent = CampaignContractJson.DeserializeEvent(
+                    CampaignJournalPayloadCodec.Decode((byte[])reader[1]));
                 foreach (var (subject, revision) in EnumerateRevisionEffects(campaignEvent))
                 {
                     expectedRevisions[(campaign, (int)subject.Kind, subject.Value.ToString("N"))] = revision.Value;
@@ -1076,7 +1077,7 @@ public sealed class SqliteCampaignJournal
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var json = (byte[])reader[0];
+            var json = CampaignJournalPayloadCodec.Decode((byte[])reader[0]);
             VerifyHash(json, reader.GetString(1), "event-corrupt");
             result.Add(CampaignContractJson.DeserializeEvent(json));
         }
@@ -1119,7 +1120,7 @@ public sealed class SqliteCampaignJournal
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var json = (byte[])reader[0];
+                var json = CampaignJournalPayloadCodec.Decode((byte[])reader[0]);
                 VerifyHash(json, reader.GetString(1), "event-corrupt");
                 result.Add(CampaignContractJson.DeserializeEvent(json));
             }
@@ -1192,7 +1193,7 @@ public sealed class SqliteCampaignJournal
             {
                 events.Add(new DurableCampaignEventRow(
                     new CommitPosition(reader.GetInt64(0)),
-                    (byte[])reader[1],
+                    CampaignJournalPayloadCodec.Decode((byte[])reader[1]),
                     reader.GetString(2)));
             }
         }
@@ -1391,7 +1392,7 @@ public sealed class SqliteCampaignJournal
         var matches = reader.GetString(0) == commandValue.CommandId.ToString()
             && reader.GetString(1) == commandValue.IdempotencyKey.Value
             && reader.GetString(2) == commandHash;
-        var json = (byte[])reader[3];
+        var json = CampaignJournalPayloadCodec.Decode((byte[])reader[3]);
         var storedEventHash = reader.GetString(4);
         if (await reader.ReadAsync(cancellationToken) || !matches)
         {
@@ -1507,7 +1508,7 @@ public sealed class SqliteCampaignJournal
         command.Parameters.AddWithValue("$position", eventValue.CommitPosition.Value);
         command.Parameters.AddWithValue("$event_id", eventValue.EventId.ToString());
         command.Parameters.AddWithValue("$hash", hash);
-        command.Parameters.AddWithValue("$json", json);
+        command.Parameters.AddWithValue("$json", CampaignJournalPayloadCodec.Encode(json));
         command.Parameters.AddWithValue("$kind", (int)eventValue.Subject.Kind);
         command.Parameters.AddWithValue("$subject_id", eventValue.Subject.Value.ToString("N"));
         command.Parameters.AddWithValue("$revision", eventValue.NewSubjectRevision.Value);
