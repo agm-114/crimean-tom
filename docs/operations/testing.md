@@ -376,6 +376,45 @@ The current qualified pair and the associated replay/memory investigation are
 recorded in
 [Full dynamic campaign sync and performance proof](../evidence/full-dynamic-campaign-sync-performance-2026-08-23.md).
 
+### Manual all-native scale ladder
+
+Four generated user missions instantiate deterministic nested subsets of the
+same fresh 4,096-entity WW3++ campaign. They are intentionally pathological
+controls for comparing Sea Power-native simulation with campaign offload, not
+play-balanced scenarios:
+
+- `Crimean Tom - Native Campaign Benchmark - 500 Units`
+- `Crimean Tom - Native Campaign Benchmark - 1000 Units`
+- `Crimean Tom - Native Campaign Benchmark - 2000 Units`
+- `Crimean Tom - Native Campaign Benchmark - Full 4K (4004 Native)`
+
+The full file contains 4,004 physical Sea Power objects. The remaining 92
+campaign records are 90 intentionally abstract land formations and the
+`merchant_roro_convoy` / `usn_ao_neosho` aliases, which have no installed native
+unit definition. Each file declares exactly as many task-force unit sections as
+its title reports. The generator resolves native categories from the installed
+Sea Power catalog and writes a JSON manifest under `.run/performance`:
+
+```powershell
+pnpm campaign:export-native-benchmark -- `
+  -CampaignId <32-char-guid> `
+  -BlueCoalitionId <32-char-guid> `
+  -RedCoalitionId <32-char-guid> `
+  -MaximumNativeEntities 500 `
+  -MissionName 'Crimean Tom - Native Campaign Benchmark - 500 Units' `
+  -OutputPath 'content/missions/Crimean Tom - Native Campaign Benchmark - 0500 Units.ini'
+```
+
+Deploy with `pnpm run deploy`, then launch through `pnpm launch`. On the current
+machine, the 500-entry file retained 383 runtime units at about 20.3 FPS and
+used 4.98 GiB working set / 10.56 GiB private memory while its tactical clock
+remained at zero. The 1,000-entry file retained 633 runtime units at about 10.6
+FPS and used 5.30 GiB working set / 11.15 GiB private memory. The 4,004-native
+file reached 8.34 GiB working set / 14.89 GiB private memory and stopped
+answering runtime commands. Treat these as load failures until a fresh run
+shows advancing tactical time; do not report authored section count as live
+native object count.
+
 ## Deterministic UI smoke
 
 The safe read-only smoke path is:
