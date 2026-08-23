@@ -38,7 +38,10 @@ history independently.
 ```
 
 The browser monitor is currently an operator diagnostic application. It uses
-authenticated HTTP snapshots and polling, not SignalR. The player-session and
+loopback same-origin HTTP snapshots and polling, not SignalR. Loading the hosted
+monitor issues a read cookie without establishing an operator identity; writes
+require the bearer token and therefore work through the Vite development proxy,
+but not from the hosted production monitor. The player-session and
 coalition-projection HTTP APIs exist, but there is no complete player command UI
 or realtime player client.
 
@@ -49,14 +52,14 @@ or realtime player client.
 | `SeaPower.RuntimeBridge` | AnchorChain-loaded Unity adapter; capability/world extraction; typed UI automation; controlled surface-unit mutation; checkpoints; collider capture; experimental tick/save probes | Runs on Unity's main thread and contains no campaign persistence or remote credentials |
 | `CrimeanTom.Contracts` | Bounded local pipe envelopes and payloads shared by Mono and .NET 8 | No Sea Power types or campaign policy |
 | `CrimeanTom.LoadAcceleration` | Installed-data lookup, persistent file hashes, and versioned collider geometry cache | Portable .NET Standard code shared by bridge, companion, and campaign engine |
-| `CrimeanTom.Companion` | Current-user named-pipe broker, authenticated loopback HTTP, durable outbound spool, campaign gRPC client, checkpoint/content transfer, port-operations projection | Never owns canonical campaign truth |
+| `CrimeanTom.Companion` | Current-user named-pipe broker, authenticated loopback HTTP, durable outbound spool, campaign gRPC client, checkpoint/content transfer, port-operations projection | Never owns canonical campaign truth; currently holds the shared campaign-service bearer token |
 | `CrimeanTom.Campaign.Contracts` | Stable IDs, quantized values, commands, events, fidelity and authority types | No Unity or persistence implementation |
 | `CrimeanTom.Campaign.Domain` | Immutable canonical state, invariants, coalition projections | Pure deterministic state model |
 | `CrimeanTom.Campaign.Engine` | Command reduction, deterministic simulation, canonical serialization, operational combat, optional Bepu collider-assisted terminal resolution | Does not write storage or call Sea Power |
-| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, snapshots, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation in the supported profile |
+| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost has no automatic snapshot cadence or recovered-state cache |
 | `CrimeanTom.Campaign.Transport` | Generated bidirectional gRPC/Protobuf companion and worker protocol | Machine/control transport only; not a player UI protocol |
 | `CrimeanTom.Campaign.ServiceHost` | ASP.NET Core host, coordinator, scheduler, migration fences, sessions, HTTP control/projection APIs, worker supervisor, unattended in-process simulation | Sole allocator of campaign time, authority, and commits |
-| `CrimeanTom.Campaign.OperationalWorker` | Campaign-spawned process identity, health, capacity, ordered stream participation, assignment fencing | Does not yet execute `CampaignSimulation` work or commit results |
+| `CrimeanTom.Campaign.OperationalWorker` | Campaign-spawned process identity, health, capacity, ordered stream participation, assignment fencing | Does not execute `CampaignSimulation`; receives the shared service token and its health/capacity are self-reported |
 | `CrimeanTom.CallsiteInventory` | Pinned Sea Power deterministic-hook/call-site inspection | Development diagnostic only |
 | `CrimeanTom.Campaign.PersistenceProbe` | Abrupt-exit and writer-lock persistence fault probe | Development/qualification tool only |
 | `apps/campaign-monitor` | Babylon/TypeScript operator map, hierarchy, telemetry, scheduler and outcome display, Fulda seed convenience | Read-mostly operator surface; not the multiplayer client |
@@ -73,7 +76,11 @@ persistence, worker, and bridge-facing contracts.
 Authenticated control HTTP reaches `CampaignCoordinator`, which validates a
 typed `CampaignCommand`, reduces it through `CampaignKernel`, and appends the
 command/events under a compare-and-swap writer epoch in `SqliteCampaignJournal`.
-Snapshots accelerate recovery but do not replace the ordered event head.
+Snapshot APIs can accelerate recovery but do not replace the ordered event head.
+ServiceHost never writes them today. Every coordinator recovery therefore starts
+at the origin in an ordinary service-created campaign, and every append performs
+another recovery inside its transaction before accepting the canonical event.
+Long-journal throughput has not been qualified.
 
 ### Unattended Operational simulation
 
@@ -95,20 +102,27 @@ The coordinator assigns and fences complete interaction islands. The companion
 translates assignment/checkpoint frames to allow-listed Runtime Bridge commands.
 The implemented portable mutation family is owned surface units. Preparation,
 staging, activation grants, quiesce/release, and late-epoch rejection exist;
-live two-Sea-Power migration is not qualified.
+live two-Sea-Power migration is not qualified. No evidence yet demonstrates a
+tactical loss against a campaign-owned hostile being committed back into the
+journal. The default unattended clock also expires tactical assignments after
+120 campaign quanta, so a human-length tactical-session clock/lease contract is
+not implemented.
 
 ### Operational worker supervision
 
-The service spawns Track A workers with per-spawn credentials and validates
-their process identity. Workers advertise capacity and accept Operational
+The service spawns Track A workers with additive per-spawn credentials and
+validates their process identity, while also giving them the shared master
+service token. Workers self-report health/capacity and accept Operational
 placement. They are control-plane targets only: immutable work leases,
 worker-computed results, coordinator validation, and result commit are not yet
 implemented.
 
 ### Player and operator surfaces
 
-The operator monitor receives true diagnostic state over same-origin HTTP and
-polls every two seconds. Coalition-filtered projections and reconnectable
+The operator monitor receives true diagnostic state over loopback same-origin
+HTTP and polls every two seconds. The hosted read cookie is a local convenience,
+not an authenticated operator principal, and the hosted UI cannot currently
+authorize writes. Coalition-filtered projections and reconnectable in-memory
 player-session endpoints are implemented. Player command envelopes currently
 accept only `acknowledge`, `observe`, and `transfer-control`; they are bounded
 in-memory presentation records and do not issue canonical campaign orders.

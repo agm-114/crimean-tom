@@ -462,7 +462,8 @@ coalition projection are implemented. See the
 
 ### 3B. Event journal and snapshots
 
-**Status: complete.** The SQLite WAL schema, compare-and-swap writer
+**Status: storage primitives complete; operational recovery lifecycle open.**
+The SQLite WAL schema, compare-and-swap writer
 lease/epoch, transactional command/event append, durable subject revisions,
 content hashes, strict idempotency behavior, ordered reads, and origin-to-head
 replay are implemented. Canonical snapshots now decode strictly, validate all
@@ -473,6 +474,10 @@ implemented. Controlled faults and abruptly terminated helper processes cover
 all fourteen declared persistence boundaries, including lost acknowledgements,
 and an independent lease-holder process proves successor fencing. See the
 [Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
+ServiceHost does not create snapshots or cache a recovered head, so ordinary
+service campaigns replay from origin and each append repeats recovery inside the
+transaction. No save-contract upgrader exists. Those are prerequisites for a
+long-running or cross-build campaign claim, not deferred P8 tuning.
 
 - Acquire a compare-and-swap writer epoch before the first durable mutation;
   require the current writer epoch in every append/lease transaction so a stale
@@ -504,11 +509,14 @@ merge produce identical event/state bytes with one or many workers. See the
 
 ### 3D. Replay and invariants
 
-**Status: complete.** The broad theater proves long-horizon snapshot/journal
+**Status: deterministic verification slice complete; upgrade/default-duration
+qualification open.** The broad theater proves snapshot/journal
 replay to a pinned golden hash, strict schema/algorithm pins, conservation and
 state invariants, scheduling-independent event/state bytes, and fog-of-war
 sentinel exclusion. See the
 [Phase 3D gate evidence](../evidence/phase-3d-gate-evidence-2026-08-21.md).
+It does not prove recovery after a schema/algorithm bump or bounded performance
+as the unsnapshotted journal grows under the shipping unattended defaults.
 
 - Golden replay fixtures.
 - Broad long-horizon integration checks for conservation, non-negative resources,
@@ -528,7 +536,8 @@ sentinel exclusion. See the
 
 ## Phase 4 - continuous single-client vertical slice
 
-**Status: complete (21 August 2026).** Phase 3 provides the authoritative journaled theater;
+**Status: transport/control slice complete; playable P4 exit gate open
+(23 August 2026).** Phase 3 provides the authoritative journaled theater;
 generated authenticated duplex gRPC, durable reconnect/spooling, separate
 content-addressed checkpoint HTTP, canonical assignment ownership, frozen
 tactical authority, ordered movement commit, checkpointed quiesce/release, and
@@ -538,8 +547,11 @@ destruction capture are canonical, same-revision initial/final checkpoints have
 distinct durable identities, and catalog mismatch fails before materialization.
 Game crashes before the initial checkpoint and after an unproposed local
 mutation now recover within the fixed bound without admitting local-only state.
-The live Sea Power round trip and typed normal exit are complete. The service
-exposes the measured display-first/provisional policy, journal durability
+The live evidence proves materialization, launch mechanics, checkpoint/return
+plumbing, and typed normal exit for the supported owned-surface path. It does
+not prove a human-length assignment under the default unattended clock or the
+fate of a campaign-owned hostile becoming a committed campaign outcome. The
+service exposes the measured display-first/provisional policy, journal durability
 boundary, and fixed rollback rule at authenticated `GET /durability-policy`.
 See the
 [Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
@@ -1065,7 +1077,7 @@ playable calibrated model in P5/P7, to supported content and balance in P9.
 | Intelligence | True state plus estimated contact projection | Detection, uncertainty, classification, decay, sharing | Fog-of-war leakage and deception testing |
 | Combat | Typed expenditure/damage/loss events | Calibrated operational resolver and tactical promotion | Cross-fidelity outcome envelopes and exploit review |
 | AI command | Deterministic basic order selection | Theater objectives, force allocation, logistics-aware planning | Long soak, difficulty, pathological strategy review |
-| Objectives/progression | Event predicates and victory state | Dynamic objectives, consequences, narrative/event hooks | Content authoring, localization, save compatibility |
+| Objectives/progression | Not implemented | Durable predicates, victory/failure state, consequences, narrative/event hooks | Content authoring, localization, save compatibility |
 | Player economy/administration | Versioned policy/resources | Reinforcement, repair, allocation, optional points/budgets | Ruleset locking, migration, and abuse testing |
 
 The first playable slice need not implement every row deeply, but no omitted
@@ -1103,6 +1115,22 @@ P0 control hardening
  -> P7 multiplayer
 ```
 
+That historical phase path describes how the current prototype was assembled.
+The current recovery path to an honest playable slice is dependency-ordered as:
+
+```text
+close loopback auth bypass + separate principals/browser writes
+ -> bound journal recovery + prove a long head
+ -> save-contract evolution across one schema/algorithm change
+ -> human tactical clock + renewable assignment lease
+ -> canonical coalition-scoped player orders
+ -> one small durable objective/victory ruleset and UI
+ -> commit a campaign-owned hostile tactical outcome
+```
+
+Out-of-process Operational ticks, SignalR, hot replicas, broad entity-family
+coverage, and packaging follow this vertical slice; they do not precede it.
+
 Work that can proceed in parallel once contracts stabilize:
 
 - catalog extraction and synthetic campaign domain fixtures;
@@ -1120,6 +1148,10 @@ These are deliberately uncommitted constants or mechanisms, not missing plan:
 
 | Decision | Evidence required | Latest decision point |
 | --- | --- | --- |
+| Campaign contract evolution | Open, replay, and append an existing campaign across one schema and one algorithm change, or prove a supported side-by-side/export-only alternative | Before the first objectives/ruleset schema change |
+| Service snapshot/cache policy | 10,000-commit recovery/append benchmark with integrity and crash-boundary checks; rate at commit 10,000 remains within 20% of commit 500 | Before player-loop implementation |
+| Tactical/campaign clock coupling and assignment renewal | One human-played 15-minute engagement in which the assignment remains valid, the theater follows the declared time policy, and checkpoint return succeeds | Before claiming a playable P4 slice |
+| Local principal and hosted-browser write model | Separate companion, worker, operator, and player authorization tests; unauthenticated content-type spoof cannot reach control endpoints | Before canonical browser orders |
 | Campaign time quantum | Sea Power timing instrumentation and engine benchmark | Before P3 clock contract freezes |
 | Checkpoint cadence/size | Extraction cost, drift, bandwidth, recovery objective | Before P4 tactical events |
 | Exact portable damage/store fields | Read/write round trips per platform class. A non-null fuel fraction has a guarded `_currentFuelMass` write/readback path, but the pinned `Variant43` Knox captures null native fuel capacity; fuel, damage, magazines, sensors, formations, and hosted aircraft remain fenced. | Each P2 type gate |
@@ -1153,7 +1185,9 @@ before its evidence exists.
 - interaction graph/island merge-split state machines;
 - leases, epochs, fencing, promotion ranking, and expiry;
 - visibility projections and secret-state sentinels;
-- single-thread/parallel equivalence and long seeded runs.
+- single-thread/parallel equivalence and long seeded runs;
+- save upgrade across at least one schema and one algorithm revision;
+- long-head recovery/append performance with the production snapshot/cache policy.
 
 ### Protocol tests
 
@@ -1167,7 +1201,10 @@ before its evidence exists.
 - malformed, oversized, truncated, duplicated, delayed, and reordered
   length-prefixed messages;
 - backpressure and priority under bulk checkpoint transfer;
-- authentication expiry/revocation and session replacement.
+- authentication expiry/revocation and session replacement;
+- one broad story under shipping defaults, including unattended advancement,
+  tactical assignment renewal/expiry, hosted monitor authorization, and
+  content-type spoof rejection.
 
 ### Game integration tests
 

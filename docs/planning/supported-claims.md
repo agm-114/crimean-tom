@@ -11,7 +11,9 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
 
 ## Supported
 
-- Loopback-authenticated companion HTTP and campaign gRPC/HTTP.
+- Bearer-authenticated loopback companion writes and campaign control writes.
+  Hosted monitor reads use a same-origin local cookie issued on monitor entry;
+  this is not an authenticated operator identity.
 - Deterministic campaign kernel with a SQLite WAL journal and content-addressed
   local blobs. Ordinary play does not require Docker or an external database.
 - Coalition-filtered HTTP projections that omit opposing true-state sentinels.
@@ -24,9 +26,10 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
 - Online backup and side-directory restore verify event/hash integrity.
 - Operator pause rejects campaign time advances until resume. Drain sets
   scheduler health to Draining and eligibility to DrainOnly.
-- Campaign-owned Track A Operational workers can be spawned, authenticated by
-  per-spawn identity, and used for non-player island placement/fencing. Tick
-  execution remains in the service process.
+- Campaign-owned Track A Operational workers can be spawned, checked with an
+  additive per-spawn identity, and used for non-player island placement/fencing.
+  They also receive the shared service bearer token; health and capacity are
+  self-reported. Tick execution remains in the service process.
 
 Failover is the cold checkpoint / operational path. Hot Shadow promotion is
 implemented as fenced island migration in tests with a mock destination worker;
@@ -42,6 +45,13 @@ it is not a claimed live two-process Sea Power recovery objective.
 - Authenticated live migration across two real Sea Power containers.
 - PostgreSQL, brokers, or object storage as requirements for ordinary players.
 - Out-of-process Operational tick execution or worker-computed result commits.
+- Schema/algorithm upgrade of an existing campaign save.
+- A bounded long-running-campaign performance envelope; published throughput
+  measurements cover short, near-empty journals.
+- A human-length tactical assignment under the default unattended clock.
+- A tactical loss against a campaign-owned hostile committed back to the journal.
+- Player-session continuity across a ServiceHost restart.
+- Authenticated writes from the hosted production monitor.
 
 ## Remaining qualification
 

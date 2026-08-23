@@ -155,6 +155,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(2, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -165,8 +166,14 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString() == "render-proxy-cannot-receive-simulation-authority");
             Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString() == "hosted-monitor-local-cookie-read-access-without-operator-identity");
+            Assert.Contains(
                 supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
                 item => item.GetString() == "hot-shadow-failover");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
+                item => item.GetString() == "existing-campaign-schema-or-algorithm-upgrade");
             using var createdCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
                 new

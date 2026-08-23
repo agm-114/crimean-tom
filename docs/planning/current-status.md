@@ -8,11 +8,12 @@ Power build `0.8.2-23444+s358`. This is the living status ledger. Dated files in
 gate definition.
 
 The repository is an advanced campaign-runtime prototype, not yet a playable
-dynamic-campaign product. Its strongest areas are deterministic durable state,
-authority fencing, the Sea Power control boundary, broad integration stories,
-and an increasingly capable Operational analogue. Its largest gap is the
-player loop: a player cannot yet author meaningful campaign orders in the UI
-and play a complete campaign through tactical promotion and return.
+dynamic-campaign product. Its strongest areas are deterministic reduction and
+replay, authority fencing, the Sea Power control boundary, broad integration
+stories, and an increasingly capable Operational analogue. The missing player
+loop is visible, but it is not the first dependency: long-journal recovery,
+save-contract evolution, tactical clock/lease coupling, and principal-separated
+browser writes must be made survivable before that loop can support an alpha.
 
 ## What works now
 
@@ -20,12 +21,12 @@ and play a complete campaign through tactical promotion and return.
 | --- | --- | --- |
 | Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface mutation, checkpoints, collider capture | Pinned game build; narrow allow-list |
 | Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash | Broad integration story and golden hashes |
-| Persistence | SQLite WAL, writer fencing, snapshots, CAS blobs, integrity checks, online backup and side-directory restore | Local profile design; no installer/soak claim |
+| Persistence | SQLite WAL, writer fencing, snapshot API, CAS blobs, integrity checks, online backup and side-directory restore | ServiceHost has no snapshot cadence/state cache; ordinary campaigns replay from origin |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, basic AI | Deterministic analogue, not Sea Power parity; calibration remains limited |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, Primary/Shadow fencing, cold reconstruction, migration protocol | Live two-container completion and hot convergence unproven |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
-| Player data boundary | Coalition-filtered HTTP projection, reconnectable session, bounded ordered envelopes | Trusted private model; envelopes do not issue canonical orders |
-| Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed | HTTP polling; mostly read-only |
+| Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
+| Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
 | Runtime geometry | Durable versioned collider cache and optional meter-space Bepu terminal silhouette | Optional analogue path; no armor/penetration model |
 
 ## Documentation drift found in this review
@@ -40,16 +41,47 @@ and play a complete campaign through tactical promotion and return.
 | Recent collider cache and Bepu terminal work was absent | It is now documented as an optional Operational analogue path |
 | The handoff diary mixed live URLs, historical proofs, and next steps | It is replaced by this stable status/gap ledger; evidence stays under `docs/evidence/` |
 
+## Blocking foundation gaps
+
+These are prerequisites, not release-polish tasks:
+
+1. **Bounded journal recovery.** `SaveSnapshotAsync` is implemented, but no
+   ServiceHost path calls it and the coordinator has no recovered-state cache.
+   Each append replays to the durable head to re-derive the canonical event.
+   Existing throughput figures cover a near-empty journal and are not a
+   long-running campaign envelope.
+2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
+   schema or algorithm version other than the compiled constants. There is no
+   upcaster, compatible old-engine path, or export-only recovery mode. Any
+   objectives/ruleset work is likely to change these contracts, so save upgrade
+   policy must precede private-alpha iteration.
+3. **Tactical clock and lease coupling.** Tactical assignments expire after 120
+   campaign quanta. With the default unattended rate of ten quanta per wall
+   second, a live assignment can be reclaimed after roughly twelve seconds
+   while the rest of the theater continues advancing. Human tactical play needs
+   a renewable lease and an explicit campaign-time policy.
+4. **Principals and browser writes.** Companion, workers, and operator tooling
+   share the master service token. The hosted monitor is issued a read cookie
+   without an operator identity and cannot authenticate writes. The general
+   `application/grpc` content-type bypass also reaches non-gRPC control routes
+   and must be removed before treating the loopback control plane as hardened.
+5. **Shipping-default verification.** The broad protocol story disables
+   unattended simulation and changes migration timing, leaving the default
+   clock/expiry interaction untested. Keep broad scenario tests, but add a
+   shipping-default story and a long-journal performance/recovery gate.
+
 ## Missing product features
 
 ### P0 — complete a player-visible campaign loop
 
-1. **Canonical player orders and UI.** Convert authenticated player intent into
+1. **Canonical player orders and UI.** Convert coalition-scoped authenticated
+   player intent into
    authorized, journaled `IssueOrderCommand`/policy commands with deterministic
-   conflict handling and clear rejection feedback. The monitor needs order
-   creation, cancellation, ROE/doctrine, destination/tasking, pause/resume, and
-   general campaign/ruleset configuration. Today its only mutation is the Fulda
-   demo bootstrap/advance/schedule convenience; campaign selection already works.
+   conflict handling and clear rejection feedback. Do not turn the privileged
+   true-state operator monitor into the player trust boundary: either provide a
+   distinct player surface or an explicit coalition-filtered mode. Operator
+   tooling still needs order creation/cancellation, ROE/doctrine,
+   destination/tasking, pause/resume, and ruleset configuration.
 2. **Objectives and campaign progression.** Add durable objectives, victory and
    failure predicates, scenario/campaign end state, political/narrative events,
    reinforcement/replacement policy, and an authorable ruleset. The current
@@ -104,15 +136,45 @@ and play a complete campaign through tactical promotion and return.
 
 ## Recommended implementation order
 
-The next work should prioritize real campaign play over more infrastructure:
+The next work should build only the foundation needed for an honest playable
+slice, then traverse that slice vertically:
 
-1. journaled player order submission plus monitor order controls;
-2. durable objective/victory state and one small end-to-end campaign ruleset;
-3. a guided tactical promotion/play/return workflow for owned surface islands;
-4. portable state closure for the fields that block that workflow;
-5. out-of-process Operational leases/results;
-6. realtime SignalR player delivery after the command/projection model is real;
-7. packaging, soak, and broader multiplayer qualification.
+1. close the HTTP content-type bypass and implement scoped
+   companion/worker/operator/player credentials plus an authenticated hosted
+   browser write channel;
+2. add automatic snapshot cadence and/or a safe recovered-head cache, then prove
+   bounded behavior on at least 10,000 commits;
+3. choose and implement campaign save-contract evolution, proving that a saved
+   campaign can cross one schema and one algorithm change;
+4. replace fixed tactical expiry with a heartbeat-renewed lease and define how
+   campaign time behaves during a human tactical session;
+5. expose canonical coalition-scoped player orders headlessly, with durable
+   idempotency, control-right checks, expected-revision conflicts, and typed
+   rejection feedback;
+6. add one small durable objective/victory ruleset and player/operator UI around
+   that command path;
+7. prove a guided tactical round trip that commits the fate of a
+   campaign-owned hostile, then close only the portable-state fields that the
+   round trip demonstrates are missing;
+8. defer out-of-process Operational leases, SignalR, broader entity families,
+   packaging, soak, and multiplayer qualification until the vertical slice is
+   real.
+
+### Delivery outlook
+
+For one strong developer/agent with local-only Sea Power verification, these are
+planning ranges rather than commitments:
+
+| Outcome | Current planning range | Dominant uncertainty |
+| --- | --- | --- |
+| Survivable foundation (steps 1-4) | 3-5 weeks | migration design, long-journal behavior, live tactical clock policy |
+| Honest narrow playable slice (steps 1-7) | 9-13 weeks | campaign-owned hostile round trip and portable native state |
+| Private single-player alpha | 20-28 weeks | content/ruleset depth, management UI, save compatibility, repeated live verification |
+| Single-machine documented release | 7-9 months | packaging, update/rollback, soak, recovery and compatibility qualification |
+| Broader networked release | 9-15 months | identity, hostile-client boundaries, distributed execution and multiplayer evidence |
+
+SignalR, hot replicas, PostgreSQL/brokers, broad entity-family expansion, and a
+second live Sea Power container should not consume the critical path yet.
 
 Each slice should update this file, the machine-readable supported claims when
 appropriate, and a dated evidence record. A feature is not complete merely

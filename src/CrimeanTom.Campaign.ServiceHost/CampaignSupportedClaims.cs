@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 1,
+        SchemaVersion: 2,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -14,7 +14,8 @@ public static class CampaignSupportedClaims
         CanonicalDurabilityBoundary: CampaignDurabilityPolicy.Current.CanonicalDurabilityBoundary,
         Supported:
         [
-            "loopback-authenticated-companion-and-campaign-http",
+            "bearer-authenticated-loopback-companion-and-campaign-control-writes",
+            "hosted-monitor-local-cookie-read-access-without-operator-identity",
             "deterministic-campaign-kernel-and-sqlite-wal-journal",
             "coalition-filtered-projections-without-classified-truth",
             "replica-checkpoint-hash-disagreement-refuses-majority",
@@ -35,6 +36,12 @@ public static class CampaignSupportedClaims
             "postgresql-or-external-object-storage-requirement",
             "out-of-process-operational-tick-execution",
             "sea-power-physics-or-headless-unity-in-kernel",
+            "existing-campaign-schema-or-algorithm-upgrade",
+            "bounded-long-running-campaign-performance-envelope",
+            "human-length-tactical-assignment-under-default-unattended-clock",
+            "campaign-owned-hostile-tactical-loss-committed-to-journal",
+            "player-session-continuity-across-service-restart",
+            "authenticated-hosted-monitor-writes",
         ]);
 }
 
