@@ -33,8 +33,13 @@ The durable head was 5,892 with canonical hash
 `75d8a10efbdbaa7de5b8a67a1d06743b16e959870778f8f6247486971ba5d5b9`.
 
 This eliminates the quadratic replay/snapshot and disk-growth problem. The
-remaining high-water allocation is still too high for a polished importer and
-is being treated separately from steady-state canonical entity cost.
+remaining high-water allocation was then traced to ASP.NET server GC creating
+one managed heap per logical CPU: this machine exposes 24 logical processors.
+Running the same importer with workstation GC completed in 8.009 seconds and
+peaked at 162.8 MiB working set / 102.8 MiB private memory, with the same 32.3
+MiB database and 5,892 durable commits. The service now defaults to workstation
+GC for the local desktop topology; dedicated deployments can opt back into
+server GC through the standard `DOTNET_gcServer=1` runtime override.
 
 ## Verification at this checkpoint
 

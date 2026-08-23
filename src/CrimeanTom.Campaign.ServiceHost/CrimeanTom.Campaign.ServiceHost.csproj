@@ -8,6 +8,11 @@
     <AssemblyName>CrimeanTom.Campaign.ServiceHost</AssemblyName>
     <RootNamespace>CrimeanTom.Campaign.ServiceHost</RootNamespace>
     <DotNetWatchContentFiles>false</DotNetWatchContentFiles>
+    <!-- The local campaign service shares a desktop with Sea Power. Server GC
+         creates one heap per logical CPU and made bulk seed imports retain
+         hundreds of MiB without improving measured import throughput. A
+         dedicated deployment can still opt in with DOTNET_gcServer=1. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
