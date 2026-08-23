@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 3,
+        SchemaVersion: 4,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -25,6 +25,7 @@ public static class CampaignSupportedClaims
             "operator-pause-and-drain",
             "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances",
             "owned-surface-periodic-state-sync-during-unpaused-play",
+            "friendly-deployed-knox-render-proxies-without-simulation-authority",
             "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
             "unattended-kernel-simulation-without-sea-power-or-client",
         ],

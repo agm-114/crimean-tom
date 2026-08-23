@@ -9,7 +9,8 @@ Reviewed from `main` at `5c4302c` through the local tactical-sync POC branch on
 gate definition.
 
 The repository is an advanced campaign-runtime prototype with a narrow local
-tactical-sync POC, not yet a complete playable dynamic-campaign product. Its
+tactical-sync and friendly-render-proxy POC, not yet a complete playable
+dynamic-campaign product. Its
 strongest areas are deterministic reduction and
 replay, authority fencing, the Sea Power control boundary, broad integration
 stories, and an increasingly capable Operational analogue. The POC can keep a
@@ -27,7 +28,7 @@ principal-separated browser writes remain open before an alpha.
 | Persistence | SQLite WAL, writer fencing, snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No recovered-head cache or qualified long-journal envelope |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, basic AI | Deterministic analogue, not Sea Power parity; calibration remains limited |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, Primary/Shadow fencing, cold reconstruction, migration protocol | Live two-container completion and hot convergence unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; unpaused read capture and pause/restore mutation safe points | Script-guided POC; one owned surface family; no campaign-owned hostile loss proof |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; inert two-second campaign projection of other deployed friendly Knox-class vessels; unpaused read capture and pause/restore mutation safe points | Script-guided trusted-local POC; one authoritative surface family and one exact proxy profile; no hostile/contact proxy or campaign-owned hostile loss proof |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
@@ -99,7 +100,10 @@ These are prerequisites, not release-polish tasks:
 4. **Broaden portable state and entity families.** Qualify or add aircraft,
    subsurface, base/land, formation, and hosted-aircraft materialization. Apply
    or explicitly model damage, fuel, magazines, sensors, formations, and hosted
-   children instead of leaving them fenced as unsupported fields.
+   children instead of leaving them fenced as unsupported fields. The local
+   friendly render-proxy slice covers only deployed Knox-class maritime units;
+   move it to a coalition-scoped service projection and add catalog-specific
+   proxy profiles before treating it as a general theater view.
 5. **Campaign management UI.** Expose backup/restore, pause/drain, worker
    lifecycle, diagnostics, integrity status, and failure recovery through a
    safe operator workflow rather than HTTP/scripts alone.

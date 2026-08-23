@@ -111,6 +111,7 @@ internal static class GameCommandDispatcher
                     GameCommandTypes.FocusCameraOnUnit => FocusCameraOnUnit(command.PayloadJson),
                     GameCommandTypes.SetTacticalHudPanel => SetTacticalHudPanel(
                         command.PayloadJson),
+                    GameCommandTypes.DismissTopModal => DismissTopModal(),
                     GameCommandTypes.OpenTaskForceBuilder => OpenTaskForceBuilder(),
                     GameCommandTypes.StartPortOperations => StartPortOperations(),
                     GameCommandTypes.AddMaintenanceDraftUnit => AddMaintenanceDraftUnit(
@@ -143,6 +144,8 @@ internal static class GameCommandDispatcher
                         RestoreOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
                     GameCommandTypes.StageOwnedSurfaceCheckpoint =>
                         StageOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.ReconcileSurfaceRenderProxies =>
+                        ReconcileSurfaceRenderProxies(command.PayloadJson, command.SessionId),
                     GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery =>
                         ReleaseDetachedOwnedSurfaceRecovery(
                             command.PayloadJson,
@@ -1766,6 +1769,19 @@ internal static class GameCommandDispatcher
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
+    private static CommandResponsePayload ReconcileSurfaceRenderProxies(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesRequestPayload>(
+            payloadJson,
+            JsonOptions) ?? new ReconcileSurfaceRenderProxiesRequestPayload();
+        var result = RuntimeRenderProxyAdapter.Reconcile(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
     private static CommandResponsePayload SaveExperimentalProbe()
     {
         if (!RuntimeDeterministicHookFingerprintProvider.IsVerified("native-save-load"))
@@ -2511,6 +2527,69 @@ internal static class GameCommandDispatcher
             Postcondition = postcondition,
             Scenario = GetScenarioAutomationState(),
         });
+    }
+
+    private static CommandResponsePayload DismissTopModal()
+    {
+        if (MainGameView.Instance is null)
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "A loaded tactical view is required to dismiss a modal.");
+        }
+
+        var candidates = new List<Modal>();
+        Noesis.DependencyObject? current = MainGameView.Instance.Keyboard?.FocusedElement;
+        for (var depth = 0; current is not null && depth < 64; depth++)
+        {
+            if (current is Modal modal)
+            {
+                candidates.Add(modal);
+                break;
+            }
+            current = Noesis.VisualTreeHelper.GetParent(current);
+        }
+
+        if (candidates.Count == 0)
+        {
+            var pending = new Stack<Noesis.DependencyObject>();
+            pending.Push(MainGameView.Instance);
+            var visited = 0;
+            while (pending.Count > 0 && visited++ < 16_384)
+            {
+                var node = pending.Pop();
+                if (node is Modal modal && modal.IsVisible)
+                {
+                    candidates.Add(modal);
+                }
+                var childCount = Noesis.VisualTreeHelper.GetChildrenCount(node);
+                for (var index = 0; index < childCount; index++)
+                {
+                    if (Noesis.VisualTreeHelper.GetChild(node, index) is { } child)
+                    {
+                        pending.Push(child);
+                    }
+                }
+            }
+        }
+
+        var selected = candidates.LastOrDefault(item =>
+            item.ActionCommand is not null && item.ActionCommand.CanExecute(null));
+        if (selected is not null)
+        {
+            selected.ActionCommand.Execute(null);
+            return Success(new UiAutomationActionResultPayload
+            {
+                Action = GameCommandTypes.DismissTopModal,
+                Outcome = "completed",
+                Postcondition = "visible-tactical-modal-primary-action-executed",
+                Scenario = GetScenarioAutomationState(),
+            });
+        }
+
+        return Failure(
+            ProtocolErrorCodes.AutomationPreconditionFailed,
+            "No focused tactical modal was found.");
     }
 
     private static IEnumerable<Mission> EnumerateMissions(

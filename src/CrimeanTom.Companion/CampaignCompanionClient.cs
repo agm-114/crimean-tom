@@ -23,6 +23,7 @@ public sealed class CampaignCompanionClient(
     private static readonly TimeSpan MaterializationReadinessPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaterializationReadinessTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(2);
 
     private string? _armedMutationSessionId;
     private long _armedMutationExpiresAtUnixMilliseconds;
@@ -260,14 +261,17 @@ public sealed class CampaignCompanionClient(
         async Task RunHeartbeatAsync(CancellationToken heartbeatToken)
         {
             var nextStateSyncAt = DateTimeOffset.UtcNow;
+            var nextRenderProxySyncAt = DateTimeOffset.UtcNow;
             while (!heartbeatToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
                 CompanionHeartbeat heartbeat;
                 OwnedSurfaceResourceStatePayload? resources = null;
+                CapabilitiesPayload? heartbeatCapabilities = null;
                 try
                 {
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
+                    heartbeatCapabilities = current;
                     var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
                     resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
                     var workerHealth = CompanionWorkerHealthClassifier.Classify(
@@ -349,8 +353,226 @@ public sealed class CampaignCompanionClient(
                             proposal.CheckpointSha256;
                     }
                 }
+
+                if (resources is not null
+                    && heartbeatCapabilities is not null
+                    && DateTimeOffset.UtcNow >= nextRenderProxySyncAt)
+                {
+                    nextRenderProxySyncAt = DateTimeOffset.UtcNow + RenderProxySyncInterval;
+                    try
+                    {
+                        await ReconcileFriendlyRenderProxiesAsync(
+                            resources,
+                            heartbeatCapabilities,
+                            token,
+                            heartbeatToken);
+                    }
+                    catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception exception)
+                    {
+                        logger.LogWarning(
+                            exception,
+                            "Friendly campaign render-proxy reconciliation failed; tactical authority is unaffected.");
+                    }
+                }
             }
         }
+    }
+
+    private async Task ReconcileFriendlyRenderProxiesAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        CapabilitiesPayload capabilities,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        if (!capabilities.SupportedCommands.Contains(
+                GameCommandTypes.ReconcileSurfaceRenderProxies,
+                StringComparer.Ordinal)
+            || string.IsNullOrWhiteSpace(capabilities.PlayerTaskforceId))
+        {
+            return;
+        }
+
+        using var client = CreateCampaignHttpClient(serviceToken);
+        client.Timeout = TimeSpan.FromSeconds(5);
+        using var response = await client.GetAsync(
+            $"/campaigns/{options.CampaignId}",
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(
+            stream,
+            cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        if (!string.Equals(
+            root.GetProperty("campaignId").GetString(),
+            options.CampaignId,
+            StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Render-proxy campaign view is bound to another campaign.");
+        }
+
+        var locallyTacticalEntities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var resource in resources.Entities)
+        {
+            if (BareCampaignEntityId(resource.EntityId) is { } entityId)
+            {
+                locallyTacticalEntities.Add(entityId);
+            }
+        }
+        foreach (var assignment in root.GetProperty("assignments").EnumerateArray())
+        {
+            var lifecycle = assignment.GetProperty("lifecycle").GetString() ?? string.Empty;
+            var role = assignment.GetProperty("role").GetString() ?? string.Empty;
+            if (string.Equals(
+                    assignment.GetProperty("workerClientInstanceId").GetString(),
+                    options.ClientInstanceId,
+                    StringComparison.Ordinal)
+                && role is "Primary" or "Shadow"
+                && lifecycle is not ("Released" or "Failed" or "Fenced"))
+            {
+                locallyTacticalEntities.Add(
+                    assignment.GetProperty("entityId").GetString() ?? string.Empty);
+            }
+        }
+        locallyTacticalEntities.Remove(string.Empty);
+
+        var entities = root.GetProperty("entities").EnumerateArray().ToArray();
+        var localCoalitions = entities
+            .Where(entity => locallyTacticalEntities.Contains(
+                entity.GetProperty("entityId").GetString() ?? string.Empty))
+            .Select(entity => entity.GetProperty("coalitionId").GetString() ?? string.Empty)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (localCoalitions.Length > 1)
+        {
+            throw new InvalidDataException(
+                "One Sea Power instance cannot render authoritative friendly truth for multiple coalitions.");
+        }
+
+        SurfaceRenderProxySpecPayload[] proxies = localCoalitions.Length == 0
+            ? Array.Empty<SurfaceRenderProxySpecPayload>()
+            : entities
+                .Where(entity => string.Equals(
+                        entity.GetProperty("coalitionId").GetString(),
+                        localCoalitions[0],
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        entity.GetProperty("simulationDomain").GetString(),
+                        "Maritime",
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        entity.GetProperty("lifecycle").GetString(),
+                        "Deployed",
+                        StringComparison.Ordinal)
+                    && !locallyTacticalEntities.Contains(
+                        entity.GetProperty("entityId").GetString() ?? string.Empty))
+                .Select(entity => CreateRenderProxySpec(entity, capabilities))
+                .Where(spec => spec is not null)
+                .Cast<SurfaceRenderProxySpecPayload>()
+                .OrderBy(spec => spec.EntityId, StringComparer.Ordinal)
+                .Take(512)
+                .ToArray();
+
+        await EnsureRenderProxyMutationsArmedAsync(capabilities, cancellationToken);
+        var result = await RequireGameCommandAsync(
+            GameCommandTypes.ReconcileSurfaceRenderProxies,
+            JsonSerializer.Serialize(new ReconcileSurfaceRenderProxiesRequestPayload
+            {
+                CampaignId = options.CampaignId,
+                TaskforceId = capabilities.PlayerTaskforceId,
+                Proxies = proxies,
+            }, JsonOptions),
+            cancellationToken);
+        var reconciled = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesResultPayload>(
+            result.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Render-proxy result was empty.");
+        logger.LogDebug(
+            "Reconciled {VisibleCount} friendly campaign render proxies ({CreatedCount} created, {UpdatedCount} updated, {SuspendedCount} suspended).",
+            reconciled.Proxies.Count(item => item.IsVisible),
+            reconciled.CreatedCount,
+            reconciled.UpdatedCount,
+            reconciled.SuspendedCount);
+    }
+
+    private static SurfaceRenderProxySpecPayload? CreateRenderProxySpec(
+        JsonElement entity,
+        CapabilitiesPayload capabilities)
+    {
+        var unitTypeId = entity.GetProperty("catalogUnitId").GetString() ?? string.Empty;
+        var loadoutId = entity.GetProperty("catalogLoadoutId").GetString() ?? string.Empty;
+        var profile = capabilities.OwnedSurfaceMaterializationProfiles.FirstOrDefault(item =>
+            string.Equals(item.UnitTypeId, unitTypeId, StringComparison.Ordinal)
+            && string.Equals(item.LoadoutId, loadoutId, StringComparison.Ordinal));
+        if (profile is null)
+        {
+            return null;
+        }
+        var entityId = entity.GetProperty("entityId").GetString() ?? string.Empty;
+        return Guid.TryParseExact(entityId, "N", out _)
+            ? new SurfaceRenderProxySpecPayload
+            {
+                EntityId = $"unit:crimean-tom:{entityId}",
+                Name = entity.GetProperty("name").GetString() ?? entityId,
+                UnitTypeId = profile.UnitTypeId,
+                VariantId = profile.VariantId,
+                LoadoutId = profile.LoadoutId,
+                Latitude = entity.GetProperty("latitudeMicrodegrees").GetInt32() / 1_000_000d,
+                Longitude = entity.GetProperty("longitudeMicrodegrees").GetInt32() / 1_000_000d,
+                HeadingDegrees = entity.GetProperty("headingMilliDegrees").GetInt32() / 1_000d,
+                CampaignTelegraph = entity.GetProperty("telegraph").GetInt32(),
+            }
+            : null;
+    }
+
+    private static string? BareCampaignEntityId(string entityId)
+    {
+        const string prefix = "unit:crimean-tom:";
+        return entityId.StartsWith(prefix, StringComparison.Ordinal)
+            && Guid.TryParseExact(entityId[prefix.Length..], "N", out var parsed)
+                ? parsed.ToString("N")
+                : null;
+    }
+
+    private async Task EnsureRenderProxyMutationsArmedAsync(
+        CapabilitiesPayload capabilities,
+        CancellationToken cancellationToken)
+    {
+        var sessionId = CurrentGameSessionId();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var advertisedExpiry = capabilities.MutationModeExpiresAtUnixMilliseconds ?? 0;
+        if (capabilities.MutatingCommandsEnabled && advertisedExpiry > now + 30_000)
+        {
+            _armedMutationSessionId = sessionId;
+            _armedMutationExpiresAtUnixMilliseconds = advertisedExpiry;
+            return;
+        }
+        if (string.Equals(_armedMutationSessionId, sessionId, StringComparison.Ordinal)
+            && _armedMutationExpiresAtUnixMilliseconds > now + 30_000)
+        {
+            return;
+        }
+
+        var armResult = await RequireGameCommandAsync(
+            GameCommandTypes.ArmOwnedMutationMode,
+            JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
+            {
+                SessionId = sessionId,
+                RuntimeFingerprintSha256 = capabilities.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
+                Confirmation = "enable-owned-mutations",
+                DurationSeconds = 300,
+            }, JsonOptions),
+            cancellationToken);
+        var armed = JsonSerializer.Deserialize<ArmOwnedMutationModeResultPayload>(
+            armResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Render-proxy mutation arming result was empty.");
+        _armedMutationSessionId = armed.SessionId;
+        _armedMutationExpiresAtUnixMilliseconds = armed.ExpiresAtUnixMilliseconds
+            ?? throw new InvalidDataException("Render-proxy mutation arming had no expiry.");
     }
 
     private async Task<CapabilitiesPayload> ReadCapabilitiesAsync(CancellationToken cancellationToken)
@@ -547,6 +769,21 @@ public sealed class CampaignCompanionClient(
                 throw new InvalidOperationException("Assignment pause, role, runtime, or catalog requirements are incompatible.");
             }
             await stateStore.SaveAssignmentAsync(assignment, cancellationToken);
+            try
+            {
+                await ReconcileFriendlyRenderProxiesAsync(
+                    await ReadOwnedSurfaceResourcesAsync(cancellationToken),
+                    capabilities,
+                    serviceToken,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Could not pre-empt a presentation proxy before preparing tactical assignment {AssignmentId}; assignment preparation will continue.",
+                    assignment.AssignmentId);
+            }
             var sourceCheckpoint = await DownloadCheckpointAsync(
                 assignment,
                 serviceToken,

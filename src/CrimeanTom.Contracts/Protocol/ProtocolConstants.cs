@@ -88,6 +88,7 @@ public static class GameCommandTypes
     public const string GetColliderCatalog = "get-collider-catalog";
     public const string FocusCameraOnUnit = "focus-camera-on-unit";
     public const string SetTacticalHudPanel = "set-tactical-hud-panel";
+    public const string DismissTopModal = "dismiss-top-modal";
     public const string OpenTaskForceBuilder = "open-task-force-builder";
     public const string StartPortOperations = "start-port-operations";
     public const string AddMaintenanceDraftUnit = "add-maintenance-draft-unit";
@@ -107,6 +108,7 @@ public static class GameCommandTypes
     public const string RestoreOwnedSurfaceCheckpoint = "restore-owned-surface-checkpoint";
     public const string StageOwnedSurfaceCheckpoint = "stage-owned-surface-checkpoint";
     public const string GetOwnedSurfaceResourceState = "get-owned-surface-resource-state";
+    public const string ReconcileSurfaceRenderProxies = "reconcile-surface-render-proxies";
     public const string ReleaseDetachedOwnedSurfaceRecovery =
         "release-detached-owned-surface-recovery";
 
@@ -162,6 +164,7 @@ public static class GameCommandTypes
         SetOwnedSurfaceSuspension,
         RestoreOwnedSurfaceCheckpoint,
         StageOwnedSurfaceCheckpoint,
+        ReconcileSurfaceRenderProxies,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
 
@@ -182,6 +185,7 @@ public static class GameCommandTypes
         GetColliderCatalog,
         FocusCameraOnUnit,
         SetTacticalHudPanel,
+        DismissTopModal,
         OpenTaskForceBuilder,
         StartPortOperations,
         AddMaintenanceDraftUnit,
@@ -201,6 +205,7 @@ public static class GameCommandTypes
         RestoreOwnedSurfaceCheckpoint,
         StageOwnedSurfaceCheckpoint,
         GetOwnedSurfaceResourceState,
+        ReconcileSurfaceRenderProxies,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
 }

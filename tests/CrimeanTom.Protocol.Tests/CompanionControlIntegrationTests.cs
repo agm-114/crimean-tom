@@ -155,7 +155,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(3, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(4, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -172,6 +172,10 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
                     == "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString()
+                    == "friendly-deployed-knox-render-proxies-without-simulation-authority");
             Assert.DoesNotContain(
                 supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
                 item => item.GetString()
@@ -844,6 +848,21 @@ public sealed class CompanionControlIntegrationTests
                 retainedSuspended: 0,
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
+            var renderProxyRequest = await tacticalCheckpointState.WaitForRenderProxyCountAsync(
+                6,
+                testTimeout.Token);
+            Assert.Equal(campaignId, renderProxyRequest.CampaignId);
+            Assert.Equal("taskforce:Blue", renderProxyRequest.TaskforceId);
+            Assert.DoesNotContain(
+                renderProxyRequest.Proxies,
+                item => item.EntityId == gameEntityId);
+            Assert.All(renderProxyRequest.Proxies, item =>
+            {
+                Assert.StartsWith("unit:crimean-tom:", item.EntityId, StringComparison.Ordinal);
+                Assert.Equal("usn_ff_knox_84", item.UnitTypeId);
+                Assert.Equal("Variant43", item.VariantId);
+                Assert.Equal("Default", item.LoadoutId);
+            });
             var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             await ProveShadowDestinationPreparationAsync(
                 campaignClient,
@@ -2746,6 +2765,9 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
                     ownedResources.Capture(),
                     JsonOptions),
+                GameCommandTypes.ReconcileSurfaceRenderProxies => JsonSerializer.Serialize(
+                    tacticalCheckpointState.ReconcileRenderProxies(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery => JsonSerializer.Serialize(
                     new OwnedSurfaceRecoveryReleaseResultPayload
                     {
@@ -2959,6 +2981,8 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
                     CreateOwnedSurfaceCheckpoint(command.PayloadJson),
                     JsonOptions),
+                GameCommandTypes.ReconcileSurfaceRenderProxies =>
+                    CreateCrashPeerRenderProxyReconciliation(command.PayloadJson),
                 _ => throw new InvalidOperationException(
                     $"Unexpected crash-peer command '{command.MessageType}'."),
             };
@@ -3011,6 +3035,21 @@ public sealed class CompanionControlIntegrationTests
                 StoresFractionMilliunits = 1_000_000,
                 DamageFractionMilliunits = 0,
             },
+        }, JsonOptions);
+    }
+
+    private static string CreateCrashPeerRenderProxyReconciliation(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return JsonSerializer.Serialize(new ReconcileSurfaceRenderProxiesResultPayload
+        {
+            Outcome = "reconciled",
+            Postcondition =
+                "friendly-campaign-render-proxies-visible-without-simulation-authority",
+            CampaignId = request.CampaignId,
+            RequestedCount = request.Proxies.Length,
         }, JsonOptions);
     }
 
@@ -3108,6 +3147,7 @@ public sealed class CompanionControlIntegrationTests
         private long _fuelFractionMilliunits = 1_000_000;
         private long _storesFractionMilliunits = 1_000_000;
         private int _damageFractionMilliunits;
+        private ReconcileSurfaceRenderProxiesRequestPayload? _renderProxyRequest;
 
         public void SetObservedState(
             string checkpointSha256,
@@ -3154,6 +3194,56 @@ public sealed class CompanionControlIntegrationTests
                 checkpoint.Unit.StoresFractionMilliunits = _storesFractionMilliunits;
                 checkpoint.Unit.DamageFractionMilliunits = _damageFractionMilliunits;
                 return checkpoint;
+            }
+        }
+
+        public ReconcileSurfaceRenderProxiesResultPayload ReconcileRenderProxies(string payloadJson)
+        {
+            var request = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesRequestPayload>(
+                payloadJson,
+                JsonOptions)!;
+            lock (_gate)
+            {
+                _renderProxyRequest = request;
+            }
+            return new ReconcileSurfaceRenderProxiesResultPayload
+            {
+                Outcome = "reconciled",
+                Postcondition =
+                    "friendly-campaign-render-proxies-visible-without-simulation-authority",
+                CampaignId = request.CampaignId,
+                RequestedCount = request.Proxies.Length,
+                CreatedCount = request.Proxies.Length,
+                Proxies = request.Proxies.Select(item => new SurfaceRenderProxyStatePayload
+                {
+                    EntityId = item.EntityId,
+                    StableUnitId = $"campaign-unit:render-proxy:{request.CampaignId}:{item.EntityId}",
+                    GameUniqueId = 100,
+                    IsVisible = true,
+                    IsSimulated = false,
+                    Latitude = item.Latitude,
+                    Longitude = item.Longitude,
+                    HeadingDegrees = item.HeadingDegrees,
+                    CampaignTelegraph = item.CampaignTelegraph,
+                }).ToArray(),
+            };
+        }
+
+        public async Task<ReconcileSurfaceRenderProxiesRequestPayload> WaitForRenderProxyCountAsync(
+            int expectedCount,
+            CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                lock (_gate)
+                {
+                    if (_renderProxyRequest is { } request
+                        && request.Proxies.Length == expectedCount)
+                    {
+                        return request;
+                    }
+                }
+                await Task.Delay(50, cancellationToken);
             }
         }
     }

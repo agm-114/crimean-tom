@@ -78,6 +78,9 @@ internal static class RuntimeOwnedMutationAdapter
     public static bool IsArmedFor(string? sessionId) => IsArmed
         && string.Equals(_armedSessionId, sessionId, StringComparison.Ordinal);
 
+    internal static bool HasOwnedEntity(string entityId) =>
+        OwnedEntities.ContainsKey(entityId);
+
     public static MutationAdapterResult<ArmOwnedMutationModeResultPayload> Arm(
         ArmOwnedMutationModeRequestPayload request,
         string commandSessionId,

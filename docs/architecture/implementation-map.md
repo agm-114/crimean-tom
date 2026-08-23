@@ -124,6 +124,29 @@ play. This is not complete portable tactical state: magazines, sensors,
 formations, hosted aircraft, and broader entity families remain fenced or
 unsupported.
 
+The same local POC now projects other deployed friendly maritime entities into
+the player's Sea Power instance as presentation-only surface render proxies.
+The companion derives the coalition from its own live Primary/Shadow assignment,
+reads the current trusted campaign view every two seconds, filters to supported
+materialization profiles, and excludes all entities tactically owned by that
+instance. The bridge keeps these objects in a registry separate from owned
+entities and assignments. Each proxy uses a `render-proxy:` campaign tag, is
+non-controllable, has managed and DOTS simulation disabled, has no active
+sensors or colliders, uses kinematic rigidbodies, and is repositioned only by a
+later campaign snapshot. It therefore contributes presentation but cannot
+publish state, receive an authority epoch, enter a checkpoint, or consume
+tactical assignment capacity.
+
+This is a trusted local projection path, not the final multiplayer transport.
+The companion currently derives it from the privileged diagnostic campaign
+view because it holds the shared service token. It includes only deployed
+friendlies in the Maritime domain whose exact unit/loadout has a Runtime Bridge
+profile; the current verified profile is the Knox-class surface vessel. It does
+not project hostile contacts, uncertain tracks, aircraft, submarines, hosted
+children, or arbitrary catalog types. A tactical assignment pre-empts the
+matching proxy before owned materialization; stale proxies are hidden rather
+than treated as recoverable canonical state.
+
 ### Operational worker supervision
 
 The service spawns Track A workers with additive per-spawn credentials and
@@ -149,7 +172,7 @@ in-memory presentation records and do not issue canonical campaign orders.
 | --- | --- |
 | SignalR/MessagePack realtime player UI | No SignalR dependency or hub; HTTP polling only |
 | Campaign-owned distributed Operational execution | Worker spawn/placement exists; simulation remains in ServiceHost |
-| Multi-family tactical materialization | Portable owned-surface-unit family only |
+| Multi-family tactical materialization | Portable owned-surface-unit family plus inert friendly Knox render proxies; other families are absent |
 | Complete portable tactical state | Damage, fuel, magazine, sensor, formation, and hosted-aircraft application remain explicitly unsupported/fenced |
 | Hot Shadow convergence and failover | Cold checkpoint/Operational fallback only |
 | Packaged player application | Developer-run .NET/TypeScript projects; no clean-machine installer/updater |

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -678,6 +678,9 @@ switch ($Action) {
     }
     'continue-briefing' {
         Show-Json (Invoke-ControlRequest '/game/automation/briefing/continue' 'Post')
+    }
+    'dismiss-modal' {
+        Show-Json (Invoke-ControlRequest '/game/automation/modal/dismiss' 'Post')
     }
     'exit-tactical' {
         Show-Json (Invoke-ControlRequest '/game/automation/tactical/exit' 'Post')

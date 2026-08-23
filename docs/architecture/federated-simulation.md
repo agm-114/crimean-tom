@@ -55,6 +55,13 @@ TempoPolicyVersion
 state its player is entitled to know. A promotion candidate may keep encrypted
 or service-held secret state separate from the player's render-facing view.
 
+The current local POC does not persist `RenderProxy` as an assignment. It uses a
+separate, presentation-only Runtime Bridge registry sourced from the trusted
+campaign view, which is stricter than giving a proxy an authority epoch or
+checkpoint lifecycle. That local path is documented in
+[Implemented architecture map](implementation-map.md); a remote implementation
+must replace its privileged diagnostic read with a coalition-scoped projection.
+
 Assignments are leases, not permanent ownership. Clients renew them with a
 heartbeat containing simulation progress and health. A primary stops publishing
 when its lease expires even if its local simulation can continue visually.

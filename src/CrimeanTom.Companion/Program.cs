@@ -349,6 +349,15 @@ app.MapPost("/game/automation/hud", (
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/automation/modal/dismiss", (
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.DismissTopModal,
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/automation/task-force-builder", (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>

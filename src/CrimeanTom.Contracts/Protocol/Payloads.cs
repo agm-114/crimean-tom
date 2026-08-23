@@ -273,6 +273,55 @@ public sealed class OwnedSurfaceResourceEntryPayload
     public int? GameUniqueId { get; set; }
 }
 
+public sealed class ReconcileSurfaceRenderProxiesRequestPayload
+{
+    public string CampaignId { get; set; } = string.Empty;
+    public string TaskforceId { get; set; } = string.Empty;
+    public SurfaceRenderProxySpecPayload[] Proxies { get; set; } =
+        Array.Empty<SurfaceRenderProxySpecPayload>();
+}
+
+public sealed class SurfaceRenderProxySpecPayload
+{
+    public string EntityId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = "Default";
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double HeadingDegrees { get; set; }
+    public int CampaignTelegraph { get; set; }
+}
+
+public sealed class ReconcileSurfaceRenderProxiesResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string CampaignId { get; set; } = string.Empty;
+    public int RequestedCount { get; set; }
+    public int CreatedCount { get; set; }
+    public int UpdatedCount { get; set; }
+    public int SuspendedCount { get; set; }
+    public int ExcludedOwnedEntityCount { get; set; }
+    public SurfaceRenderProxyStatePayload[] Proxies { get; set; } =
+        Array.Empty<SurfaceRenderProxyStatePayload>();
+}
+
+public sealed class SurfaceRenderProxyStatePayload
+{
+    public string EntityId { get; set; } = string.Empty;
+    public string StableUnitId { get; set; } = string.Empty;
+    public int? GameUniqueId { get; set; }
+    public bool IsVisible { get; set; }
+    public bool IsSimulated { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double HeadingDegrees { get; set; }
+    public int CampaignTelegraph { get; set; }
+}
+
 public sealed class OwnedSurfaceRecoveryReleaseResultPayload
 {
     public int SchemaVersion { get; set; } = 1;
