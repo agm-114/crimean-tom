@@ -132,7 +132,9 @@ internal static class CampaignFidelityScheduler
             .Where(worker => !CampaignWorkerKind.IsOperational(worker.WorkerKind))
             .ToArray();
         var workerConnected = tacticalWorkers.Length > 0;
-        var islands = BuildIslands(state, campaignWorkers).ToArray();
+        var islands = BuildIslands(state, campaignWorkers)
+            .SelectMany(island => SplitSafePlayerInterest(island, interested))
+            .ToArray();
         var campaignOccupiedEntities = state.Assignments.Values
             .Where(item => item.Lifecycle is AssignmentLifecycle.Preparing
                 or AssignmentLifecycle.Prepared or AssignmentLifecycle.Active
@@ -600,6 +602,40 @@ internal static class CampaignFidelityScheduler
             })
             .OrderBy(item => item.IslandId, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static IEnumerable<Island> SplitSafePlayerInterest(
+        Island island,
+        IReadOnlySet<EntityId> interested)
+    {
+        if (interested.Count == 0 || island.UnsafeToSplit || island.Engaged)
+        {
+            yield return island;
+            yield break;
+        }
+        var focused = island.EntityIds.Where(interested.Contains).OrderBy(item => item).ToArray();
+        if (focused.Length == 0 || focused.Length == island.EntityIds.Count)
+        {
+            yield return island;
+            yield break;
+        }
+
+        // Administrative group membership contributes a soft coupling score but is
+        // not an authority fence. A latency-sensitive player selection may therefore
+        // materialize only the selected members. Explicit runtime relationships and
+        // recent combat set UnsafeToSplit/Engaged and remain atomic above.
+        yield return island with
+        {
+            IslandId = $"{island.IslandId}:player-interest",
+            EntityIds = focused,
+            GroupIds = [],
+            CouplingScoreMilliunits = 100,
+        };
+        yield return island with
+        {
+            IslandId = $"{island.IslandId}:remainder",
+            EntityIds = island.EntityIds.Where(id => !interested.Contains(id)).ToArray(),
+        };
     }
 
     private static Island CreateIsland(
