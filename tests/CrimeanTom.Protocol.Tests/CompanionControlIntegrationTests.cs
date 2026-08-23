@@ -391,6 +391,30 @@ public sealed class CompanionControlIntegrationTests
             advancedFuldaViewResponse.EnsureSuccessStatusCode();
             using var advancedFuldaView = JsonDocument.Parse(
                 await advancedFuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var strategicObjectives = advancedFuldaView.RootElement.GetProperty("strategicObjectives")
+                .EnumerateArray().ToArray();
+            var groupCommitments = advancedFuldaView.RootElement.GetProperty("groupCommitments")
+                .EnumerateArray().ToArray();
+            var coalitionStrategies = advancedFuldaView.RootElement.GetProperty("coalitionStrategies")
+                .EnumerateArray().ToArray();
+            Assert.Equal(919, groupCommitments.Length);
+            Assert.All(groupCommitments, item => Assert.NotNull(item.GetProperty("objectiveId").GetString()));
+            Assert.Equal(2, coalitionStrategies.Length);
+            Assert.Contains(strategicObjectives, item =>
+                item.GetProperty("coalitionId").GetString() == blueCoalitionId
+                && item.GetProperty("kind").GetString() == "ProjectForce");
+            Assert.Contains(strategicObjectives, item =>
+                item.GetProperty("coalitionId").GetString() == redCoalitionId
+                && item.GetProperty("kind").GetString() == "Defend");
+            var activeOrderKinds = advancedFuldaView.RootElement.GetProperty("groups")
+                .EnumerateArray()
+                .Where(item => item.GetProperty("activeOrderKind").ValueKind != JsonValueKind.Null)
+                .Select(item => item.GetProperty("activeOrderKind").GetString())
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.Contains("Cap", activeOrderKinds);
+            Assert.Contains("Asw", activeOrderKinds);
+            Assert.Contains("Reinforce", activeOrderKinds);
+            Assert.Contains("Resupply", activeOrderKinds);
             var fuldaOutcomes = advancedFuldaView.RootElement.GetProperty("recentOperationalOutcomes")
                 .EnumerateArray().ToArray();
             Assert.Contains(fuldaOutcomes, item => item.GetProperty("kind").GetString() == "WeaponExpenditure");

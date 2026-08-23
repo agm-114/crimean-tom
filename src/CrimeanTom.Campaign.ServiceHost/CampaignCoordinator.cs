@@ -1166,6 +1166,31 @@ public sealed class CampaignCoordinator(
                 item.CoalitionId.ToString(),
                 item.Members.Select(member => member.ToString()).ToArray(),
                 item.ActiveOrderId?.ToString(),
+                item.ActiveOrderId is { } activeOrderId ? state.Orders[activeOrderId].Kind.ToString() : null,
+                item.ActiveOrderId is { } destinationOrderId
+                    ? state.Orders[destinationOrderId].DestinationRegionId.ToString()
+                    : null,
+                item.Revision.Value)).ToArray(),
+            state.StrategicObjectives.Values.Select(item => new CampaignStrategicObjectiveView(
+                item.ObjectiveId.ToString(),
+                item.CoalitionId.ToString(),
+                item.RegionId.ToString(),
+                item.Kind.ToString(),
+                item.PriorityMilliUnits,
+                item.CreatedAt.Quanta,
+                item.Epoch,
+                item.Revision.Value)).ToArray(),
+            state.GroupCommitments.Values.Select(item => new CampaignGroupCommitmentView(
+                item.GroupId.ToString(),
+                item.ObjectiveId?.ToString(),
+                item.ExpiresAt.Quanta,
+                item.WithdrawLatched,
+                item.LatchReleaseAt.Quanta,
+                item.Revision.Value)).ToArray(),
+            state.CoalitionStrategies.Values.Select(item => new CampaignCoalitionStrategyView(
+                item.CoalitionId.ToString(),
+                item.NextDirectorAt.Quanta,
+                item.Epoch,
                 item.Revision.Value)).ToArray(),
             state.Assignments.Values.Select(item => new CampaignAssignmentView(
                 item.AssignmentId.ToString(),
@@ -3980,6 +4005,9 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignBaseView> Bases,
     IReadOnlyList<CampaignEntityView> Entities,
     IReadOnlyList<CampaignGroupView> Groups,
+    IReadOnlyList<CampaignStrategicObjectiveView> StrategicObjectives,
+    IReadOnlyList<CampaignGroupCommitmentView> GroupCommitments,
+    IReadOnlyList<CampaignCoalitionStrategyView> CoalitionStrategies,
     IReadOnlyList<CampaignAssignmentView> Assignments,
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
     CampaignSchedulerView Scheduler,
@@ -4037,6 +4065,32 @@ public sealed record CampaignGroupView(
     string CoalitionId,
     IReadOnlyList<string> MemberEntityIds,
     string? ActiveOrderId,
+    string? ActiveOrderKind,
+    string? ActiveOrderDestinationRegionId,
+    long Revision);
+
+public sealed record CampaignStrategicObjectiveView(
+    string ObjectiveId,
+    string CoalitionId,
+    string RegionId,
+    string Kind,
+    int PriorityMilliUnits,
+    long CreatedAtQuanta,
+    long Epoch,
+    long Revision);
+
+public sealed record CampaignGroupCommitmentView(
+    string GroupId,
+    string? ObjectiveId,
+    long ExpiresAtQuanta,
+    bool WithdrawLatched,
+    long LatchReleaseAtQuanta,
+    long Revision);
+
+public sealed record CampaignCoalitionStrategyView(
+    string CoalitionId,
+    long NextDirectorAtQuanta,
+    long Epoch,
     long Revision);
 
 public sealed record CampaignOperationalOutcomeView(
