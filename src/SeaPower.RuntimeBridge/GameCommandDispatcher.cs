@@ -2515,19 +2515,44 @@ internal static class GameCommandDispatcher
                 $"Unit ID '{requestedId}' resolved to {matches.Length} live native objects and no unique visible render proxy.");
         }
 
-        Singleton<RenderPosition>.Instance.switchToObject(
-            matches[0],
+        var target = matches[0];
+        var nativeRenderPosition = Singleton<RenderPosition>.Instance;
+        nativeRenderPosition.switchToObject(
+            target,
             performSmoothMove: false,
             checkAirLeader: false);
-        var selected = Singleton<RenderPosition>.Instance.getSelectedObject();
+        var selected = nativeRenderPosition.getSelectedObject();
         var selectedId = selected is not null && selected.isUnit()
             ? StableUnitId(selected)
             : string.Empty;
-        if (!string.Equals(selectedId, StableUnitId(matches[0]), StringComparison.Ordinal))
+        if (!string.Equals(selectedId, StableUnitId(target), StringComparison.Ordinal))
         {
             return Failure(
                 ProtocolErrorCodes.AutomationPostconditionFailed,
                 "Camera switch ran without selecting the requested unit.");
+        }
+
+        // A map click can select and attach a unit without reframing the 3D camera.
+        // RenderPosition.switchToObject deliberately returns early in that state, so
+        // make camera focus idempotent by also restoring the native follow framing.
+        var cameraManager = Singleton<CameraManager>.Instance;
+        cameraManager.setCurrentMode(
+            CameraManager.Mode.Follow,
+            followObjectAlreadySelected: true,
+            forceSwitch: true);
+        nativeRenderPosition.setGlobalPosition(target.getGeoPosition());
+        cameraManager.setDistanceToPivot(target.getDefaultCameraDistanceToTarget());
+        if (target is LandUnit)
+        {
+            const float landViewPitchDegrees = 30f;
+            var currentPitch = nativeRenderPosition.getRotation().eulerAngles.x;
+            if (currentPitch > 180f)
+            {
+                currentPitch -= 360f;
+            }
+            cameraManager.getCurrentCamera().rotateXY(
+                landViewPitchDegrees - currentPitch,
+                0f);
         }
 
         return Success(new UiAutomationActionResultPayload
