@@ -343,7 +343,8 @@ pnpm performance:capture -- `
 
 After a fresh restart, bootstrap and bind the full campaign, promote the
 campaign-owned Knox, wait for `Active`, remove interest until the scheduler has
-two stable samples, and require `Released` plus one visible proxy. A repeatable
+two stable samples, and require `Released` plus the full qualifying proxy set
+(currently 12 visible, non-native Knox proxies). A repeatable
 setup may pause the disposable campaign before promotion/demotion to keep its
 fixture stable, but it must resume immediately before capture. Leave Sea Power
 unpaused and require both tactical seconds and campaign quanta to advance during
@@ -352,7 +353,7 @@ every timed sample, then capture:
 ```powershell
 pnpm performance:capture -- `
   -Label dynamic-full-campaign `
-  -Workload full-4096-entity-ww3-plus-campaign-with-one-visual-proxy `
+  -Workload full-4096-entity-ww3-plus-campaign-with-12-visual-proxies `
   -CampaignId <32-char-guid> `
   -DurationSeconds 20 -SampleIntervalSeconds 2 `
   -OutputPath .run/performance/dynamic-full-campaign.json
@@ -371,6 +372,9 @@ normalized. Always inspect the reported object/entity/proxy counts and
 `anyPausedSample`; a hidden/destroyed proxy or mismatched workload invalidates a
 visual-proxy comparison even if the command succeeds. Keep `.run/performance`
 artifacts local and summarize qualifying runs in a dated evidence document.
+The current qualified pair and the associated replay/memory investigation are
+recorded in
+[Full dynamic campaign sync and performance proof](../evidence/full-dynamic-campaign-sync-performance-2026-08-23.md).
 
 ## Deterministic UI smoke
 

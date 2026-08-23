@@ -2,7 +2,7 @@
 
 ## Snapshot
 
-Reviewed from `main` at `5c4302c` through the local tactical-sync POC branch on
+Reviewed from `main` through the 4,096-entity live tactical-sync qualification on
 23 August 2026 and against the installed Sea Power build
 `0.8.2-23444+s358`. This is the living status ledger. Dated files in
 `docs/evidence/` remain the proof record; the phase plan remains the target and
@@ -28,12 +28,12 @@ principal-separated browser writes remain open before an alpha.
 | Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, prepared coordinator appends, ordinary snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No qualified long-journal envelope; independent defensive replay remains intentionally slower than prepared in-process appends |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and basic AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not Sea Power parity; projected ground objects are primarily attackable targets and detailed ground-ground combat is deliberately absent |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, resident strategic-system policy, Primary/Shadow fencing, cold reconstruction, migration protocol | Strategic SAM/radar/ballistic islands stay Operational without a compatible worker and request constant Tactical presence with one; live two-container completion remains unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC was proven against the former 60-entity seed and theater-aligned GIUK mission; the expanded 4,096-entity seed has headless campaign proof but still needs the live sync/performance comparison rerun; one authoritative surface family and one exact proxy profile |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC is now proven with the full 4,096-entity seed and theater-aligned GIUK mission, including promotion/release and 12 visual-only proxies; one authoritative surface family and one exact proxy profile |
 | WW3++ scenario content | 4,096 deterministic opening entities: full usable installed catalog coverage (241 vessels, 111 aircraft, 187 land units/sites), two-ocean US and Soviet global fleets, China/Japan and regional participation, Soviet-aligned Cuba, 38 defended airbase complexes, 149 helicopters, 984 physical ground targets, theater IADS/coastal batteries, ports, industry, depots, sealift, and civilian traffic | Research provenance and authored what-if premises are tracked; opening sorties exist, but recurring air tasking, neutral diplomacy/multi-coalition relations, and runtime materializers for ground/installations/rotary-wing are not implemented |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
-| Performance comparison | Repeatable vanilla/candidate capture and JSON comparison for FPS, snapshot latency, clocks, object/proxy counts, process CPU/memory, and campaign throughput | 20-second local system profile only; not unit-count normalized or a soak/load envelope |
+| Performance comparison | Qualified vanilla/candidate capture and JSON comparison for FPS, snapshot latency, clocks, object/proxy counts, process CPU/memory, and campaign throughput; current full-seed pair measured 60.000 average FPS candidate versus 60.001 vanilla | 20-second local system profile plus short reconnect/memory proof only; not unit-count normalized or a soak/load envelope |
 | Runtime geometry | Durable versioned collider cache and optional meter-space Bepu terminal silhouette | Optional analogue path; no armor/penetration model |
 
 ## Documentation drift found in this review
@@ -59,7 +59,10 @@ These are prerequisites, not release-polish tasks:
    appends now reuse immutable recovered state after checking the durable SQLite
    head, and the full protocol story passes in 1 minute 3 seconds. A clean
    30-quanta advance measured 2.065 seconds; cold recovery plus a full diagnostic
-   view measured 1.189 seconds at commit 5,893. A
+   view measured 1.189 seconds at commit 5,893. The default unattended loop now
+   reads that cache instead of retaining a fresh replay across every timer wait;
+   at live head 9,300 the service held 77.2 MiB of managed objects rather than
+   the observed pre-fix 1.0-1.2 GiB sawtooth. A
    10,000-commit restart/recovery/storage envelope is still unqualified.
 2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
    schema or algorithm version other than the compiled constants. There is no
@@ -174,8 +177,9 @@ slice, then traverse that slice vertically:
 1. close the HTTP content-type bypass and implement scoped
    companion/worker/operator/player credentials plus an authenticated hosted
    browser write channel;
-2. qualify the 100-commit snapshot cadence and/or add a safe recovered-head
-   cache, then prove bounded behavior on at least 10,000 commits;
+2. extend the recovered-head cache and 100-commit snapshot evidence through at
+   least 10,000 commits, including cold restart, storage, and full-event payload
+   bounds;
 3. choose and implement campaign save-contract evolution, proving that a saved
    campaign can cross one schema and one algorithm change;
 4. soak the heartbeat-renewed tactical lease across service/game restarts and
