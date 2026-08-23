@@ -35,6 +35,7 @@ internal static class CampaignSimulation
     private const long MetersPerRegionHop = 160_000;
     private const long VisualContactMeters = 20_000;
     private const long StandoffMeters = 8_000;
+    private const long MaximumSensorHorizonMeters = 350_000;
     private const int TelegraphStop = 0;
     private const int TelegraphCruise = 2;
     private const int TelegraphIntercept = 3;
@@ -81,11 +82,21 @@ internal static class CampaignSimulation
     private static TickResult ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
     {
         var withIntent = ResolveAiIntent(state, dueAt);
+        var hostileCoalitionsByRegion = withIntent.Entities.Values
+            .Where(item => CanBeAttacked(withIntent, item))
+            .GroupBy(item => item.RegionId)
+            .ToDictionary(
+                item => item.Key,
+                item => item.Select(entity => entity.CoalitionId).ToHashSet());
         var movementResults = new ConcurrentBag<GroupMovementResult>();
         Parallel.ForEach(
             withIntent.Groups.Values,
             new ParallelOptions { MaxDegreeOfParallelism = workerCount },
-            group => movementResults.Add(ResolveMovement(withIntent, group, dueAt)));
+            group => movementResults.Add(ResolveMovement(
+                withIntent,
+                group,
+                dueAt,
+                hostileCoalitionsByRegion)));
 
         var entities = withIntent.Entities;
         var groups = withIntent.Groups;
@@ -203,7 +214,11 @@ internal static class CampaignSimulation
         return state with { Groups = groups, Orders = orders };
     }
 
-    private static GroupMovementResult ResolveMovement(CampaignState state, GroupState group, CampaignTime dueAt)
+    private static GroupMovementResult ResolveMovement(
+        CampaignState state,
+        GroupState group,
+        CampaignTime dueAt,
+        IReadOnlyDictionary<RegionId, HashSet<CoalitionId>> hostileCoalitionsByRegion)
     {
         if (group.ActiveOrderId is not { } orderId
             || !state.Orders.TryGetValue(orderId, out var order)
@@ -257,7 +272,7 @@ internal static class CampaignSimulation
             var effectiveNext = inboundTorpedo ? entity.RegionId : next;
             var moved = effectiveNext != entity.RegionId;
             var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
-            var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
+            var hostileAhead = HasHostileInRegion(hostileCoalitionsByRegion, next, entity.CoalitionId);
             var desired = hostileAhead && remaining > StandoffMeters
                 ? remaining - StandoffMeters
                 : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
@@ -382,7 +397,7 @@ internal static class CampaignSimulation
                     return false;
                 }
                 var remaining = RoundedGreatCircleDistanceMeters(entity.Coordinate, destination);
-                var hostileAhead = HasHostileInRegion(state, next, entity.CoalitionId);
+                var hostileAhead = HasHostileInRegion(hostileCoalitionsByRegion, next, entity.CoalitionId);
                 var desired = hostileAhead && remaining > StandoffMeters
                     ? remaining - StandoffMeters
                     : hostileAhead && remaining <= StandoffMeters ? 0 : remaining;
@@ -449,35 +464,43 @@ internal static class CampaignSimulation
             .Where(item => IsOperational(state, item))
             .OrderBy(item => item.EntityId)
             .ToArray();
-        for (var index = 1; index < ordered.Length; index++)
+        var priorByRegion = new Dictionary<RegionId, List<EntityId>>();
+        foreach (var orderedEntity in ordered)
         {
-            var entity = entities[ordered[index].EntityId];
-            if (entity.Coordinate == beforeMovement.Entities[entity.EntityId].Coordinate)
+            var entity = entities[orderedEntity.EntityId];
+            if (entity.Coordinate != beforeMovement.Entities[entity.EntityId].Coordinate
+                && priorByRegion.TryGetValue(entity.RegionId, out var priorEntities))
             {
-                continue;
-            }
-            for (var prior = 0; prior < index; prior++)
-            {
-                var other = entities[ordered[prior].EntityId];
-                if (!CanCollide(entity, other))
+                foreach (var priorEntityId in priorEntities)
                 {
-                    continue;
-                }
-                var distance = RoundedGreatCircleDistanceMeters(entity.Coordinate, other.Coordinate);
-                if (distance >= 400)
-                {
-                    continue;
-                }
+                    var other = entities[priorEntityId];
+                    if (!CanCollide(entity, other))
+                    {
+                        continue;
+                    }
+                    var distance = RoundedGreatCircleDistanceMeters(entity.Coordinate, other.Coordinate);
+                    if (distance >= 400)
+                    {
+                        continue;
+                    }
 
-                var heading = (entity.Heading.Value + 90_000) % 360_000;
-                var coordinate = DisplaceAlongBearing(entity.Coordinate, heading, 180);
-                if (coordinate != entity.Coordinate)
-                {
-                    entity = entity with { Coordinate = coordinate, Revision = entity.Revision.Next() };
-                    entities = entities.SetItem(entity.EntityId, entity);
+                    var heading = (entity.Heading.Value + 90_000) % 360_000;
+                    var coordinate = DisplaceAlongBearing(entity.Coordinate, heading, 180);
+                    if (coordinate != entity.Coordinate)
+                    {
+                        entity = entity with { Coordinate = coordinate, Revision = entity.Revision.Next() };
+                        entities = entities.SetItem(entity.EntityId, entity);
+                    }
+                    break;
                 }
-                break;
             }
+
+            if (!priorByRegion.TryGetValue(entity.RegionId, out var regionEntities))
+            {
+                regionEntities = [];
+                priorByRegion.Add(entity.RegionId, regionEntities);
+            }
+            regionEntities.Add(entity.EntityId);
         }
         return state with { Entities = entities };
     }
@@ -513,6 +536,10 @@ internal static class CampaignSimulation
     {
         var bases = state.Bases;
         var entities = state.Entities;
+        var activelyOrderedEntities = state.Groups.Values
+            .Where(item => item.ActiveOrderId is not null)
+            .SelectMany(item => item.Members)
+            .ToHashSet();
         foreach (var original in state.Entities.Values)
         {
             var entity = entities[original.EntityId];
@@ -533,7 +560,7 @@ internal static class CampaignSimulation
             if (entity.HomeBaseId is { } homeBaseId
                 && bases.TryGetValue(homeBaseId, out var found)
                 && found.RegionId == entity.RegionId
-                && !IsActivelyOrdered(state, entity.EntityId))
+                && !activelyOrderedEntities.Contains(entity.EntityId))
             {
                 home = found;
                 (resources, home, baseChanged) = Replenish(resources, home);
@@ -718,6 +745,7 @@ internal static class CampaignSimulation
         var coveredTargets = state.InFlight.Select(item => item.TargetEntityId).ToHashSet();
         var guidanceLoad = state.InFlight.GroupBy(item => item.ShooterEntityId)
             .ToDictionary(item => item.Key, item => item.Count());
+        var latitudeIndex = new EntityLatitudeIndex(entities.Values);
         var bids = new List<(
             EntityState Actor,
             EntityState Entity,
@@ -734,7 +762,8 @@ internal static class CampaignSimulation
                 continue;
             }
 
-            var selected = entities.Values
+            var maximumRange = EffectiveWeapons(actor).Max(item => item.MaximumRange.Value);
+            var selected = latitudeIndex.WithinRange(actor.Coordinate, maximumRange)
                 .Where(item => item.CoalitionId != actor.CoalitionId
                     && CanBeAttacked(liveState, item)
                     && !coveredTargets.Contains(item.EntityId))
@@ -938,23 +967,38 @@ internal static class CampaignSimulation
             .Distinct()
             .OrderBy(item => item)
             .ToArray();
+        var combatContactsByObserver = coalitions.ToDictionary(
+            item => item,
+            _ => new HashSet<EntityId>());
+        foreach (var outcome in engagementOutcomes)
+        {
+            foreach (var observer in coalitions.Where(item => CoalitionParticipated(state, item, outcome)))
+            {
+                combatContactsByObserver[observer].Add(outcome.ActorEntityId);
+                if (outcome.TargetEntityId is { } targetEntityId)
+                {
+                    combatContactsByObserver[observer].Add(targetEntityId);
+                }
+            }
+        }
         foreach (var observer in coalitions)
         {
             var sensors = state.Entities.Values
                 .Where(item => item.CoalitionId == observer && CanSense(state, item))
                 .ToArray();
+            var sensorLatitudeIndex = new EntityLatitudeIndex(sensors);
             foreach (var contact in state.Entities.Values.Where(item => item.CoalitionId != observer))
             {
                 var key = new IntelligenceKey(observer, contact.EntityId);
                 var scoredSensors = CanBeAttacked(state, contact)
-                    ? sensors.Select(sensor => (Sensor: sensor, Score: DetectionScore(state, sensor, contact)))
+                    ? sensorLatitudeIndex
+                        .WithinRange(contact.Coordinate, MaximumSensorHorizonMeters)
+                        .Select(sensor => (Sensor: sensor, Score: DetectionScore(state, sensor, contact)))
                         .Where(item => item.Score > 0)
                         .ToArray()
                     : [];
                 var score = scoredSensors.Select(item => item.Score).DefaultIfEmpty(0).Max();
-                var combatObserved = engagementOutcomes.Any(item =>
-                    (item.ActorEntityId == contact.EntityId || item.TargetEntityId == contact.EntityId)
-                    && CoalitionParticipated(state, observer, item));
+                var combatObserved = combatContactsByObserver[observer].Contains(contact.EntityId);
                 if (combatObserved)
                 {
                     score = Math.Max(score, 950);
@@ -1091,9 +1135,6 @@ internal static class CampaignSimulation
         }
         return origin;
     }
-
-    private static bool IsActivelyOrdered(CampaignState state, EntityId entityId) =>
-        state.Groups.Values.Any(item => item.Members.Contains(entityId) && item.ActiveOrderId is not null);
 
     private static bool IsOperational(CampaignState state, EntityState entity) =>
         entity.Lifecycle is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired)
@@ -1905,10 +1946,12 @@ internal static class CampaignSimulation
         return occupant?.Coordinate ?? fallback;
     }
 
-    private static bool HasHostileInRegion(CampaignState state, RegionId region, CoalitionId coalition) =>
-        state.Entities.Values.Any(item => item.RegionId == region
-            && item.CoalitionId != coalition
-            && CanBeAttacked(state, item));
+    private static bool HasHostileInRegion(
+        IReadOnlyDictionary<RegionId, HashSet<CoalitionId>> coalitionsByRegion,
+        RegionId region,
+        CoalitionId coalition) =>
+        coalitionsByRegion.TryGetValue(region, out var present)
+        && present.Any(item => item != coalition);
 
     private static HeadingMilliDegrees HeadingToward(
         GeoCoordinate origin,
@@ -2326,6 +2369,58 @@ internal static class CampaignSimulation
 
     private static ScheduledCampaignActivity ToContract(ScheduledActivityState item) => new(
         item.ActivityId, item.Kind, item.Subject, item.DueAt, item.Revision);
+
+    private sealed class EntityLatitudeIndex
+    {
+        private readonly EntityState[] _entities;
+
+        public EntityLatitudeIndex(IEnumerable<EntityState> entities)
+        {
+            _entities = entities
+                .OrderBy(item => item.Coordinate.LatitudeMicrodegrees)
+                .ThenBy(item => item.EntityId)
+                .ToArray();
+        }
+
+        public IEnumerable<EntityState> WithinRange(GeoCoordinate coordinate, long rangeMeters)
+        {
+            if (rangeMeters < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(rangeMeters));
+            }
+
+            var latitudeDelta = checked((long)Math.Ceiling(
+                rangeMeters * 180d * 1_000_000d / (Math.PI * MeanEarthRadiusMeters)) + 1L);
+            var minimum = Math.Max(-90_000_000L, coordinate.LatitudeMicrodegrees - latitudeDelta);
+            var maximum = Math.Min(90_000_000L, coordinate.LatitudeMicrodegrees + latitudeDelta);
+            var index = LowerBound(minimum);
+            while (index < _entities.Length
+                && _entities[index].Coordinate.LatitudeMicrodegrees <= maximum)
+            {
+                yield return _entities[index];
+                index++;
+            }
+        }
+
+        private int LowerBound(long latitudeMicrodegrees)
+        {
+            var low = 0;
+            var high = _entities.Length;
+            while (low < high)
+            {
+                var middle = low + (high - low) / 2;
+                if (_entities[middle].Coordinate.LatitudeMicrodegrees < latitudeMicrodegrees)
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle;
+                }
+            }
+            return low;
+        }
+    }
 
     private sealed record GroupMovementResult(
         GroupId GroupId,
