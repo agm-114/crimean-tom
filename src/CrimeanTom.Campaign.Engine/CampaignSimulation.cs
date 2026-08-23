@@ -69,11 +69,26 @@ internal static class CampaignSimulation
 
         return new CampaignSimulatedEvent(
             target,
-            world.Entities.Values.Select(ToUpdate).ToArray(),
-            world.Bases.Values.Select(ToUpdate).ToArray(),
-            world.Groups.Values.Select(ToUpdate).ToArray(),
-            world.Orders.Values.Select(ToUpdate).ToArray(),
-            world.Intelligence.Values.Select(ToUpdate).ToArray(),
+            world.Entities.Values
+                .Where(item => !state.Entities.TryGetValue(item.EntityId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.Bases.Values
+                .Where(item => !state.Bases.TryGetValue(item.BaseId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.Groups.Values
+                .Where(item => !state.Groups.TryGetValue(item.GroupId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.Orders.Values
+                .Where(item => !state.Orders.TryGetValue(item.OrderId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
+            world.Intelligence.Values
+                .Where(item => !state.Intelligence.TryGetValue(item.Key, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
             outcomes,
             activities.Values.Select(ToContract).ToArray(),
             world.InFlight.ToArray());

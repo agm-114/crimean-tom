@@ -999,14 +999,12 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             {
                 if (theater.Events[index].Data is CampaignSimulatedEvent simulation)
                 {
-                    var changedEntities = simulation.Entities.ToArray();
-                    changedEntities[0] = changedEntities[0] with
-                    {
-                        ReadinessMilliUnits = Math.Max(0, changedEntities[0].ReadinessMilliUnits - 1),
-                    };
                     var fabricated = theater.Events[index] with
                     {
-                        Data = simulation with { Entities = changedEntities },
+                        Data = simulation with
+                        {
+                            NewTime = new CampaignTime(checked(simulation.NewTime.Quanta + 1)),
+                        },
                     };
                     var rejected = await Assert.ThrowsAsync<CampaignStoreConflict>(() =>
                         journal.AppendAsync(lease, theater.Commands[index], fabricated, now));
