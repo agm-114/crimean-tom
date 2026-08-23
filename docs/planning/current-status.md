@@ -2,14 +2,15 @@
 
 ## Snapshot
 
-Reviewed from `main` through the 4,096-entity live tactical-sync qualification on
-23 August 2026 and against the installed Sea Power build
+Reviewed through algorithm-v15 strategic-AI, physical-movement, full-scale
+recovery, and live land-streaming qualification on 24 August 2026 and against
+the installed Sea Power build
 `0.8.2-23444+s358`. This is the living status ledger. Dated files in
 `docs/evidence/` remain the proof record; the phase plan remains the target and
 gate definition.
 
-The repository is an advanced campaign-runtime prototype with a narrow local
-tactical-sync and friendly-render-proxy POC, not yet a complete playable
+The repository is an advanced campaign-runtime prototype with a local
+tactical-sync, land-target, and friendly-render-proxy POC, not yet a complete playable
 dynamic-campaign product. Its
 strongest areas are deterministic reduction and
 replay, authority fencing, the Sea Power control boundary, broad integration
@@ -23,13 +24,13 @@ principal-separated browser writes remain open before an alpha.
 
 | Area | Current capability | Qualification |
 | --- | --- | --- |
-| Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface mutation, checkpoints, collider capture | Pinned game build; narrow allow-list |
-| Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash; sourced 55-region/81-base/4,096-entity WW3++ proving seed | Broad integration story and golden hashes; the 5,892-record bootstrap completes locally in about eight seconds |
-| Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, prepared coordinator appends, ordinary snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No qualified long-journal envelope; independent defensive replay remains intentionally slower than prepared in-process appends |
-| Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and basic AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not Sea Power parity; projected ground objects are primarily attackable targets and detailed ground-ground combat is deliberately absent |
+| Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface and land/installation mutation, terrain preparation/probing, checkpoints, collider capture | Pinned game build; narrow allow-list of one surface and six land/installation profiles |
+| Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash; sourced 55-region/81-base/4,096-entity WW3++ proving seed; two-sided strategic AI persists coalition strategies, objectives, group commitments, and operational orders | Broad integration story and golden hashes; algorithm v15 full seed bootstrapped locally in 10.39 seconds and produced 802 referenced active orders after 20 strategic cycles |
+| Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, field-level compressed simulation events, completed-order retirement, prepared coordinator appends, ordinary snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | Algorithm-v15 4,096-entity cold recovery matched its hash in 1.70 seconds; 20 movement-heavy cycles grew the journal 14.1 MB, but a 10,000-commit retention/compaction envelope remains unqualified |
+| Operational simulation | Unattended physical-distance movement toward graph-leg anchors, domain-scaled fuel/stores, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and operational sub-AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not full Sea Power parity; movement no longer teleports one region or creates damage merely by travelling; detailed ground-ground combat remains deliberately absent |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, resident strategic-system policy, Primary/Shadow fencing, cold reconstruction, migration protocol | Strategic SAM/radar/ballistic islands stay Operational without a compatible worker and request constant Tactical presence with one; live two-container completion remains unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC is now proven with the full 4,096-entity seed and theater-aligned GIUK mission, including promotion/release and 12 visual-only proxies; one authoritative surface family and one exact proxy profile |
-| WW3++ scenario content | 4,096 deterministic opening entities: full usable installed catalog coverage (241 vessels, 111 aircraft, 187 land units/sites), two-ocean US and Soviet global fleets, China/Japan and regional participation, Soviet-aligned Cuba, 38 defended airbase complexes, 149 helicopters, 984 physical ground targets, theater IADS/coastal batteries, ports, industry, depots, sealift, and civilian traffic | Research provenance and authored what-if premises are tracked; opening sorties exist, but recurring air tasking, neutral diplomacy/multi-coalition relations, and runtime materializers for ground/installations/rotary-wing are not implemented |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface state; terrain-gated ground/installation materialization and lifecycle; visual-only projection of other deployed friendly Knox-class vessels; idempotent typed camera focus for native land/surface or visual-proxy units; pause/restore and stale-authority containment | Full-seed scheduler proof plus live Ramstein small-airbase proof: 265.249 m terrain, +0.067 m clearance, 265 ms materialization, and visible repeated focus in 311 ms; surface readback is broader than land readback and proxy coverage remains one exact profile |
+| WW3++ scenario content | 4,096 deterministic opening entities: full usable installed catalog coverage (241 vessels, 111 aircraft, 187 land units/sites), two-ocean US and Soviet global fleets, China/Japan and regional participation, Soviet-aligned Cuba, 38 defended airbase complexes, 149 helicopters, 984 physical ground targets, theater IADS/coastal batteries, ports, industry, depots, sealift, and civilian traffic | Research provenance and authored what-if premises are tracked; opening sorties exist and six ground/installation profiles can materialize, but recurring air tasking, neutral diplomacy/multi-coalition relations, rotary-wing materialization, and general catalog coverage remain open |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
@@ -109,10 +110,11 @@ These are prerequisites, not release-polish tasks:
    play, and returns cleanly to the campaign. Prove the fate of a
    campaign-owned hostile, not only owned-vessel kinematics/resources/damage.
 4. **Broaden portable state and entity families.** Qualify or add aircraft,
-   subsurface, base/land, formation, and hosted-aircraft materialization. Apply
+   rotary-wing, subsurface, general base/land, formation, and hosted-aircraft materialization. Apply
    or explicitly model damage, fuel, magazines, sensors, formations, and hosted
    children instead of leaving them fenced as unsupported fields. The local
-   friendly render-proxy slice covers only deployed Knox-class maritime units;
+   land POC covers M60, M113, Vulcan, MIM-23 launcher, EWR, and small-airbase
+   profiles, while the friendly render-proxy slice covers only deployed Knox-class maritime units;
    move it to a coalition-scoped service projection and add catalog-specific
    proxy profiles before treating it as a general theater view. Typed proxy
    focus and the theater-aligned GIUK proof close the earlier navigation gap,

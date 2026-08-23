@@ -51,8 +51,10 @@ companion instead of desktop screenshots:
   after the current frame, writes `_CrimeanTomScreenshot.png` beside experimental
   saves, and returns path/hash metadata. `GET /game/screenshot/image` serves that
   PNG. The 256 KiB pipe never carries the image bytes.
-- `POST /game/automation/camera/focus` with `{ "unitId": "unit:42" }` calls
-  `RenderPosition.switchToObject`.
+- `POST /game/automation/camera/focus` with `{ "unitId": "unit:42" }` selects
+  the native object or render proxy and restores a deterministic follow
+  framing. Native land units use an elevated oblique view; repeating focus on
+  an already-selected unit still reframes it.
 - `POST /game/automation/hud` with `{ "panel": "map"|"formation"|"hud"|"pause-resume" }`
   toggles those typed HUD surfaces.
 

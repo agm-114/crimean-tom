@@ -110,6 +110,10 @@ The folders separate evidence from design commitments:
 34. [Full-catalog WW3++ expansion evidence](evidence/full-catalog-ww3-plus-expansion-2026-08-23.md)
     records the 4,096-entity inventory, installed-platform coverage, local
     verification, and historical/authored-scenario boundary.
+35. [Strategic AI, parity, and land-streaming evidence](evidence/strategic-ai-parity-and-land-streaming-2026-08-24.md)
+    records algorithm-v15 full-scale strategic/operational execution, physical
+    movement calibration, cold recovery, terrain-safe installation spawning,
+    and Computer Use player-camera verification.
 
 ## Evidence labels
 

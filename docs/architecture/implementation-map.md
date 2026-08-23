@@ -2,7 +2,7 @@
 
 ## Purpose and status
 
-This document maps the code that exists in the repository as of 23 August 2026.
+This document maps the code that exists in the repository as of 24 August 2026.
 It complements [System architecture](system-architecture.md), which describes
 the normative target. A target component or transport must not be inferred to
 exist merely because it appears in a design diagram.
@@ -49,19 +49,19 @@ or realtime player client.
 
 | Project | Implemented responsibility | Important boundary |
 | --- | --- | --- |
-| `SeaPower.RuntimeBridge` | AnchorChain-loaded Unity adapter; capability/world extraction; typed UI automation; controlled surface-unit mutation; checkpoints; collider capture; experimental tick/save probes | Runs on Unity's main thread and contains no campaign persistence or remote credentials |
+| `SeaPower.RuntimeBridge` | AnchorChain-loaded Unity adapter; capability/world extraction; typed UI automation; controlled surface and allow-listed land/installation mutation; tactical terrain preparation/probing; checkpoints; collider capture; experimental tick/save probes | Runs on Unity's main thread and contains no campaign persistence or remote credentials |
 | `CrimeanTom.Contracts` | Bounded local pipe envelopes and payloads shared by Mono and .NET 8 | No Sea Power types or campaign policy |
 | `CrimeanTom.LoadAcceleration` | Installed-data lookup, persistent file hashes, and versioned collider geometry cache | Portable .NET Standard code shared by bridge, companion, and campaign engine |
 | `CrimeanTom.Companion` | Current-user named-pipe broker, authenticated loopback HTTP, durable outbound spool, campaign gRPC client, checkpoint/content transfer, port-operations projection | Never owns canonical campaign truth; currently holds the shared campaign-service bearer token |
 | `CrimeanTom.Campaign.Contracts` | Stable IDs, quantized values, commands, events, fidelity and authority types | No Unity or persistence implementation |
 | `CrimeanTom.Campaign.Domain` | Immutable canonical state, invariants, coalition projections | Pure deterministic state model |
 | `CrimeanTom.Campaign.Engine` | Command reduction, deterministic simulation, canonical serialization, operational combat, optional Bepu collider-assisted terminal resolution | Does not write storage or call Sea Power |
-| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost snapshots every 100 commits but has no recovered-state cache |
+| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, compressed field-level simulation events, recovered-head state cache, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost snapshots every 100 commits and validates cached state against the durable head |
 | `CrimeanTom.Campaign.Transport` | Generated bidirectional gRPC/Protobuf companion and worker protocol | Machine/control transport only; not a player UI protocol |
 | `CrimeanTom.Campaign.ServiceHost` | ASP.NET Core host, coordinator, scheduler, migration fences, sessions, HTTP control/projection APIs, worker supervisor, unattended in-process simulation | Sole allocator of campaign time, authority, and commits |
 | `CrimeanTom.Campaign.OperationalWorker` | Campaign-spawned process identity, health, capacity, ordered stream participation, assignment fencing | Does not execute `CampaignSimulation`; receives the shared service token and its health/capacity are self-reported |
 | `CrimeanTom.CallsiteInventory` | Pinned Sea Power deterministic-hook/call-site inspection | Development diagnostic only |
-| `CrimeanTom.Campaign.PersistenceProbe` | Abrupt-exit and writer-lock persistence fault probe | Development/qualification tool only |
+| `CrimeanTom.Campaign.PersistenceProbe` | Abrupt-exit and writer-lock persistence fault probe plus read-only recovered-state inspection | Development/qualification tool only |
 | `apps/campaign-monitor` | Babylon/TypeScript operator map, hierarchy, telemetry, scheduler and outcome display, Fulda seed convenience | Read-mostly operator surface; not the multiplayer client |
 
 The broad integration suites are intentionally cross-component:
@@ -78,10 +78,13 @@ typed `CampaignCommand`, reduces it through `CampaignKernel`, and appends the
 command/events under a compare-and-swap writer epoch in `SqliteCampaignJournal`.
 Snapshot APIs accelerate recovery but do not replace the ordered event head.
 ServiceHost saves a canonical snapshot every 100 commits, bounding the ordinary
-replay tail while retaining the append-only journal. The coordinator still has
-no recovered-head cache, and every append performs another recovery inside its
-transaction before accepting the canonical event. Long-journal throughput has
-not been qualified.
+replay tail while retaining the append-only journal. The coordinator keeps an
+immutable recovered-state cache and checks it against the durable head before
+reuse. Large simulation payloads are stored as deterministic field-level
+patches and Brotli-compressed journal bytes while canonical hashes remain over
+the uncompressed contract. Completed strategic orders are removed from state
+and their subject-revision rows are retired. Long-journal retention and
+compaction beyond the current short full-scale proof remain unqualified.
 
 ### Unattended Operational simulation
 
@@ -104,7 +107,11 @@ translates assignment/checkpoint frames to allow-listed Runtime Bridge commands.
 Destroyed and retired entities remain in canonical history but are excluded
 from scheduler island construction, so later interest-policy changes cannot
 attempt invalid fidelity transitions or place terminal entities with workers.
-The implemented portable mutation family is owned surface units. Preparation,
+The implemented portable mutation families are one owned surface profile and
+six allow-listed ground/installation profiles. Land preparation relocates the
+floating origin, waits for loaded/finalized/flattened land terrain, samples the
+terrain height, and rejects water or unready placement before construction.
+Preparation,
 staging, activation grants, quiesce/release, and late-epoch rejection exist;
 live two-Sea-Power migration is not qualified. No evidence yet demonstrates a
 tactical loss against a campaign-owned hostile being committed back into the
@@ -154,6 +161,12 @@ object or a unique visible presentation-only proxy. Proxy focus attaches
 `RenderPosition` to the proxy model root and returns the distinct postcondition
 `camera-focused-on-visual-render-proxy`; the pinned camera seam fingerprints the
 pivot switch and pivot readback methods before enabling the command.
+Native focus is idempotent: it restores follow mode, target geodetic position,
+and native default distance even if a prior map/formation selection already
+attached the same unit. `LandUnit` targets receive an elevated 30-degree
+oblique framing so a successful selection cannot leave the player looking at a
+stale horizon. This behavior was verified live with a campaign-owned small
+airbase on finalized Ramstein terrain.
 
 This is a trusted local projection path, not the final multiplayer transport.
 The companion currently derives it from the privileged diagnostic campaign
@@ -193,7 +206,7 @@ in-memory presentation records and do not issue canonical campaign orders.
 | --- | --- |
 | SignalR/MessagePack realtime player UI | No SignalR dependency or hub; HTTP polling only |
 | Campaign-owned distributed Operational execution | Worker spawn/placement exists; simulation remains in ServiceHost |
-| Multi-family tactical materialization | Portable owned-surface-unit family plus visual-only friendly Knox model/map proxies, with a fenced native fallback; other families are absent |
+| Multi-family tactical materialization | One portable owned-surface family, six terrain-gated ground/installation profiles, plus visual-only friendly Knox model/map proxies with a fenced native fallback; aircraft, rotary-wing, and subsurface families are absent |
 | Complete portable tactical state | Damage, fuel, magazine, sensor, formation, and hosted-aircraft application remain explicitly unsupported/fenced |
 | Hot Shadow convergence and failover | Cold checkpoint/Operational fallback only |
 | Packaged player application | Developer-run .NET/TypeScript projects; no clean-machine installer/updater |

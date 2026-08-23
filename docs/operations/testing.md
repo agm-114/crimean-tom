@@ -520,6 +520,20 @@ covering movement, logistics, detection, repair, and reducers together, plus:
 - schema migration tests for every persisted version;
 - catalog compatibility tests against the installed data fingerprint.
 
+For a read-only production-journal recovery summary, use the existing
+persistence probe:
+
+```powershell
+dotnet src/CrimeanTom.Campaign.PersistenceProbe/bin/Debug/net8.0/CrimeanTom.Campaign.PersistenceProbe.dll `
+  inspect <campaign.db> <blob-directory> <campaign-id>
+```
+
+The JSON reports the stored schema/algorithm versions, head/time, entity and
+group counts, active/completed/unreferenced order counts, objective/commitment
+counts, recovery duration, and the recomputed canonical hash. Run it in a
+separate process so the measurement exercises ordinary journal recovery rather
+than ServiceHost's in-memory cache.
+
 ### Essential invariants
 
 - A unit instance has one canonical location/revision at a campaign tick, even

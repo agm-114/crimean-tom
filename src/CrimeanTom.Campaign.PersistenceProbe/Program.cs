@@ -1,7 +1,45 @@
 using System.Diagnostics;
+using System.Text.Json;
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Engine;
 using CrimeanTom.Campaign.Service;
+
+if (args.Length == 4 && args[0] == "inspect")
+{
+    var inspectedJournal = new SqliteCampaignJournal(
+        Path.GetFullPath(args[1]),
+        Path.GetFullPath(args[2]));
+    await inspectedJournal.InitializeAsync();
+    var inspectedCampaignId = new CampaignId(Guid.Parse(args[3]));
+    var recoveryWatch = Stopwatch.StartNew();
+    var recovered = await inspectedJournal.RecoverAsync(inspectedCampaignId);
+    recoveryWatch.Stop();
+    var state = recovered.State;
+    var activeOrderIds = state.Groups.Values
+        .Where(group => group.ActiveOrderId is not null)
+        .Select(group => group.ActiveOrderId!.Value)
+        .ToHashSet();
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        campaignId = inspectedCampaignId.ToString(),
+        schemaVersion = state.Metadata.SchemaVersion,
+        algorithmVersion = state.Metadata.AlgorithmVersion,
+        commitPosition = state.Head.Value,
+        timeQuanta = state.Time.Quanta,
+        entityCount = state.Entities.Count,
+        groupCount = state.Groups.Count,
+        orderCount = state.Orders.Count,
+        activeOrderCount = activeOrderIds.Count,
+        completedOrderCount = state.Orders.Values.Count(order => order.CompletedAt is not null),
+        unreferencedOrderCount = state.Orders.Keys.Count(orderId => !activeOrderIds.Contains(orderId)),
+        strategicObjectiveCount = state.StrategicObjectives.Count,
+        groupCommitmentCount = state.GroupCommitments.Count,
+        recentOperationalOutcomeCount = state.RecentOperationalOutcomes.Length,
+        recoveryMilliseconds = Math.Round(recoveryWatch.Elapsed.TotalMilliseconds, 1),
+        canonicalHash = CampaignCanonicalSerializer.ComputeHash(state),
+    }));
+    return 0;
+}
 
 if (args.Length == 6 && args[0] == "hold-writer")
 {
