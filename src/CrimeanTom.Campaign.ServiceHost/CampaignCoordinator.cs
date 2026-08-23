@@ -26,6 +26,7 @@ public sealed class CampaignCoordinator(
     private static readonly PlayerId ServicePlayer = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000002"));
     private readonly ConcurrentDictionary<CampaignId, CampaignWriterLease> _leases = new();
+    private readonly ConcurrentDictionary<CampaignId, CachedCampaignState> _stateCache = new();
     // Pre-commit staged readiness only. Companion outbound StageFinalCheckpoint
     // frames are durable and resent, so a coordinator restart before commit
     // recovers by re-queueing staging. After TacticalIslandMigratedEvent,
@@ -44,7 +45,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (state.Head != CommitPosition.Origin)
             {
                 throw new CampaignStoreConflict("campaign-not-empty", "Bootstrap requires an empty campaign.");
@@ -132,7 +133,7 @@ public sealed class CampaignCoordinator(
                 harbor.ToString(),
                 offshore.ToString(),
                 state.Head.Value,
-                CampaignCanonicalSerializer.ComputeHash(state));
+                CanonicalHash(state));
         }
         finally
         {
@@ -148,7 +149,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (state.Head != CommitPosition.Origin)
             {
                 throw new CampaignStoreConflict("campaign-not-empty", "Fulda Gap bootstrap requires an empty campaign.");
@@ -332,7 +333,7 @@ public sealed class CampaignCoordinator(
         try
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             return (await PrepareHandoffCoreAsync(state, request, cancellationToken)).Assignment;
         }
         finally
@@ -351,7 +352,7 @@ public sealed class CampaignCoordinator(
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
             var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (!state.Assignments.TryGetValue(assignmentId, out var assignment)
                 || (assignment.Lifecycle != AssignmentLifecycle.Preparing
                     && !(assignment.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Shadow
@@ -385,7 +386,7 @@ public sealed class CampaignCoordinator(
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
             var entityId = ParseId(request.CanonicalEntityId, value => new EntityId(value));
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (campaignId != state.Metadata.CampaignId)
             {
                 throw new CampaignStoreConflict("campaign-mismatch", "The Shadow campaign does not match canonical state.");
@@ -638,7 +639,7 @@ public sealed class CampaignCoordinator(
                     "invalid-preferred-worker",
                     "Source worker preparation requires a preferred connected worker client instance ID.");
             }
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (campaignId != state.Metadata.CampaignId)
             {
                 throw new CampaignStoreConflict("campaign-mismatch", "The source campaign does not match canonical state.");
@@ -874,7 +875,7 @@ public sealed class CampaignCoordinator(
             {
                 throw new CampaignStoreConflict("invalid-idempotency-key", "Island migration requires an idempotency key.");
             }
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var plan = await RequireMigrationPlanAsync(state, entityId, cancellationToken);
             if (plan.AlreadyMigrated)
             {
@@ -960,7 +961,7 @@ public sealed class CampaignCoordinator(
                 scopedAssignmentId,
                 "assignment:",
                 value => new AssignmentId(value));
-            var ownershipState = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var ownershipState = await RecoverStateAsync(campaignId, cancellationToken);
             if (ownershipState.Assignments.TryGetValue(assignmentId, out var ownedAssignment)
                 && !string.IsNullOrWhiteSpace(ownedAssignment.WorkerClientInstanceId)
                 && !string.Equals(
@@ -1072,7 +1073,7 @@ public sealed class CampaignCoordinator(
                     "campaign-paused",
                     "Operator pause is in effect; campaign time does not advance until resume.");
             }
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var startingTime = state.Time;
             var before = state.Entities.ToDictionary(item => item.Key, item => item.Value);
             state = await CommitAsync(state, Command(
@@ -1095,7 +1096,7 @@ public sealed class CampaignCoordinator(
             return new CampaignAdvanceResult(
                 state.Head.Value,
                 state.Time.Quanta,
-                CampaignCanonicalSerializer.ComputeHash(state),
+                CanonicalHash(state),
                 frozen);
         }
         finally
@@ -1107,27 +1108,27 @@ public sealed class CampaignCoordinator(
     public async Task<CampaignDiagnosticView> ViewAsync(CampaignId campaignId, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
         telemetry.Record(campaignId, CampaignOperationKind.Recovery, stopwatch.Elapsed);
         var workers = sessions.Snapshots(campaignId.ToString());
-        var scheduler = recovery.State.SchedulerPolicy is { } policy
+        var scheduler = state.SchedulerPolicy is { } policy
             ? CampaignFidelityScheduler.Evaluate(
-                recovery.State,
+                state,
                 SchedulerRequest(policy),
                 workers,
                 policy.StableSampleCount)
-            : CampaignFidelityScheduler.Inspect(recovery.State);
+            : CampaignFidelityScheduler.Inspect(state);
         return new CampaignDiagnosticView(
-            recovery.State.Metadata.CampaignId.ToString(),
-            recovery.State.Metadata.Name,
-            recovery.State.Head.Value,
-            recovery.State.Time.Quanta,
-            recovery.CanonicalHash,
-            recovery.State.Regions.Values.Select(item => new CampaignRegionView(
+            state.Metadata.CampaignId.ToString(),
+            state.Metadata.Name,
+            state.Head.Value,
+            state.Time.Quanta,
+            CanonicalHash(state),
+            state.Regions.Values.Select(item => new CampaignRegionView(
                 item.RegionId.ToString(),
                 item.Name,
                 item.Neighbors.Select(neighbor => neighbor.ToString()).ToArray())).ToArray(),
-            recovery.State.Bases.Values.Select(item => new CampaignBaseView(
+            state.Bases.Values.Select(item => new CampaignBaseView(
                 item.BaseId.ToString(),
                 item.Name,
                 item.CoalitionId.ToString(),
@@ -1135,7 +1136,7 @@ public sealed class CampaignCoordinator(
                 item.Coordinate.LatitudeMicrodegrees,
                 item.Coordinate.LongitudeMicrodegrees,
                 item.Resources.ToDictionary(pair => pair.Key.ToString(), pair => pair.Value.MilliUnits))).ToArray(),
-            recovery.State.Entities.Values.Select(item => new CampaignEntityView(
+            state.Entities.Values.Select(item => new CampaignEntityView(
                 item.EntityId.ToString(),
                 item.Name,
                 item.CatalogUnitId,
@@ -1158,14 +1159,14 @@ public sealed class CampaignCoordinator(
                 item.DamageMilliUnits,
                 item.Lifecycle.ToString(),
                 item.Revision.Value)).ToArray(),
-            recovery.State.Groups.Values.Select(item => new CampaignGroupView(
+            state.Groups.Values.Select(item => new CampaignGroupView(
                 item.GroupId.ToString(),
                 item.Name,
                 item.CoalitionId.ToString(),
                 item.Members.Select(member => member.ToString()).ToArray(),
                 item.ActiveOrderId?.ToString(),
                 item.Revision.Value)).ToArray(),
-            recovery.State.Assignments.Values.Select(item => new CampaignAssignmentView(
+            state.Assignments.Values.Select(item => new CampaignAssignmentView(
                 item.AssignmentId.ToString(),
                 item.EntityId.ToString(),
                 item.AuthorityEpoch.Value,
@@ -1177,9 +1178,9 @@ public sealed class CampaignCoordinator(
                 item.BatchSize,
                 item.WorkerClientInstanceId,
                 sessions.HasLiveTacticalLease(
-                    recovery.State.Metadata.CampaignId.ToString(),
+                    state.Metadata.CampaignId.ToString(),
                     item.WorkerClientInstanceId))).ToArray(),
-            recovery.State.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
+            state.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
                 item.OutcomeId,
                 item.OccurredAt.Quanta,
                 item.Kind.ToString(),
@@ -1189,21 +1190,21 @@ public sealed class CampaignCoordinator(
                 item.MunitionsExpendedMilliUnits,
                 item.DamageInflictedMilliUnits,
                 item.Detail)).ToArray(),
-            CampaignFidelityScheduler.ToView(recovery.State, scheduler),
+            CampaignFidelityScheduler.ToView(state, scheduler),
             telemetry.Snapshot(campaignId),
             workers.Select(worker => ToWorkerView(
-                recovery.State,
+                state,
                 worker,
                 Math.Max(0, scheduler.Request.TacticalEntityCapacity
                     - scheduler.Request.TacticalReserveCapacity))).ToArray(),
-            ToCalibrationView(recovery.State, scheduler),
-            _replicaHashes.Diagnose(recovery.State));
+            ToCalibrationView(state, scheduler),
+            _replicaHashes.Diagnose(state));
     }
 
     public async Task<long> ReadTimeQuantaAsync(CampaignId campaignId, CancellationToken cancellationToken)
     {
-        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
-        return recovery.State.Time.Quanta;
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
+        return state.Time.Quanta;
     }
 
     public async Task<CampaignCoalitionProjectionView> ProjectCoalitionAsync(
@@ -1211,14 +1212,14 @@ public sealed class CampaignCoordinator(
         CoalitionId coalitionId,
         CancellationToken cancellationToken)
     {
-        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
-        if (!recovery.State.Entities.Values.Any(item => item.CoalitionId == coalitionId)
-            && !recovery.State.Bases.Values.Any(item => item.CoalitionId == coalitionId))
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
+        if (!state.Entities.Values.Any(item => item.CoalitionId == coalitionId)
+            && !state.Bases.Values.Any(item => item.CoalitionId == coalitionId))
         {
             throw new CampaignStoreConflict("coalition-missing", "The coalition is not present in this campaign.");
         }
 
-        return CampaignCoalitionProjectionHttp.From(recovery.State, coalitionId);
+        return CampaignCoalitionProjectionHttp.From(state, coalitionId);
     }
 
     public async Task<CampaignPauseView> PauseAsync(
@@ -1228,7 +1229,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _ = await journal.RecoverAsync(campaignId, cancellationToken);
+            _ = await RecoverStateAsync(campaignId, cancellationToken);
             _pausedCampaigns[campaignId] = 1;
             return new CampaignPauseView(campaignId.ToString(), Paused: true);
         }
@@ -1245,7 +1246,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _ = await journal.RecoverAsync(campaignId, cancellationToken);
+            _ = await RecoverStateAsync(campaignId, cancellationToken);
             _pausedCampaigns.TryRemove(campaignId, out _);
             return new CampaignPauseView(campaignId.ToString(), Paused: false);
         }
@@ -1264,7 +1265,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var request = state.SchedulerPolicy is { } policy
                 ? SchedulerRequest(policy) with
                 {
@@ -1306,7 +1307,7 @@ public sealed class CampaignCoordinator(
         }
         try
         {
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var workers = sessions.Snapshots(campaignId.ToString());
             var observed = (request.ObservedEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
@@ -2089,7 +2090,7 @@ public sealed class CampaignCoordinator(
         CancellationToken cancellationToken)
     {
         var assignmentId = ParseScopedId(staged.AssignmentId, "assignment:", value => new AssignmentId(value));
-        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
         if (!state.Assignments.TryGetValue(assignmentId, out var assignment))
         {
             throw new CampaignStoreConflict("assignment-missing", "A staged assignment does not exist.");
@@ -2329,7 +2330,7 @@ public sealed class CampaignCoordinator(
                     "campaign-paused",
                     "Operator pause is in effect; campaign time does not advance until resume.");
             }
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (target.Quanta < state.Time.Quanta)
             {
                 throw new CampaignStoreConflict("fallback-time-stale", "Fallback cannot run before campaign time.");
@@ -2425,7 +2426,7 @@ public sealed class CampaignCoordinator(
             return new CampaignFallbackResult(
                 state.Head.Value,
                 state.Time.Quanta,
-                CampaignCanonicalSerializer.ComputeHash(state),
+                CanonicalHash(state),
                 reports);
         }
         finally
@@ -2440,7 +2441,7 @@ public sealed class CampaignCoordinator(
         CancellationToken cancellationToken)
     {
         var assignmentId = ParseScopedId(prepared.AssignmentId, "assignment:", value => new AssignmentId(value));
-        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
         var assignment = state.Assignments[assignmentId];
         if (assignment.AuthorityEpoch.Value != prepared.AuthorityEpoch)
         {
@@ -2594,7 +2595,7 @@ public sealed class CampaignCoordinator(
         CancellationToken cancellationToken)
     {
         var assignmentId = ParseScopedId(checkpoint.AssignmentId, "assignment:", value => new AssignmentId(value));
-        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
         var assignment = state.Assignments[assignmentId];
         if (assignment.AuthorityEpoch.Value != checkpoint.AuthorityEpoch)
         {
@@ -2629,7 +2630,7 @@ public sealed class CampaignCoordinator(
         CancellationToken cancellationToken)
     {
         var assignmentId = ParseScopedId(proposal.AssignmentId, "assignment:", value => new AssignmentId(value));
-        var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
         var assignment = state.Assignments[assignmentId];
         if (assignment.AuthorityEpoch.Value != proposal.AuthorityEpoch)
         {
@@ -2785,7 +2786,7 @@ public sealed class CampaignCoordinator(
         try
         {
             var campaignId = ParseId(request.CampaignId, value => new CampaignId(value));
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var assignmentId = ParseScopedId(request.AssignmentId, "assignment:", value => new AssignmentId(value));
             var worker = state.Assignments.TryGetValue(assignmentId, out var assignment)
                 ? assignment.WorkerClientInstanceId
@@ -2846,18 +2847,59 @@ public sealed class CampaignCoordinator(
     {
         var campaignEvent = CampaignKernel.Decide(state, command, state.Head.Next());
         var lease = await RequireLeaseAsync(state.Metadata.CampaignId, cancellationToken);
-        var result = await journal.AppendAsync(lease, command, campaignEvent, DateTimeOffset.UtcNow, cancellationToken);
+        var result = await journal.AppendPreparedAsync(
+            lease,
+            state,
+            command,
+            campaignEvent,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
         BroadcastCommittedEvent(result.CampaignEvent);
         var committed = CampaignKernel.Apply(state, result.CampaignEvent);
+        _stateCache[committed.Metadata.CampaignId] = new CachedCampaignState(committed, CanonicalHash: null);
         if (committed.Head.Value > 0 && committed.Head.Value % SnapshotIntervalCommits == 0)
         {
-            _ = await journal.SaveSnapshotAsync(
+            _ = await journal.SavePreparedSnapshotAsync(
                 lease,
                 committed,
                 DateTimeOffset.UtcNow,
                 cancellationToken);
         }
         return committed;
+    }
+
+    private async Task<CampaignState> RecoverStateAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        if (_stateCache.TryGetValue(campaignId, out var cached)
+            && await journal.ReadHeadAsync(campaignId, cancellationToken) == cached.State.Head)
+        {
+            return cached.State;
+        }
+
+        var recovery = await journal.RecoverAsync(campaignId, cancellationToken);
+        _stateCache[campaignId] = new CachedCampaignState(recovery.State, recovery.CanonicalHash);
+        return recovery.State;
+    }
+
+    private string CanonicalHash(CampaignState state)
+    {
+        if (_stateCache.TryGetValue(state.Metadata.CampaignId, out var cached)
+            && ReferenceEquals(cached.State, state)
+            && cached.CanonicalHash is { } existing)
+        {
+            return existing;
+        }
+
+        var computed = CampaignCanonicalSerializer.ComputeHash(state);
+        _stateCache.AddOrUpdate(
+            state.Metadata.CampaignId,
+            _ => new CachedCampaignState(state, computed),
+            (_, current) => ReferenceEquals(current.State, state)
+                ? current with { CanonicalHash = computed }
+                : current);
+        return computed;
     }
 
     private void BroadcastCommittedEvent(CrimeanTom.Campaign.Contracts.CommittedCampaignEvent campaignEvent)
@@ -3231,7 +3273,7 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var state = (await journal.RecoverAsync(campaignId, cancellationToken)).State;
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
             var live = state.Assignments.Values
                 .Where(item => CampaignAssignmentKinds.IsOperationalSim(item)
                     && item.Lifecycle != AssignmentLifecycle.Released
@@ -3791,6 +3833,8 @@ public sealed class CampaignCoordinator(
         }
         return ParseId(value[prefix.Length..], factory);
     }
+
+    private sealed record CachedCampaignState(CampaignState State, string? CanonicalHash);
 }
 
 public sealed record CampaignHandoffRequest(

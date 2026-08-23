@@ -333,6 +333,84 @@ public sealed class SqliteCampaignJournal
         }, cancellationToken);
     }
 
+    public async Task<CampaignAppendResult> AppendPreparedAsync(
+        CampaignWriterLease lease,
+        CampaignState durableState,
+        CampaignCommand command,
+        CommittedCampaignEvent campaignEvent,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(durableState);
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(campaignEvent);
+        ValidateAppendEnvelope(lease, command, campaignEvent);
+        if (durableState.Metadata.CampaignId != lease.CampaignId
+            || durableState.Head.Next() != campaignEvent.CommitPosition)
+        {
+            throw Conflict(
+                "prepared-state-conflict",
+                "A prepared append must follow the supplied durable campaign state.");
+        }
+
+        try
+        {
+            _ = CampaignKernel.Apply(durableState, campaignEvent);
+        }
+        catch (CampaignRuleViolation exception)
+        {
+            throw Conflict("event-apply-conflict", $"The prepared event cannot apply to its durable state: {exception.Code}.");
+        }
+
+        var commandJson = CampaignContractJson.Serialize(command);
+        var eventJson = CampaignContractJson.Serialize(campaignEvent);
+        var commandHash = Hash(commandJson);
+        var eventHash = Hash(eventJson);
+        return await WithContentionRetryAsync(async () =>
+        {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
+
+        var duplicate = await ReadDuplicateAsync(connection, transaction, command, commandHash, cancellationToken);
+        if (duplicate is not null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new CampaignAppendResult(duplicate, Duplicate: true);
+        }
+
+        var expectedHead = campaignEvent.CommitPosition.Value - 1;
+        await RequireHeadAndRevisionAsync(connection, transaction, command, expectedHead, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterValidation);
+        await InsertCommandAsync(
+            connection,
+            transaction,
+            command,
+            campaignEvent.CommitPosition,
+            commandJson,
+            commandHash,
+            cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommandInsert);
+        await InsertEventAsync(connection, transaction, campaignEvent, eventJson, eventHash, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterEventInsert);
+        await UpdateSubjectRevisionAsync(connection, transaction, campaignEvent, cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterRevisionUpdate);
+        await AdvanceHeadAsync(
+            connection,
+            transaction,
+            lease,
+            now,
+            expectedHead,
+            campaignEvent.CommitPosition,
+            cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterHeadUpdate);
+        await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.AppendAfterCommitBeforeAcknowledgement);
+        return new CampaignAppendResult(campaignEvent, Duplicate: false);
+        }, cancellationToken);
+    }
+
     public async Task<CampaignBatchAppendResult> AppendBatchAsync(
         CampaignWriterLease lease,
         IReadOnlyList<CampaignAppendEntry> entries,
@@ -571,6 +649,69 @@ public sealed class SqliteCampaignJournal
         if (recovered.CanonicalHash != stateHash)
         {
             throw Conflict("snapshot-state-conflict", "The snapshot does not match replay of the durable journal.");
+        }
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterValidation);
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO snapshots (campaign_id, commit_position, state_hash, snapshot_json)
+            VALUES ($campaign_id, $position, $hash, $json)
+            ON CONFLICT(campaign_id, commit_position) DO NOTHING;
+            """;
+        insert.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
+        insert.Parameters.AddWithValue("$position", state.Head.Value);
+        insert.Parameters.AddWithValue("$hash", stateHash);
+        insert.Parameters.AddWithValue("$json", snapshotJson);
+        var inserted = await insert.ExecuteNonQueryAsync(cancellationToken) == 1;
+
+        if (!inserted)
+        {
+            await using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = """
+                SELECT state_hash, snapshot_json FROM snapshots
+                WHERE campaign_id = $campaign_id AND commit_position = $position;
+                """;
+            existing.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
+            existing.Parameters.AddWithValue("$position", state.Head.Value);
+            await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)
+                || reader.GetString(0) != stateHash
+                || !((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
+            {
+                throw Conflict("snapshot-idempotency-conflict", "The snapshot position already contains different state.");
+            }
+        }
+
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
+        await transaction.CommitAsync(cancellationToken);
+        _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
+        return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
+        }, cancellationToken);
+    }
+
+    public async Task<CampaignSnapshotInfo> SavePreparedSnapshotAsync(
+        CampaignWriterLease lease,
+        CampaignState state,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(state);
+        CampaignStateValidator.Validate(state);
+        var snapshotJson = CampaignCanonicalSerializer.Serialize(state);
+        var stateHash = Hash(snapshotJson);
+
+        return await WithContentionRetryAsync(async () =>
+        {
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await RequireCurrentWriterAsync(connection, transaction, lease, now, cancellationToken);
+        var durableHead = await ReadHeadAsync(connection, transaction, state.Metadata.CampaignId, cancellationToken);
+        if (lease.CampaignId != state.Metadata.CampaignId || durableHead != state.Head)
+        {
+            throw Conflict("snapshot-head-conflict", "A prepared snapshot must describe the current durable campaign head.");
         }
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterValidation);
 
