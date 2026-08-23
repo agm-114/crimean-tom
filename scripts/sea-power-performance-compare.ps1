@@ -8,11 +8,16 @@ param(
 
     [string]$Workload = 'unspecified',
 
+    [string]$PairingKey = '',
+
     [ValidateRange(6, 600)]
     [int]$DurationSeconds = 30,
 
     [ValidateRange(1, 30)]
     [int]$SampleIntervalSeconds = 2,
+
+    [ValidateRange(0, 100000)]
+    [int]$MinimumObservedObjectCount = 0,
 
     [string]$ControlUrl = 'http://127.0.0.1:5137',
 
@@ -243,6 +248,7 @@ if ($Action -eq 'capture') {
         capturedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
         label = $Label
         workload = $Workload
+        pairingKey = $PairingKey
         campaignId = $CampaignId
         scenarioId = [string]$warmWorld.scenarioId
         durationSeconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3)
@@ -276,6 +282,10 @@ if ($Action -eq 'capture') {
         }
         samples = $samples
     }
+    if ($MinimumObservedObjectCount -gt 0 -and
+        [double]$result.summary.averageObservedObjectCount -lt $MinimumObservedObjectCount) {
+        throw "Observed object count $($result.summary.averageObservedObjectCount) is below required minimum $MinimumObservedObjectCount."
+    }
     $stamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMdd-HHmmss')
     $safeLabel = $Label -replace '[^A-Za-z0-9_.-]', '-'
     $fullOutputPath = Resolve-OutputPath $OutputPath "$stamp-$safeLabel.json"
@@ -291,9 +301,12 @@ if ([string]::IsNullOrWhiteSpace($BaselinePath) -or
 }
 $baseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
 $candidate = Get-Content -LiteralPath $CandidatePath -Raw | ConvertFrom-Json
-if ([string]::IsNullOrWhiteSpace([string]$baseline.scenarioId) -or
-    [string]$baseline.scenarioId -cne [string]$candidate.scenarioId) {
-    throw 'Performance comparison requires the same recorded scenario on both sides.'
+$sameScenario = -not [string]::IsNullOrWhiteSpace([string]$baseline.scenarioId) -and
+    [string]$baseline.scenarioId -ceq [string]$candidate.scenarioId
+$sameExplicitPair = -not [string]::IsNullOrWhiteSpace([string]$baseline.pairingKey) -and
+    [string]$baseline.pairingKey -ceq [string]$candidate.pairingKey
+if (-not $sameScenario -and -not $sameExplicitPair) {
+    throw 'Performance comparison requires the same scenario or an explicit matching pairing key.'
 }
 if ([string]::IsNullOrWhiteSpace([string]$baseline.seaPowerBuild) -or
     [string]$baseline.seaPowerBuild -cne [string]$candidate.seaPowerBuild) {
@@ -320,9 +333,11 @@ $comparison = [ordered]@{
     schemaVersion = 1
     comparedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
     interpretation = 'System-level comparison; workload and object/entity counts are reported and are not unit-count-normalized.'
+    pairingKey = if ($sameExplicitPair) { [string]$baseline.pairingKey } else { '' }
     baseline = [ordered]@{
         label = $baseline.label
         workload = $baseline.workload
+        scenarioId = $baseline.scenarioId
         sampleCount = $baseline.sampleCount
         averageObservedObjectCount = $baseline.summary.averageObservedObjectCount
         campaignEntityCount = $baseline.summary.campaignEntityCount
@@ -330,6 +345,7 @@ $comparison = [ordered]@{
     candidate = [ordered]@{
         label = $candidate.label
         workload = $candidate.workload
+        scenarioId = $candidate.scenarioId
         sampleCount = $candidate.sampleCount
         averageObservedObjectCount = $candidate.summary.averageObservedObjectCount
         averageVisibleProxyCount = $candidate.summary.averageVisibleProxyCount

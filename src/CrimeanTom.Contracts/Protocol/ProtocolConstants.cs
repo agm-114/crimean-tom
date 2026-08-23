@@ -7,7 +7,10 @@ public static class ProtocolConstants
     public const string DefaultControlUrl = "http://127.0.0.1:5137";
     public const string ControlTokenHeader = "X-Crimean-Tom-Token";
 
-    public const int MaximumFrameBytes = 256 * 1024;
+    // Full-theater read-only snapshots are large even though mutation payloads
+    // remain small. Keep the local pipe bounded, but allow one observed 4,004-
+    // object snapshot (5.53 MiB) to cross without reconnecting the session.
+    public const int MaximumFrameBytes = 8 * 1024 * 1024;
     public const int MaximumPendingCommands = 128;
     public const int MaximumGameCommandQueue = 128;
     public const int MaximumGameOutboundQueue = 256;
