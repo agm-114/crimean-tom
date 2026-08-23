@@ -99,12 +99,19 @@ public sealed class CampaignCompanionClient(
                 MaterializationProfiles =
                 {
                     capabilities.OwnedSurfaceMaterializationProfiles.Select(profile =>
-                        new TacticalMaterializationProfile
-                        {
-                            UnitTypeId = profile.UnitTypeId,
-                            VariantId = profile.VariantId,
-                            LoadoutId = profile.LoadoutId,
-                        }),
+                            new TacticalMaterializationProfile
+                            {
+                                UnitTypeId = profile.UnitTypeId,
+                                VariantId = profile.VariantId,
+                                LoadoutId = profile.LoadoutId,
+                            })
+                        .Concat(capabilities.OwnedLandMaterializationProfiles.Select(profile =>
+                            new TacticalMaterializationProfile
+                            {
+                                UnitTypeId = profile.UnitTypeId,
+                                VariantId = profile.VariantId,
+                                LoadoutId = profile.LoadoutId,
+                            })),
                 },
             },
         });
@@ -292,12 +299,19 @@ public sealed class CampaignCompanionClient(
                         MaterializationProfiles =
                         {
                             current.OwnedSurfaceMaterializationProfiles.Select(profile =>
-                                new TacticalMaterializationProfile
-                                {
-                                    UnitTypeId = profile.UnitTypeId,
-                                    VariantId = profile.VariantId,
-                                    LoadoutId = profile.LoadoutId,
-                                }),
+                                    new TacticalMaterializationProfile
+                                    {
+                                        UnitTypeId = profile.UnitTypeId,
+                                        VariantId = profile.VariantId,
+                                        LoadoutId = profile.LoadoutId,
+                                    })
+                                .Concat(current.OwnedLandMaterializationProfiles.Select(profile =>
+                                    new TacticalMaterializationProfile
+                                    {
+                                        UnitTypeId = profile.UnitTypeId,
+                                        VariantId = profile.VariantId,
+                                        LoadoutId = profile.LoadoutId,
+                                    })),
                         },
                         CouplingRelationships = { couplingRelationships },
                         OwnedMaterializedEntityCount = resources.RetainedConstructedObjectCount,

@@ -93,7 +93,7 @@ internal static class GameCommandDispatcher
                     GameCommandTypes.GetTacticalCouplingState => Success(
                         GetTacticalCouplingState()),
                     GameCommandTypes.GetOwnedSurfaceResourceState =>
-                        Success(RuntimeOwnedMutationAdapter.CaptureResourceState()),
+                        Success(CaptureOwnedTacticalResourceState()),
                     GameCommandTypes.GetSurfaceRenderProxyState =>
                         Success(RuntimeRenderProxyProvider.Capture()),
                     GameCommandTypes.GetUnitCatalogPage => Success(GetUnitCatalogPage(
@@ -248,6 +248,33 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new TerrainPlacementProbeRequestPayload();
         return RuntimeTerrainPlacementAdapter.Probe(request);
+    }
+
+    private static OwnedSurfaceResourceStatePayload CaptureOwnedTacticalResourceState()
+    {
+        var surface = RuntimeOwnedMutationAdapter.CaptureResourceState();
+        var land = RuntimeOwnedLandMutationAdapter.CaptureResourceState();
+        return new OwnedSurfaceResourceStatePayload
+        {
+            OwnedRecordCount = surface.OwnedRecordCount + land.OwnedRecordCount,
+            ActiveObjectCount = surface.ActiveObjectCount + land.ActiveObjectCount,
+            SuspendedRetainedObjectCount =
+                surface.SuspendedRetainedObjectCount + land.SuspendedRetainedObjectCount,
+            DetachedObjectCount = surface.DetachedObjectCount + land.DetachedObjectCount,
+            DetachedCheckpointCount =
+                surface.DetachedCheckpointCount + land.DetachedCheckpointCount,
+            RecoveryRequiredCount =
+                surface.RecoveryRequiredCount + land.RecoveryRequiredCount,
+            RetainedConstructedObjectCount =
+                surface.RetainedConstructedObjectCount + land.RetainedConstructedObjectCount,
+            MemoryReclamationSupported = false,
+            SchedulerPolicy =
+                "active-and-suspended-retained-objects-consume-materialized-capacity",
+            Entities = surface.Entities
+                .Concat(land.Entities)
+                .OrderBy(item => item.EntityId, StringComparer.Ordinal)
+                .ToArray(),
+        };
     }
 
     private static WorldSnapshotPayload GetWorldSnapshot()
@@ -1701,7 +1728,12 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new MaterializeOwnedSurfaceUnitRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.Supports(
+            request.UnitTypeId,
+            request.VariantId,
+            request.LoadoutId)
+            ? RuntimeOwnedLandMutationAdapter.MaterializeLegacy(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1727,7 +1759,9 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.CaptureCheckpoint(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.HasOwnedEntity(request.EntityId)
+            ? RuntimeOwnedLandMutationAdapter.CaptureCheckpoint(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.CaptureCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1740,7 +1774,9 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new UpdateOwnedSurfaceUnitRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.Update(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.HasOwnedEntity(request.EntityId)
+            ? RuntimeOwnedLandMutationAdapter.Update(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.Update(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1753,7 +1789,9 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<SetOwnedSurfaceSuspensionRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new SetOwnedSurfaceSuspensionRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.SetSuspension(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.HasOwnedEntity(request.EntityId)
+            ? RuntimeOwnedLandMutationAdapter.SetSuspension(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.SetSuspension(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
