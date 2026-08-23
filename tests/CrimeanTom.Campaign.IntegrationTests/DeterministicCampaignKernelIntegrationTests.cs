@@ -1171,6 +1171,15 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.Equal(
                 CampaignCanonicalSerializer.ComputeHash(preparedState),
                 (await journal.RecoverAsync(Ids.Campaign)).CanonicalHash);
+            var preparedSnapshot = await journal.SavePreparedSnapshotAsync(lease, preparedState, now);
+            Assert.False(preparedSnapshot.Duplicate);
+            var duplicatePreparedSnapshot = await journal.SavePreparedSnapshotAsync(lease, preparedState, now);
+            Assert.True(duplicatePreparedSnapshot.Duplicate);
+            var preparedRecovery = await journal.RecoverAsync(Ids.Campaign);
+            Assert.Equal(preparedState.Head, preparedRecovery.SnapshotPosition);
+            Assert.Equal(
+                CampaignCanonicalSerializer.ComputeHash(preparedState),
+                preparedRecovery.CanonicalHash);
 
             var staleTime = new CampaignTime(theater.State.Time.Quanta + 2);
             var staleCommand = Command(
@@ -1190,7 +1199,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
             var integrity = await journal.VerifyIntegrityAsync();
             Assert.Equal(entries.Length + 1, integrity.EventCount);
-            Assert.Equal(1, integrity.SnapshotCount);
+            Assert.Equal(2, integrity.SnapshotCount);
         }
         finally
         {
