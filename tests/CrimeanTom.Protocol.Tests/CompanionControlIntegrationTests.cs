@@ -703,6 +703,7 @@ public sealed class CompanionControlIntegrationTests
                 item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"
                     && item.GetProperty("name").GetString() == "US V Corps (abstract)")
                 .GetProperty("entityId").GetString()!;
+            var promotionWatch = Stopwatch.StartNew();
             using var promoteResponse = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{fuldaCampaignId}/schedule",
                 new
@@ -715,7 +716,11 @@ public sealed class CompanionControlIntegrationTests
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
+            promotionWatch.Stop();
             promoteResponse.EnsureSuccessStatusCode();
+            Assert.True(
+                promotionWatch.Elapsed < TimeSpan.FromSeconds(5),
+                $"Full-campaign player-interest scheduling took {promotionWatch.Elapsed.TotalMilliseconds:F1} ms.");
             using var promoted = JsonDocument.Parse(
                 await promoteResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var promotionTransitions = promoted.RootElement.GetProperty("transitions").EnumerateArray().ToArray();

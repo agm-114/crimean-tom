@@ -1347,6 +1347,13 @@ public sealed class CampaignCoordinator(
                 .Distinct().OrderBy(id => id).ToArray();
             var controlled = (request.ControlledEntityIds ?? []).Select(value => ParseId(value, id => new EntityId(id)))
                 .Distinct().OrderBy(id => id).ToArray();
+            var playerInterest = observed.Concat(controlled).ToHashSet();
+            var priorPlayerInterest = state.SchedulerPolicy is { } priorPolicy
+                ? priorPolicy.ObservedEntityIds.Concat(priorPolicy.ControlledEntityIds).ToHashSet()
+                : [];
+            var schedulingFocus = playerInterest.Count > 0 ? playerInterest : priorPlayerInterest;
+            var schedulingFocusStrings = schedulingFocus.Select(item => item.ToString())
+                .ToHashSet(StringComparer.Ordinal);
             var requestHash = SchedulerRequestHash(request, observed, controlled, workers);
             var stableSampleCount = state.SchedulerPolicy?.RequestHash == requestHash
                 ? Math.Min(state.SchedulerPolicy.StableSampleCount + 1, 1_000_000)
@@ -1370,6 +1377,13 @@ public sealed class CampaignCoordinator(
                 $"scheduler-policy-{state.CampaignRevision.Value + 1}-{requestHash}-{stableSampleCount}"), cancellationToken);
             foreach (var island in evaluation.Islands.OrderBy(item => item.IslandId, StringComparer.Ordinal))
             {
+                if (schedulingFocus.Count > 0 && !island.EntityIds.Any(schedulingFocus.Contains))
+                {
+                    // A player selection is latency-sensitive. Unrelated Strategic/Operational
+                    // convergence remains canonical in CampaignSimulation and is handled by a
+                    // later no-interest maintenance pass instead of delaying this handoff.
+                    continue;
+                }
                 foreach (var entityId in island.EntityIds.OrderBy(item => item))
                 {
                     var entity = state.Entities[entityId];
@@ -1569,7 +1583,7 @@ public sealed class CampaignCoordinator(
                     }
                 }
             }
-            if (workers.Count > 0)
+            if (workers.Count > 0 && schedulingFocus.Count == 0)
             {
                 state = await PlaceOperationalAssignmentsAsync(
                     state,
@@ -1582,7 +1596,11 @@ public sealed class CampaignCoordinator(
             {
                 LoadAction = evaluation.LoadAction,
                 Islands = evaluation.Islands,
-                Transitions = evaluation.Transitions,
+                Transitions = schedulingFocus.Count == 0
+                    ? evaluation.Transitions
+                    : evaluation.Transitions
+                        .Where(item => schedulingFocusStrings.Contains(item.EntityId))
+                        .ToArray(),
             };
             var view = CampaignFidelityScheduler.ToView(state, applied);
             telemetry.Record(
