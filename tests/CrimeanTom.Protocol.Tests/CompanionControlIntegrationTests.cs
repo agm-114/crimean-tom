@@ -310,7 +310,7 @@ public sealed class CompanionControlIntegrationTests
                 "nv_", "pns_", "plan_", "ran_", "rcn_", "rn_", "usn_", "wp_",
             };
             Assert.Equal(
-                200,
+                201,
                 fuldaEntities
                     .Where(item => item.GetProperty("simulationDomain").GetString()
                         is "Maritime" or "Logistics")
