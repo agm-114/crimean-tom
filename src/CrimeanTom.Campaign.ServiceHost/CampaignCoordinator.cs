@@ -1207,6 +1207,14 @@ public sealed class CampaignCoordinator(
         return state.Time.Quanta;
     }
 
+    internal async Task<(CampaignTime Time, int EntityCount)> ReadUnattendedSimulationStateAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
+        return (state.Time, state.Entities.Count);
+    }
+
     public async Task<CampaignCoalitionProjectionView> ProjectCoalitionAsync(
         CampaignId campaignId,
         CoalitionId coalitionId,

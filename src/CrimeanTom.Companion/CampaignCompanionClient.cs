@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using CrimeanTom.Campaign.Transport;
 using CrimeanTom.Campaign.Transport.V1;
 using CrimeanTom.Protocol;
 
@@ -62,6 +63,7 @@ public sealed class CampaignCompanionClient(
         {
             HttpHandler = new SocketsHttpHandler { UseProxy = false },
             DisposeHttpClient = true,
+            MaxReceiveMessageSize = CampaignTransportLimits.MaximumServiceFrameBytes,
         });
         var client = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };

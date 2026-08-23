@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 
+using CrimeanTom.Campaign.Transport;
 using CrimeanTom.Campaign.Transport.V1;
 
 using Grpc.Core;
@@ -68,6 +69,7 @@ internal static class Program
         using var channel = GrpcChannel.ForAddress(options.GrpcUri, new GrpcChannelOptions
         {
             HttpHandler = new SocketsHttpHandler { UseProxy = false },
+            MaxReceiveMessageSize = CampaignTransportLimits.MaximumServiceFrameBytes,
         });
         var client = new CampaignCompanionTransport.CampaignCompanionTransportClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };

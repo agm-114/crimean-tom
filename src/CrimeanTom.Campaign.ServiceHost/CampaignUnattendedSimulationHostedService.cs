@@ -88,14 +88,16 @@ internal sealed class CampaignUnattendedSimulationHostedService(
 
                 try
                 {
-                    var recovered = await journal.RecoverAsync(campaignId, stoppingToken);
-                    if (recovered.State.Entities.Count == 0)
+                    var simulation = await coordinator.ReadUnattendedSimulationStateAsync(
+                        campaignId,
+                        stoppingToken);
+                    if (simulation.EntityCount == 0)
                     {
                         continue;
                     }
 
                     var target = new CampaignTime(
-                        checked(recovered.State.Time.Quanta + _options.QuantaPerTick));
+                        checked(simulation.Time.Quanta + _options.QuantaPerTick));
                     _ = await coordinator.ResolveExpiredAssignmentsAsync(
                         campaignId,
                         target,
