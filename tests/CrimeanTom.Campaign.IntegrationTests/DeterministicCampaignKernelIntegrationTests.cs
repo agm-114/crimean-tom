@@ -1147,8 +1147,49 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             var duplicate = await journal.AppendBatchAsync(lease, entries, now);
             Assert.True(duplicate.Duplicate);
             Assert.Equal(theater.State.Head, await journal.ReadHeadAsync(Ids.Campaign));
+
+            var nextTime = new CampaignTime(theater.State.Time.Quanta + 1);
+            var preparedCommand = Command(
+                997,
+                CampaignSubject.Campaign(Ids.Campaign),
+                theater.State.CampaignRevision,
+                new AdvanceClockCommand(nextTime),
+                nextTime);
+            var preparedEvent = CampaignKernel.Decide(
+                theater.State,
+                preparedCommand,
+                theater.State.Head.Next());
+            var prepared = await journal.AppendPreparedAsync(
+                lease,
+                theater.State,
+                preparedCommand,
+                preparedEvent,
+                now);
+            Assert.False(prepared.Duplicate);
+            var preparedState = CampaignKernel.Apply(theater.State, prepared.CampaignEvent);
+            Assert.Equal(preparedState.Head, await journal.ReadHeadAsync(Ids.Campaign));
+            Assert.Equal(
+                CampaignCanonicalSerializer.ComputeHash(preparedState),
+                (await journal.RecoverAsync(Ids.Campaign)).CanonicalHash);
+
+            var staleTime = new CampaignTime(theater.State.Time.Quanta + 2);
+            var staleCommand = Command(
+                998,
+                CampaignSubject.Campaign(Ids.Campaign),
+                theater.State.CampaignRevision,
+                new AdvanceClockCommand(staleTime),
+                staleTime);
+            var staleEvent = CampaignKernel.Decide(theater.State, staleCommand, theater.State.Head.Next());
+            var stale = await Assert.ThrowsAsync<CampaignStoreConflict>(() => journal.AppendPreparedAsync(
+                lease,
+                theater.State,
+                staleCommand,
+                staleEvent,
+                now));
+            Assert.Equal("head-conflict", stale.Code);
+
             var integrity = await journal.VerifyIntegrityAsync();
-            Assert.Equal(entries.Length, integrity.EventCount);
+            Assert.Equal(entries.Length + 1, integrity.EventCount);
             Assert.Equal(1, integrity.SnapshotCount);
         }
         finally

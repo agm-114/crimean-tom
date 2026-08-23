@@ -47,7 +47,7 @@ public sealed class CompanionControlIntegrationTests
         // The full-catalog 4,096-entity bootstrap intentionally exercises the
         // current per-record durability path; keep the broad story bounded but
         // allow enough time to expose its measured cost on local hardware.
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(1_200));
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(600));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();

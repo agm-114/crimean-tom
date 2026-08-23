@@ -25,7 +25,7 @@ principal-separated browser writes remain open before an alpha.
 | --- | --- | --- |
 | Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface mutation, checkpoints, collider capture | Pinned game build; narrow allow-list |
 | Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash; sourced 55-region/81-base/4,096-entity WW3++ proving seed | Broad integration story and golden hashes; the 5,892-record bootstrap completes locally in about eight seconds |
-| Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, ordinary snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No recovered-head cache or qualified long-journal envelope |
+| Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, prepared coordinator appends, ordinary snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No qualified long-journal envelope; independent defensive replay remains intentionally slower than prepared in-process appends |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and basic AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not Sea Power parity; projected ground objects are primarily attackable targets and detailed ground-ground combat is deliberately absent |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, resident strategic-system policy, Primary/Shadow fencing, cold reconstruction, migration protocol | Strategic SAM/radar/ballistic islands stay Operational without a compatible worker and request constant Tactical presence with one; live two-container completion remains unproven |
 | Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC was proven against the former 60-entity seed and theater-aligned GIUK mission; the expanded 4,096-entity seed has headless campaign proof but still needs the live sync/performance comparison rerun; one authoritative surface family and one exact proxy profile |
@@ -52,12 +52,13 @@ principal-separated browser writes remain open before an alpha.
 
 These are prerequisites, not release-polish tasks:
 
-1. **Bounded ordinary journal recovery.** Seed import now validates and commits
+1. **Bounded long-journal recovery.** Seed import now validates and commits
    all 5,892 records atomically with one final snapshot. A clean 4,096-entity
    bootstrap measured 8.009 seconds, 162.8 MiB peak working set, and a 32.3 MiB
-   database under the new local workstation-GC default. The coordinator still
-   has no recovered-state cache, each ordinary append re-derives the durable
-   head, and no 10,000-commit recovery/storage envelope has been qualified.
+   database under the new local workstation-GC default. Coordinator reads and
+   appends now reuse immutable recovered state after checking the durable SQLite
+   head, and the full protocol story passes in 1 minute 3 seconds. A
+   10,000-commit restart/recovery/storage envelope is still unqualified.
 2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
    schema or algorithm version other than the compiled constants. There is no
    upcaster, compatible old-engine path, or export-only recovery mode. Any

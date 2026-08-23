@@ -46,9 +46,20 @@ server GC through the standard `DOTNET_gcServer=1` runtime override.
 - `dotnet build src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj --no-restore`
   passed with zero warnings and zero errors after the service was stopped.
 - `pnpm test:campaign` passed all 11 campaign integration tests.
+- `pnpm test:protocol` passed all 12 protocol/integration tests in 1 minute
+  3 seconds against the 4,096-entity seed.
 - The persistence integration now injects a failure after a batch event insert,
   proves the head and journal remain empty, retries the whole batch, verifies
   the final snapshot/hash, and verifies idempotent acknowledgement retry.
 
-Full protocol-suite and live tactical/vanilla performance evidence remain
-separate completion gates.
+The first enlarged protocol run remained CPU-bound beyond 4.5 minutes. Managed
+stack samples showed ordinary coordinator appends redundantly deserializing,
+validating, and hashing the full snapshot inside the journal. The coordinator
+now caches immutable recovered state behind a durable-head check and uses a
+prepared append that retains writer/head/subject-revision fencing. The original
+defensive replaying append remains in use for independent persistence
+verification. Spatial and collision indexes also discard mathematically
+impossible candidates while the unchanged exact rules make final decisions;
+the long-horizon golden hashes remained unchanged.
+
+Live tactical/vanilla performance evidence remains a separate completion gate.
