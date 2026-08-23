@@ -140,6 +140,35 @@ app.MapPost("/game/terrain/probe", (
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/terrain/prepare", (
+    PrepareTacticalLocationRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var sessionError = ValidateMutationSession(request.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return Task.FromResult(sessionError);
+    }
+    if (!double.IsFinite(request.Latitude)
+        || !double.IsFinite(request.Longitude)
+        || request.Latitude is < -88d or > 88d
+        || request.Longitude is < -180d or >= 180d)
+    {
+        return Task.FromResult<IResult>(Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The tactical-location coordinates are invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest));
+    }
+    return SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.PrepareTacticalLocation,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken);
+});
+
 app.MapGet("/game/coupling", (GamePipeBroker broker, CancellationToken cancellationToken) =>
     SendCommandAsync(
         broker,

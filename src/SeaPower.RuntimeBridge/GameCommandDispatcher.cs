@@ -90,6 +90,8 @@ internal static class GameCommandDispatcher
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
                     GameCommandTypes.ProbeTerrainPlacement => Success(ProbeTerrainPlacement(
                         command.PayloadJson)),
+                    GameCommandTypes.PrepareTacticalLocation =>
+                        PrepareTacticalLocation(command.PayloadJson, command.SessionId),
                     GameCommandTypes.GetTacticalCouplingState => Success(
                         GetTacticalCouplingState()),
                     GameCommandTypes.GetOwnedSurfaceResourceState =>
@@ -248,6 +250,19 @@ internal static class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new TerrainPlacementProbeRequestPayload();
         return RuntimeTerrainPlacementAdapter.Probe(request);
+    }
+
+    private static CommandResponsePayload PrepareTacticalLocation(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<PrepareTacticalLocationRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new PrepareTacticalLocationRequestPayload();
+        var result = RuntimeTacticalLocationAdapter.Prepare(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
     private static OwnedSurfaceResourceStatePayload CaptureOwnedTacticalResourceState()
@@ -1804,7 +1819,9 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<RestoreOwnedSurfaceCheckpointRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new RestoreOwnedSurfaceCheckpointRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.RestoreCheckpoint(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.HasOwnedEntity(request.EntityId)
+            ? RuntimeOwnedLandMutationAdapter.RestoreCheckpoint(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.RestoreCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1817,7 +1834,9 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<StageOwnedSurfaceCheckpointRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new StageOwnedSurfaceCheckpointRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.StageCheckpoint(request, commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.HasOwnedEntity(request.EntityId)
+            ? RuntimeOwnedLandMutationAdapter.StageCheckpoint(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.StageCheckpoint(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);

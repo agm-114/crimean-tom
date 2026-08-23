@@ -130,6 +130,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     private void EndSession(string sessionId)
     {
         RuntimeOwnedMutationAdapter.EndSession(sessionId);
+        RuntimeOwnedLandMutationAdapter.EndSession(sessionId);
         var removed = _commands.RemoveSession(sessionId);
         if (removed > 0)
         {

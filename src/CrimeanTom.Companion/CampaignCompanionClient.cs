@@ -23,6 +23,8 @@ public sealed class CampaignCompanionClient(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan MaterializationReadinessPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaterializationReadinessTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TerrainStreamingPollInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan TerrainStreamingTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(2);
 
@@ -913,6 +915,10 @@ public sealed class CampaignCompanionClient(
                     DurationSeconds = 300,
                 }, JsonOptions),
                 cancellationToken);
+            if (IsVerifiedLandProfile(assignment, capabilities))
+            {
+                await EnsureLandTerrainReadyAsync(assignment, cancellationToken);
+            }
             var result = await RequireGameCommandAsync(
                 GameCommandTypes.MaterializeOwnedSurfaceUnit,
                 JsonSerializer.Serialize(new MaterializeOwnedSurfaceUnitRequestPayload
@@ -2087,6 +2093,75 @@ public sealed class CampaignCompanionClient(
 
     private static bool MatchesRequirement(string required, string? actual) =>
         string.IsNullOrEmpty(required) || string.Equals(required, actual, StringComparison.Ordinal);
+
+    private static bool IsVerifiedLandProfile(
+        TacticalAssignment assignment,
+        CapabilitiesPayload capabilities) =>
+        capabilities.OwnedLandMaterializationProfiles.Any(profile =>
+            string.Equals(profile.UnitTypeId, assignment.UnitTypeId, StringComparison.Ordinal)
+            && string.Equals(profile.VariantId, assignment.VariantId, StringComparison.Ordinal)
+            && string.Equals(profile.LoadoutId, assignment.LoadoutId, StringComparison.Ordinal));
+
+    private async Task EnsureLandTerrainReadyAsync(
+        TacticalAssignment assignment,
+        CancellationToken cancellationToken)
+    {
+        var latitude = assignment.LatitudeMicrodegrees / 1_000_000d;
+        var longitude = assignment.LongitudeMicrodegrees / 1_000_000d;
+        var probePayload = JsonSerializer.Serialize(new TerrainPlacementProbeRequestPayload
+        {
+            Latitude = latitude,
+            Longitude = longitude,
+        }, JsonOptions);
+        var initial = await RequireGameCommandAsync(
+            GameCommandTypes.ProbeTerrainPlacement,
+            probePayload,
+            cancellationToken: cancellationToken);
+        var terrain = JsonSerializer.Deserialize<TerrainPlacementProbeResultPayload>(
+            initial.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("The terrain placement probe was empty.");
+        if (terrain.PlacementReady)
+        {
+            return;
+        }
+
+        await RequireGameCommandAsync(
+            GameCommandTypes.PrepareTacticalLocation,
+            JsonSerializer.Serialize(new PrepareTacticalLocationRequestPayload
+            {
+                SessionId = CurrentGameSessionId(),
+                Latitude = latitude,
+                Longitude = longitude,
+            }, JsonOptions),
+            cancellationToken);
+
+        var deadline = DateTimeOffset.UtcNow + TerrainStreamingTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TerrainStreamingPollInterval, cancellationToken);
+            var result = await RequireGameCommandAsync(
+                GameCommandTypes.ProbeTerrainPlacement,
+                probePayload,
+                cancellationToken: cancellationToken);
+            terrain = JsonSerializer.Deserialize<TerrainPlacementProbeResultPayload>(
+                result.ResultJson,
+                JsonOptions) ?? throw new InvalidDataException("The terrain placement probe was empty.");
+            if (terrain.PlacementReady)
+            {
+                return;
+            }
+            if (terrain.InitialTerrainLoadingDone
+                && terrain.TileFinalized
+                && !terrain.IsLand)
+            {
+                throw new InvalidOperationException(
+                    $"Ground assignment {assignment.EntityId} resolves to water after terrain streaming.");
+            }
+        }
+        throw new TimeoutException(
+            $"Ground assignment {assignment.EntityId} terrain did not finalize within "
+            + $"{TerrainStreamingTimeout.TotalSeconds:F0} seconds (last state: {terrain.Postcondition}).");
+    }
 
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);

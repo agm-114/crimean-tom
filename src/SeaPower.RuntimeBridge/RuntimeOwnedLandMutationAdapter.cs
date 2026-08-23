@@ -50,28 +50,71 @@ internal static class RuntimeOwnedLandMutationAdapter
             && string.Equals(profile.VariantId, variantId, StringComparison.Ordinal)
             && string.Equals(profile.LoadoutId, loadoutId, StringComparison.Ordinal));
 
+    public static void EndSession(string sessionId)
+    {
+        foreach (var key in IdempotencyRecords
+                     .Where(pair => pair.Value.SessionId == sessionId)
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            IdempotencyRecords.Remove(key);
+        }
+        foreach (var key in LifecycleIdempotencyRecords
+                     .Where(pair => pair.Value.SessionId == sessionId)
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            LifecycleIdempotencyRecords.Remove(key);
+        }
+    }
+
     public static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> MaterializeLegacy(
         MaterializeOwnedSurfaceUnitRequestPayload request,
         string commandSessionId)
     {
-        if (request.SourceCheckpoint is not null)
+        var materialization = request;
+        if (request.SourceCheckpoint is { } sourceCheckpoint)
         {
-            return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
-                ProtocolErrorCodes.MutationPreconditionFailed,
-                "Initial land scheduling does not yet accept a source checkpoint.");
+            var checkpointError = ValidateImportedCheckpoint(
+                sourceCheckpoint,
+                request.EntityId,
+                request.UnitTypeId,
+                request.VariantId,
+                request.LoadoutId,
+                request.TaskforceId);
+            if (checkpointError is not null)
+            {
+                return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    checkpointError);
+            }
+            materialization = new MaterializeOwnedSurfaceUnitRequestPayload
+            {
+                Context = request.Context,
+                EntityId = request.EntityId,
+                UnitTypeId = request.UnitTypeId,
+                VariantId = request.VariantId,
+                LoadoutId = request.LoadoutId,
+                TaskforceId = request.TaskforceId,
+                Latitude = sourceCheckpoint.Unit.Latitude!.Value,
+                Longitude = sourceCheckpoint.Unit.Longitude!.Value,
+                HeadingDegrees = sourceCheckpoint.Unit.HeadingDegrees!.Value,
+                Telegraph = sourceCheckpoint.Unit.Telegraph,
+                SourceCheckpoint = sourceCheckpoint,
+            };
         }
         var result = Materialize(new MaterializeOwnedLandUnitRequestPayload
         {
-            Context = request.Context,
-            EntityId = request.EntityId,
-            UnitTypeId = request.UnitTypeId,
-            VariantId = request.VariantId,
-            LoadoutId = request.LoadoutId,
-            TaskforceId = request.TaskforceId,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
-            HeadingDegrees = request.HeadingDegrees,
-            Telegraph = request.Telegraph,
+            Context = materialization.Context,
+            EntityId = materialization.EntityId,
+            UnitTypeId = materialization.UnitTypeId,
+            VariantId = materialization.VariantId,
+            LoadoutId = materialization.LoadoutId,
+            TaskforceId = materialization.TaskforceId,
+            Latitude = materialization.Latitude,
+            Longitude = materialization.Longitude,
+            HeadingDegrees = materialization.HeadingDegrees,
+            Telegraph = materialization.Telegraph,
         }, commandSessionId);
         if (!result.Succeeded)
         {
@@ -81,6 +124,11 @@ internal static class RuntimeOwnedLandMutationAdapter
                 result.ErrorId);
         }
         var value = result.Payload!;
+        if (request.SourceCheckpoint is not null
+            && OwnedEntities.TryGetValue(request.EntityId, out var importedRecord))
+        {
+            importedRecord.Checkpoint = request.SourceCheckpoint;
+        }
         return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(new()
         {
             Outcome = value.Outcome,
@@ -276,7 +324,9 @@ internal static class RuntimeOwnedLandMutationAdapter
                     created));
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
-            IdempotencyRecords.Add(idempotencyKey, new(requestJson, Clone(result)));
+            IdempotencyRecords.Add(
+                idempotencyKey,
+                new(commandSessionId, requestJson, Clone(result)));
             return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Success(result);
         }
         catch (Exception exception)
@@ -336,7 +386,11 @@ internal static class RuntimeOwnedLandMutationAdapter
         }
         var unit = CapturePortable(request.EntityId, record);
         var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var hash = ComputeCheckpointSha256(record, unit);
+        var hash = ComputeCheckpointSha256(
+            record.AssignmentId,
+            record.AuthorityEpoch,
+            record.Revision,
+            unit);
         var checkpoint = new OwnedSurfaceCheckpointPayload
         {
             CheckpointId = $"checkpoint:{request.EntityId}:{record.Revision}:{hash[..12]}",
@@ -439,6 +493,7 @@ internal static class RuntimeOwnedLandMutationAdapter
                 GameCommandTypes.UpdateOwnedSurfaceUnit,
                 request.Context,
                 request,
+                commandSessionId,
                 result);
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
         }
@@ -538,6 +593,7 @@ internal static class RuntimeOwnedLandMutationAdapter
                 GameCommandTypes.SetOwnedSurfaceSuspension,
                 request.Context,
                 request,
+                commandSessionId,
                 result);
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
         }
@@ -551,6 +607,226 @@ internal static class RuntimeOwnedLandMutationAdapter
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 $"operation=suspend-land; recovery=recoverable-suspended-owned-object; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
+    }
+
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> RestoreCheckpoint(
+        RestoreOwnedSurfaceCheckpointRequestPayload request,
+        string commandSessionId)
+    {
+        if (TryLifecycleReplay(
+                GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                commandSessionId,
+                out var replay))
+        {
+            return replay!;
+        }
+        if (!string.IsNullOrWhiteSpace(request.FaultInjectionStep))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Fault injection is not supported by the verified land lifecycle seam.");
+        }
+        if (!TryResolve(
+                request.Context,
+                request.EntityId,
+                commandSessionId,
+                requirePaused: true,
+                out var record,
+                out var errorCode,
+                out var errorMessage))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                errorCode,
+                errorMessage);
+        }
+        var checkpoint = record!.Checkpoint;
+        if (checkpoint is null
+            || !string.Equals(checkpoint.CheckpointId, request.CheckpointId, StringComparison.Ordinal)
+            || !string.Equals(
+                checkpoint.CheckpointSha256,
+                request.CheckpointSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The requested portable checkpoint is not retained by this land entity.");
+        }
+        var checkpointError = ValidateImportedCheckpoint(
+            checkpoint,
+            request.EntityId,
+            record.UnitTypeId,
+            record.VariantId,
+            record.LoadoutId,
+            record.TaskforceId);
+        if (checkpointError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                checkpointError);
+        }
+        var landUnit = record.LandUnit!;
+        if (!landUnit.Disabled || record.RecoveryRequired || landUnit.IsDestroyed)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Land checkpoint restoration requires a healthy suspended owned object.");
+        }
+
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            ApplyPortableState(landUnit, checkpoint.Unit);
+            var realized = CapturePortable(request.EntityId, record);
+            AssertPortableState(checkpoint.Unit, realized, expectedDisabled: false);
+            record.RecoveryRequired = false;
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                "restored-from-checkpoint",
+                "owned-land-unit-reenabled-from-terrain-validated-portable-checkpoint",
+                request.Context,
+                record,
+                request.EntityId,
+                timer);
+            result.SourceCheckpointId = checkpoint.CheckpointId;
+            result.SourceCheckpointSha256 = checkpoint.CheckpointSha256;
+            StoreLifecycleReplay(
+                GameCommandTypes.RestoreOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                commandSessionId,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            if (!landUnit.Disabled)
+            {
+                landUnit.Disable();
+            }
+            record.RecoveryRequired = true;
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "operation=restore-land; recovery=recoverable-suspended-owned-object; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
+    }
+
+    public static MutationAdapterResult<OwnedSurfaceLifecycleResultPayload> StageCheckpoint(
+        StageOwnedSurfaceCheckpointRequestPayload request,
+        string commandSessionId)
+    {
+        if (TryLifecycleReplay(
+                GameCommandTypes.StageOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                commandSessionId,
+                out var replay))
+        {
+            return replay!;
+        }
+        if (!string.IsNullOrWhiteSpace(request.FaultInjectionStep))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Fault injection is not supported by the verified land lifecycle seam.");
+        }
+        if (!TryResolve(
+                request.Context,
+                request.EntityId,
+                commandSessionId,
+                requirePaused: true,
+                out var record,
+                out var errorCode,
+                out var errorMessage))
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                errorCode,
+                errorMessage);
+        }
+        var landUnit = record!.LandUnit!;
+        if (!landUnit.Disabled || record.RecoveryRequired || landUnit.IsDestroyed)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Land migration staging requires a healthy suspended destination object.");
+        }
+        var checkpointError = ValidateImportedCheckpoint(
+            request.SourceCheckpoint,
+            request.EntityId,
+            record.UnitTypeId,
+            record.VariantId,
+            record.LoadoutId,
+            record.TaskforceId);
+        if (checkpointError is not null)
+        {
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                checkpointError);
+        }
+
+        var original = CapturePortable(request.EntityId, record);
+        var originalCheckpoint = record.Checkpoint;
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            ApplyPortablePlacement(landUnit, request.SourceCheckpoint.Unit);
+            if (!landUnit.Disabled)
+            {
+                landUnit.Disable();
+            }
+            var realized = CapturePortable(request.EntityId, record);
+            AssertPortableState(request.SourceCheckpoint.Unit, realized, expectedDisabled: true);
+            record.Checkpoint = request.SourceCheckpoint;
+            record.Revision++;
+            timer.Stop();
+            var result = LifecycleResult(
+                "migration-checkpoint-staged",
+                "owned-land-unit-remains-suspended-with-terrain-validated-migration-checkpoint",
+                request.Context,
+                record,
+                request.EntityId,
+                timer);
+            result.SourceCheckpointId = request.SourceCheckpoint.CheckpointId;
+            result.SourceCheckpointSha256 = request.SourceCheckpoint.CheckpointSha256;
+            StoreLifecycleReplay(
+                GameCommandTypes.StageOwnedSurfaceCheckpoint,
+                request.Context,
+                request,
+                commandSessionId,
+                result);
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                ApplyPortablePlacement(landUnit, original);
+                if (!landUnit.Disabled)
+                {
+                    landUnit.Disable();
+                }
+                record.Checkpoint = originalCheckpoint;
+            }
+            catch
+            {
+                record.RecoveryRequired = true;
+            }
+            return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "operation=stage-land-checkpoint; recovery=destination-suspension-restored; "
                 + $"failure={exception.GetType().Name}: {exception.Message}");
         }
         finally
@@ -691,6 +967,24 @@ internal static class RuntimeOwnedLandMutationAdapter
 
     private static void ApplyPortableState(LandUnit landUnit, OwnedSurfaceUnitStatePayload state)
     {
+        ApplyPortablePlacement(landUnit, state);
+        if (landUnit.Disabled != state.IsDisabled)
+        {
+            if (state.IsDisabled)
+            {
+                landUnit.Disable();
+            }
+            else
+            {
+                landUnit.Enable();
+            }
+        }
+    }
+
+    private static void ApplyPortablePlacement(
+        LandUnit landUnit,
+        OwnedSurfaceUnitStatePayload state)
+    {
         if (state.Latitude is not double latitude
             || state.Longitude is not double longitude
             || state.HeadingDegrees is not double heading)
@@ -708,33 +1002,90 @@ internal static class RuntimeOwnedLandMutationAdapter
                 $"Portable land placement is unavailable: {terrain.Postcondition}.");
         }
         ApplyPlacement(landUnit, latitude, longitude, heading, state.Telegraph, terrain);
-        if (landUnit.Disabled != state.IsDisabled)
-        {
-            if (state.IsDisabled)
-            {
-                landUnit.Disable();
-            }
-            else
-            {
-                landUnit.Enable();
-            }
-        }
     }
 
     private static string ComputeCheckpointSha256(
-        OwnedLandRecord record,
+        string assignmentId,
+        long authorityEpoch,
+        long revision,
         OwnedSurfaceUnitStatePayload unit)
     {
         var canonical = JsonSerializer.Serialize(new
         {
-            record.AssignmentId,
-            record.AuthorityEpoch,
-            record.Revision,
+            AssignmentId = assignmentId,
+            AuthorityEpoch = authorityEpoch,
+            Revision = revision,
             Unit = unit,
         }, JsonOptions);
         using var sha256 = SHA256.Create();
         var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(canonical));
         return string.Concat(bytes.Select(value => value.ToString("x2")));
+    }
+
+    private static string? ValidateImportedCheckpoint(
+        OwnedSurfaceCheckpointPayload checkpoint,
+        string entityId,
+        string unitTypeId,
+        string variantId,
+        string loadoutId,
+        string taskforceId)
+    {
+        var unit = checkpoint.Unit;
+        if (unit is null
+            || !string.Equals(unit.EntityId, entityId, StringComparison.Ordinal)
+            || !string.Equals(unit.StableUnitId, $"campaign-unit:{entityId}", StringComparison.Ordinal)
+            || !string.Equals(unit.UnitTypeId, unitTypeId, StringComparison.Ordinal)
+            || !string.Equals(unit.VariantId, variantId, StringComparison.Ordinal)
+            || !string.Equals(unit.LoadoutId, loadoutId, StringComparison.Ordinal)
+            || !string.Equals(unit.TaskforceId, taskforceId, StringComparison.Ordinal)
+            || unit.Latitude is not double latitude
+            || unit.Longitude is not double longitude
+            || unit.HeadingDegrees is not double heading
+            || !double.IsFinite(latitude)
+            || !double.IsFinite(longitude)
+            || !double.IsFinite(heading)
+            || latitude is < -90d or > 90d
+            || longitude is < -180d or >= 180d
+            || unit.Telegraph is < -1 or > 5
+            || unit.IsDisabled
+            || unit.IsDestroyed)
+        {
+            return "The imported checkpoint does not contain a complete active state for this land profile.";
+        }
+        var expectedHash = ComputeCheckpointSha256(
+            checkpoint.AssignmentId,
+            checkpoint.AuthorityEpoch,
+            checkpoint.Revision,
+            unit);
+        var expectedId = $"checkpoint:{entityId}:{checkpoint.Revision}:{expectedHash[..12]}";
+        if (!string.Equals(checkpoint.CheckpointSha256, expectedHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(checkpoint.CheckpointId, expectedId, StringComparison.Ordinal))
+        {
+            return "The imported land checkpoint identity or canonical hash is invalid.";
+        }
+        return null;
+    }
+
+    private static void AssertPortableState(
+        OwnedSurfaceUnitStatePayload expected,
+        OwnedSurfaceUnitStatePayload realized,
+        bool expectedDisabled)
+    {
+        if (expected.Latitude is not double expectedLatitude
+            || expected.Longitude is not double expectedLongitude
+            || expected.HeadingDegrees is not double expectedHeading
+            || realized.Latitude is not double realizedLatitude
+            || realized.Longitude is not double realizedLongitude
+            || realized.HeadingDegrees is not double realizedHeading
+            || Math.Abs(expectedLatitude - realizedLatitude) > CoordinateToleranceDegrees
+            || Math.Abs(expectedLongitude - realizedLongitude) > CoordinateToleranceDegrees
+            || Math.Abs(NormalizeHeading(expectedHeading) - NormalizeHeading(realizedHeading)) > 0.01d
+            || realized.Telegraph != expected.Telegraph
+            || realized.IsDisabled != expectedDisabled
+            || realized.IsDestroyed)
+        {
+            throw new InvalidOperationException("The portable land checkpoint failed native readback.");
+        }
     }
 
     private static OwnedSurfaceLifecycleResultPayload LifecycleResult(
@@ -793,10 +1144,12 @@ internal static class RuntimeOwnedLandMutationAdapter
         string command,
         OwnedMutationContextPayload context,
         TRequest request,
+        string commandSessionId,
         OwnedSurfaceLifecycleResultPayload result) =>
         LifecycleIdempotencyRecords.Add(
             LifecycleKey(command, context),
             new(
+                commandSessionId,
                 JsonSerializer.Serialize(request, JsonOptions),
                 CloneLifecycle(result)));
 
@@ -1013,10 +1366,12 @@ internal static class RuntimeOwnedLandMutationAdapter
     }
 
     private sealed record IdempotencyRecord(
+        string SessionId,
         string RequestJson,
         MaterializeOwnedLandUnitResultPayload Result);
 
     private sealed record LifecycleIdempotencyRecord(
+        string SessionId,
         string RequestJson,
         OwnedSurfaceLifecycleResultPayload Result);
 }

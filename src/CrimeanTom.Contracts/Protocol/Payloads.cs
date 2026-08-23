@@ -182,6 +182,29 @@ public sealed class TerrainPlacementProbeResultPayload
     public string Postcondition { get; set; } = string.Empty;
 }
 
+public sealed class PrepareTacticalLocationRequestPayload
+{
+    public string SessionId { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+public sealed class PrepareTacticalLocationResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public int PreviousCenterTileX { get; set; }
+    public int PreviousCenterTileY { get; set; }
+    public int CurrentCenterTileX { get; set; }
+    public int CurrentCenterTileY { get; set; }
+    public bool Relocated { get; set; }
+    public long SynchronousDurationMicroseconds { get; set; }
+    public TerrainPlacementProbeResultPayload Terrain { get; set; } = new();
+}
+
 public sealed class MaterializeOwnedLandUnitRequestPayload
 {
     public OwnedMutationContextPayload Context { get; set; } = new();

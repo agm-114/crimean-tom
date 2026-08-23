@@ -81,6 +81,7 @@ public static class GameCommandTypes
     public const string GetSceneState = "get-scene-state";
     public const string GetWorldSnapshot = "get-world-snapshot";
     public const string ProbeTerrainPlacement = "probe-terrain-placement";
+    public const string PrepareTacticalLocation = "prepare-tactical-location";
     public const string MaterializeOwnedLandUnit = "materialize-owned-land-unit";
     public const string GetTacticalCouplingState = "get-tactical-coupling-state";
     public const string GetUnitCatalogPage = "get-unit-catalog-page";
@@ -168,6 +169,7 @@ public static class GameCommandTypes
     {
         MaterializeOwnedSurfaceUnit,
         MaterializeOwnedLandUnit,
+        PrepareTacticalLocation,
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,
         SetOwnedSurfaceSuspension,
@@ -184,6 +186,7 @@ public static class GameCommandTypes
         GetSceneState,
         GetWorldSnapshot,
         ProbeTerrainPlacement,
+        PrepareTacticalLocation,
         GetTacticalCouplingState,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
