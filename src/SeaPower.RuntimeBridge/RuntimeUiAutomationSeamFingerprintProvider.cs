@@ -85,12 +85,15 @@ internal static class RuntimeUiAutomationSeamFingerprintProvider
                 ]),
             CaptureGroupSafe(
                 "camera-focus",
-                "6b5b277245c3b3f14649a8e8d4419909801be6c53461395604b49939e94f8767",
+                "f48b75d40c10105d2db332a0fec8bf00a62e8604007d14544ff531522c054fd7",
                 [GameCommandTypes.FocusCameraOnUnit],
                 () =>
                 [
                     RequiredMethod(typeof(RenderPosition), "switchToObject"),
                     RequiredMethod(typeof(RenderPosition), "getSelectedObject"),
+                    RequiredMethod(typeof(RenderPosition), "switchToPivot"),
+                    RequiredMethod(typeof(RenderPosition), "isAttachedToPivot"),
+                    RequiredMethod(typeof(RenderPosition), "getPivotObject"),
                 ]),
             CaptureGroupSafe(
                 "tactical-hud-panel",

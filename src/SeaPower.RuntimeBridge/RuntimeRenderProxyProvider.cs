@@ -12,6 +12,16 @@ internal static class RuntimeRenderProxyProvider
         ? RuntimeRenderProxyAdapter.CaptureState()
         : RuntimeVisualRenderProxyAdapter.Capture();
 
+    public static bool TryResolveVisiblePivot(string requestedId, out GameObject pivot)
+    {
+        if (!_useNativeFallback)
+        {
+            return RuntimeVisualRenderProxyAdapter.TryResolveVisiblePivot(requestedId, out pivot);
+        }
+        pivot = null!;
+        return false;
+    }
+
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
         ReconcileSurfaceRenderProxiesRequestPayload request,
         string commandSessionId)

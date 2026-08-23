@@ -306,6 +306,59 @@ pre-authorized helper unavailable to the current medium-integrity session.
 Use the repository-local runtime skill for the compact diagnosis route. Its
 BepInEx and AnchorChain references are intentionally separate edge-case guides.
 
+## Vanilla versus full-campaign performance
+
+Use `scripts/sea-power-performance-compare.ps1` for paired system-level
+captures. Both sides must start from a fresh Sea Power process, load the same
+authored mission, use the same camera/weather/pause state, and run for the same
+duration and sample interval. The current proving mission is
+`Fulda Gap Gone Hot - GIUK Dynamic Campaign Window`: vanilla contains its four
+authored combat units; the candidate binds the complete Fulda proving campaign
+(32 regions, 31 bases, 60 entities, 34 groups) and adds the currently visible
+presentation-only proxies. Do not compare the one-unit worker shell to the full
+campaign or call a warmed process a paired run.
+
+Capture vanilla first, with no campaign binding:
+
+```powershell
+pnpm performance:capture -- `
+  -Label vanilla-giuk `
+  -Workload native-authored-giuk-window-4-combat-units `
+  -DurationSeconds 20 -SampleIntervalSeconds 2 `
+  -OutputPath .run/performance/vanilla-giuk.json
+```
+
+After a fresh restart, bootstrap and bind the full campaign, promote the
+campaign-owned Knox, wait for `Active`, remove interest until the scheduler has
+two stable samples, and require `Released` plus one visible proxy. A repeatable
+setup may pause the disposable campaign before promotion/demotion to keep its
+fixture stable, but it must resume immediately before capture. Leave Sea Power
+unpaused and require both tactical seconds and campaign quanta to advance during
+every timed sample, then capture:
+
+```powershell
+pnpm performance:capture -- `
+  -Label dynamic-full-campaign `
+  -Workload full-60-entity-campaign-with-one-visual-proxy `
+  -CampaignId <32-char-guid> `
+  -DurationSeconds 20 -SampleIntervalSeconds 2 `
+  -OutputPath .run/performance/dynamic-full-campaign.json
+
+pnpm performance:compare -- `
+  -BaselinePath .run/performance/vanilla-giuk.json `
+  -CandidatePath .run/performance/dynamic-full-campaign.json `
+  -OutputPath .run/performance/vanilla-vs-dynamic-full.json
+```
+
+The capture records FPS, main-thread snapshot latency, tactical clock rate,
+object/proxy counts, campaign quanta and commit throughput, plus normalized CPU
+and memory for Sea Power, the companion, and the actual ServiceHost child
+process. The comparison is intentionally system-level and not unit-count
+normalized. Always inspect the reported object/entity/proxy counts and
+`anyPausedSample`; a hidden/destroyed proxy or mismatched workload invalidates a
+visual-proxy comparison even if the command succeeds. Keep `.run/performance`
+artifacts local and summarize qualifying runs in a dated evidence document.
+
 ## Deterministic UI smoke
 
 The safe read-only smoke path is:

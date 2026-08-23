@@ -2401,11 +2401,32 @@ internal static class GameCommandDispatcher
                 || string.Equals(UnitId(item.UniqueID), requestedId, StringComparison.Ordinal)
                 || string.Equals($"object:{item.UniqueID}", requestedId, StringComparison.Ordinal))
             .ToArray();
+        if (matches.Length == 0
+            && RuntimeRenderProxyProvider.TryResolveVisiblePivot(requestedId, out var proxyPivot))
+        {
+            var renderPosition = Singleton<RenderPosition>.Instance;
+            renderPosition.switchToPivot(proxyPivot);
+            if (!renderPosition.isAttachedToPivot()
+                || renderPosition.getPivotObject() != proxyPivot)
+            {
+                return Failure(
+                    ProtocolErrorCodes.AutomationPostconditionFailed,
+                    "Camera pivot switch ran without attaching to the requested render proxy.");
+            }
+
+            return Success(new UiAutomationActionResultPayload
+            {
+                Action = GameCommandTypes.FocusCameraOnUnit,
+                Outcome = "completed",
+                Postcondition = "camera-focused-on-visual-render-proxy",
+                Scenario = GetScenarioAutomationState(),
+            });
+        }
         if (matches.Length != 1)
         {
             return Failure(
                 ProtocolErrorCodes.AutomationPreconditionFailed,
-                $"Unit ID '{requestedId}' resolved to {matches.Length} live objects.");
+                $"Unit ID '{requestedId}' resolved to {matches.Length} live native objects and no unique visible render proxy.");
         }
 
         Singleton<RenderPosition>.Instance.switchToObject(

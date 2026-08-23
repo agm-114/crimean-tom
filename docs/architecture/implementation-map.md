@@ -101,6 +101,9 @@ the existing deterministic probabilistic path remains authoritative.
 
 The coordinator assigns and fences complete interaction islands. The companion
 translates assignment/checkpoint frames to allow-listed Runtime Bridge commands.
+Destroyed and retired entities remain in canonical history but are excluded
+from scheduler island construction, so later interest-policy changes cannot
+attempt invalid fidelity transitions or place terminal entities with workers.
 The implemented portable mutation family is owned surface units. Preparation,
 staging, activation grants, quiesce/release, and late-epoch rejection exist;
 live two-Sea-Power migration is not qualified. No evidence yet demonstrates a
@@ -145,6 +148,12 @@ annotation are visible. Promotion hides the matching proxy before owned
 materialization. Demotion or reconnect containment suspends the retained native
 record and permits the model/map proxy to represent campaign truth again, so a
 disabled native record does not make the friendly disappear.
+
+Typed `focus-camera-on-unit` resolves either a unique live native Sea Power
+object or a unique visible presentation-only proxy. Proxy focus attaches
+`RenderPosition` to the proxy model root and returns the distinct postcondition
+`camera-focused-on-visual-render-proxy`; the pinned camera seam fingerprints the
+pivot switch and pivot readback methods before enabling the command.
 
 This is a trusted local projection path, not the final multiplayer transport.
 The companion currently derives it from the privileged diagnostic campaign

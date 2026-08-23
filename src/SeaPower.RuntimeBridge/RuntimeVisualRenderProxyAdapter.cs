@@ -84,6 +84,22 @@ internal static class RuntimeVisualRenderProxyAdapter
             .ToArray(),
     };
 
+    public static bool TryResolveVisiblePivot(string requestedId, out GameObject pivot)
+    {
+        var matches = Records
+            .Where(item => item.Value.WorldModelVisible
+                && (string.Equals(item.Key, requestedId, StringComparison.Ordinal)
+                    || string.Equals(
+                        $"campaign-unit:{ProxyCampaignTag(item.Value.CampaignId, item.Key)}",
+                        requestedId,
+                        StringComparison.Ordinal)))
+            .Select(item => item.Value.Root)
+            .Distinct()
+            .ToArray();
+        pivot = matches.Length == 1 ? matches[0] : null!;
+        return matches.Length == 1;
+    }
+
     private static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload>
         ReconcileValidated(ReconcileSurfaceRenderProxiesRequestPayload request)
     {
@@ -274,6 +290,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         }
 
         public string CampaignId { get; }
+        public GameObject Root => _root;
 
         public static VisualProxyRecord Create(
             string campaignId,
@@ -366,7 +383,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             Cleanup(_parameters);
         }
 
-        private bool WorldModelVisible => !_disposed && _root.activeSelf;
+        internal bool WorldModelVisible => !_disposed && _root.activeSelf;
         private bool MapMarkerVisible => !_disposed
             && _mapMarker is not null
             && Globals._mainGameViewModel?.Map?.DrawingLayer?.Graphics.Contains(_mapMarker) == true;

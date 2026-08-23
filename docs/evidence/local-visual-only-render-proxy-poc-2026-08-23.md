@@ -54,12 +54,12 @@ comparison.
 
 ## Qualification boundary
 
-The screenshot proved the tactical mission remained playable, but did not show
-the proxy fleet in the current viewport: the worker-container mission and camera
-were near Iceland while the proof campaign fleet was in the Black Sea. Runtime
-state proved that both model roots and map drawing objects were registered at
-campaign coordinates. A theater-aligned worker mission or typed proxy-focus/map
-navigation command is still required for direct on-screen visual qualification.
+This first screenshot proved the tactical mission remained playable, but did
+not show the proxy fleet in its viewport because the worker shell and campaign
+were in different theaters. The follow-up full-campaign proof in
+`full-dynamic-campaign-sync-performance-2026-08-23.md` uses the authored GIUK
+mission and adds fingerprinted typed camera focus for a unique visible proxy,
+closing that automation/navigation gap.
 
 This remains a trusted-local, one-profile POC. It does not qualify hostile or
 uncertain-contact presentation, broader catalog families, remote-player

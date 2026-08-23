@@ -28,10 +28,11 @@ principal-separated browser writes remain open before an alpha.
 | Persistence | SQLite WAL, writer fencing, snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No recovered-head cache or qualified long-journal envelope |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, basic AI | Deterministic analogue, not Sea Power parity; calibration remains limited |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, Primary/Shadow fencing, cold reconstruction, migration protocol | Live two-container completion and hot convergence unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC; one authoritative surface family and one exact proxy profile; proof mission camera is in another theater; no hostile/contact proxy or campaign-owned hostile loss proof |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC proven against the full 60-entity campaign and theater-aligned GIUK mission; one authoritative surface family and one exact proxy profile; no hostile/contact proxy or campaign-owned hostile loss proof |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
+| Performance comparison | Repeatable vanilla/candidate capture and JSON comparison for FPS, snapshot latency, clocks, object/proxy counts, process CPU/memory, and campaign throughput | 20-second local system profile only; not unit-count normalized or a soak/load envelope |
 | Runtime geometry | Durable versioned collider cache and optional meter-space Bepu terminal silhouette | Optional analogue path; no armor/penetration model |
 
 ## Documentation drift found in this review
@@ -105,10 +106,10 @@ These are prerequisites, not release-polish tasks:
    children instead of leaving them fenced as unsupported fields. The local
    friendly render-proxy slice covers only deployed Knox-class maritime units;
    move it to a coalition-scoped service projection and add catalog-specific
-   proxy profiles before treating it as a general theater view. Align the proof
-   mission/camera with the campaign interaction island (or add typed proxy focus)
-   so the registered Black Sea models and annotations are directly inspectable
-   without manual long-range map navigation.
+   proxy profiles before treating it as a general theater view. Typed proxy
+   focus and the theater-aligned GIUK proof close the earlier navigation gap,
+   but player-facing selection, zoom framing, labels, and lifecycle feedback
+   still need product UI.
 5. **Campaign management UI.** Expose backup/restore, pause/drain, worker
    lifecycle, diagnostics, integrity status, and failure recovery through a
    safe operator workflow rather than HTTP/scripts alone.

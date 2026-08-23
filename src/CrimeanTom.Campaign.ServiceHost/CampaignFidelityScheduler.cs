@@ -449,7 +449,16 @@ internal static class CampaignFidelityScheduler
         CampaignState state,
         IReadOnlyList<CampaignSessionSnapshot> workers)
     {
-        var entityNodes = state.Entities.Keys.OrderBy(item => item).ToArray();
+        // Terminal entities remain in canonical history, but they no longer consume
+        // simulation fidelity or participate in interaction islands. Keeping them in
+        // scheduler islands lets an unrelated policy update try to demote a destroyed
+        // Operational entity to Strategic, which the campaign kernel correctly rejects.
+        var entityNodes = state.Entities.Values
+            .Where(entity => entity.Lifecycle is not EntityLifecycle.Destroyed
+                and not EntityLifecycle.Retired)
+            .Select(entity => entity.EntityId)
+            .OrderBy(item => item)
+            .ToArray();
         if (entityNodes.Length == 0)
         {
             return [];
@@ -470,8 +479,13 @@ internal static class CampaignFidelityScheduler
 
         foreach (var group in groupNodes)
         {
-            var first = entityIndexes[group.Members.Min];
-            foreach (var member in group.Members)
+            var liveMembers = group.Members.Where(entityIndexes.ContainsKey).ToArray();
+            if (liveMembers.Length == 0)
+            {
+                continue;
+            }
+            var first = entityIndexes[liveMembers[0]];
+            foreach (var member in liveMembers)
             {
                 Union(first, entityIndexes[member]);
             }
