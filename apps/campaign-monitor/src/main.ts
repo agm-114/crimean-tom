@@ -43,7 +43,7 @@ type Outcome = {
 type Assignment = {
   assignmentId: string; entityId: string; authorityEpoch: number; lifecycle: string;
   resolveByQuanta: number; revision: number; batchId: string; batchSize: number;
-  workerClientInstanceId: string;
+  workerClientInstanceId: string; leaseLive: boolean;
 };
 type Worker = {
   sessionId: string; clientInstanceId: string; gameSessionId: string; connectedAt: string;
@@ -545,6 +545,7 @@ function selectEntity(entityId: string): void {
       <dt>Damage</dt><dd class="${Number(damage) > 50 ? "hostile" : ""}">${damage}%</dd>
       <dt>Lifecycle</dt><dd>${escapeHtml(entity.lifecycle)}</dd>
       <dt>Authority</dt><dd>${assignment ? `${escapeHtml(assignment.lifecycle)} / E${assignment.authorityEpoch}` : "OPERATIONAL KERNEL"}</dd>
+      <dt>Lease</dt><dd class="${assignment && !assignment.leaseLive && assignment.lifecycle !== "Released" ? "hostile" : ""}">${assignment ? (assignment.leaseLive ? "HEARTBEAT LIVE" : assignment.lifecycle === "Released" ? "RELEASED" : "STALE / FALLBACK") : "NONE"}</dd>
       <dt>Worker</dt><dd>${assignment?.workerClientInstanceId ? escapeHtml(assignment.workerClientInstanceId.slice(0, 8).toUpperCase()) : "UNASSIGNED"}</dd>
       <dt>Batch</dt><dd>${assignment?.batchId ? `${escapeHtml(assignment.batchId)} / ${assignment.batchSize}` : "SINGLE / NONE"}</dd>
       <dt>Task force</dt><dd>${escapeHtml(group?.name ?? "Unassigned")}</dd>

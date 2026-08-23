@@ -2,18 +2,21 @@
 
 ## Snapshot
 
-Reviewed against `main` at `5c4302c` on 23 August 2026 and the installed Sea
-Power build `0.8.2-23444+s358`. This is the living status ledger. Dated files in
+Reviewed from `main` at `5c4302c` through the local tactical-sync POC branch on
+23 August 2026 and against the installed Sea Power build
+`0.8.2-23444+s358`. This is the living status ledger. Dated files in
 `docs/evidence/` remain the proof record; the phase plan remains the target and
 gate definition.
 
-The repository is an advanced campaign-runtime prototype, not yet a playable
-dynamic-campaign product. Its strongest areas are deterministic reduction and
+The repository is an advanced campaign-runtime prototype with a narrow local
+tactical-sync POC, not yet a complete playable dynamic-campaign product. Its
+strongest areas are deterministic reduction and
 replay, authority fencing, the Sea Power control boundary, broad integration
-stories, and an increasingly capable Operational analogue. The missing player
-loop is visible, but it is not the first dependency: long-journal recovery,
-save-contract evolution, tactical clock/lease coupling, and principal-separated
-browser writes must be made survivable before that loop can support an alpha.
+stories, and an increasingly capable Operational analogue. The POC can keep a
+real owned surface assignment alive by heartbeat while the rest of the campaign
+advances, and can commit changed local tactical state during unpaused play. The
+guided player loop, complete result contract, save evolution, and
+principal-separated browser writes remain open before an alpha.
 
 ## What works now
 
@@ -21,9 +24,10 @@ browser writes must be made survivable before that loop can support an alpha.
 | --- | --- | --- |
 | Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface mutation, checkpoints, collider capture | Pinned game build; narrow allow-list |
 | Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash | Broad integration story and golden hashes |
-| Persistence | SQLite WAL, writer fencing, snapshot API, CAS blobs, integrity checks, online backup and side-directory restore | ServiceHost has no snapshot cadence/state cache; ordinary campaigns replay from origin |
+| Persistence | SQLite WAL, writer fencing, snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No recovered-head cache or qualified long-journal envelope |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, basic AI | Deterministic analogue, not Sea Power parity; calibration remains limited |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, Primary/Shadow fencing, cold reconstruction, migration protocol | Live two-container completion and hot convergence unproven |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; unpaused read capture and pause/restore mutation safe points | Script-guided POC; one owned surface family; no campaign-owned hostile loss proof |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
@@ -45,21 +49,22 @@ browser writes must be made survivable before that loop can support an alpha.
 
 These are prerequisites, not release-polish tasks:
 
-1. **Bounded journal recovery.** `SaveSnapshotAsync` is implemented, but no
-   ServiceHost path calls it and the coordinator has no recovered-state cache.
-   Each append replays to the durable head to re-derive the canonical event.
-   Existing throughput figures cover a near-empty journal and are not a
-   long-running campaign envelope.
+1. **Bounded journal recovery.** ServiceHost now saves a canonical snapshot
+   every 100 commits, so ordinary recovery starts from a recent snapshot rather
+   than the origin. The coordinator still has no recovered-state cache, each
+   append re-derives the durable head, and no 10,000-commit recovery/storage
+   envelope has been qualified.
 2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
    schema or algorithm version other than the compiled constants. There is no
    upcaster, compatible old-engine path, or export-only recovery mode. Any
    objectives/ruleset work is likely to change these contracts, so save upgrade
    policy must precede private-alpha iteration.
-3. **Tactical clock and lease coupling.** Tactical assignments expire after 120
-   campaign quanta. With the default unattended rate of ten quanta per wall
-   second, a live assignment can be reclaimed after roughly twelve seconds
-   while the rest of the theater continues advancing. Human tactical play needs
-   a renewable lease and an explicit campaign-time policy.
+3. **Tactical clock and lease qualification.** A live companion heartbeat now
+   renews tactical authority while campaign time and unrelated entities advance;
+   the 120-quanta deadline applies after the owner becomes stale. The local POC
+   crossed multiple old deadlines during unpaused play. Service-restart grace,
+   long-session soak, clock-rate UX, and explicit capture-time versus commit-time
+   semantics still need qualification.
 4. **Principals and browser writes.** Companion, workers, and operator tooling
    share the master service token. The hosted monitor is issued a read cookie
    without an operator identity and cannot authenticate writes. The general
@@ -86,10 +91,11 @@ These are prerequisites, not release-polish tasks:
    failure predicates, scenario/campaign end state, political/narrative events,
    reinforcement/replacement policy, and an authorable ruleset. The current
    Fulda campaign is hard-coded proving content.
-3. **Playable tactical round trip.** Provide an operator/player flow that moves
-   a selected interaction island into Sea Power, exposes assignment/preparation
-   progress, lets play occur, captures the result, and returns cleanly to the
-   campaign without script-driven orchestration.
+3. **Playable tactical round trip.** Replace the now-proven script-guided local
+   POC with an operator/player flow that moves a selected interaction island
+   into Sea Power, exposes assignment/preparation and lease progress, starts
+   play, and returns cleanly to the campaign. Prove the fate of a
+   campaign-owned hostile, not only owned-vessel kinematics/resources/damage.
 4. **Broaden portable state and entity families.** Qualify or add aircraft,
    subsurface, base/land, formation, and hosted-aircraft materialization. Apply
    or explicitly model damage, fuel, magazines, sensors, formations, and hosted
@@ -142,12 +148,12 @@ slice, then traverse that slice vertically:
 1. close the HTTP content-type bypass and implement scoped
    companion/worker/operator/player credentials plus an authenticated hosted
    browser write channel;
-2. add automatic snapshot cadence and/or a safe recovered-head cache, then prove
-   bounded behavior on at least 10,000 commits;
+2. qualify the 100-commit snapshot cadence and/or add a safe recovered-head
+   cache, then prove bounded behavior on at least 10,000 commits;
 3. choose and implement campaign save-contract evolution, proving that a saved
    campaign can cross one schema and one algorithm change;
-4. replace fixed tactical expiry with a heartbeat-renewed lease and define how
-   campaign time behaves during a human tactical session;
+4. soak the heartbeat-renewed tactical lease across service/game restarts and
+   define capture-time, commit-time, and clock-rate UX for human sessions;
 5. expose canonical coalition-scoped player orders headlessly, with durable
    idempotency, control-right checks, expected-revision conflicts, and typed
    rejection feedback;

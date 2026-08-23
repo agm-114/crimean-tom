@@ -56,7 +56,7 @@ or realtime player client.
 | `CrimeanTom.Campaign.Contracts` | Stable IDs, quantized values, commands, events, fidelity and authority types | No Unity or persistence implementation |
 | `CrimeanTom.Campaign.Domain` | Immutable canonical state, invariants, coalition projections | Pure deterministic state model |
 | `CrimeanTom.Campaign.Engine` | Command reduction, deterministic simulation, canonical serialization, operational combat, optional Bepu collider-assisted terminal resolution | Does not write storage or call Sea Power |
-| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost has no automatic snapshot cadence or recovered-state cache |
+| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost snapshots every 100 commits but has no recovered-state cache |
 | `CrimeanTom.Campaign.Transport` | Generated bidirectional gRPC/Protobuf companion and worker protocol | Machine/control transport only; not a player UI protocol |
 | `CrimeanTom.Campaign.ServiceHost` | ASP.NET Core host, coordinator, scheduler, migration fences, sessions, HTTP control/projection APIs, worker supervisor, unattended in-process simulation | Sole allocator of campaign time, authority, and commits |
 | `CrimeanTom.Campaign.OperationalWorker` | Campaign-spawned process identity, health, capacity, ordered stream participation, assignment fencing | Does not execute `CampaignSimulation`; receives the shared service token and its health/capacity are self-reported |
@@ -76,11 +76,12 @@ persistence, worker, and bridge-facing contracts.
 Authenticated control HTTP reaches `CampaignCoordinator`, which validates a
 typed `CampaignCommand`, reduces it through `CampaignKernel`, and appends the
 command/events under a compare-and-swap writer epoch in `SqliteCampaignJournal`.
-Snapshot APIs can accelerate recovery but do not replace the ordered event head.
-ServiceHost never writes them today. Every coordinator recovery therefore starts
-at the origin in an ordinary service-created campaign, and every append performs
-another recovery inside its transaction before accepting the canonical event.
-Long-journal throughput has not been qualified.
+Snapshot APIs accelerate recovery but do not replace the ordered event head.
+ServiceHost saves a canonical snapshot every 100 commits, bounding the ordinary
+replay tail while retaining the append-only journal. The coordinator still has
+no recovered-head cache, and every append performs another recovery inside its
+transaction before accepting the canonical event. Long-journal throughput has
+not been qualified.
 
 ### Unattended Operational simulation
 
@@ -104,9 +105,24 @@ The implemented portable mutation family is owned surface units. Preparation,
 staging, activation grants, quiesce/release, and late-epoch rejection exist;
 live two-Sea-Power migration is not qualified. No evidence yet demonstrates a
 tactical loss against a campaign-owned hostile being committed back into the
-journal. The default unattended clock also expires tactical assignments after
-120 campaign quanta, so a human-length tactical-session clock/lease contract is
-not implemented.
+journal.
+
+The companion heartbeat now renews a process-local tactical ownership lease.
+While that lease is live, unattended campaign time continues and the kernel
+advances unrelated entities, but the active tactical entity remains fenced from
+the analogue and is not reclaimed by the fixed campaign-time deadline. After
+the heartbeat becomes stale, the existing 120-quanta bound remains the cold
+Operational fallback.
+
+For the owned-surface POC, the companion captures a lightweight checkpoint
+readback every two seconds and publishes a durable `StateSync` proposal only
+when its stable state fingerprint changes. The coordinator commits observed
+kinematics, telegraph, fuel/stores fractions, damage, and destruction at the
+current campaign head. Checkpoint capture is read-only and is allowed while Sea
+Power is unpaused; ordered lifecycle mutations temporarily pause and restore
+play. This is not complete portable tactical state: magazines, sensors,
+formations, hosted aircraft, and broader entity families remain fenced or
+unsupported.
 
 ### Operational worker supervision
 

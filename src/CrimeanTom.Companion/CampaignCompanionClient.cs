@@ -22,9 +22,12 @@ public sealed class CampaignCompanionClient(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan MaterializationReadinessPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaterializationReadinessTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
 
     private string? _armedMutationSessionId;
     private long _armedMutationExpiresAtUnixMilliseconds;
+    private readonly ConcurrentDictionary<string, string> _lastPublishedTacticalState =
+        new(StringComparer.Ordinal);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -256,15 +259,17 @@ public sealed class CampaignCompanionClient(
 
         async Task RunHeartbeatAsync(CancellationToken heartbeatToken)
         {
+            var nextStateSyncAt = DateTimeOffset.UtcNow;
             while (!heartbeatToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
                 CompanionHeartbeat heartbeat;
+                OwnedSurfaceResourceStatePayload? resources = null;
                 try
                 {
                     var current = await ReadCapabilitiesAsync(heartbeatToken);
                     var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
-                    var resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
+                    resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
                     var workerHealth = CompanionWorkerHealthClassifier.Classify(
                         current,
                         resources,
@@ -328,6 +333,21 @@ public sealed class CampaignCompanionClient(
                 finally
                 {
                     writeGate.Release();
+                }
+
+                if (resources is not null && DateTimeOffset.UtcNow >= nextStateSyncAt)
+                {
+                    nextStateSyncAt = DateTimeOffset.UtcNow + TacticalStateSyncInterval;
+                    var proposals = await CaptureTacticalStateChangesAsync(resources, heartbeatToken);
+                    foreach (var proposal in proposals)
+                    {
+                        await SendAsync(
+                            new CompanionFrame { TacticalEvent = proposal },
+                            $"event-{proposal.EventId}");
+                        _lastPublishedTacticalState[
+                            StateSyncKey(proposal.AssignmentId, proposal.AuthorityEpoch)] =
+                            proposal.CheckpointSha256;
+                    }
                 }
             }
         }
@@ -581,6 +601,8 @@ public sealed class CampaignCompanionClient(
             await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
             var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(checkpointResult.ResultJson, JsonOptions)
                 ?? throw new InvalidDataException("Checkpoint result was empty.");
+            _lastPublishedTacticalState[StateSyncKey(assignment.AssignmentId, assignment.AuthorityEpoch)] =
+                checkpoint.CheckpointSha256;
 
             var realizedRevision = materialized.Revision;
             if (isShadow)
@@ -657,19 +679,53 @@ public sealed class CampaignCompanionClient(
         {
             throw new InvalidDataException("A Shadow assignment cannot publish before a post-commit activation grant.");
         }
-        var result = await RequireGameCommandAsync(
-            GameCommandTypes.UpdateOwnedSurfaceUnit,
-            JsonSerializer.Serialize(new UpdateOwnedSurfaceUnitRequestPayload
-            {
-                Context = Context(command.AssignmentId, command.AuthorityEpoch,
-                    command.ExpectedEntityRevision, command.IdempotencyKey),
-                EntityId = command.EntityId,
-                Latitude = command.LatitudeMicrodegrees / 1_000_000d,
-                Longitude = command.LongitudeMicrodegrees / 1_000_000d,
-                HeadingDegrees = command.HeadingMillidegrees / 1_000d,
-                Telegraph = command.Telegraph,
-            }, JsonOptions),
+        var inspectionResult = await RequireGameCommandAsync(
+            GameCommandTypes.GetUiInspection,
+            "{}",
             cancellationToken);
+        var inspection = JsonSerializer.Deserialize<UiInspectionPayload>(
+            inspectionResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Tactical UI inspection was empty.");
+        var resumeAfterMutation = !inspection.IsPaused;
+        if (resumeAfterMutation)
+        {
+            await RequireGameCommandAsync(
+                GameCommandTypes.SetExperimentalPauseState,
+                JsonSerializer.Serialize(
+                    new ExperimentalPauseRequestPayload { IsPaused = true },
+                    JsonOptions),
+                cancellationToken);
+        }
+
+        GameCommandResult result;
+        try
+        {
+            result = await RequireGameCommandAsync(
+                GameCommandTypes.UpdateOwnedSurfaceUnit,
+                JsonSerializer.Serialize(new UpdateOwnedSurfaceUnitRequestPayload
+                {
+                    Context = Context(command.AssignmentId, command.AuthorityEpoch,
+                        command.ExpectedEntityRevision, command.IdempotencyKey),
+                    EntityId = command.EntityId,
+                    Latitude = command.LatitudeMicrodegrees / 1_000_000d,
+                    Longitude = command.LongitudeMicrodegrees / 1_000_000d,
+                    HeadingDegrees = command.HeadingMillidegrees / 1_000d,
+                    Telegraph = command.Telegraph,
+                }, JsonOptions),
+                cancellationToken);
+        }
+        finally
+        {
+            if (resumeAfterMutation)
+            {
+                await RequireGameCommandAsync(
+                    GameCommandTypes.SetExperimentalPauseState,
+                    JsonSerializer.Serialize(
+                        new ExperimentalPauseRequestPayload { IsPaused = false },
+                        JsonOptions),
+                    cancellationToken);
+            }
+        }
         var update = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Tactical update result was empty.");
         await stateStore.SaveGameRevisionAsync(command.AssignmentId, update.Revision, cancellationToken);
@@ -689,6 +745,127 @@ public sealed class CampaignCompanionClient(
             Telegraph = update.Unit.Telegraph,
             Destroyed = update.Unit.IsDestroyed,
         };
+    }
+
+    private async Task<IReadOnlyList<TacticalEventProposal>> CaptureTacticalStateChangesAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        CancellationToken cancellationToken)
+    {
+        var proposals = new List<TacticalEventProposal>();
+        foreach (var owned in resources.Entities
+            .Where(item => string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.AssignmentId, StringComparer.Ordinal))
+        {
+            try
+            {
+                var assignment = stateStore.ReadAssignment(owned.AssignmentId);
+                var mayPublish = assignment.Role == AssignmentRole.Primary
+                    || assignment.Role == AssignmentRole.Shadow
+                        && stateStore.HasActivationGrant(assignment.AssignmentId, assignment.AuthorityEpoch);
+                if (!mayPublish
+                    || assignment.AuthorityEpoch != owned.AuthorityEpoch
+                    || !string.Equals(assignment.CampaignId, options.CampaignId, StringComparison.Ordinal)
+                    || !string.Equals(assignment.EntityId, owned.EntityId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var expectedGameRevision = stateStore.ReadGameRevision(assignment.AssignmentId);
+                if (owned.Revision != expectedGameRevision)
+                {
+                    logger.LogDebug(
+                        "Skipping tactical state sync for {AssignmentId}: runtime revision {RuntimeRevision} does not match durable game revision {DurableRevision}.",
+                        assignment.AssignmentId,
+                        owned.Revision,
+                        expectedGameRevision);
+                    continue;
+                }
+
+                var readKey = $"state-sync-read-{DeterministicId(
+                    assignment.AssignmentId,
+                    $"{assignment.AuthorityEpoch}:{expectedGameRevision}")}";
+                var result = await game.SendCommandAsync(
+                    GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
+                    JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+                    {
+                        Context = Context(
+                            assignment.AssignmentId,
+                            assignment.AuthorityEpoch,
+                            expectedGameRevision,
+                            readKey),
+                        EntityId = assignment.EntityId,
+                    }, JsonOptions),
+                    CommandPriorities.Control,
+                    cancellationToken);
+                if (!result.Success)
+                {
+                    logger.LogDebug(
+                        "Tactical state sync capture for {AssignmentId} was unavailable: {ErrorCode}.",
+                        assignment.AssignmentId,
+                        result.ErrorCode);
+                    continue;
+                }
+
+                var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(
+                    result.ResultJson,
+                    JsonOptions) ?? throw new InvalidDataException("Tactical state sync checkpoint was empty.");
+                var unit = checkpoint.Unit;
+                if (unit.Latitude is null || unit.Longitude is null || unit.HeadingDegrees is null)
+                {
+                    logger.LogDebug(
+                        "Tactical state sync for {AssignmentId} had incomplete kinematics.",
+                        assignment.AssignmentId);
+                    continue;
+                }
+
+                var syncKey = StateSyncKey(assignment.AssignmentId, assignment.AuthorityEpoch);
+                if (_lastPublishedTacticalState.TryGetValue(syncKey, out var prior)
+                    && string.Equals(prior, checkpoint.CheckpointSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var idempotencyKey = $"tactical-sync-{DeterministicId(
+                    assignment.AssignmentId,
+                    $"{assignment.AuthorityEpoch}:{checkpoint.CheckpointSha256}")}";
+                proposals.Add(new TacticalEventProposal
+                {
+                    EventId = DeterministicId(assignment.AssignmentId, idempotencyKey),
+                    IdempotencyKey = idempotencyKey,
+                    AssignmentId = assignment.AssignmentId,
+                    EntityId = assignment.EntityId,
+                    AuthorityEpoch = assignment.AuthorityEpoch,
+                    ExpectedEntityRevision = expectedGameRevision,
+                    EffectiveTimeQuanta = assignment.HandoffTimeQuanta,
+                    Kind = TacticalEventKind.StateSync,
+                    LatitudeMicrodegrees = checked((int)Math.Round(unit.Latitude.Value * 1_000_000)),
+                    LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
+                    HeadingMillidegrees = checked((int)Math.Round(unit.HeadingDegrees.Value * 1_000)),
+                    Telegraph = unit.Telegraph,
+                    FuelMilliunits = ScaleResource(
+                        assignment.InitialFuelMilliunits,
+                        unit.FuelFractionMilliunits),
+                    StoresMilliunits = ScaleResource(
+                        assignment.InitialStoresMilliunits,
+                        unit.StoresFractionMilliunits),
+                    DamageMilliunits = ApplyDamageBaseline(
+                        assignment.InitialDamageMilliunits,
+                        unit.DamageFractionMilliunits,
+                        unit.IsDestroyed),
+                    Destroyed = unit.IsDestroyed,
+                    CheckpointSha256 = checkpoint.CheckpointSha256,
+                });
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogDebug(
+                    exception,
+                    "Tactical state sync skipped owned assignment {AssignmentId}.",
+                    owned.AssignmentId);
+            }
+        }
+
+        return proposals;
     }
 
     private async Task<FencePreparation> ApplyFenceAsync(
@@ -1544,6 +1721,9 @@ public sealed class CampaignCompanionClient(
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}:{idempotencyKey}"));
         return new Guid(hash.AsSpan(0, 16)).ToString("N");
     }
+
+    private static string StateSyncKey(string assignmentId, long authorityEpoch) =>
+        $"{assignmentId}:{authorityEpoch}";
 
     private static string CheckpointSpoolKey(CheckpointPublished checkpoint) =>
         $"checkpoint-{DeterministicId(

@@ -474,10 +474,11 @@ implemented. Controlled faults and abruptly terminated helper processes cover
 all fourteen declared persistence boundaries, including lost acknowledgements,
 and an independent lease-holder process proves successor fencing. See the
 [Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
-ServiceHost does not create snapshots or cache a recovered head, so ordinary
-service campaigns replay from origin and each append repeats recovery inside the
-transaction. No save-contract upgrader exists. Those are prerequisites for a
-long-running or cross-build campaign claim, not deferred P8 tuning.
+ServiceHost now creates a canonical snapshot every 100 commits but does not
+cache a recovered head, so each append still repeats recovery inside the
+transaction from the latest snapshot plus its journal tail. No save-contract
+upgrader or qualified long-journal envelope exists. Those are prerequisites for
+a long-running or cross-build campaign claim, not deferred P8 tuning.
 
 - Acquire a compare-and-swap writer epoch before the first durable mutation;
   require the current writer epoch in every append/lease transaction so a stale
@@ -516,7 +517,7 @@ state invariants, scheduling-independent event/state bytes, and fog-of-war
 sentinel exclusion. See the
 [Phase 3D gate evidence](../evidence/phase-3d-gate-evidence-2026-08-21.md).
 It does not prove recovery after a schema/algorithm bump or bounded performance
-as the unsnapshotted journal grows under the shipping unattended defaults.
+as the journal grows under the shipping unattended defaults.
 
 - Golden replay fixtures.
 - Broad long-horizon integration checks for conservation, non-negative resources,

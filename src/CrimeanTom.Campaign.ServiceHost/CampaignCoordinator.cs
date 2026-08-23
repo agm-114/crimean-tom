@@ -20,6 +20,7 @@ public sealed class CampaignCoordinator(
     CampaignSessionRegistry sessions,
     CampaignPerformanceTelemetry telemetry)
 {
+    private const long SnapshotIntervalCommits = 100;
     private static readonly CoordinatorId ServiceCoordinator = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000001"));
     private static readonly PlayerId ServicePlayer = new(
@@ -1114,7 +1115,10 @@ public sealed class CampaignCoordinator(
                 item.Revision.Value,
                 item.BatchId,
                 item.BatchSize,
-                item.WorkerClientInstanceId)).ToArray(),
+                item.WorkerClientInstanceId,
+                sessions.HasLiveTacticalLease(
+                    recovery.State.Metadata.CampaignId.ToString(),
+                    item.WorkerClientInstanceId))).ToArray(),
             recovery.State.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
                 item.OutcomeId,
                 item.OccurredAt.Quanta,
@@ -2275,7 +2279,10 @@ public sealed class CampaignCoordinator(
             {
                 var pending = state.Assignments.Values
                     .Where(item => item.Lifecycle != AssignmentLifecycle.Released
-                        && !CampaignAssignmentKinds.IsOperationalSim(item))
+                        && !CampaignAssignmentKinds.IsOperationalSim(item)
+                        && !sessions.HasLiveTacticalLease(
+                            campaignId.ToString(),
+                            item.WorkerClientInstanceId))
                     .Select(item => new
                     {
                         Assignment = item,
@@ -2573,20 +2580,27 @@ public sealed class CampaignCoordinator(
             return;
         }
         var current = state.Entities[assignment.EntityId];
-        var applyKinematics = proposal.Kind is TacticalEventKind.Movement or TacticalEventKind.Checkpoint;
+        var applyKinematics = proposal.Kind is TacticalEventKind.Movement
+            or TacticalEventKind.Checkpoint
+            or TacticalEventKind.StateSync;
         var coordinate = applyKinematics
             ? GeoCoordinate.FromMicrodegrees(proposal.LatitudeMicrodegrees, proposal.LongitudeMicrodegrees)
             : current.Coordinate;
         var heading = applyKinematics ? proposal.HeadingMillidegrees : current.Heading.Value;
         var telegraph = applyKinematics ? proposal.Telegraph : current.Telegraph;
         var resources = current.Resources;
-        if (proposal.Kind is TacticalEventKind.Resources or TacticalEventKind.Checkpoint)
+        if (proposal.Kind is TacticalEventKind.Resources
+            or TacticalEventKind.Checkpoint
+            or TacticalEventKind.StateSync)
         {
             resources = resources
                 .SetItem(ResourceKind.Fuel, ResourceAmount.FromMilliUnits(proposal.FuelMilliunits))
                 .SetItem(ResourceKind.Stores, ResourceAmount.FromMilliUnits(proposal.StoresMilliunits));
         }
-        var damage = proposal.Kind is TacticalEventKind.Damage or TacticalEventKind.Destroyed or TacticalEventKind.Checkpoint
+        var damage = proposal.Kind is TacticalEventKind.Damage
+            or TacticalEventKind.Destroyed
+            or TacticalEventKind.Checkpoint
+            or TacticalEventKind.StateSync
             ? checked((int)proposal.DamageMilliunits)
             : current.DamageMilliUnits;
         var lifecycle = proposal.Destroyed || proposal.Kind == TacticalEventKind.Destroyed
@@ -2786,7 +2800,16 @@ public sealed class CampaignCoordinator(
                     EventSha256 = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant(),
                 },
             });
-        return CampaignKernel.Apply(state, result.CampaignEvent);
+        var committed = CampaignKernel.Apply(state, result.CampaignEvent);
+        if (committed.Head.Value > 0 && committed.Head.Value % SnapshotIntervalCommits == 0)
+        {
+            _ = await journal.SaveSnapshotAsync(
+                lease,
+                committed,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+        }
+        return committed;
     }
 
     private async Task<CampaignWriterLease> RequireLeaseAsync(
@@ -3933,7 +3956,8 @@ public sealed record CampaignAssignmentView(
     long Revision,
     string BatchId,
     int BatchSize,
-    string WorkerClientInstanceId);
+    string WorkerClientInstanceId,
+    bool LeaseLive);
 
 public sealed record CampaignFallbackResult(
     long CommitPosition,

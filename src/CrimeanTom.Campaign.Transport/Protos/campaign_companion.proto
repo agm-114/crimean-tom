@@ -213,6 +213,9 @@ enum TacticalEventKind {
   TACTICAL_EVENT_KIND_DAMAGE = 3;
   TACTICAL_EVENT_KIND_DESTROYED = 4;
   TACTICAL_EVENT_KIND_CHECKPOINT = 5;
+  // Periodic local Sea Power readback. Unlike CHECKPOINT this does not imply
+  // that a content-addressed recovery blob was uploaded.
+  TACTICAL_EVENT_KIND_STATE_SYNC = 6;
 }
 
 message TacticalEventProposal {

@@ -638,7 +638,8 @@ internal static class RuntimeOwnedMutationAdapter
         var resolved = ResolveOwned<OwnedSurfaceCheckpointPayload>(
             request.Context,
             request.EntityId,
-            commandSessionId);
+            commandSessionId,
+            requirePaused: false);
         if (!resolved.Succeeded)
         {
             return resolved.Error!;
@@ -1287,9 +1288,10 @@ internal static class RuntimeOwnedMutationAdapter
     private static OwnedResolution<T> ResolveOwned<T>(
         OwnedMutationContextPayload? context,
         string entityId,
-        string commandSessionId)
+        string commandSessionId,
+        bool requirePaused = true)
     {
-        var resolved = ResolveRecord<T>(context, entityId, commandSessionId);
+        var resolved = ResolveRecord<T>(context, entityId, commandSessionId, requirePaused);
         if (!resolved.Succeeded)
         {
             return resolved;
@@ -1308,7 +1310,8 @@ internal static class RuntimeOwnedMutationAdapter
     private static OwnedResolution<T> ResolveRecord<T>(
         OwnedMutationContextPayload? context,
         string entityId,
-        string commandSessionId)
+        string commandSessionId,
+        bool requirePaused = true)
     {
         if (!IsArmedFor(commandSessionId))
         {
@@ -1361,11 +1364,13 @@ internal static class RuntimeOwnedMutationAdapter
             || !Singleton<ObjectsManager>.InstanceExists()
             || !Singleton<TaskforceManager>.InstanceExists()
             || !Singleton<SceneCreator>.Instance.IsLoadingDone
-            || !GameTime.IsPaused())
+            || requirePaused && !GameTime.IsPaused())
         {
             return OwnedResolution<T>.Fail(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "A loaded, paused tactical mission is required for owned lifecycle operations.");
+                requirePaused
+                    ? "A loaded, paused tactical mission is required for owned lifecycle operations."
+                    : "A loaded tactical mission is required for owned state capture.");
         }
         return OwnedResolution<T>.Success(record);
     }

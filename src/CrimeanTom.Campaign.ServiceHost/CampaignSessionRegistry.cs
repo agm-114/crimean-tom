@@ -74,6 +74,32 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public bool HasLiveTacticalLease(string campaignId, string clientInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(campaignId) || string.IsNullOrWhiteSpace(clientInstanceId))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_activeByClient.TryGetValue(clientInstanceId, out var session)
+                || !string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var snapshot = session.Snapshot();
+            var health = CampaignWorkerHealth.NormalizeHealth(snapshot.Health);
+            return snapshot.PlayerSessionBound
+                && !string.IsNullOrWhiteSpace(snapshot.GameSessionId)
+                && health is CampaignWorkerHealth.Healthy
+                    or CampaignWorkerHealth.Pressured
+                    or CampaignWorkerHealth.Overloaded
+                    or CampaignWorkerHealth.Draining;
+        }
+    }
+
     public bool TryQueue(ServiceFrame frame)
     {
         lock (_gate)

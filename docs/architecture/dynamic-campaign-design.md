@@ -336,10 +336,21 @@ campaign continues:
 The campaign host also runs an unattended ticker (`CRIMEAN_TOM_UNATTENDED_SIMULATION`,
 default on). It advances every non-empty, non-paused campaign on a wall clock
 without an HTTP client or Sea Power window. Integration tests disable the ticker
-so they can drive `advance` themselves. The same ticker resolves the bounded
-fallback deadline for disconnected Tactical assignments; Operational-worker
-leases remain under their separate supervisor. This analogue is not PhysX,
-per-sensor arcs, or in-flight Unity `WeaponBase` objects.
+so they can drive `advance` themselves. A healthy Sea Power heartbeat renews
+the active assignment's tactical lease: the assigned entity remains fenced,
+while every unrelated entity continues through the unattended kernel. The same
+ticker resolves the 120-quanta bounded fallback only after that heartbeat lease
+is stale; Operational-worker leases remain under their separate supervisor.
+This analogue is not PhysX, per-sensor arcs, or in-flight Unity `WeaponBase`
+objects.
+
+The current owned-surface POC reads the authoritative local vessel every two
+seconds during unpaused play. A changed stable checkpoint fingerprint produces
+a durable `StateSync` proposal for kinematics, telegraph, resource fractions,
+damage, and lifecycle. The proposal is committed at the service's current
+campaign head; it does not rewind campaign time to the tactical capture instant.
+Lifecycle mutations still use a short paused safe point, after which the
+companion restores the prior play state.
 
 A **Render proxy** is a replica role, not a fourth canonical fidelity level. It
 materializes only authorized presentation state and cannot adjudicate outcomes
@@ -448,7 +459,8 @@ A run is reproducible from:
 - committed nondeterministic tactical events;
 - authority-epoch and assignment history.
 
-Persist periodic snapshots plus an append-only event journal. Checkpoints make
+Persist periodic snapshots plus an append-only event journal. ServiceHost
+currently writes a canonical snapshot every 100 commits. Checkpoints make
 loading and worker promotion fast; the journal enables replay, audit, migration,
 and desync diagnosis. Every command and event has a stable ID and revision so
 reducers can be idempotent.

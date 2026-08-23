@@ -155,7 +155,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(2, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(3, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -168,6 +168,14 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString() == "hosted-monitor-local-cookie-read-access-without-operator-identity");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString()
+                    == "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances");
+            Assert.DoesNotContain(
+                supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
+                item => item.GetString()
+                    == "human-length-tactical-assignment-under-default-unattended-clock");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
                 item => item.GetString() == "hot-shadow-failover");
@@ -714,11 +722,13 @@ public sealed class CompanionControlIntegrationTests
             var token = (await File.ReadAllTextAsync(tokenPath, testTimeout.Token)).Trim();
             AssertAnonymousPipeAccessDenied(gamePipeName);
             var couplingState = new FakeTacticalCouplingState();
+            var tacticalCheckpointState = new FakeTacticalCheckpointState();
             var gamePeer = RunGamePeerAsync(
                 gamePipeName,
                 probeSavePath,
                 couplingState,
-                testTimeout.Token);
+                testTimeout.Token,
+                tacticalCheckpointState);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
             using var activeCampaignResponse = await campaignClient.GetAsync(
@@ -879,6 +889,66 @@ public sealed class CompanionControlIntegrationTests
             Assert.True(
                 unrelatedAfterAdvance.GetProperty("revision").GetInt64()
                 > unrelatedBeforeAdvance.GetProperty("revision").GetInt64());
+
+            tacticalCheckpointState.SetObservedState(
+                checkpointSha256: new string('d', 64),
+                latitude: 12.27,
+                longitude: 44.52,
+                headingDegrees: 110,
+                telegraph: 2,
+                fuelFractionMilliunits: 900_000,
+                storesFractionMilliunits: 800_000,
+                damageFractionMilliunits: 100_000);
+            var stateSyncFrames = await WaitForInboundFramesAsync(
+                campaignServiceRunDirectory,
+                count: 3,
+                testTimeout.Token,
+                required: item => item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                    && item.TacticalEvent.AssignmentId == assignmentId
+                    && item.TacticalEvent.Kind == TacticalEventKind.StateSync
+                    && item.TacticalEvent.CheckpointSha256 == new string('d', 64));
+            Assert.Contains(stateSyncFrames, item =>
+                item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
+                && item.TacticalEvent.AssignmentId == assignmentId
+                && item.TacticalEvent.Kind == TacticalEventKind.StateSync);
+            using var syncedView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("entities").EnumerateArray().Any(item =>
+                    item.GetProperty("entityId").GetString() == primaryEntityId
+                    && item.GetProperty("latitudeMicrodegrees").GetInt32() == 12_270_000
+                    && item.GetProperty("damageMilliunits").GetInt32() == 100_000),
+                testTimeout.Token);
+            var syncedPrimary = Assert.Single(
+                syncedView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId);
+            Assert.Equal(44_520_000, syncedPrimary.GetProperty("longitudeMicrodegrees").GetInt32());
+            Assert.Equal(110_000, syncedPrimary.GetProperty("headingMilliDegrees").GetInt32());
+            Assert.Equal(2, syncedPrimary.GetProperty("telegraph").GetInt32());
+            Assert.Equal(900_000, syncedPrimary.GetProperty("fuelMilliunits").GetInt64());
+            Assert.Equal(400_000, syncedPrimary.GetProperty("storesMilliunits").GetInt64());
+
+            using var liveLeaseResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/resolve-expired/150",
+                content: null,
+                testTimeout.Token);
+            liveLeaseResponse.EnsureSuccessStatusCode();
+            using var liveLease = JsonDocument.Parse(
+                await liveLeaseResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(150, liveLease.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Empty(liveLease.RootElement.GetProperty("assignments").EnumerateArray());
+            using var liveLeaseViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            liveLeaseViewResponse.EnsureSuccessStatusCode();
+            using var liveLeaseView = JsonDocument.Parse(
+                await liveLeaseViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var leasedAssignment = Assert.Single(
+                liveLeaseView.RootElement.GetProperty("assignments").EnumerateArray(),
+                item => item.GetProperty("assignmentId").GetString()
+                    == assignmentId["assignment:".Length..]);
+            Assert.Equal("Active", leasedAssignment.GetProperty("lifecycle").GetString());
+            Assert.True(leasedAssignment.GetProperty("leaseLive").GetBoolean());
 
             using var queuedCommand = await campaignClient.PostAsJsonAsync(
                 "/control/commands",
@@ -2040,18 +2110,18 @@ public sealed class CompanionControlIntegrationTests
                 stopBeforeFallback.Token);
             Assert.True(stoppedCompanion.ExitCode == 0, stoppedCompanion.FormatFailure("stop-before-fallback"));
             using var fallbackResponse = await campaignClient.PostAsync(
-                $"/control/campaigns/{campaignId}/resolve-expired/150",
+                $"/control/campaigns/{campaignId}/resolve-expired/270",
                 content: null,
                 testTimeout.Token);
             fallbackResponse.EnsureSuccessStatusCode();
             using var fallback = JsonDocument.Parse(
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(150, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Equal(270, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
             var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
             Assert.Single(fallbackAssignments);
             var fallbackAssignment = Assert.Single(fallbackAssignments, item =>
                 item.GetProperty("assignmentId").GetString() == fallbackAssignmentId);
-            Assert.Equal(150, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
+            Assert.Equal(270, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
             Assert.Equal(120, fallbackAssignment.GetProperty("maximumLossQuanta").GetInt64());
             Assert.Equal(
                 "operational-resolution-from-last-committed-checkpoint",
@@ -2282,7 +2352,8 @@ public sealed class CompanionControlIntegrationTests
         string pipeName,
         string probeSavePath,
         FakeTacticalCouplingState couplingState,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        FakeTacticalCheckpointState? tacticalCheckpointState = null) =>
         RunGamePeerAsync(
             pipeName,
             probeSavePath,
@@ -2290,7 +2361,8 @@ public sealed class CompanionControlIntegrationTests
             ownedResources: null,
             runtimeFingerprintSha256: new string('a', 64),
             catalogFingerprintSha256: "integration-catalog-sha256",
-            cancellationToken);
+            cancellationToken,
+            tacticalCheckpointState);
 
     private static async Task RunGamePeerAsync(
         string pipeName,
@@ -2314,7 +2386,8 @@ public sealed class CompanionControlIntegrationTests
         FakeOwnedSurfaceResourceState? ownedResources,
         string runtimeFingerprintSha256,
         string catalogFingerprintSha256,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FakeTacticalCheckpointState? tacticalCheckpointState = null)
     {
         using var pipe = new NamedPipeClientStream(
             ".",
@@ -2351,6 +2424,7 @@ public sealed class CompanionControlIntegrationTests
         var builderLoaded = false;
         var draftPending = false;
         ownedResources ??= new FakeOwnedSurfaceResourceState();
+        tacticalCheckpointState ??= new FakeTacticalCheckpointState();
         while (true)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
@@ -2655,7 +2729,7 @@ public sealed class CompanionControlIntegrationTests
                     },
                     JsonOptions),
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
-                    CreateOwnedSurfaceCheckpoint(command.PayloadJson),
+                    tacticalCheckpointState.Capture(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.UpdateOwnedSurfaceUnit => JsonSerializer.Serialize(
                     CreateLifecycleResult(command.PayloadJson, "updated", 2, disabled: false),
@@ -2857,6 +2931,17 @@ public sealed class CompanionControlIntegrationTests
                             "active-and-suspended-retained-objects-consume-materialized-capacity",
                     },
                     JsonOptions),
+                GameCommandTypes.GetUiInspection => JsonSerializer.Serialize(
+                    new UiInspectionPayload
+                    {
+                        SceneName = "IntegrationScenario",
+                        CurrentWindowType = "MissionBriefView",
+                        GameMainAvailable = true,
+                        MainGameViewAvailable = true,
+                        IsPaused = false,
+                        PlayerTaskforceId = "taskforce:Blue",
+                    },
+                    JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
                     JsonOptions),
@@ -3010,6 +3095,67 @@ public sealed class CompanionControlIntegrationTests
             Revision = request.Context.ExpectedRevision,
             Unit = unit,
         };
+    }
+
+    private sealed class FakeTacticalCheckpointState
+    {
+        private readonly object _gate = new();
+        private string _checkpointSha256 = new('c', 64);
+        private double _latitude = 12.26;
+        private double _longitude = 44.51;
+        private double _headingDegrees = 100;
+        private int _telegraph = 1;
+        private long _fuelFractionMilliunits = 1_000_000;
+        private long _storesFractionMilliunits = 1_000_000;
+        private int _damageFractionMilliunits;
+
+        public void SetObservedState(
+            string checkpointSha256,
+            double latitude,
+            double longitude,
+            double headingDegrees,
+            int telegraph,
+            long fuelFractionMilliunits,
+            long storesFractionMilliunits,
+            int damageFractionMilliunits)
+        {
+            lock (_gate)
+            {
+                _checkpointSha256 = checkpointSha256;
+                _latitude = latitude;
+                _longitude = longitude;
+                _headingDegrees = headingDegrees;
+                _telegraph = telegraph;
+                _fuelFractionMilliunits = fuelFractionMilliunits;
+                _storesFractionMilliunits = storesFractionMilliunits;
+                _damageFractionMilliunits = damageFractionMilliunits;
+            }
+        }
+
+        public OwnedSurfaceCheckpointPayload Capture(string payloadJson)
+        {
+            var checkpoint = CreateOwnedSurfaceCheckpoint(payloadJson);
+            var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                payloadJson,
+                JsonOptions)!;
+            if (!request.Context.IdempotencyKey.StartsWith("state-sync-read-", StringComparison.Ordinal))
+            {
+                return checkpoint;
+            }
+
+            lock (_gate)
+            {
+                checkpoint.CheckpointSha256 = _checkpointSha256;
+                checkpoint.Unit.Latitude = _latitude;
+                checkpoint.Unit.Longitude = _longitude;
+                checkpoint.Unit.HeadingDegrees = _headingDegrees;
+                checkpoint.Unit.Telegraph = _telegraph;
+                checkpoint.Unit.FuelFractionMilliunits = _fuelFractionMilliunits;
+                checkpoint.Unit.StoresFractionMilliunits = _storesFractionMilliunits;
+                checkpoint.Unit.DamageFractionMilliunits = _damageFractionMilliunits;
+                return checkpoint;
+            }
+        }
     }
 
     private static OwnedSurfaceLifecycleResultPayload CreateLifecycleResult(
