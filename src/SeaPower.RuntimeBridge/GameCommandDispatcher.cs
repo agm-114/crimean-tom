@@ -88,6 +88,8 @@ internal static class GameCommandDispatcher
                         initializedMainThreadId,
                         executingThreadId)),
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
+                    GameCommandTypes.ProbeTerrainPlacement => Success(ProbeTerrainPlacement(
+                        command.PayloadJson)),
                     GameCommandTypes.GetTacticalCouplingState => Success(
                         GetTacticalCouplingState()),
                     GameCommandTypes.GetOwnedSurfaceResourceState =>
@@ -236,6 +238,14 @@ internal static class GameCommandDispatcher
             ExecutingThreadId = executingThreadId,
             IsMainThread = executingThreadId == initializedMainThreadId,
         };
+    }
+
+    private static TerrainPlacementProbeResultPayload ProbeTerrainPlacement(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<TerrainPlacementProbeRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new TerrainPlacementProbeRequestPayload();
+        return RuntimeTerrainPlacementAdapter.Probe(request);
     }
 
     private static WorldSnapshotPayload GetWorldSnapshot()

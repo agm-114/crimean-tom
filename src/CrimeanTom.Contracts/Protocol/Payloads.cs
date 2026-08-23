@@ -144,6 +144,33 @@ public sealed class OwnedMutationContextPayload
     public bool DryRun { get; set; }
 }
 
+public sealed class TerrainPlacementProbeRequestPayload
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+public sealed class TerrainPlacementProbeResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string TileId { get; set; } = string.Empty;
+    public bool TerrainManagerAvailable { get; set; }
+    public bool InitialTerrainLoadingDone { get; set; }
+    public bool TileLoaded { get; set; }
+    public bool TileFinalized { get; set; }
+    public bool FlatteningFinishedForLandUnits { get; set; }
+    public bool PlacementReady { get; set; }
+    public bool IsLand { get; set; }
+    public double? TerrainHeightUnity { get; set; }
+    public double? TerrainHeightMeters { get; set; }
+    public double? LocalX { get; set; }
+    public double? LocalY { get; set; }
+    public double? LocalZ { get; set; }
+    public string Postcondition { get; set; } = string.Empty;
+}
+
 public sealed class MaterializeOwnedSurfaceUnitRequestPayload
 {
     public OwnedMutationContextPayload Context { get; set; } = new();

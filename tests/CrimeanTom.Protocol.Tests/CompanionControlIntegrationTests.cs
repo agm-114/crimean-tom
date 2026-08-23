@@ -1541,6 +1541,19 @@ public sealed class CompanionControlIntegrationTests
                 "estimated",
                 world.RootElement.GetProperty("contacts")[0].GetProperty("positionState").GetString());
 
+            using var terrainProbe = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/terrain/probe",
+                JsonSerializer.Serialize(
+                    new TerrainPlacementProbeRequestPayload { Latitude = 54.1, Longitude = 9.4 },
+                    JsonOptions),
+                testTimeout.Token);
+            Assert.True(terrainProbe.RootElement.GetProperty("placementReady").GetBoolean());
+            Assert.Equal(
+                "terrain-land-placement-ready",
+                terrainProbe.RootElement.GetProperty("postcondition").GetString());
+
             using var catalog = await GetAuthorizedJsonAsync(
                 client,
                 token,
@@ -2746,6 +2759,27 @@ public sealed class CompanionControlIntegrationTests
                     IsMainThread = true,
                 }, JsonOptions),
                 GameCommandTypes.GetWorldSnapshot => JsonSerializer.Serialize(CreateWorldSnapshot(), JsonOptions),
+                GameCommandTypes.ProbeTerrainPlacement => JsonSerializer.Serialize(
+                    new TerrainPlacementProbeResultPayload
+                    {
+                        Latitude = 54.1,
+                        Longitude = 9.4,
+                        TileId = "(9, 54)",
+                        TerrainManagerAvailable = true,
+                        InitialTerrainLoadingDone = true,
+                        TileLoaded = true,
+                        TileFinalized = true,
+                        FlatteningFinishedForLandUnits = true,
+                        PlacementReady = true,
+                        IsLand = true,
+                        TerrainHeightUnity = 2.5,
+                        TerrainHeightMeters = 37.5,
+                        LocalX = 1,
+                        LocalY = 2.5,
+                        LocalZ = 3,
+                        Postcondition = "terrain-land-placement-ready",
+                    },
+                    JsonOptions),
                 GameCommandTypes.GetTacticalCouplingState => JsonSerializer.Serialize(
                     couplingState.Capture(),
                     JsonOptions),
@@ -6059,6 +6093,7 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.SetExperimentalPauseState
                 or GameCommandTypes.GetTacticalCouplingState
                 or GameCommandTypes.GetWorldSnapshot
+                or GameCommandTypes.ProbeTerrainPlacement
                 or GameCommandTypes.GetUiInspection
                 or GameCommandTypes.CaptureGameScreenshot
                 or GameCommandTypes.CaptureColliderCatalog

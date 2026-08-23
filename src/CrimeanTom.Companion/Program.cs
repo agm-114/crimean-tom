@@ -129,6 +129,17 @@ app.MapGet("/game/world", (GamePipeBroker broker, CancellationToken cancellation
         CommandPriorities.Bulk,
         cancellationToken));
 
+app.MapPost("/game/terrain/probe", (
+    TerrainPlacementProbeRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.ProbeTerrainPlacement,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapGet("/game/coupling", (GamePipeBroker broker, CancellationToken cancellationToken) =>
     SendCommandAsync(
         broker,
