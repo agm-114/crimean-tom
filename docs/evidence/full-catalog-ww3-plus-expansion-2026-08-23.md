@@ -62,4 +62,20 @@ verification. Spatial and collision indexes also discard mathematically
 impossible candidates while the unchanged exact rules make final decisions;
 the long-horizon golden hashes remained unchanged.
 
+A final clean component profile on the same machine measured:
+
+| Operation | Wall time | Peak working set |
+| --- | ---: | ---: |
+| Atomic 5,892-record bootstrap | 8.203 s | 161.0 MiB |
+| Operational advance from quanta 0 to 30 | 2.065 s | 230.2 MiB |
+| First in-process 4,096-entity diagnostic view | 0.329 s | — |
+| Repeated cached diagnostic view | 0.172 s | — |
+| Cold post-restart recovery plus diagnostic view | 1.189 s | 174.6 MiB |
+| Warm post-restart diagnostic view | 0.350 s | — |
+
+The post-advance database occupied 44.3 MiB, the diagnostic view payload was
+5.07 MiB, and restart recovery reproduced commit 5,893, campaign time 30, and
+canonical hash
+`f9299d125693d439d809cada795a2f264a9158500a34b8e356902567dd858d8b`.
+
 Live tactical/vanilla performance evidence remains a separate completion gate.

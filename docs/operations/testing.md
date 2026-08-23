@@ -127,6 +127,19 @@ companion shutdown. Protocol invariants that do not yet fit this flow should be
 proven through a new broad failure/recovery scenario, not a collection of narrow
 method tests.
 
+### Full-seed headless scale checkpoint
+
+The current deterministic WW3++ seed contains 4,096 entities and 5,892 initial
+journal commits. On the 24-logical-core development machine, the local baseline
+is an approximately eight-second clean bootstrap, two-second 30-quanta advance,
+and 1.2-second cold restart/recovery plus full diagnostic view. Run both
+`pnpm test:campaign` and `pnpm test:protocol` after changing campaign
+persistence, canonical serialization, simulation indexing, or the seed. Record
+new measurements in
+[the full-catalog evidence](../evidence/full-catalog-ww3-plus-expansion-2026-08-23.md);
+do not substitute these headless timings for the separate live Sea Power
+vanilla-versus-dynamic performance comparison.
+
 ### Named tactical workers (experimental second instance)
 
 The default `pnpm dev` / `pnpm status` path remains the primary demo launcher.

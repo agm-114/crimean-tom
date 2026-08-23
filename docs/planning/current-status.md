@@ -57,7 +57,9 @@ These are prerequisites, not release-polish tasks:
    bootstrap measured 8.009 seconds, 162.8 MiB peak working set, and a 32.3 MiB
    database under the new local workstation-GC default. Coordinator reads and
    appends now reuse immutable recovered state after checking the durable SQLite
-   head, and the full protocol story passes in 1 minute 3 seconds. A
+   head, and the full protocol story passes in 1 minute 3 seconds. A clean
+   30-quanta advance measured 2.065 seconds; cold recovery plus a full diagnostic
+   view measured 1.189 seconds at commit 5,893. A
    10,000-commit restart/recovery/storage envelope is still unqualified.
 2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
    schema or algorithm version other than the compiled constants. There is no
