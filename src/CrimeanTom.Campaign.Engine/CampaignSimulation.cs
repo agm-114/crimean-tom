@@ -2391,15 +2391,43 @@ internal static class CampaignSimulation
 
             var latitudeDelta = checked((long)Math.Ceiling(
                 rangeMeters * 180d * 1_000_000d / (Math.PI * MeanEarthRadiusMeters)) + 1L);
+            var longitudeDelta = LongitudeDeltaMicrodegrees(coordinate, rangeMeters);
             var minimum = Math.Max(-90_000_000L, coordinate.LatitudeMicrodegrees - latitudeDelta);
             var maximum = Math.Min(90_000_000L, coordinate.LatitudeMicrodegrees + latitudeDelta);
             var index = LowerBound(minimum);
             while (index < _entities.Length
                 && _entities[index].Coordinate.LatitudeMicrodegrees <= maximum)
             {
-                yield return _entities[index];
+                var entity = _entities[index];
+                if (AbsoluteLongitudeDeltaMicrodegrees(
+                        coordinate.LongitudeMicrodegrees,
+                        entity.Coordinate.LongitudeMicrodegrees) <= longitudeDelta)
+                {
+                    yield return entity;
+                }
                 index++;
             }
+        }
+
+        private static long LongitudeDeltaMicrodegrees(GeoCoordinate coordinate, long rangeMeters)
+        {
+            var angularDistance = rangeMeters / (double)MeanEarthRadiusMeters;
+            var latitude = coordinate.LatitudeMicrodegrees / 1_000_000d * (Math.PI / 180d);
+            if (angularDistance >= Math.PI
+                || Math.Abs(latitude) + angularDistance >= Math.PI / 2d)
+            {
+                return 180_000_000;
+            }
+
+            var ratio = Math.Sin(angularDistance) / Math.Cos(latitude);
+            var radians = Math.Asin(Math.Clamp(ratio, -1d, 1d));
+            return checked((long)Math.Ceiling(radians * 180d / Math.PI * 1_000_000d) + 1L);
+        }
+
+        private static long AbsoluteLongitudeDeltaMicrodegrees(int first, int second)
+        {
+            var direct = Math.Abs((long)first - second);
+            return Math.Min(direct, 360_000_000L - direct);
         }
 
         private int LowerBound(long latitudeMicrodegrees)
