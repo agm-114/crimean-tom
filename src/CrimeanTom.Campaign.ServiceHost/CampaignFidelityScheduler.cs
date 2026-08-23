@@ -168,6 +168,8 @@ internal static class CampaignFidelityScheduler
         {
             foreach (var candidate in islands
                 .Where(item => !item.UnsafeToSplit && !item.Engaged
+                    && !item.EntityIds.Any(id =>
+                        CampaignResidentEntityPolicy.RequiresContinuousTacticalPresence(state.Entities[id]))
                     && state.Assignments.Values.Any(assignment =>
                         item.EntityIds.Contains(assignment.EntityId)
                         && assignment.Lifecycle == AssignmentLifecycle.Active
@@ -187,11 +189,15 @@ internal static class CampaignFidelityScheduler
         var plans = new List<SchedulerIslandPlan>();
         var transitions = new List<CampaignFidelityTransitionView>();
         foreach (var island in islands
-            .OrderByDescending(item => item.EntityIds.Any(interested.Contains))
+            .OrderByDescending(item => item.EntityIds.Any(id =>
+                CampaignResidentEntityPolicy.RequiresContinuousTacticalPresence(state.Entities[id])))
+            .ThenByDescending(item => item.EntityIds.Any(interested.Contains))
             .ThenBy(item => item.IslandId, StringComparer.Ordinal))
         {
             var current = CurrentFidelity(state, island.EntityIds);
             var hasInterest = island.EntityIds.Any(interested.Contains);
+            var hasResidentEntity = island.EntityIds.Any(id =>
+                CampaignResidentEntityPolicy.RequiresContinuousTacticalPresence(state.Entities[id]));
             var islandAssignments = state.Assignments.Values
                 .Where(item => island.EntityIds.Contains(item.EntityId))
                 .ToArray();
@@ -273,23 +279,23 @@ internal static class CampaignFidelityScheduler
                 desired = FidelityState.Tactical;
                 reason = "active-interaction-fence";
             }
-            else if (hasActiveAssignment && capacityVictims.Contains(island.IslandId))
+            else if (hasActiveAssignment && !hasResidentEntity && capacityVictims.Contains(island.IslandId))
             {
                 desired = FidelityState.Operational;
                 reason = "tactical-reserve-load-shed";
             }
-            else if (hasActiveAssignment && workerConnected && loadRequiresFallback)
+            else if (hasActiveAssignment && !hasResidentEntity && workerConnected && loadRequiresFallback)
             {
                 desired = FidelityState.Operational;
                 reason = "active-island-load-shed";
             }
-            else if (hasActiveAssignment && workerConnected && !hasInterest && !island.Engaged
+            else if (hasActiveAssignment && !hasResidentEntity && workerConnected && !hasInterest && !island.Engaged
                 && stableSampleCount >= 2)
             {
                 desired = FidelityState.Operational;
                 reason = "active-island-outside-player-interest";
             }
-            else if (hasActiveAssignment && workerConnected && !hasInterest && !island.Engaged)
+            else if (hasActiveAssignment && !hasResidentEntity && workerConnected && !hasInterest && !island.Engaged)
             {
                 desired = FidelityState.Tactical;
                 reason = "scheduler-hysteresis-hold";
@@ -309,6 +315,42 @@ internal static class CampaignFidelityScheduler
             {
                 desired = FidelityState.Tactical;
                 reason = "active-interaction-fence";
+            }
+            else if (hasResidentEntity && !tacticalCapable)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-domain-ceiling";
+            }
+            else if (hasResidentEntity && !workerConnected)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-worker-offline";
+            }
+            else if (hasResidentEntity && !workerHasTaskforce)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-taskforce-unavailable";
+            }
+            else if (hasResidentEntity && !workerCanMaterializeIsland)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-materialization-ceiling";
+            }
+            else if (hasResidentEntity && !workerCanAdmitIsland)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-capacity-exhausted";
+            }
+            else if (hasResidentEntity && island.EntityIds.Count > remainingCapacity)
+            {
+                desired = FidelityState.Operational;
+                reason = "resident-system-capacity-exhausted";
+            }
+            else if (hasResidentEntity)
+            {
+                desired = FidelityState.Tactical;
+                remainingCapacity -= island.EntityIds.Count;
+                reason = "resident-strategic-system";
             }
             else if (loadRequiresFallback)
             {

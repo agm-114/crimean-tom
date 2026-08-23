@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 
@@ -11,6 +12,66 @@ namespace CrimeanTom.Campaign.IntegrationTests;
 
 public sealed class DeterministicCampaignKernelIntegrationTests
 {
+    [Fact]
+    public void Combined_arms_operational_emulator_resolves_physical_land_installation_and_rotary_targets()
+    {
+        var surfaceStrike = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.BlueCoalition, SimulationDomain.Maritime,
+                "Blue surface strike ship", "synthetic-surface-strike",
+                [LandWeapon("surface-land-attack-missile", 200_000)]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.RedCoalition, SimulationDomain.Installation,
+                "Red hardened installation", "synthetic-installation", []));
+        AssertOperationalExpenditure(surfaceStrike, Ids.ExchangeActor, Ids.ExchangeTarget);
+        Assert.Equal(0, surfaceStrike.Entities[Ids.ExchangeTarget].Telegraph);
+        Assert.Equal(0, surfaceStrike.Entities[Ids.ExchangeTarget].Analogue.FloodMilliUnits);
+
+        var bomberStrike = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.BlueCoalition, SimulationDomain.Air,
+                "Blue bomber", "synthetic-bomber", [LandWeapon("air-delivered-bomb", 80_000)]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.RedCoalition, SimulationDomain.Ground,
+                "Red armored target", "synthetic-tank", []));
+        AssertOperationalExpenditure(bomberStrike, Ids.ExchangeActor, Ids.ExchangeTarget);
+
+        var helicopterStrike = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.BlueCoalition, SimulationDomain.RotaryWing,
+                "Blue attack helicopter", "synthetic-attack-helicopter",
+                [LandWeapon("helicopter-rocket", 20_000)]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.RedCoalition, SimulationDomain.Installation,
+                "Red radar installation", "synthetic-radar", []),
+            patrolActor: true);
+        AssertOperationalExpenditure(helicopterStrike, Ids.ExchangeActor, Ids.ExchangeTarget);
+        Assert.Equal(900, helicopterStrike.Entities[Ids.ExchangeActor].Analogue.AltitudeOrDepthMeters);
+        Assert.True(helicopterStrike.Entities[Ids.ExchangeActor].Resources[ResourceKind.Fuel].MilliUnits < 1_000_000);
+
+        var shoradExchange = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.RedCoalition, SimulationDomain.Ground,
+                "Red low-altitude GBAD", "synthetic-shorad",
+                [new OperationalWeaponCapability("short-range-sam", ContactClassification.Air,
+                    DistanceMeters.FromMeters(12_000))]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.BlueCoalition, SimulationDomain.RotaryWing,
+                "Blue utility helicopter", "synthetic-utility-helicopter", []));
+        AssertOperationalExpenditure(shoradExchange, Ids.ExchangeActor, Ids.ExchangeTarget);
+
+        var ballisticStrike = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.RedCoalition, SimulationDomain.Ground,
+                "Red ballistic-missile TEL", "synthetic-ballistic-tel",
+                [LandWeapon("ballistic-missile", 650_000)]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.BlueCoalition, SimulationDomain.Installation,
+                "Blue airbase installation", "synthetic-airbase", []));
+        AssertOperationalExpenditure(ballisticStrike, Ids.ExchangeActor, Ids.ExchangeTarget);
+
+        var abstractAgainstPhysical = SimulateOperationalExchange(
+            OperationalEntity(Ids.ExchangeActor, Ids.RedCoalition, SimulationDomain.LandAbstract,
+                "Red abstract army", "abstract_land_formation",
+                [LandWeapon("abstract-corps-fires", 80_000)]),
+            OperationalEntity(Ids.ExchangeTarget, Ids.BlueCoalition, SimulationDomain.Ground,
+                "Blue physical tank target", "synthetic-tank", []));
+        Assert.DoesNotContain(abstractAgainstPhysical.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == Ids.ExchangeActor
+            && item.TargetEntityId == Ids.ExchangeTarget);
+    }
+
     [Fact]
     public async Task Multi_region_theater_commits_deterministically_and_projects_only_coalition_knowledge()
     {
@@ -167,9 +228,9 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             [.. first.Events, singleWorkerEvent],
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
-        Assert.Equal("0dd774861ac0c91deab70b73a4d3e33b0c86449dbc0371aa341b539e5d761a1e", longHorizon.Hash);
+        Assert.Equal("72d8d5c82fe90b5afd9ae0dae07e880bd0cb859d0ab69da7a936863187960ff1", longHorizon.Hash);
         var migrated = ProveFencedShadowMigration(longHorizon);
-        Assert.Equal("2b0bc22dd3e832516565e3414e03dedc0cf7e80c85b36d6dda422835079caa5e", migrated.Hash);
+        Assert.Equal("7e324dbbcdbfe36615faa6ac0f645b2b9434f27f55dd39d420d5b13adee59100", migrated.Hash);
         await ProveDurableJournalAsync(migrated);
         await ProvePersistenceBoundariesAsync(migrated);
         await ProveProcessCrashRecoveryAsync(migrated);
@@ -634,10 +695,98 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignKernel.Decide(state, command, state.Head.Next(), workerCount: 4));
     }
 
+    private static CampaignState SimulateOperationalExchange(
+        EntityState actor,
+        EntityState target,
+        bool patrolActor = false)
+    {
+        var state = CampaignState.Create(new CampaignMetadata(
+            Ids.Campaign,
+            "Combined-arms operational exchange",
+            0x47524F554E44,
+            "sha256:combined-arms-catalog-v1",
+            CampaignSchema.Version,
+            CampaignSchema.AlgorithmVersion)) with
+        {
+            Regions = new[]
+            {
+                new RegionState(Ids.ExchangeRegion, "Combined-arms target area",
+                    ImmutableSortedSet<RegionId>.Empty, new EntityRevision(1)),
+            }.ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Entities = new[] { actor, target }.ToImmutableSortedDictionary(item => item.EntityId, item => item),
+        };
+        if (patrolActor)
+        {
+            state = state with
+            {
+                Groups = new[]
+                {
+                    new GroupState(Ids.ExchangeGroup, "Rotary-wing patrol", actor.CoalitionId,
+                        ImmutableSortedSet.Create(actor.EntityId), Ids.ExchangeOrder, new EntityRevision(1)),
+                }.ToImmutableSortedDictionary(item => item.GroupId, item => item),
+                Orders = new[]
+                {
+                    new OrderState(Ids.ExchangeOrder, Ids.ExchangeGroup, OrderKind.Patrol,
+                        Ids.ExchangeRegion, CampaignTime.Origin, new CampaignTime(60), null,
+                        new EntityRevision(1)),
+                }.ToImmutableSortedDictionary(item => item.OrderId, item => item),
+            };
+        }
+        CampaignStateValidator.Validate(state);
+        return SimulateForTest(state, 120, new CampaignTime(10));
+    }
+
+    private static EntityState OperationalEntity(
+        EntityId entityId,
+        CoalitionId coalitionId,
+        SimulationDomain domain,
+        string name,
+        string catalogUnitId,
+        IReadOnlyList<OperationalWeaponCapability> weapons) =>
+        new(
+            entityId,
+            name,
+            catalogUnitId,
+            "Default",
+            coalitionId,
+            Ids.ExchangeRegion,
+            entityId == Ids.ExchangeActor
+                ? GeoCoordinate.FromMicrodegrees(50_000_000, 10_000_000)
+                : GeoCoordinate.FromMicrodegrees(50_020_000, 10_020_000),
+            HomeBaseId: null,
+            EntityLifecycle.Deployed,
+            FidelityState.Operational,
+            domain,
+            FidelityState.Tactical,
+            Resources(reverse: false,
+                (ResourceKind.Fuel, 1_000_000),
+                (ResourceKind.Stores, 500_000),
+                (ResourceKind.Munitions, 500_000)).ToImmutableSortedDictionary(),
+            HeadingMilliDegrees.FromMilliDegrees(0),
+            Telegraph: 0,
+            ReadinessMilliUnits: 1_000,
+            DamageMilliUnits: 0,
+            $"{name}-truth",
+            weapons.ToImmutableArray(),
+            new EntityRevision(1),
+            AnalogueTacticalCondition.Healthy);
+
+    private static OperationalWeaponCapability LandWeapon(string ammunitionId, long rangeMeters) =>
+        new(ammunitionId, ContactClassification.LandFormation, DistanceMeters.FromMeters(rangeMeters));
+
+    private static void AssertOperationalExpenditure(
+        CampaignState state,
+        EntityId actor,
+        EntityId target) =>
+        Assert.Contains(state.RecentOperationalOutcomes, item =>
+            item.Kind == OperationalOutcomeKind.WeaponExpenditure
+            && item.ActorEntityId == actor
+            && item.TargetEntityId == target);
+
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(9, CampaignSchema.Version);
-        Assert.Equal(10, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(11, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
@@ -1479,9 +1628,14 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly EntityId BlueOiler = new(Guid.Parse("60000000-0000-0000-0000-000000000002"));
         public static readonly EntityId RedKrivak = new(Guid.Parse("60000000-0000-0000-0000-000000000003"));
         public static readonly EntityId NeutralObserver = new(Guid.Parse("60000000-0000-0000-0000-000000000004"));
+        public static readonly EntityId ExchangeActor = new(Guid.Parse("60000000-0000-0000-0000-000000000011"));
+        public static readonly EntityId ExchangeTarget = new(Guid.Parse("60000000-0000-0000-0000-000000000012"));
         public static readonly GroupId BlueGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000001"));
         public static readonly GroupId RedGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000002"));
+        public static readonly GroupId ExchangeGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000011"));
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
+        public static readonly OrderId ExchangeOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000011"));
+        public static readonly RegionId ExchangeRegion = new(Guid.Parse("40000000-0000-0000-0000-000000000011"));
         public static readonly AssignmentId Assignment = new(Guid.Parse("90000000-0000-0000-0000-000000000001"));
         public static readonly AssignmentId ShadowAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000002"));
         public static readonly AssignmentId ProxyAssignment = new(Guid.Parse("90000000-0000-0000-0000-000000000099"));

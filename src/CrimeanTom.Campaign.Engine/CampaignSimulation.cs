@@ -28,6 +28,7 @@ internal static class CampaignSimulation
     private const long ActivityInterval = 10;
     private const long FuelPerMovement = 25_000;
     private const long AirFuelPerTick = 20_000;
+    private const long RotaryWingFuelPerTick = 12_000;
     private const long StoresPerActivity = 5_000;
     private const long RepairPerActivity = 50_000;
     private const long MeanEarthRadiusMeters = 6_371_000;
@@ -282,6 +283,10 @@ internal static class CampaignSimulation
             {
                 resources = Consume(resources, ResourceKind.Fuel, AirFuelPerTick);
             }
+            else if (entity.SimulationDomain == SimulationDomain.RotaryWing)
+            {
+                resources = Consume(resources, ResourceKind.Fuel, RotaryWingFuelPerTick);
+            }
             resources = Consume(resources, ResourceKind.Stores, StoresPerActivity);
             var bearingMilli = BearingMilliDegrees(entity.Coordinate, destination);
             if (inboundTorpedo)
@@ -298,7 +303,7 @@ internal static class CampaignSimulation
             var heading = bearingMilli >= 0
                 ? HeadingMilliDegrees.FromMilliDegrees(bearingMilli)
                 : entity.Heading;
-            if (entity.SimulationDomain == SimulationDomain.Air
+            if (IsAirborne(entity)
                 && order.Kind is OrderKind.Patrol or OrderKind.Cap)
             {
                 var turn = order.Kind == OrderKind.Cap ? 70_000 : 45_000;
@@ -326,6 +331,8 @@ internal static class CampaignSimulation
             {
                 AltitudeOrDepthMeters = entity.SimulationDomain == SimulationDomain.Air
                     ? (order.Kind == OrderKind.Cap ? 9_000 : order.Kind == OrderKind.Patrol ? 8_000 : 5_500)
+                    : entity.SimulationDomain == SimulationDomain.RotaryWing
+                        ? (order.Kind == OrderKind.Cap ? 2_000 : order.Kind == OrderKind.Patrol ? 900 : 1_200)
                     : Classify(entity) == ContactClassification.Subsurface
                         ? (snorkeling ? 12 : telegraph == TelegraphFlank ? 50 : 180)
                         : 0,
@@ -481,19 +488,18 @@ internal static class CampaignSimulation
         {
             return false;
         }
-        if (first.SimulationDomain == SimulationDomain.Air
-            || second.SimulationDomain == SimulationDomain.Air)
+        if (IsAirborne(first) || IsAirborne(second))
         {
-            return first.SimulationDomain == SimulationDomain.Air
-                && second.SimulationDomain == SimulationDomain.Air
+            return IsAirborne(first)
+                && IsAirborne(second)
                 && Math.Abs(first.Analogue.AltitudeOrDepthMeters
                     - second.Analogue.AltitudeOrDepthMeters) < 300;
         }
-        if (first.SimulationDomain == SimulationDomain.LandAbstract
-            || second.SimulationDomain == SimulationDomain.LandAbstract)
+        if (IsLandBound(first) || IsLandBound(second))
         {
-            return first.SimulationDomain == SimulationDomain.LandAbstract
-                && second.SimulationDomain == SimulationDomain.LandAbstract;
+            return IsLandBound(first) && IsLandBound(second)
+                && (first.SimulationDomain == SimulationDomain.Ground
+                    || second.SimulationDomain == SimulationDomain.Ground);
         }
         var firstSubsurface = Classify(first) == ContactClassification.Subsurface;
         var secondSubsurface = Classify(second) == ContactClassification.Subsurface;
@@ -1304,14 +1310,15 @@ internal static class CampaignSimulation
         var rangeRatio = weapon.MaximumRange.Value <= 0
             ? 1_000
             : (int)Math.Min(1_000, distanceMeters * 1_000L / weapon.MaximumRange.Value);
-        var ecm = target.SimulationDomain == SimulationDomain.Air
+        var ecm = IsAirborne(target)
             || target.Analogue.SensorIntegrityMilliUnits < 700
             ? 80 : 0;
         ecm += target.Analogue.EcmMilliUnits / 8;
         var hitChance = Math.Clamp(
             280 + actor.ReadinessMilliUnits / 2
             - target.ReadinessMilliUnits / 8
-            + (actor.SimulationDomain == SimulationDomain.Air ? 80 : 0)
+            + (actor.SimulationDomain == SimulationDomain.Air ? 80
+                : actor.SimulationDomain == SimulationDomain.RotaryWing ? 35 : 0)
             - rangeRatio / 4
             - HitWeatherPenalty(state, target.RegionId)
             - (Classify(target) == ContactClassification.Subsurface
@@ -1351,6 +1358,13 @@ internal static class CampaignSimulation
 
         var rangeDamage = 40_000 + (1_000 - rangeRatio) * 80
             + KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-damage-{target.EntityId}") % 90_001;
+        rangeDamage = target.SimulationDomain switch
+        {
+            SimulationDomain.Ground => rangeDamage * 3 / 4,
+            SimulationDomain.Installation => rangeDamage * 6 / 5,
+            SimulationDomain.RotaryWing => rangeDamage * 5 / 4,
+            _ => rangeDamage,
+        };
         var applied = Math.Min(rangeDamage, 1_000_000 - target.DamageMilliUnits);
         if (applied <= 0)
         {
@@ -1358,15 +1372,23 @@ internal static class CampaignSimulation
         }
 
         var portHit = KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"side-{target.EntityId}") % 2 == 0;
+        var isMaritimeTarget = target.SimulationDomain is SimulationDomain.Maritime or SimulationDomain.Logistics;
+        var isFixedTarget = target.SimulationDomain == SimulationDomain.Installation;
         var analogue = target.Analogue with
         {
             FireMilliUnits = Math.Min(1_000_000, target.Analogue.FireMilliUnits + applied / 4),
-            FloodMilliUnits = Math.Min(1_000_000, target.Analogue.FloodMilliUnits + applied / 5),
-            PropulsionIntegrityMilliUnits = Math.Max(0, target.Analogue.PropulsionIntegrityMilliUnits - applied / 8_000),
+            FloodMilliUnits = isMaritimeTarget
+                ? Math.Min(1_000_000, target.Analogue.FloodMilliUnits + applied / 5)
+                : target.Analogue.FloodMilliUnits,
+            PropulsionIntegrityMilliUnits = isFixedTarget
+                ? target.Analogue.PropulsionIntegrityMilliUnits
+                : Math.Max(0, target.Analogue.PropulsionIntegrityMilliUnits - applied / 8_000),
             SensorIntegrityMilliUnits = Math.Max(0, target.Analogue.SensorIntegrityMilliUnits - applied / 10_000),
             WeaponIntegrityMilliUnits = Math.Max(0, target.Analogue.WeaponIntegrityMilliUnits - applied / 9_000),
             MagazineIntegrityMilliUnits = Math.Max(0, target.Analogue.MagazineIntegrityMilliUnits - applied / 12_000),
-            FlightDeckIntegrityMilliUnits = Math.Max(0, target.Analogue.FlightDeckIntegrityMilliUnits - applied / 15_000),
+            FlightDeckIntegrityMilliUnits = isMaritimeTarget
+                ? Math.Max(0, target.Analogue.FlightDeckIntegrityMilliUnits - applied / 15_000)
+                : target.Analogue.FlightDeckIntegrityMilliUnits,
             CrewMilliUnits = Math.Max(0, target.Analogue.CrewMilliUnits - applied / 11_000),
             PortIntegrityMilliUnits = Math.Max(0, target.Analogue.PortIntegrityMilliUnits - (portHit ? applied / 7_000 : applied / 20_000)),
             StarboardIntegrityMilliUnits = Math.Max(0, target.Analogue.StarboardIntegrityMilliUnits - (portHit ? applied / 20_000 : applied / 7_000)),
@@ -1397,8 +1419,10 @@ internal static class CampaignSimulation
             DamageMilliUnits = totalDamage,
             ReadinessMilliUnits = Math.Clamp(1_000 - totalDamage / 1_000, 0, 1_000),
             Lifecycle = lifecycle,
-            Heading = HeadingAway(target.Coordinate, threatCoordinate, target.Heading),
-            Telegraph = lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Disabled
+            Heading = isFixedTarget
+                ? target.Heading
+                : HeadingAway(target.Coordinate, threatCoordinate, target.Heading),
+            Telegraph = isFixedTarget || lifecycle is EntityLifecycle.Destroyed or EntityLifecycle.Disabled
                 ? TelegraphStop
                 : TelegraphFlank,
             Analogue = analogue,
@@ -1557,6 +1581,13 @@ internal static class CampaignSimulation
         GeoCoordinate TargetingCoordinate)?
         SelectOperationalWeapon(CampaignState state, EntityState actor, EntityState target)
     {
+        if (actor.CatalogUnitId == "abstract_land_formation"
+            && target.SimulationDomain is SimulationDomain.Ground or SimulationDomain.Installation)
+        {
+            // Physical formation elements exist as targets for air and maritime attack.
+            // Ground-on-ground combat remains adjudicated between the parent abstractions.
+            return null;
+        }
         var actualDistanceMeters = RoundedGreatCircleDistanceMeters(actor.Coordinate, target.Coordinate);
         var visual = actualDistanceMeters <= VisualContactMeters;
         IntelligenceEstimate? estimate = null;
@@ -1653,17 +1684,27 @@ internal static class CampaignSimulation
                 ? classifiedEstimate.Classification
                 : ContactClassification.Unknown;
         var military = classification is ContactClassification.Logistics ? 0 : 120;
+        var targetRole = target.SimulationDomain switch
+        {
+            SimulationDomain.Installation when IsRadarInstallation(target) => 260,
+            SimulationDomain.Installation => 180,
+            SimulationDomain.Ground when EffectiveWeapons(target)
+                .Any(item => item.TargetClassification == ContactClassification.Air) => 240,
+            SimulationDomain.Ground => 140,
+            SimulationDomain.RotaryWing => 200,
+            _ => 0,
+        };
         var rangeRemaining = weapon.MaximumRange.Value <= 0
             ? 0
             : (int)Math.Min(1_000, (weapon.MaximumRange.Value - distanceMeters) * 1_000L / weapon.MaximumRange.Value);
-        return (int)confidence * 1_000 + military + rangeRemaining
+        return (int)confidence * 1_000 + military + targetRole + rangeRemaining
             + (state.InFlight.Any(item => item.TargetEntityId == actor.EntityId && item.ShooterEntityId == target.EntityId)
                 ? 400 : 0);
     }
 
     private static long WeaponExpenditure(OperationalWeaponCapability weapon, SimulationDomain domain)
     {
-        if (domain == SimulationDomain.LandAbstract)
+        if (domain is SimulationDomain.LandAbstract or SimulationDomain.Ground or SimulationDomain.Installation)
         {
             return 15_000;
         }
@@ -1703,9 +1744,9 @@ internal static class CampaignSimulation
 
     private static bool ShouldWithdraw(IReadOnlyList<EntityState> members) =>
         members.Max(item => item.DamageMilliUnits) >= 600_000
-        || members.Any(item => item.SimulationDomain == SimulationDomain.Air
+        || members.Any(item => IsAirborne(item)
             && Get(item.Resources, ResourceKind.Fuel) < 150_000)
-        || members.Any(item => item.SimulationDomain == SimulationDomain.Air
+        || members.Any(item => IsAirborne(item)
             && EffectiveWeapons(item).Length > 0
             && Get(item.Resources, ResourceKind.Munitions) == 0)
         || members.Any(item => Classify(item) == ContactClassification.Subsurface
@@ -1715,12 +1756,12 @@ internal static class CampaignSimulation
 
     private static string WithdrawalReason(IReadOnlyList<EntityState> members)
     {
-        if (members.Any(item => item.SimulationDomain == SimulationDomain.Air
+        if (members.Any(item => IsAirborne(item)
             && Get(item.Resources, ResourceKind.Fuel) < 150_000))
         {
             return "Bingo fuel; task force ordered to withdraw";
         }
-        if (members.Any(item => item.SimulationDomain == SimulationDomain.Air
+        if (members.Any(item => IsAirborne(item)
             && EffectiveWeapons(item).Length > 0
             && Get(item.Resources, ResourceKind.Munitions) == 0))
         {
@@ -1969,7 +2010,10 @@ internal static class CampaignSimulation
         var cruise = entity.SimulationDomain switch
         {
             SimulationDomain.Air => 280_000L,
-            SimulationDomain.LandAbstract => 80_000L,
+            SimulationDomain.RotaryWing => 95_000L,
+            SimulationDomain.Ground => 35_000L,
+            SimulationDomain.Installation => 0L,
+            SimulationDomain.LandAbstract => 35_000L,
             SimulationDomain.Logistics => 140_000L,
             _ when Classify(entity) == ContactClassification.Subsurface => 90_000L,
             _ => MetersPerRegionHop,
@@ -2039,9 +2083,14 @@ internal static class CampaignSimulation
         {
             score += 80;
         }
-        if (target.SimulationDomain == SimulationDomain.LandAbstract)
+        else if (sensor.SimulationDomain == SimulationDomain.RotaryWing)
         {
-            score += 60;
+            score += 35;
+        }
+        if (target.SimulationDomain is SimulationDomain.LandAbstract
+            or SimulationDomain.Ground or SimulationDomain.Installation)
+        {
+            score += target.SimulationDomain == SimulationDomain.Installation ? 110 : 60;
         }
         if (Classify(target) == ContactClassification.Subsurface
             && Classify(sensor) != ContactClassification.Subsurface)
@@ -2088,13 +2137,21 @@ internal static class CampaignSimulation
         {
             return targetClass == ContactClassification.Subsurface ? 25_000 : 350_000;
         }
+        if (sensor.SimulationDomain == SimulationDomain.RotaryWing)
+        {
+            return targetClass == ContactClassification.Subsurface ? 30_000 : 160_000;
+        }
         if (sensorClass == ContactClassification.Subsurface)
         {
             return targetClass == ContactClassification.Subsurface ? 40_000 : 50_000;
         }
-        if (sensor.SimulationDomain == SimulationDomain.LandAbstract)
+        if (sensor.SimulationDomain == SimulationDomain.Installation)
         {
-            return 60_000;
+            return IsRadarInstallation(sensor) ? 320_000 : 45_000;
+        }
+        if (sensor.SimulationDomain is SimulationDomain.LandAbstract or SimulationDomain.Ground)
+        {
+            return sensor.SimulationDomain == SimulationDomain.Ground ? 35_000 : 60_000;
         }
         return targetClass == ContactClassification.Subsurface ? 18_000
             : targetClass == ContactClassification.Air ? 120_000
@@ -2140,13 +2197,27 @@ internal static class CampaignSimulation
 
     private static ContactClassification Classify(EntityState entity) => entity.SimulationDomain switch
     {
-        SimulationDomain.Air => ContactClassification.Air,
+        SimulationDomain.Air or SimulationDomain.RotaryWing => ContactClassification.Air,
         SimulationDomain.Logistics => ContactClassification.Logistics,
-        SimulationDomain.LandAbstract => ContactClassification.LandFormation,
+        SimulationDomain.LandAbstract or SimulationDomain.Ground or SimulationDomain.Installation =>
+            ContactClassification.LandFormation,
         _ when entity.CatalogUnitId.Contains("ss", StringComparison.OrdinalIgnoreCase)
             || entity.Name.Contains("submarine", StringComparison.OrdinalIgnoreCase) => ContactClassification.Subsurface,
         _ => ContactClassification.Surface,
     };
+
+    private static bool IsAirborne(EntityState entity) =>
+        entity.SimulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing;
+
+    private static bool IsLandBound(EntityState entity) =>
+        entity.SimulationDomain is SimulationDomain.LandAbstract
+            or SimulationDomain.Ground or SimulationDomain.Installation;
+
+    private static bool IsRadarInstallation(EntityState entity) =>
+        entity.SimulationDomain == SimulationDomain.Installation
+        && (ContainsToken(entity.CatalogUnitId, "radar")
+            || ContainsToken(entity.CatalogUnitId, "ewr")
+            || ContainsToken(entity.Name, "radar"));
 
     private static OperationalOutcome Outcome(
         CampaignState state,

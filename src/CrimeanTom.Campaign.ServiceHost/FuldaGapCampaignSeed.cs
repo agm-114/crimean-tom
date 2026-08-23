@@ -154,6 +154,7 @@ internal static partial class FuldaGapCampaignSeed
             Entity(campaignId, "kpaf-j7c", "KPAF MiG-21/J-7 interceptor regiment", "pla_j-7c", red, "korea", 38_050_000, 127_100_000, "wonsan", "red-north-korea-air", SimulationDomain.Air),
         }.Concat(Ww3PlusEntities(campaignId, blue, red))
             .Concat(Ww3AirbaseComplexEntities(campaignId, blue, red))
+            .Concat(Ww3FormationPhysicalEntities(campaignId, blue, red))
             .ToArray();
         var entities = Enumerable.Range(0, forceMultiplier)
             .SelectMany(echelon => echelon == 0
@@ -222,12 +223,40 @@ internal static partial class FuldaGapCampaignSeed
         string regionKey, int latitude, int longitude, string? homeBaseKey, string groupKey,
         SimulationDomain simulationDomain, FidelityState maximumFidelity = FidelityState.Tactical,
         string catalogLoadoutId = "Default",
-        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null) =>
-        new(key, new EntityId(Id(campaignId, $"entity-{key}")), name, catalogUnitId, catalogLoadoutId,
+        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null)
+    {
+        var effectiveDomain = EffectiveSimulationDomain(catalogUnitId, simulationDomain);
+        return new(key, new EntityId(Id(campaignId, $"entity-{key}")), name, catalogUnitId, catalogLoadoutId,
             coalitionId, regionKey,
             GeoCoordinate.FromMicrodegrees(latitude, longitude), homeBaseKey, groupKey,
-            simulationDomain, maximumFidelity,
-            operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, simulationDomain));
+            effectiveDomain, maximumFidelity,
+            operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, effectiveDomain));
+    }
+
+    private static SimulationDomain EffectiveSimulationDomain(
+        string catalogUnitId,
+        SimulationDomain requestedDomain)
+    {
+        if (requestedDomain == SimulationDomain.LandAbstract
+            && !string.Equals(catalogUnitId, "abstract_land_formation", StringComparison.Ordinal))
+        {
+            return SimulationDomain.Installation;
+        }
+        if (requestedDomain == SimulationDomain.Air && IsRotaryWingCatalogUnit(catalogUnitId))
+        {
+            return SimulationDomain.RotaryWing;
+        }
+        return requestedDomain;
+    }
+
+    private static bool IsRotaryWingCatalogUnit(string catalogUnitId) =>
+        catalogUnitId.StartsWith("wp_ka-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("wp_mi-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("usn_sh-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("usn_ch-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("usmc_ah-", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("usaf_hh-", StringComparison.Ordinal)
+        || catalogUnitId.Contains("_sh-3", StringComparison.Ordinal);
 
     private static IReadOnlyList<OperationalWeaponCapability> ResolveOperationalWeapons(
         string catalogUnitId,

@@ -136,8 +136,22 @@ Each of 20 opening airbase defense complexes therefore contains:
 The larger theater also contains additional radar/SAM packages, shore-defense
 batteries, ports, depots, fleet auxiliaries, and convoy routes. Fixed-site and
 ground catalog objects are tactically eligible so future ground streaming is
-tested by the data model. Only army/corps/division-scale formations retain an
-Operational maximum-fidelity ceiling.
+tested by the data model. Each of the 26 army/corps/division-scale abstractions
+also projects two physical armor targets and one low-end SHORAD target into its
+task group. The parent remains the Operational maneuver/sustainment model and
+cannot attack its own target projection; the physical objects exist primarily
+for aircraft, helicopters, bombers, missiles, and naval gunfire to attack. Only
+the 26 parent abstractions retain an Operational maximum-fidelity ceiling.
+
+Strategic SAMs, early-warning radars, and ballistic-missile launchers are
+resident systems: the fidelity scheduler keeps their coupled islands Tactical
+whenever a compatible live worker has capacity, even outside player interest.
+If no worker can materialize them, they remain Operational rather than falling
+to Strategic, so the campaign analogue continues to detect and engage targets.
+Sea Power's installed catalog has no period ballistic TEL. The opening four
+NATO and six Warsaw Pact TELs therefore use clearly named, catalog-backed
+SAM-launcher silhouettes as temporary visual proxies while retaining explicit
+500 km and 650 km ballistic capabilities in the campaign model.
 
 The current engine does **not** yet implement a full air-tasking cycle. Opening
 air entities and CAP/patrol orders validate ownership, movement, contact,
@@ -154,21 +168,24 @@ The default deterministic seed now commits:
 | --- | ---: | --- |
 | Regions | 39 | Global route graph, including Florida, Caribbean, Cuba, US West Coast, Pacific Northwest, and Hawaii |
 | Bases | 61 | Naval, air, logistics, intelligence, and staging locations |
-| Campaign entities | 801 | Ships, air formations, commerce, fixed installations, and land formations |
-| Groups | 280 | Task groups, convoys, defense complexes, and sortie packages |
-| Groups with opening orders | 213 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement |
+| Campaign entities | 905 | Ships, fixed- and rotary-wing air, commerce, installations, physical ground targets, and land abstractions |
+| Groups | 293 | Task groups, convoys, defense complexes, sortie packages, helicopter flights, and ballistic units |
+| Groups with opening orders | 221 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement |
 | Maritime-domain entities | 324 | Surface combatants and submarines |
-| Air-domain entities | 112 | Squadron-, wing-, or mission-sized packages |
+| Fixed-wing air-domain entities | 107 | Squadron-, wing-, or mission-sized packages |
+| Rotary-wing entities | 21 | Attack, lift, maritime-patrol, and ASW helicopters |
 | Logistics-domain entities | 165 | Auxiliaries, commerce, sealift, fuel, ammunition, and warehouses |
-| Land/fixed-domain entities | 200 | Airfields, radars, GBAD, coastal defense, and abstract formations |
+| Ground entities | 88 | 52 armor targets, 26 low-end SHORAD targets, and 10 ballistic TEL visual proxies |
+| Installation entities | 174 | Airfields, radars, strategic GBAD, and coastal-defense components |
+| Operational land abstractions | 26 | Campaign-scale formations and rear-area commands |
 | Civilian/merchant catalog entities | 90 | Coalition-affiliated traffic sample pending neutral diplomacy |
 | Fixed-site components | 220 | Airfields, radars, GBAD, shore defense, fuel, ammunition, and warehouses |
-| Tactical-eligible entities | 775 | Catalog-backed workload intended for eventual streaming |
-| Operational-only formations | 26 | Campaign-scale land formations that must not masquerade as tactical units |
+| Resident strategic systems | 73 | Strategic SAM, radar, and ballistic systems that never demote below Operational |
+| Tactical-eligible entities | 879 | Catalog-backed workload intended for eventual streaming |
 
 `forceMultiplier` remains available for larger synthetic runs. It replicates
-the complete 801-entity echelon deterministically, so multiplier 2 represents
-1,602 entities rather than the old 120.
+the complete 905-entity echelon deterministically, so multiplier 2 represents
+1,810 entities rather than the old 120.
 
 ## Installed catalog provenance
 
@@ -203,4 +220,3 @@ streaming support is visible as work rather than silently excluded.
 | [Review of Maritime Transport 1989](https://unctad.org/system/files/official-document/rmt1989_en.pdf) | UNCTAD contemporary statistical report | Merchant fleet and trade scale | Representative civilian traffic load |
 | [AFDP 3-01 counterair planning](https://www.doctrine.af.mil/Portals/61/documents/Annex_3-01/3-01-D09-AIR-Planning.PDF) | US Air Force doctrine | IADS as a redundant active/passive system | Architecture decomposition only; modern source |
 | [Defending Air Bases, volume II](https://www.airuniversity.af.edu/Portals/10/AUPress/Books/B_0154_CAUDILL_DEFENDING_AIR_BASES_IN_AN_AGE_OF_INSURGENCY_VOL_II.PDF) | Air University Press research | Base defense and logistics as sortie-generation dependencies | Airbase complex decomposition only; modern source |
-

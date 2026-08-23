@@ -1,5 +1,9 @@
 # WW3++ 801-entity headless campaign evidence — 23 August 2026
 
+> Historical measurement: the current combined-arms seed contains 905 entities.
+> These timings qualify the earlier 801-entity revision and must not be reused as
+> performance evidence for the expanded workload.
+
 ## Claim
 
 The expanded default WW3++ campaign bootstraps deterministically and advances
@@ -67,4 +71,3 @@ and used the former 60-entity seed. It remains a valid dated proof for that
 workload but does not qualify the 801-entity campaign. The next live pass must
 use the same GIUK mission and fresh-process pairing while the full 801-entity
 campaign advances, then report campaign/entity/proxy counts from the capture.
-

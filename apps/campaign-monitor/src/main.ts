@@ -378,10 +378,12 @@ function renderMap(data: Campaign): void {
   }
 
   for (const entity of data.entities) {
-    const marker = entity.simulationDomain === "Air"
+    const marker = entity.simulationDomain === "Air" || entity.simulationDomain === "RotaryWing"
       ? MeshBuilder.CreatePolyhedron(`entity-${entity.entityId}`, { type: 0, size: 0.46 }, scene)
-      : entity.simulationDomain === "LandAbstract"
+      : entity.simulationDomain === "LandAbstract" || entity.simulationDomain === "Installation"
         ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { size: 0.64 }, scene)
+        : entity.simulationDomain === "Ground"
+          ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { width: 0.5, height: 0.2, depth: 0.32 }, scene)
         : entity.simulationDomain === "Logistics"
           ? MeshBuilder.CreateBox(`entity-${entity.entityId}`, { width: 0.86, height: 0.34, depth: 0.42 }, scene)
           : MeshBuilder.CreateBox(`entity-${entity.entityId}`, { width: 0.72, height: 0.28, depth: 0.34 }, scene);

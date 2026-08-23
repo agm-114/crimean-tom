@@ -61,7 +61,7 @@ Levant, Red Sea, Gulf and Indian Ocean; and the South China Sea, Taiwan, Korea,
 Japan, Okhotsk,
 North Pacific, South Pacific and Australian approaches.
 
-The 801-entity opening order of battle uses catalog IDs present in the installed
+The 905-entity opening order of battle uses catalog IDs present in the installed
 Sea Power 0.8.2 content for the United States, Soviet/Warsaw Pact, UK, Canada,
 West Germany, France, Spain, Portugal, Norway, Israel, Iran, Libya, India,
 Pakistan, China, Taiwan, North Korea, South Korea, Japan, Australia and Vietnam.
@@ -75,16 +75,26 @@ deployment. Its source-backed scale anchors and authored extrapolations are
 tracked in [WW3++ 1989 scenario research](../research/ww3-plus-1989-scenario-basis.md).
 
 Sea Power is authoritative only where it is a credible tactical resolver. Naval,
-air, fixed-site, air-defense, logistics, and ground interactions may promote to
-Tactical fidelity as their streaming adapters are implemented. The seed already
-uses real catalog IDs and leaves 775 entities tactically eligible so missing
+air, rotary-wing, installation, air-defense, logistics, and ground interactions
+may promote to Tactical fidelity as their streaming adapters are implemented.
+The seed uses catalog IDs and leaves 879 entities tactically eligible so missing
 family support is exposed rather than designed out. Only 26 army/corps/division
 campaign abstractions retain a hard `Operational` ceiling; they may affect ports,
 reinforcement demand, objectives, readiness, and the naval campaign, but cannot
 masquerade as individual tactically simulated ground units.
 
+Every formation abstraction projects two armor objects and one low-end SHORAD
+object into its coupled task group. Those 78 physical objects are tactical
+targets, not a second ground-maneuver simulation: the parent abstraction does
+not select physical ground/installations as targets, while air, rotary-wing,
+surface, and ballistic weapons can detect and damage them. Strategic SAMs,
+early-warning radars, and ballistic launchers use a resident policy. Their
+islands are requested Tactical without player interest whenever a compatible
+worker can host them, and otherwise remain under the Operational analogue; they
+are never reduced to Strategic fidelity.
+
 `POST /control/campaigns/{campaignId}/bootstrap/fulda-gap` creates the fixed
-39-region, 61-base, 801-entity opening state and returns category counts, its
+39-region, 61-base, 905-entity opening state and returns category counts, its
 committed head, and canonical hash. The operation is authenticated, refuses to overwrite a non-empty campaign,
 and uses stable campaign-derived IDs so the same campaign ID and content version
 reproduce the same world.
@@ -95,7 +105,7 @@ adapter can materialize safely. USS Honolulu is a separate singleton submarine
 patrol until live detection, formation, weapon or physical relationships couple
 it to another force. The shipped tactical-window mission represents that later
 local event with Pharris and Honolulu against a Victor III and Oscar I. It does
-not materialize the other 797 campaign entities into the Unity scene; they remain
+not materialize the other 901 campaign entities into the Unity scene; they remain
 under operational authority until their own interaction islands need tactical
 resolution. Unsupported mixed groups continue to fail closed.
 

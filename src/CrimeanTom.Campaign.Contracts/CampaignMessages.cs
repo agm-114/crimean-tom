@@ -6,7 +6,7 @@ namespace CrimeanTom.Campaign.Contracts;
 public static class CampaignSchema
 {
     public const int Version = 9;
-    public const int AlgorithmVersion = 10;
+    public const int AlgorithmVersion = 11;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -35,6 +35,9 @@ public enum SimulationDomain
     Air,
     Logistics,
     LandAbstract,
+    Ground,
+    Installation,
+    RotaryWing,
 }
 
 public enum ResourceKind

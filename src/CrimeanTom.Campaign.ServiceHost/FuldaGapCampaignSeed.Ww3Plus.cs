@@ -9,11 +9,23 @@ internal static partial class FuldaGapCampaignSeed
         || entity.CatalogUnitId.StartsWith("merchant_", StringComparison.Ordinal);
 
     internal static bool IsFixedSite(FuldaEntitySeed entity) =>
-        entity.SimulationDomain == SimulationDomain.LandAbstract
-            && entity.CatalogUnitId != "abstract_land_formation"
+        entity.SimulationDomain == SimulationDomain.Installation
         || entity.SimulationDomain == SimulationDomain.Logistics
             && (entity.CatalogUnitId.StartsWith("tgt_", StringComparison.Ordinal)
                 || entity.CatalogUnitId.StartsWith("warehouses_", StringComparison.Ordinal));
+
+    internal static bool IsResidentStrategicSystem(FuldaEntitySeed entity) =>
+        entity.MaximumFidelity == FidelityState.Tactical
+        && entity.SimulationDomain is SimulationDomain.Ground or SimulationDomain.Installation
+        && (entity.OperationalWeapons.Any(weapon =>
+                weapon.TargetClassification == ContactClassification.Air
+                && weapon.MaximumRange.Value >= 100_000)
+            || entity.OperationalWeapons.Any(weapon =>
+                weapon.AmmunitionId.Contains("ballistic", StringComparison.OrdinalIgnoreCase))
+            || entity.SimulationDomain == SimulationDomain.Installation
+                && (entity.CatalogUnitId.Contains("radar", StringComparison.OrdinalIgnoreCase)
+                    || entity.CatalogUnitId.Contains("ewr", StringComparison.OrdinalIgnoreCase)
+                    || entity.Name.Contains("early-warning radar", StringComparison.OrdinalIgnoreCase)));
 
     private static IReadOnlyList<FuldaRegionSeed> Ww3PlusRegions(CampaignId campaignId) =>
     [
@@ -96,6 +108,72 @@ internal static partial class FuldaGapCampaignSeed
         Ww3AirbaseComplexes(blue, red)
             .SelectMany(complex => ExpandAirbaseComplex(campaignId, complex))
             .ToArray();
+
+    private static IReadOnlyList<FuldaEntitySeed> Ww3FormationPhysicalEntities(
+        CampaignId campaignId,
+        CoalitionId blue,
+        CoalitionId red)
+    {
+        var originalFormationParents = new[]
+        {
+            Entity(campaignId, "v-corps", "US V Corps (abstract)", "abstract_land_formation",
+                blue, "fulda", 50_550_000, 9_680_000, null, "blue-fulda",
+                SimulationDomain.LandAbstract, FidelityState.Operational),
+            Entity(campaignId, "eighth-guards", "8th Guards Army (abstract)", "abstract_land_formation",
+                red, "fulda", 50_800_000, 10_300_000, null, "red-fulda",
+                SimulationDomain.LandAbstract, FidelityState.Operational),
+        };
+        var expandedFormationParents = Ww3PlusPackages(blue, red)
+            .Where(package => package.CatalogUnitIds.Contains("abstract_land_formation", StringComparer.Ordinal))
+            .SelectMany(package => ExpandPackage(campaignId, package));
+
+        return originalFormationParents
+            .Concat(expandedFormationParents)
+            .SelectMany(parent => ExpandFormationPhysicalElements(campaignId, parent, parent.CoalitionId == blue))
+            .ToArray();
+    }
+
+    private static IEnumerable<FuldaEntitySeed> ExpandFormationPhysicalElements(
+        CampaignId campaignId,
+        FuldaEntitySeed parent,
+        bool isBlue)
+    {
+        var armorCatalogIds = isBlue
+            ? new[] { "usa_mbt_abrams", "usa_mbt_m60" }
+            : new[] { "wp_mbt_t-72a", "wp_mbt_t-55m" };
+        for (var index = 0; index < armorCatalogIds.Length; index++)
+        {
+            yield return Entity(
+                campaignId,
+                $"{parent.Key}-physical-armor-{index + 1:D2}",
+                $"{parent.Name} physical armor target {index + 1}",
+                armorCatalogIds[index],
+                parent.CoalitionId,
+                parent.RegionKey,
+                parent.Coordinate.LatitudeMicrodegrees + ((index + 1) * 7_000),
+                parent.Coordinate.LongitudeMicrodegrees - ((index + 1) * 6_000),
+                parent.HomeBaseKey,
+                parent.GroupKey,
+                SimulationDomain.Ground,
+                operationalWeapons: Array.Empty<OperationalWeaponCapability>());
+        }
+
+        yield return Entity(
+            campaignId,
+            $"{parent.Key}-physical-shorad",
+            $"{parent.Name} physical low-altitude GBAD target",
+            isBlue ? "usa_aaa_vulcan" : "wp_sa-13_launcher",
+            parent.CoalitionId,
+            parent.RegionKey,
+            parent.Coordinate.LatitudeMicrodegrees - 8_000,
+            parent.Coordinate.LongitudeMicrodegrees + 9_000,
+            parent.HomeBaseKey,
+            parent.GroupKey,
+            SimulationDomain.Ground,
+            operationalWeapons: AirDefense(
+                isBlue ? "formation-vulcan-shorad" : "formation-sa-13-shorad",
+                isBlue ? 4_500 : 8_000));
+    }
 
     private static IReadOnlyList<FuldaOrderSeed> Ww3AirbaseComplexOrders(
         CampaignId campaignId,
@@ -263,6 +341,16 @@ internal static partial class FuldaGapCampaignSeed
         Package("red-cuba-air", "Cuban-Soviet air formation", ["wp_mig-21", "wp_mig-23mld", "wp_mi-14"], red, "cuba", "san-antonio-cuba", SimulationDomain.Air, 6, 3, 22_500_000, -81_500_000, "florida", OrderKind.Cap),
         Package("blue-allied-pacific-air", "Allied Pacific air formation", ["raaf_f-111c", "usaf_f-5e"], blue, "southpac", "andersen", SimulationDomain.Air, 4, 2, 5_000_000, 155_000_000, "northpac", OrderKind.Cap),
 
+        // Rotary-wing packages exercise attack, lift, maritime patrol, and ASW behavior separately from fixed-wing aircraft.
+        Package("blue-central-rotary", "NATO attack or lift helicopter flight", ["usmc_ah-1t", "usn_ch-46"], blue, "northag", "ramstein", SimulationDomain.RotaryWing, 4, 2, 50_050_000, 7_250_000, "fulda", OrderKind.Patrol),
+        Package("blue-atlantic-rotary", "NATO maritime helicopter flight", ["usn_sh-2f", "usn_sh-3h"], blue, "giuk", "keflavik", SimulationDomain.RotaryWing, 4, 2, 63_900_000, -22_450_000, "norsea", OrderKind.Asw),
+        Package("red-central-rotary", "Warsaw Pact assault helicopter flight", ["wp_ka-29"], red, "fulda", "peenemunde", SimulationDomain.RotaryWing, 4, 2, 51_000_000, 10_600_000, "northag", OrderKind.Patrol),
+        Package("red-northern-rotary", "Soviet maritime helicopter flight", ["wp_ka-27", "wp_mi-14"], red, "barents", "severomorsk", SimulationDomain.RotaryWing, 4, 2, 69_250_000, 33_250_000, "giuk", OrderKind.Asw),
+
+        // Sea Power has no period ballistic TEL object. These use catalog-backed launcher silhouettes as explicit visual proxies.
+        Package("blue-ballistic-tel", "NATO ballistic-missile TEL visual proxy", ["usa_mim-23_launcher"], blue, "northag", "pomcus-e", SimulationDomain.Ground, 4, 2, 50_650_000, 7_100_000, operationalWeapons: BallisticStrike("nato-ballistic-missile", 500_000)),
+        Package("red-ballistic-tel", "Warsaw Pact ballistic-missile TEL visual proxy", ["wp_sa-10_tel"], red, "fulda", null, SimulationDomain.Ground, 6, 2, 51_100_000, 10_800_000, operationalWeapons: BallisticStrike("warsaw-pact-ballistic-missile", 650_000)),
+
         // Streamable fixed installations. Only corps/army formations below remain operational-only.
         Package("blue-airfields", "NATO reinforcement airfield", ["nato_small_airbase", "airfield_small_1", "nato_very_small_airbase"], blue, "northag", "ramstein", SimulationDomain.LandAbstract, 10, 2, 50_200_000, 7_500_000),
         Package("red-airfields", "Warsaw Pact dispersal airfield", ["wp_large_pvo_airbase", "wp_airbase_1", "wp_airbase_2", "wp_airbase_3"], red, "fulda", null, SimulationDomain.LandAbstract, 10, 2, 51_000_000, 11_000_000),
@@ -348,6 +436,14 @@ internal static partial class FuldaGapCampaignSeed
         new OperationalWeaponCapability(
             ammunitionId,
             ContactClassification.Surface,
+            DistanceMeters.FromMeters(rangeMeters)),
+    ];
+
+    private static IReadOnlyList<OperationalWeaponCapability> BallisticStrike(string ammunitionId, long rangeMeters) =>
+    [
+        new OperationalWeaponCapability(
+            ammunitionId,
+            ContactClassification.LandFormation,
             DistanceMeters.FromMeters(rangeMeters)),
     ];
 
