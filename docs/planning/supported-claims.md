@@ -34,12 +34,16 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
   destruction. Read capture works during unpaused play; ordered mutations use a
   temporary pause and restore the prior play state.
 - The local companion renders other deployed, same-coalition Maritime entities
-  with the pinned Knox profile as inert Sea Power ships. They remain outside the
-  owned-resource registry, have no simulation authority, sensors, collisions,
-  or velocity, and are replaced rather than duplicated when promoted into the
-  tactical session. This POC still reads the trusted full campaign diagnostic
-  view; it is not yet a contact-filtered remote-player projection or a generic
-  surface-family materializer.
+  with the pinned Knox profile. The preferred representation is a model hierarchy
+  plus map annotation created before Sea Power's native `Vessel`/systems/physics
+  registration; it has no game unique ID and remains outside both the native
+  object manager and owned-resource registry. A fenced inert native vessel is a
+  compatibility fallback only. Proxies have no simulation authority, sensors,
+  collisions, or velocity and are hidden rather than duplicated during tactical
+  promotion. After demotion, the retained native object is suspended while the
+  visual proxy can represent the ship again. This POC still reads the trusted
+  full campaign diagnostic view; it is not yet a contact-filtered remote-player
+  projection or a generic surface-family materializer.
 - Campaign-owned Track A Operational workers can be spawned, checked with an
   additive per-spawn identity, and used for non-player island placement/fencing.
   They also receive the shared service bearer token; health and capacity are

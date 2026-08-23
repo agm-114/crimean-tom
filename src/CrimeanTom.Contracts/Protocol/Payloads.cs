@@ -316,10 +316,23 @@ public sealed class SurfaceRenderProxyStatePayload
     public int? GameUniqueId { get; set; }
     public bool IsVisible { get; set; }
     public bool IsSimulated { get; set; }
+    public string RepresentationKind { get; set; } = string.Empty;
+    public bool HasNativeSimulationObject { get; set; }
+    public bool WorldModelVisible { get; set; }
+    public bool MapMarkerVisible { get; set; }
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
     public int CampaignTelegraph { get; set; }
+}
+
+public sealed class SurfaceRenderProxySnapshotPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string RepresentationProvider { get; set; } = string.Empty;
+    public long CapturedAtUnixMilliseconds { get; set; }
+    public SurfaceRenderProxyStatePayload[] Proxies { get; set; } =
+        Array.Empty<SurfaceRenderProxyStatePayload>();
 }
 
 public sealed class OwnedSurfaceRecoveryReleaseResultPayload

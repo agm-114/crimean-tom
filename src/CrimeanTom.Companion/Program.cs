@@ -145,6 +145,15 @@ app.MapGet("/game/mutations/surface/resources", (
         CommandPriorities.Normal,
         cancellationToken));
 
+app.MapGet("/game/render-proxies", (
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetSurfaceRenderProxyState,
+        CommandPriorities.Normal,
+        cancellationToken));
+
 app.MapGet("/game/catalog/units", (
     int? offset,
     int? limit,

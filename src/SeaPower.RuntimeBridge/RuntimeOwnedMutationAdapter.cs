@@ -81,6 +81,10 @@ internal static class RuntimeOwnedMutationAdapter
     internal static bool HasOwnedEntity(string entityId) =>
         OwnedEntities.ContainsKey(entityId);
 
+    internal static bool HasActiveOwnedEntity(string entityId) =>
+        OwnedEntities.TryGetValue(entityId, out var record)
+        && record.Vessel is { Disabled: false };
+
     public static MutationAdapterResult<ArmOwnedMutationModeResultPayload> Arm(
         ArmOwnedMutationModeRequestPayload request,
         string commandSessionId,

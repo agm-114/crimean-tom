@@ -18,6 +18,16 @@ internal static class RuntimeRenderProxyAdapter
         "DisableEntity",
         BindingFlags.Instance | BindingFlags.NonPublic);
 
+    public static SurfaceRenderProxySnapshotPayload CaptureState() => new()
+    {
+        RepresentationProvider = "fenced-native-vessel-fallback",
+        CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        Proxies = Records
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => Capture(item.Key, item.Value))
+            .ToArray(),
+    };
+
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
         ReconcileSurfaceRenderProxiesRequestPayload request,
         string commandSessionId)
@@ -61,7 +71,7 @@ internal static class RuntimeRenderProxyAdapter
                 continue;
             }
 
-            var conflictsWithOwnedEntity = RuntimeOwnedMutationAdapter.HasOwnedEntity(pair.Key);
+            var conflictsWithOwnedEntity = RuntimeOwnedMutationAdapter.HasActiveOwnedEntity(pair.Key);
             if (!requested.ContainsKey(pair.Key) || conflictsWithOwnedEntity)
             {
                 if (Suspend(pair.Value))
@@ -77,7 +87,7 @@ internal static class RuntimeRenderProxyAdapter
 
         foreach (var spec in request.Proxies.OrderBy(item => item.EntityId, StringComparer.Ordinal))
         {
-            if (RuntimeOwnedMutationAdapter.HasOwnedEntity(spec.EntityId))
+            if (RuntimeOwnedMutationAdapter.HasActiveOwnedEntity(spec.EntityId))
             {
                 excludedOwnedEntities.Add(spec.EntityId);
                 continue;
@@ -271,6 +281,10 @@ internal static class RuntimeRenderProxyAdapter
             GameUniqueId = vessel is null ? null : vessel.UniqueID,
             IsVisible = vessel is not null && !vessel.Disabled,
             IsSimulated = false,
+            RepresentationKind = "fenced-native-vessel-fallback",
+            HasNativeSimulationObject = vessel is not null,
+            WorldModelVisible = vessel is not null && !vessel.Disabled,
+            MapMarkerVisible = vessel is not null && !vessel.Disabled,
             Latitude = vessel is null ? 0d : vessel._geoPosition._latitude,
             Longitude = vessel is null ? 0d : vessel._geoPosition._longitude,
             HeadingDegrees = vessel is null ? 0d : vessel.getHeading(),

@@ -416,13 +416,8 @@ public sealed class CampaignCompanionClient(
         }
 
         var locallyTacticalEntities = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var resource in resources.Entities)
-        {
-            if (BareCampaignEntityId(resource.EntityId) is { } entityId)
-            {
-                locallyTacticalEntities.Add(entityId);
-            }
-        }
+        var localCoalitionAnchorEntities = new HashSet<string>(StringComparer.Ordinal);
+        var activeLocalAssignmentIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var assignment in root.GetProperty("assignments").EnumerateArray())
         {
             var lifecycle = assignment.GetProperty("lifecycle").GetString() ?? string.Empty;
@@ -431,18 +426,45 @@ public sealed class CampaignCompanionClient(
                     assignment.GetProperty("workerClientInstanceId").GetString(),
                     options.ClientInstanceId,
                     StringComparison.Ordinal)
-                && role is "Primary" or "Shadow"
-                && lifecycle is not ("Released" or "Failed" or "Fenced"))
+                && role is "Primary" or "Shadow")
             {
-                locallyTacticalEntities.Add(
-                    assignment.GetProperty("entityId").GetString() ?? string.Empty);
+                var assignmentId = assignment.GetProperty("assignmentId").GetString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(assignmentId)
+                    && !assignmentId.StartsWith("assignment:", StringComparison.Ordinal))
+                {
+                    assignmentId = $"assignment:{assignmentId}";
+                }
+                var entityId = assignment.GetProperty("entityId").GetString() ?? string.Empty;
+                localCoalitionAnchorEntities.Add(entityId);
+                if (lifecycle is not ("Released" or "Failed" or "Fenced"))
+                {
+                    activeLocalAssignmentIds.Add(assignmentId);
+                    locallyTacticalEntities.Add(entityId);
+                }
             }
         }
+        foreach (var resource in resources.Entities)
+        {
+            if (BareCampaignEntityId(resource.EntityId) is { } entityId)
+            {
+                localCoalitionAnchorEntities.Add(entityId);
+                if (activeLocalAssignmentIds.Contains(resource.AssignmentId))
+                {
+                    locallyTacticalEntities.Add(entityId);
+                }
+            }
+        }
+        resources = await ContainStaleOwnedResourcesAsync(
+            resources,
+            activeLocalAssignmentIds,
+            capabilities,
+            cancellationToken);
         locallyTacticalEntities.Remove(string.Empty);
+        localCoalitionAnchorEntities.Remove(string.Empty);
 
         var entities = root.GetProperty("entities").EnumerateArray().ToArray();
         var localCoalitions = entities
-            .Where(entity => locallyTacticalEntities.Contains(
+            .Where(entity => localCoalitionAnchorEntities.Contains(
                 entity.GetProperty("entityId").GetString() ?? string.Empty))
             .Select(entity => entity.GetProperty("coalitionId").GetString() ?? string.Empty)
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -497,6 +519,63 @@ public sealed class CampaignCompanionClient(
             reconciled.CreatedCount,
             reconciled.UpdatedCount,
             reconciled.SuspendedCount);
+    }
+
+    private async Task<OwnedSurfaceResourceStatePayload> ContainStaleOwnedResourcesAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        IReadOnlySet<string> activeLocalAssignmentIds,
+        CapabilitiesPayload capabilities,
+        CancellationToken cancellationToken)
+    {
+        var staleActiveResources = resources.Entities
+            .Where(resource => string.Equals(
+                    resource.LifecycleState,
+                    "active",
+                    StringComparison.Ordinal)
+                && !activeLocalAssignmentIds.Contains(resource.AssignmentId))
+            .OrderBy(resource => resource.EntityId, StringComparer.Ordinal)
+            .ToArray();
+        if (staleActiveResources.Length == 0)
+        {
+            return resources;
+        }
+
+        await EnsureRenderProxyMutationsArmedAsync(capabilities, cancellationToken);
+        await RunAtPausedTacticalSafePointAsync(
+            async () =>
+            {
+                foreach (var resource in staleActiveResources)
+                {
+                    var result = await RequireGameCommandAsync(
+                        GameCommandTypes.SetOwnedSurfaceSuspension,
+                        JsonSerializer.Serialize(new SetOwnedSurfaceSuspensionRequestPayload
+                        {
+                            Context = Context(
+                                resource.AssignmentId,
+                                resource.AuthorityEpoch,
+                                resource.Revision,
+                                $"stale-authority-containment-{resource.AuthorityEpoch}-{resource.Revision}"),
+                            EntityId = resource.EntityId,
+                            IsSuspended = true,
+                        }, JsonOptions),
+                        cancellationToken);
+                    var suspension = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
+                        result.ResultJson,
+                        JsonOptions) ?? throw new InvalidDataException(
+                            "Stale owned-surface containment result was empty.");
+                    await stateStore.SaveGameRevisionAsync(
+                        resource.AssignmentId,
+                        suspension.Revision,
+                        cancellationToken);
+                }
+                return true;
+            },
+            "stale owned-surface authority containment",
+            cancellationToken);
+        logger.LogWarning(
+            "Suspended {Count} locally active owned surface records whose campaign assignments are no longer authoritative.",
+            staleActiveResources.Length);
+        return await ReadOwnedSurfaceResourcesAsync(cancellationToken);
     }
 
     private static SurfaceRenderProxySpecPayload? CreateRenderProxySpec(
@@ -758,6 +837,7 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
+        var resumeAfterPreparation = false;
         try
         {
             var isShadow = assignment.Role == AssignmentRole.Shadow;
@@ -789,10 +869,24 @@ public sealed class CampaignCompanionClient(
                 serviceToken,
                 cancellationToken);
 
-            await RequireGameCommandAsync(
-                GameCommandTypes.SetExperimentalPauseState,
-                JsonSerializer.Serialize(new ExperimentalPauseRequestPayload { IsPaused = true }, JsonOptions),
-                cancellationToken);
+            var inspectionResult = await RequireGameCommandAsync(
+                GameCommandTypes.GetUiInspection,
+                "{}",
+                cancellationToken: cancellationToken);
+            var inspection = JsonSerializer.Deserialize<UiInspectionPayload>(
+                inspectionResult.ResultJson,
+                JsonOptions) ?? throw new InvalidDataException(
+                    "Assignment preparation UI inspection was empty.");
+            resumeAfterPreparation = !inspection.IsPaused;
+            if (resumeAfterPreparation)
+            {
+                await RequireGameCommandAsync(
+                    GameCommandTypes.SetExperimentalPauseState,
+                    JsonSerializer.Serialize(
+                        new ExperimentalPauseRequestPayload { IsPaused = true },
+                        JsonOptions),
+                    cancellationToken);
+            }
             await RequireGameCommandAsync(
                 GameCommandTypes.ArmOwnedMutationMode,
                 JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
@@ -903,6 +997,28 @@ public sealed class CampaignCompanionClient(
                     ErrorMessage = exception.Message,
                 },
                 null);
+        }
+        finally
+        {
+            if (resumeAfterPreparation)
+            {
+                try
+                {
+                    await RequireGameCommandAsync(
+                        GameCommandTypes.SetExperimentalPauseState,
+                        JsonSerializer.Serialize(
+                            new ExperimentalPauseRequestPayload { IsPaused = false },
+                            JsonOptions),
+                        CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Could not restore running tactical time after assignment preparation {AssignmentId}.",
+                        assignment.AssignmentId);
+                }
+            }
         }
     }
 
@@ -1106,6 +1222,20 @@ public sealed class CampaignCompanionClient(
     }
 
     private async Task<FencePreparation> ApplyFenceAsync(
+        AuthorityFence fence,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        return await RunAtPausedTacticalSafePointAsync(
+            () => ApplyFenceAtPausedSafePointAsync(
+                fence,
+                serviceToken,
+                cancellationToken),
+            $"authority fence {fence.AssignmentId}",
+            cancellationToken);
+    }
+
+    private async Task<FencePreparation> ApplyFenceAtPausedSafePointAsync(
         AuthorityFence fence,
         string serviceToken,
         CancellationToken cancellationToken)
@@ -1957,6 +2087,58 @@ public sealed class CampaignCompanionClient(
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}:{idempotencyKey}"));
         return new Guid(hash.AsSpan(0, 16)).ToString("N");
+    }
+
+    private async Task<T> RunAtPausedTacticalSafePointAsync<T>(
+        Func<Task<T>> operation,
+        string operationName,
+        CancellationToken cancellationToken)
+    {
+        var inspectionResult = await RequireGameCommandAsync(
+            GameCommandTypes.GetUiInspection,
+            "{}",
+            cancellationToken);
+        var inspection = JsonSerializer.Deserialize<UiInspectionPayload>(
+            inspectionResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException(
+                $"Tactical UI inspection was empty before {operationName}.");
+        var resumeAfterOperation = !inspection.IsPaused;
+        if (resumeAfterOperation)
+        {
+            await RequireGameCommandAsync(
+                GameCommandTypes.SetExperimentalPauseState,
+                JsonSerializer.Serialize(
+                    new ExperimentalPauseRequestPayload { IsPaused = true },
+                    JsonOptions),
+                cancellationToken);
+        }
+
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            if (resumeAfterOperation)
+            {
+                try
+                {
+                    await RequireGameCommandAsync(
+                        GameCommandTypes.SetExperimentalPauseState,
+                        JsonSerializer.Serialize(
+                            new ExperimentalPauseRequestPayload { IsPaused = false },
+                            JsonOptions),
+                        CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Could not restore running tactical time after {OperationName}.",
+                        operationName);
+                }
+            }
+        }
     }
 
     private static string StateSyncKey(string assignmentId, long authorityEpoch) =>

@@ -1715,6 +1715,32 @@ public sealed class CompanionControlIntegrationTests
             Assert.False(
                 ownedResources.RootElement.GetProperty("memoryReclamationSupported").GetBoolean());
 
+            using var renderProxyState = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/render-proxies",
+                testTimeout.Token);
+            Assert.Equal(
+                "visual-only-preferred",
+                renderProxyState.RootElement.GetProperty("representationProvider").GetString());
+            var reportedRenderProxies = renderProxyState.RootElement
+                .GetProperty("proxies")
+                .EnumerateArray()
+                .ToArray();
+            Assert.NotEmpty(reportedRenderProxies);
+            Assert.All(
+                reportedRenderProxies,
+                proxy =>
+                {
+                    Assert.Equal(
+                        "visual-model-and-map-annotation",
+                        proxy.GetProperty("representationKind").GetString());
+                    Assert.False(proxy.GetProperty("hasNativeSimulationObject").GetBoolean());
+                    Assert.False(proxy.GetProperty("isSimulated").GetBoolean());
+                    Assert.True(proxy.GetProperty("worldModelVisible").GetBoolean());
+                    Assert.True(proxy.GetProperty("mapMarkerVisible").GetBoolean());
+                });
+
             using var releasedRecovery = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -2765,6 +2791,9 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
                     ownedResources.Capture(),
                     JsonOptions),
+                GameCommandTypes.GetSurfaceRenderProxyState => JsonSerializer.Serialize(
+                    tacticalCheckpointState.CaptureRenderProxies(),
+                    JsonOptions),
                 GameCommandTypes.ReconcileSurfaceRenderProxies => JsonSerializer.Serialize(
                     tacticalCheckpointState.ReconcileRenderProxies(command.PayloadJson),
                     JsonOptions),
@@ -3218,15 +3247,49 @@ public sealed class CompanionControlIntegrationTests
                 {
                     EntityId = item.EntityId,
                     StableUnitId = $"campaign-unit:render-proxy:{request.CampaignId}:{item.EntityId}",
-                    GameUniqueId = 100,
+                    GameUniqueId = null,
                     IsVisible = true,
                     IsSimulated = false,
+                    RepresentationKind = "visual-model-and-map-annotation",
+                    HasNativeSimulationObject = false,
+                    WorldModelVisible = true,
+                    MapMarkerVisible = true,
                     Latitude = item.Latitude,
                     Longitude = item.Longitude,
                     HeadingDegrees = item.HeadingDegrees,
                     CampaignTelegraph = item.CampaignTelegraph,
                 }).ToArray(),
             };
+        }
+
+        public SurfaceRenderProxySnapshotPayload CaptureRenderProxies()
+        {
+            lock (_gate)
+            {
+                var request = _renderProxyRequest
+                    ?? throw new InvalidOperationException("Render proxies were not reconciled.");
+                return new SurfaceRenderProxySnapshotPayload
+                {
+                    RepresentationProvider = "visual-only-preferred",
+                    CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Proxies = request.Proxies.Select(item => new SurfaceRenderProxyStatePayload
+                    {
+                        EntityId = item.EntityId,
+                        StableUnitId =
+                            $"campaign-unit:render-proxy:{request.CampaignId}:{item.EntityId}",
+                        IsVisible = true,
+                        IsSimulated = false,
+                        RepresentationKind = "visual-model-and-map-annotation",
+                        HasNativeSimulationObject = false,
+                        WorldModelVisible = true,
+                        MapMarkerVisible = true,
+                        Latitude = item.Latitude,
+                        Longitude = item.Longitude,
+                        HeadingDegrees = item.HeadingDegrees,
+                        CampaignTelegraph = item.CampaignTelegraph,
+                    }).ToArray(),
+                };
+            }
         }
 
         public async Task<ReconcileSurfaceRenderProxiesRequestPayload> WaitForRenderProxyCountAsync(

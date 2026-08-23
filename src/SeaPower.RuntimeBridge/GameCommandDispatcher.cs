@@ -92,6 +92,8 @@ internal static class GameCommandDispatcher
                         GetTacticalCouplingState()),
                     GameCommandTypes.GetOwnedSurfaceResourceState =>
                         Success(RuntimeOwnedMutationAdapter.CaptureResourceState()),
+                    GameCommandTypes.GetSurfaceRenderProxyState =>
+                        Success(RuntimeRenderProxyProvider.Capture()),
                     GameCommandTypes.GetUnitCatalogPage => Success(GetUnitCatalogPage(
                         command.PayloadJson,
                         fileFingerprintProvider)),
@@ -1776,7 +1778,7 @@ internal static class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesRequestPayload>(
             payloadJson,
             JsonOptions) ?? new ReconcileSurfaceRenderProxiesRequestPayload();
-        var result = RuntimeRenderProxyAdapter.Reconcile(request, commandSessionId);
+        var result = RuntimeRenderProxyProvider.Reconcile(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);

@@ -108,6 +108,7 @@ public static class GameCommandTypes
     public const string RestoreOwnedSurfaceCheckpoint = "restore-owned-surface-checkpoint";
     public const string StageOwnedSurfaceCheckpoint = "stage-owned-surface-checkpoint";
     public const string GetOwnedSurfaceResourceState = "get-owned-surface-resource-state";
+    public const string GetSurfaceRenderProxyState = "get-surface-render-proxy-state";
     public const string ReconcileSurfaceRenderProxies = "reconcile-surface-render-proxies";
     public const string ReleaseDetachedOwnedSurfaceRecovery =
         "release-detached-owned-surface-recovery";
@@ -120,6 +121,7 @@ public static class GameCommandTypes
         GetWorldSnapshot,
         GetTacticalCouplingState,
         GetOwnedSurfaceResourceState,
+        GetSurfaceRenderProxyState,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,
@@ -205,6 +207,7 @@ public static class GameCommandTypes
         RestoreOwnedSurfaceCheckpoint,
         StageOwnedSurfaceCheckpoint,
         GetOwnedSurfaceResourceState,
+        GetSurfaceRenderProxyState,
         ReconcileSurfaceRenderProxies,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
