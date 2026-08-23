@@ -693,14 +693,18 @@ migration remain unproven.
   closed for entities that cannot be represented by Sea Power.
 - The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
   the large representative theater used while implementing the remaining Phase
-  5 engine, scheduler, monitor, and live-game flows. Its 32 regions, 31 bases,
-  60 opening entities and 34 groups cover the Central Front, Atlantic, South
-  Atlantic, Middle East, Indian Ocean and Asia-Pacific. Central Front land
-  formations remain Operational abstractions; naval and air interactions
-  provide the tactical promotion surface. Catalog-backed forces cover the major
+  5 engine, scheduler, monitor, and live-game flows. Its 39 regions, 61 bases,
+  801 opening entities and 280 groups cover both US coasts, Cuba and the
+  Caribbean, the Central Front, Atlantic, South Atlantic, Middle East, Indian
+  Ocean and Asia-Pacific. Twenty airbase defense complexes and additional
+  theater radar, GBAD, shore-defense, supply, commerce, and civilian packages
+  make 775 catalog-backed entities eligible for eventual tactical streaming.
+  Only 26 campaign-scale land formations remain Operational abstractions.
+  Catalog-backed forces cover the major
   shipped national fleets, while Argentina's requested Soviet support is a
   clearly labelled alternate-history logistics substitution because the game
-  has no Argentine nation prefix.
+  has no Argentine nation prefix. Historical anchors, source links, and authored
+  extrapolations are tracked in the WW3++ scenario research ledger.
 - The monitor is part of the Phase 5 exit artifact, not a separate authority. It
   now exposes the campaign graph, bases, units, task forces, domains, fidelity,
   damage, recent interactions, health, journal head, scheduler health and

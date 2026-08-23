@@ -24,11 +24,12 @@ principal-separated browser writes remain open before an alpha.
 | Area | Current capability | Qualification |
 | --- | --- | --- |
 | Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface mutation, checkpoints, collider capture | Pinned game build; narrow allow-list |
-| Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash | Broad integration story and golden hashes |
+| Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash; sourced 39-region/61-base/801-entity WW3++ proving seed | Broad integration story and golden hashes; large bootstrap is 44.1 s because every seed event is an individual durable append |
 | Persistence | SQLite WAL, writer fencing, snapshots every 100 commits, CAS blobs, integrity checks, online backup and side-directory restore | No recovered-head cache or qualified long-journal envelope |
 | Operational simulation | Unattended movement, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, basic AI | Deterministic analogue, not Sea Power parity; calibration remains limited |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, Primary/Shadow fencing, cold reconstruction, migration protocol | Live two-container completion and hot convergence unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC proven against the full 60-entity campaign and theater-aligned GIUK mission; one authoritative surface family and one exact proxy profile; no hostile/contact proxy or campaign-owned hostile loss proof |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface kinematics/resources/damage; visual-only world-model/map projection of other deployed friendly Knox-class vessels; typed camera focus for native or visual-proxy units; pause/restore assignment and fence safe points; stale-authority containment after reconnect | Script-guided trusted-local POC was proven against the former 60-entity seed and theater-aligned GIUK mission; the expanded 801-entity seed has headless campaign proof but still needs the live sync/performance comparison rerun; one authoritative surface family and one exact proxy profile |
+| WW3++ scenario content | 801 deterministic opening entities: two-ocean US fleet, Soviet global packages, Soviet-aligned Cuba, 20 defended airbase complexes, theater IADS/coastal batteries, depots, sealift, and civilian traffic | Research provenance is tracked; opening sorties exist, but recurring air tasking, neutral diplomacy, and broad ground/fixed-site streaming are not implemented |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
 | Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
@@ -55,7 +56,9 @@ These are prerequisites, not release-polish tasks:
    every 100 commits, so ordinary recovery starts from a recent snapshot rather
    than the origin. The coordinator still has no recovered-state cache, each
    append re-derives the durable head, and no 10,000-commit recovery/storage
-   envelope has been qualified.
+   envelope has been qualified. The expanded default seed takes 44.1 seconds to
+   bootstrap because 1,394 region/base/entity/group/order events are appended
+   as separate transactions; package/batch import needs a bounded atomic path.
 2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
    schema or algorithm version other than the compiled constants. There is no
    upcaster, compatible old-engine path, or export-only recovery mode. Any
@@ -113,6 +116,17 @@ These are prerequisites, not release-polish tasks:
 5. **Campaign management UI.** Expose backup/restore, pause/drain, worker
    lifecycle, diagnostics, integrity status, and failure recovery through a
    safe operator workflow rather than HTTP/scripts alone.
+6. **Airbase operations and integrated defense.** Turn seeded opening sorties
+   into durable aircraft inventories and air-tasking cycles: mission creation,
+   launch/recovery, turnaround, fuel and magazine draw, runway damage/repair,
+   dispersal, radar-network degradation, GBAD command relationships, and SEAD.
+   The current airbase complexes provide the objects and opening orders, not
+   this lifecycle.
+7. **Diplomacy and noncombatants.** Add relationship-aware hostility, neutral
+   traffic, protected/noncombatant status, identification, ROE, diversion, and
+   unintended-effects consequences. Current civilian traffic is assigned to a
+   protection coalition because the engine treats every other coalition as
+   hostile.
 
 ### P1 — move prototype execution across its intended boundaries
 

@@ -6,7 +6,7 @@ using CrimeanTom.LoadAcceleration;
 
 namespace CrimeanTom.Campaign.ServiceHost;
 
-internal static class FuldaGapCampaignSeed
+internal static partial class FuldaGapCampaignSeed
 {
     private static readonly Lazy<SeaPowerOperationalCatalog?> OperationalCatalog =
         new(SeaPowerOperationalCatalog.TryCreateFromEnvironment);
@@ -53,7 +53,7 @@ internal static class FuldaGapCampaignSeed
             Region(campaignId, "northpac", "North Pacific reinforcement route", ["japan", "usec"]),
             Region(campaignId, "southpac", "South Pacific transit route", ["drake", "southchina"]),
             Region(campaignId, "australia", "Australian approaches", ["southpac", "indian"]),
-        };
+        }.Concat(Ww3PlusRegions(campaignId)).ToArray();
         var regionIds = regions.ToDictionary(item => item.Key, item => item.RegionId, StringComparer.Ordinal);
         var bases = new[]
         {
@@ -88,7 +88,7 @@ internal static class FuldaGapCampaignSeed
             Base(campaignId, "kaohsiung", "Kaohsiung, Taiwan", blue, "taiwan", 22_620_000, 120_312_000),
             Base(campaignId, "chinhae", "Chinhae, South Korea", blue, "korea", 35_150_000, 128_660_000),
             Base(campaignId, "wonsan", "Wonsan, North Korea", red, "korea", 39_150_000, 127_440_000),
-        };
+        }.Concat(Ww3PlusBases(campaignId, blue, red)).ToArray();
         var baseIds = bases.ToDictionary(item => item.Key, item => item.BaseId, StringComparer.Ordinal);
         var entityTemplates = new[]
         {
@@ -152,7 +152,9 @@ internal static class FuldaGapCampaignSeed
             Entity(campaignId, "plan-taiwan-yukan", "PLAN Taiwan Strait Yukan landing group", "plan_lst_yukan", red, "taiwan", 24_300_000, 119_350_000, "sanya", "red-taiwan-invasion", SimulationDomain.Logistics),
             Entity(campaignId, "rokaf-f5e", "ROKAF 102nd Tactical Fighter Squadron", "usaf_f-5e", blue, "korea", 38_000_000, 127_000_000, "chinhae", "blue-south-korea-air", SimulationDomain.Air, catalogLoadoutId: "AirToAir"),
             Entity(campaignId, "kpaf-j7c", "KPAF MiG-21/J-7 interceptor regiment", "pla_j-7c", red, "korea", 38_050_000, 127_100_000, "wonsan", "red-north-korea-air", SimulationDomain.Air),
-        };
+        }.Concat(Ww3PlusEntities(campaignId, blue, red))
+            .Concat(Ww3AirbaseComplexEntities(campaignId, blue, red))
+            .ToArray();
         var entities = Enumerable.Range(0, forceMultiplier)
             .SelectMany(echelon => echelon == 0
                 ? entityTemplates
@@ -200,7 +202,9 @@ internal static class FuldaGapCampaignSeed
             Order(campaignId, "taiwan-invasion", groupIds["red-taiwan-invasion"], regionIds["taiwan"], OrderKind.Escort),
             Order(campaignId, "south-korea-air-defense", groupIds["blue-south-korea-air"], regionIds["korea"], OrderKind.Patrol),
             Order(campaignId, "north-korea-air-offensive", groupIds["red-north-korea-air"], regionIds["korea"], OrderKind.Patrol),
-        };
+        }.Concat(Ww3PlusOrders(campaignId, groupIds, regionIds))
+            .Concat(Ww3AirbaseComplexOrders(campaignId, blue, red, groupIds, regionIds))
+            .ToArray();
         return new FuldaGapSeed(campaignId, forceMultiplier, blue, red, regions, bases, entities, groups, orders, regionIds, baseIds, entityIds);
     }
 
@@ -217,18 +221,21 @@ internal static class FuldaGapCampaignSeed
         CampaignId campaignId, string key, string name, string catalogUnitId, CoalitionId coalitionId,
         string regionKey, int latitude, int longitude, string? homeBaseKey, string groupKey,
         SimulationDomain simulationDomain, FidelityState maximumFidelity = FidelityState.Tactical,
-        string catalogLoadoutId = "Default") =>
+        string catalogLoadoutId = "Default",
+        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null) =>
         new(key, new EntityId(Id(campaignId, $"entity-{key}")), name, catalogUnitId, catalogLoadoutId,
             coalitionId, regionKey,
             GeoCoordinate.FromMicrodegrees(latitude, longitude), homeBaseKey, groupKey,
-            simulationDomain, maximumFidelity, ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, simulationDomain));
+            simulationDomain, maximumFidelity,
+            operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, simulationDomain));
 
     private static IReadOnlyList<OperationalWeaponCapability> ResolveOperationalWeapons(
         string catalogUnitId,
         string catalogLoadoutId,
         SimulationDomain simulationDomain)
     {
-        if (simulationDomain == SimulationDomain.LandAbstract)
+        if (simulationDomain == SimulationDomain.LandAbstract
+            && string.Equals(catalogUnitId, "abstract_land_formation", StringComparison.Ordinal))
         {
             return
             [
@@ -311,7 +318,7 @@ internal static class FuldaGapCampaignSeed
         "red-taiwan-invasion" => "PLAN Taiwan Strait invasion group",
         "blue-south-korea-air" => "Republic of Korea Air Force defense command",
         "red-north-korea-air" => "Korean People's Air Force offensive command",
-            _ => key,
+        _ => Ww3PlusGroupName(key),
         };
     }
 

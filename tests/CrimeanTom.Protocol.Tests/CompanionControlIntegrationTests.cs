@@ -227,16 +227,26 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.Equal(HttpStatusCode.Created, createdFuldaCampaign.StatusCode);
             using var fuldaBootstrapResponse = await campaignClient.PostAsync(
-                $"/control/campaigns/{fuldaCampaignId}/bootstrap/fulda-gap/2",
+                $"/control/campaigns/{fuldaCampaignId}/bootstrap/fulda-gap/1",
                 content: null,
                 testTimeout.Token);
             fuldaBootstrapResponse.EnsureSuccessStatusCode();
             using var fuldaBootstrap = JsonDocument.Parse(
                 await fuldaBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(2, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
-            Assert.Equal(32, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
-            Assert.Equal(120, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(4, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            Assert.Equal(1, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
+            Assert.Equal(39, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
+            Assert.Equal(61, fuldaBootstrap.RootElement.GetProperty("baseCount").GetInt32());
+            Assert.Equal(801, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(280, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
+            Assert.Equal(213, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
+            Assert.Equal(324, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
+            Assert.Equal(112, fuldaBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
+            Assert.Equal(165, fuldaBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
+            Assert.Equal(200, fuldaBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
+            Assert.Equal(26, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            Assert.Equal(90, fuldaBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
+            Assert.Equal(220, fuldaBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
+            Assert.Equal(775, fuldaBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
             var tacticalDemoEntityId = fuldaBootstrap.RootElement.GetProperty("tacticalDemoEntityId").GetString()!;
             var blueCoalitionId = fuldaBootstrap.RootElement.GetProperty("blueCoalitionId").GetString()!;
             var redCoalitionId = fuldaBootstrap.RootElement.GetProperty("redCoalitionId").GetString()!;
@@ -247,15 +257,27 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaView = JsonDocument.Parse(
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
-            Assert.Equal(120, fuldaEntities.Length);
+            Assert.Equal(801, fuldaEntities.Length);
             var tacticalDemoGroup = Assert.Single(
                 fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
                 item => item.GetProperty("memberEntityIds").EnumerateArray()
                     .Any(member => member.GetString() == tacticalDemoEntityId));
             Assert.Single(tacticalDemoGroup.GetProperty("memberEntityIds").EnumerateArray());
             Assert.All(
-                fuldaEntities.Where(item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"),
+                fuldaEntities.Where(item => item.GetProperty("catalogUnitId").GetString() == "abstract_land_formation"),
                 item => Assert.Equal("Operational", item.GetProperty("maximumFidelity").GetString()));
+            Assert.All(
+                fuldaEntities.Where(item => item.GetProperty("simulationDomain").GetString() == "LandAbstract"
+                    && item.GetProperty("catalogUnitId").GetString() != "abstract_land_formation"),
+                item => Assert.Equal("Tactical", item.GetProperty("maximumFidelity").GetString()));
+            var fuldaEntityNames = fuldaEntities
+                .Select(item => item.GetProperty("name").GetString()!)
+                .ToArray();
+            Assert.Contains(fuldaEntityNames, name => name.Contains("US Atlantic carrier", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("US Pacific carrier", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Cuban air-defense site", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("San Antonio de los Banos GBAD", StringComparison.Ordinal));
+            Assert.Contains(fuldaEntityNames, name => name.Contains("Western transatlantic merchant", StringComparison.Ordinal));
             using var fuldaAdvanceResponse = await campaignClient.PostAsync(
                 $"/control/campaigns/{fuldaCampaignId}/advance/30",
                 content: null,
