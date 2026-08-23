@@ -105,7 +105,8 @@ internal static class CampaignSimulation
                 .Where(item => !state.CoalitionStrategies.TryGetValue(item.CoalitionId, out var prior) || item != prior)
                 .Select(ToUpdate)
                 .ToArray(),
-            compactActivityDueAt);
+            compactActivityDueAt,
+            state.Orders.Keys.Where(id => !world.Orders.ContainsKey(id)).ToArray());
     }
 
     private static TickResult ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
@@ -149,7 +150,16 @@ internal static class CampaignSimulation
         var engagement = ResolveOperationalEngagements(sustained, dueAt);
         var ordnance = ResolveInFlightOrdnance(engagement.State, dueAt, engagement.Outcomes);
         var intelligence = ResolveIntelligence(ordnance.State, dueAt, ordnance.Outcomes);
-        return new TickResult(intelligence.State, [.. ordnance.Outcomes, .. intelligence.Outcomes]);
+        var activeOrderIds = intelligence.State.Groups.Values
+            .Where(item => item.ActiveOrderId is not null)
+            .Select(item => item.ActiveOrderId!.Value)
+            .ToHashSet();
+        var retainedOrders = intelligence.State.Orders
+            .Where(item => item.Value.CompletedAt is null || activeOrderIds.Contains(item.Key))
+            .ToImmutableSortedDictionary();
+        return new TickResult(
+            intelligence.State with { Orders = retainedOrders },
+            [.. ordnance.Outcomes, .. intelligence.Outcomes]);
     }
 
     private static GroupMovementResult ResolveMovement(

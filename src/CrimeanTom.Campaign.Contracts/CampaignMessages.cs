@@ -6,7 +6,7 @@ namespace CrimeanTom.Campaign.Contracts;
 public static class CampaignSchema
 {
     public const int Version = 10;
-    public const int AlgorithmVersion = 13;
+    public const int AlgorithmVersion = 14;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -626,7 +626,8 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedStrategicObjectiveUpdate>? StrategicObjectives = null,
     IReadOnlyList<SimulatedGroupCommitmentUpdate>? GroupCommitments = null,
     IReadOnlyList<SimulatedCoalitionStrategyUpdate>? CoalitionStrategies = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CampaignTime? PendingActivityDueAt = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CampaignTime? PendingActivityDueAt = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OrderId>? RemovedOrderIds = null)
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;

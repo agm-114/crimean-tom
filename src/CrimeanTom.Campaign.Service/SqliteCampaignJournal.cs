@@ -971,6 +971,10 @@ public sealed class SqliteCampaignJournal
                 var campaign = reader.GetString(0);
                 var campaignEvent = CampaignContractJson.DeserializeEvent(
                     CampaignJournalPayloadCodec.Decode((byte[])reader[1]));
+                foreach (var subject in EnumerateRevisionRemovals(campaignEvent))
+                {
+                    expectedRevisions.Remove((campaign, (int)subject.Kind, subject.Value.ToString("N")));
+                }
                 foreach (var (subject, revision) in EnumerateRevisionEffects(campaignEvent))
                 {
                     expectedRevisions[(campaign, (int)subject.Kind, subject.Value.ToString("N"))] = revision.Value;
@@ -1522,6 +1526,19 @@ public sealed class SqliteCampaignJournal
         CommittedCampaignEvent eventValue,
         CancellationToken cancellationToken)
     {
+        foreach (var subject in EnumerateRevisionRemovals(eventValue))
+        {
+            await using var removal = connection.CreateCommand();
+            removal.Transaction = transaction;
+            removal.CommandText = """
+                DELETE FROM subject_revisions
+                WHERE campaign_id = $campaign_id AND subject_kind = $kind AND subject_id = $subject_id;
+                """;
+            removal.Parameters.AddWithValue("$campaign_id", eventValue.CampaignId.ToString());
+            removal.Parameters.AddWithValue("$kind", (int)subject.Kind);
+            removal.Parameters.AddWithValue("$subject_id", subject.Value.ToString("N"));
+            await removal.ExecuteNonQueryAsync(cancellationToken);
+        }
         foreach (var (subject, revision) in EnumerateRevisionEffects(eventValue))
         {
             await using var command = connection.CreateCommand();
@@ -1604,6 +1621,20 @@ public sealed class SqliteCampaignJournal
         foreach (var item in simulation.PendingActivities)
         {
             yield return (CampaignSubject.ScheduledActivity(item.ActivityId), item.Revision);
+        }
+    }
+
+    private static IEnumerable<CampaignSubject> EnumerateRevisionRemovals(
+        CommittedCampaignEvent campaignEvent)
+    {
+        if (campaignEvent.Data is not CampaignSimulatedEvent simulation)
+        {
+            yield break;
+        }
+
+        foreach (var orderId in simulation.RemovedOrderIds ?? [])
+        {
+            yield return CampaignSubject.Order(orderId);
         }
     }
 

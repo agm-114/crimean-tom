@@ -1045,6 +1045,16 @@ public static class CampaignKernel
         }
 
         var orders = state.Orders;
+        foreach (var removedOrderId in value.RemovedOrderIds ?? [])
+        {
+            if (groups.Values.Any(item => item.ActiveOrderId == removedOrderId))
+            {
+                throw Violation(
+                    "active-order-removed",
+                    "A simulation event cannot remove an order still referenced by an active group.");
+            }
+            orders = orders.Remove(removedOrderId);
+        }
         foreach (var update in value.Orders)
         {
             orders = orders.SetItem(update.OrderId, new OrderState(

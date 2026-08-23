@@ -166,7 +166,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.NotEqual(0, simulated.Entities[Ids.BlueOiler].Heading.Value);
         Assert.True(simulated.Entities[Ids.BlueOiler].Telegraph is 2 or 3 or 4);
         Assert.Null(simulated.Groups[Ids.BlueGroup].ActiveOrderId);
-        Assert.Equal(new CampaignTime(30), simulated.Orders[Ids.TransitOrder].CompletedAt);
+        Assert.Contains(Ids.TransitOrder, simulationData.RemovedOrderIds ?? []);
+        Assert.False(simulated.Orders.ContainsKey(Ids.TransitOrder));
         Assert.True(simulated.Intelligence.Count >= 2);
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Channel));
         Assert.Contains(simulated.Intelligence.Values, item => Enum.IsDefined(item.Quality));
@@ -236,11 +237,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "d0124773f5589660959148f077e9b6068c942e9002523d202928bda790b1bb79",
+            longHorizon.Hash == "fda60807b6f9ae2c9ac0e7a56f4a3b4e045659b93156f05829c774f7b62c6e6c",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "693a557237040038f6926d91a7e92cde0af712a09bc8601e728c82f29d5ce881",
+            migrated.Hash == "cebdbbf7a1274f78721b7b22a81cc63afd85c300491feeb5d5ca55b8ef7f21aa",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -517,7 +518,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var withdrawalOrderId = Assert.IsType<OrderId>(withdrawing.Groups[Ids.BlueGroup].ActiveOrderId);
         Assert.NotEqual(Ids.TransitOrder, withdrawalOrderId);
         Assert.Equal(OrderKind.Withdraw, withdrawing.Orders[withdrawalOrderId].Kind);
-        Assert.Equal(new CampaignTime(20), withdrawing.Orders[Ids.TransitOrder].CompletedAt);
+        Assert.False(withdrawing.Orders.ContainsKey(Ids.TransitOrder));
 
         var homeDamaged = state with
         {
@@ -828,7 +829,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(10, CampaignSchema.Version);
-        Assert.Equal(13, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(14, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
@@ -852,6 +853,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.Equal(CampaignCanonicalSerializer.Serialize(single), CampaignCanonicalSerializer.Serialize(parallel));
             CampaignStateValidator.Validate(single);
             AssertCampaignInvariants(single);
+            Assert.True(single.Orders.Count <= single.Groups.Count,
+                $"Retained order count {single.Orders.Count} exceeded group count {single.Groups.Count}.");
 
             var resources = ResourceTotals(single);
             foreach (var kind in Enum.GetValues<ResourceKind>())
