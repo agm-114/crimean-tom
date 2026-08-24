@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 4,
+        SchemaVersion: 5,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -17,6 +17,8 @@ public static class CampaignSupportedClaims
             "bearer-authenticated-loopback-companion-and-campaign-control-writes",
             "hosted-monitor-local-cookie-read-access-without-operator-identity",
             "deterministic-campaign-kernel-and-sqlite-wal-journal",
+            "deterministic-two-coalition-strategic-and-operational-campaign-driver",
+            "fixed-installation-complexes-remain-local-without-movement-orders",
             "coalition-filtered-projections-without-classified-truth",
             "replica-checkpoint-hash-disagreement-refuses-majority",
             "render-proxy-cannot-receive-simulation-authority",
@@ -26,6 +28,7 @@ public static class CampaignSupportedClaims
             "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances",
             "owned-surface-periodic-state-sync-during-unpaused-play",
             "friendly-deployed-knox-render-proxies-without-simulation-authority",
+            "fresh-player-session-explicit-coalition-bound-friendly-projection",
             "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
             "unattended-kernel-simulation-without-sea-power-or-client",
         ],
@@ -44,6 +47,7 @@ public static class CampaignSupportedClaims
             "campaign-owned-hostile-tactical-loss-committed-to-journal",
             "player-session-continuity-across-service-restart",
             "authenticated-hosted-monitor-writes",
+            "human-equivalent-adaptive-strategic-ai-or-coordinated-mission-packages",
         ]);
 }
 

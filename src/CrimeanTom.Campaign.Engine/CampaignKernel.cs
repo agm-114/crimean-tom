@@ -218,6 +218,16 @@ public static class CampaignKernel
         RequireRevision(command, group.Revision);
         RequireCoalitionOrAdministrator(command, group.CoalitionId);
         RequireRegion(state, value.DestinationRegionId);
+        if (group.Members.Any(id =>
+                state.Entities[id].SimulationDomain == SimulationDomain.Installation)
+            && (value.Kind != OrderKind.Hold
+                || group.Members.Any(id =>
+                    state.Entities[id].RegionId != value.DestinationRegionId)))
+        {
+            throw Violation(
+                "fixed-installation-group-movement",
+                "A group containing a fixed installation can only hold in its current region.");
+        }
         if (state.Orders.ContainsKey(value.OrderId)
             || value.StartsAt.Quanta < state.Time.Quanta
             || value.MustCompleteBy is { } deadline && deadline.Quanta < value.StartsAt.Quanta)

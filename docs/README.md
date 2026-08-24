@@ -118,6 +118,12 @@ The folders separate evidence from design commitments:
     records full-seed automatic player focus, retained installation re-entry,
     bounded worker projection, catch-up continuity, and the companion disk-spool
     correction.
+37. [Full-campaign runtime memory and fresh-session sync proof](evidence/full-campaign-runtime-memory-and-fresh-session-sync-2026-08-24.md)
+    separates Sea Power's native mission allocation from campaign/proxy cost and
+    proves coalition-correct projection for a new 4K player session.
+38. [Strategic AI fixed-defense qualification](evidence/strategic-ai-fixed-defense-v16-2026-08-24.md)
+    records algorithm-v16's local-defense invariant for fixed complexes, the
+    full 4K execution profile, and deterministic cold recovery.
 
 ## Evidence labels
 

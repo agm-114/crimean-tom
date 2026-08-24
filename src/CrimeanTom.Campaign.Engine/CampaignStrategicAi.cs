@@ -282,7 +282,14 @@ internal static class CampaignStrategicAi
             var members = group.Members.Select(id => state.Entities[id])
                 .Where(item => IsOperational(state, item))
                 .ToArray();
-            if (members.Length == 0 || members.All(item => item.SimulationDomain == SimulationDomain.Installation))
+            // A canonical group containing a fixed installation is one defensive
+            // complex. Moving only its fuel farm or support vehicles would split
+            // authority from the runway/radar that makes the group meaningful,
+            // while including the installation creates an order that can never
+            // arrive because installations have zero movement. Static complexes
+            // defend and engage in place without a movement order.
+            if (members.Length == 0
+                || members.Any(item => item.SimulationDomain == SimulationDomain.Installation))
             {
                 continue;
             }
@@ -363,7 +370,7 @@ internal static class CampaignStrategicAi
 
     private static bool IsCompatible(StrategicGroupView group, StrategicObjectiveState objective)
     {
-        if (group.AllInstallations)
+        if (group.ContainsInstallation)
         {
             return objective.Kind == StrategicObjectiveKind.Defend && objective.RegionId == group.RegionId;
         }
@@ -492,7 +499,7 @@ internal static class CampaignStrategicAi
         GroupId GroupId,
         RegionId RegionId,
         SimulationDomain Domain,
-        bool AllInstallations,
+        bool ContainsInstallation,
         bool RequiresRecovery,
         bool RecoveryReady);
 
@@ -541,7 +548,7 @@ internal static class CampaignStrategicAi
                     group.GroupId,
                     members[0].RegionId,
                     members[0].SimulationDomain,
-                    members.All(item => item.SimulationDomain == SimulationDomain.Installation),
+                    members.Any(item => item.SimulationDomain == SimulationDomain.Installation),
                     RequiresRecovery(members),
                     RecoveryReady(members, homeRegions));
                 groups = groups.Add(group.GroupId, view);

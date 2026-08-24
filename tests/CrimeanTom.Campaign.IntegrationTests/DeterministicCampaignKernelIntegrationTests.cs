@@ -229,11 +229,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "a8f4b4f59da83d2247bd1dd59d8cbb7e3fae7cc0e0ae13860475613cec551b38",
+            longHorizon.Hash == "52b70546505f4ad21f2d5e0ea7d204050eac8b5499f976c854a9bb6e5e2671d1",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "497a8cd9c7b01ef957bbcce913a8baa24f6eaa6950ba1e66585b7434b37089aa",
+            migrated.Hash == "8f648e9c5e6eff35c141e8b9981634d6f672ca55209cd7e9f51c9a079e66b83c",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -377,6 +377,54 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.IsType<StrategicObjectiveId>(changedBlueCommitment.ObjectiveId)];
         Assert.Equal(blueObjective.RegionId, changedBlueObjective.RegionId);
         Assert.Equal(blueObjective.Kind, changedBlueObjective.Kind);
+
+        var fixedDefense = fogBaseline with
+        {
+            Assignments = fogBaseline.Assignments.Clear(),
+            Entities = fogBaseline.Entities
+                .SetItem(Ids.BlueKnox, fogBaseline.Entities[Ids.BlueKnox] with
+                {
+                    Fidelity = FidelityState.Operational,
+                    SimulationDomain = SimulationDomain.Installation,
+                    RegionId = Ids.Odessa,
+                    Coordinate = fogBaseline.Bases[Ids.BlueBase].Coordinate,
+                    Telegraph = 0,
+                })
+                .SetItem(Ids.BlueOiler, fogBaseline.Entities[Ids.BlueOiler] with
+                {
+                    RegionId = Ids.Odessa,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_181_000, 28_651_000),
+                    Telegraph = 0,
+                }),
+        };
+        var fixedMovement = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(
+            fixedDefense,
+            Command(
+                109,
+                CampaignSubject.Group(Ids.BlueGroup),
+                fixedDefense.Groups[Ids.BlueGroup].Revision,
+                new IssueOrderCommand(
+                    Ids.TransitOrder,
+                    Ids.BlueGroup,
+                    OrderKind.Transit,
+                    Ids.BlackSea,
+                    fixedDefense.Time,
+                    new CampaignTime(40)),
+                effectiveAt: fixedDefense.Time)));
+        Assert.Equal("fixed-installation-group-movement", fixedMovement.Code);
+        var fixedDefensePlan = SimulateForTest(fixedDefense, 109, new CampaignTime(20));
+        Assert.Null(fixedDefensePlan.Groups[Ids.BlueGroup].ActiveOrderId);
+        Assert.Equal(
+            fixedDefense.Entities[Ids.BlueKnox].Coordinate,
+            fixedDefensePlan.Entities[Ids.BlueKnox].Coordinate);
+        Assert.Equal(
+            fixedDefense.Entities[Ids.BlueOiler].Coordinate,
+            fixedDefensePlan.Entities[Ids.BlueOiler].Coordinate);
+        var fixedCommitment = fixedDefensePlan.GroupCommitments[Ids.BlueGroup];
+        var fixedObjective = fixedDefensePlan.StrategicObjectives[
+            Assert.IsType<StrategicObjectiveId>(fixedCommitment.ObjectiveId)];
+        Assert.Equal(StrategicObjectiveKind.Defend, fixedObjective.Kind);
+        Assert.Equal(Ids.Odessa, fixedObjective.RegionId);
 
         var sameRegionWithoutIntel = state with
         {
@@ -842,7 +890,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(10, CampaignSchema.Version);
-        Assert.Equal(15, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(16, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
