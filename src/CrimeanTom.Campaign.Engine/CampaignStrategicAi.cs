@@ -190,7 +190,8 @@ internal static class CampaignStrategicAi
         {
             var group = groups[groupId];
             if (group.ActiveOrderId is not { } orderId
-                || !orders.TryGetValue(orderId, out var order))
+                || !orders.TryGetValue(orderId, out var order)
+                || order.MustCompleteBy is null)
             {
                 continue;
             }

@@ -32,8 +32,9 @@ public sealed class UnattendedCampaignIntegrationTests
                 runDirectory,
                 campaignGrpcUrl,
                 campaignHttpUrl);
-            _ = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
+            var campaignToken = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
             using var playerClient = CreatePlayerClient(campaignHttpUrl);
+            using var operatorClient = CreateBearerClient(campaignHttpUrl, campaignToken);
             using (var monitor = await playerClient.GetAsync("/monitor/", testTimeout.Token))
             {
                 monitor.EnsureSuccessStatusCode();
@@ -130,13 +131,152 @@ public sealed class UnattendedCampaignIntegrationTests
                 paused.EnsureSuccessStatusCode();
             }
             using var pausedView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
-            var pausedTime = pausedView.RootElement.GetProperty("timeQuanta").GetInt64();
-            var pausedHead = pausedView.RootElement.GetProperty("head").GetInt64();
+            var firstPausedTime = pausedView.RootElement.GetProperty("timeQuanta").GetInt64();
             await Task.Delay(TimeSpan.FromMilliseconds(500), testTimeout.Token);
             using (var stableView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token))
             {
-                Assert.Equal(pausedTime, stableView.RootElement.GetProperty("timeQuanta").GetInt64());
+                Assert.Equal(firstPausedTime, stableView.RootElement.GetProperty("timeQuanta").GetInt64());
             }
+
+            var objective = pausedView.RootElement.GetProperty("objectives").EnumerateArray().First();
+            var destinationRegionId = objective.GetProperty("regionId").GetString()!;
+            var group = pausedView.RootElement.GetProperty("friendlyGroups").EnumerateArray()
+                .First(item => item.GetProperty("canMove").GetBoolean()
+                    && item.GetProperty("currentRegionId").GetString() != destinationRegionId);
+            var groupId = group.GetProperty("groupId").GetString()!;
+            var originalGroupRevision = group.GetProperty("revision").GetInt64();
+            var leadEntityId = group.GetProperty("memberEntityIds")[0].GetString()!;
+            var leadBefore = pausedView.RootElement.GetProperty("friendlyEntities").EnumerateArray()
+                .First(item => item.GetProperty("entityId").GetString() == leadEntityId);
+            var latitudeBefore = leadBefore.GetProperty("latitudeMicrodegrees").GetInt32();
+            var longitudeBefore = leadBefore.GetProperty("longitudeMicrodegrees").GetInt32();
+            const string moveIdempotencyKey = "player-move-e2e-0001";
+
+            using var issuedMove = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{groupId}/orders/move",
+                new
+                {
+                    destinationRegionId,
+                    expectedGroupRevision = originalGroupRevision,
+                    idempotencyKey = moveIdempotencyKey,
+                },
+                testTimeout.Token);
+            issuedMove.EnsureSuccessStatusCode();
+            using var issuedMoveBody = JsonDocument.Parse(
+                await issuedMove.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("accepted", issuedMoveBody.RootElement.GetProperty("status").GetString());
+            var moveOrderId = issuedMoveBody.RootElement.GetProperty("orderId").GetString()!;
+            var moveCampaign = issuedMoveBody.RootElement.GetProperty("campaign");
+            var orderedGroup = moveCampaign.GetProperty("friendlyGroups").EnumerateArray()
+                .First(item => item.GetProperty("groupId").GetString() == groupId);
+            Assert.Equal("Transit", orderedGroup.GetProperty("activeOrderKind").GetString());
+            Assert.Equal(destinationRegionId, orderedGroup.GetProperty("activeOrderDestinationRegionId").GetString());
+            Assert.True(orderedGroup.GetProperty("playerControlled").GetBoolean());
+            Assert.Equal("Moving", orderedGroup.GetProperty("orderStatus").GetString());
+            var moveHead = moveCampaign.GetProperty("head").GetInt64();
+            var affectedObjective = moveCampaign.GetProperty("objectives").EnumerateArray()
+                .First(item => item.GetProperty("regionId").GetString() == destinationRegionId);
+            Assert.True(affectedObjective.GetProperty("playerAssignedGroupCount").GetInt32() > 0);
+
+            using (var duplicateMove = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{groupId}/orders/move",
+                new
+                {
+                    destinationRegionId,
+                    expectedGroupRevision = originalGroupRevision,
+                    idempotencyKey = moveIdempotencyKey,
+                },
+                testTimeout.Token))
+            {
+                duplicateMove.EnsureSuccessStatusCode();
+                using var duplicateBody = JsonDocument.Parse(
+                    await duplicateMove.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("duplicate", duplicateBody.RootElement.GetProperty("status").GetString());
+                Assert.Equal(moveHead, duplicateBody.RootElement.GetProperty("campaign").GetProperty("head").GetInt64());
+            }
+            using (var staleMove = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{groupId}/orders/move",
+                new
+                {
+                    destinationRegionId,
+                    expectedGroupRevision = originalGroupRevision,
+                    idempotencyKey = "player-move-stale-0002",
+                },
+                testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Conflict, staleMove.StatusCode);
+            }
+
+            using (var diagnostic = await operatorClient.GetAsync($"/campaigns/{campaignId}", testTimeout.Token))
+            {
+                diagnostic.EnsureSuccessStatusCode();
+                using var diagnosticBody = JsonDocument.Parse(
+                    await diagnostic.Content.ReadAsStringAsync(testTimeout.Token));
+                var playerCoalitionId = pausedView.RootElement.GetProperty("coalitionId").GetString();
+                var enemyGroup = diagnosticBody.RootElement.GetProperty("groups").EnumerateArray()
+                    .First(item => item.GetProperty("coalitionId").GetString() != playerCoalitionId);
+                using var forbidden = await playerClient.PostAsJsonAsync(
+                    $"/player/campaigns/{campaignId}/groups/{enemyGroup.GetProperty("groupId").GetString()}/orders/move",
+                    new
+                    {
+                        destinationRegionId,
+                        expectedGroupRevision = enemyGroup.GetProperty("revision").GetInt64(),
+                        idempotencyKey = "player-enemy-forbidden-0003",
+                    },
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+            }
+
+            using (var resumedMove = await playerClient.PostAsync(
+                $"/player/campaigns/{campaignId}/resume",
+                content: null,
+                testTimeout.Token))
+            {
+                resumedMove.EnsureSuccessStatusCode();
+            }
+            await WaitUntilAsync(async () =>
+            {
+                using var view = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
+                var current = view.RootElement.GetProperty("friendlyEntities").EnumerateArray()
+                    .First(item => item.GetProperty("entityId").GetString() == leadEntityId);
+                var currentGroup = view.RootElement.GetProperty("friendlyGroups").EnumerateArray()
+                    .First(item => item.GetProperty("groupId").GetString() == groupId);
+                return currentGroup.GetProperty("activeOrderId").GetString() == moveOrderId
+                    && currentGroup.GetProperty("playerControlled").GetBoolean()
+                    && (current.GetProperty("latitudeMicrodegrees").GetInt32() != latitudeBefore
+                        || current.GetProperty("longitudeMicrodegrees").GetInt32() != longitudeBefore);
+            }, testTimeout.Token);
+            using (var pausedMove = await playerClient.PostAsync(
+                $"/player/campaigns/{campaignId}/pause",
+                content: null,
+                testTimeout.Token))
+            {
+                pausedMove.EnsureSuccessStatusCode();
+            }
+
+            using var movedView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
+            var movedGroup = movedView.RootElement.GetProperty("friendlyGroups").EnumerateArray()
+                .First(item => item.GetProperty("groupId").GetString() == groupId);
+            using var held = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{groupId}/orders/cancel",
+                new
+                {
+                    expectedGroupRevision = movedGroup.GetProperty("revision").GetInt64(),
+                    idempotencyKey = "player-hold-e2e-0004",
+                },
+                testTimeout.Token);
+            held.EnsureSuccessStatusCode();
+            using var heldBody = JsonDocument.Parse(await held.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("holding", heldBody.RootElement.GetProperty("status").GetString());
+            var holdOrderId = heldBody.RootElement.GetProperty("orderId").GetString()!;
+            var heldCampaign = heldBody.RootElement.GetProperty("campaign");
+            var heldGroup = heldCampaign.GetProperty("friendlyGroups").EnumerateArray()
+                .First(item => item.GetProperty("groupId").GetString() == groupId);
+            Assert.Equal("Hold", heldGroup.GetProperty("activeOrderKind").GetString());
+            Assert.Equal("Holding", heldGroup.GetProperty("orderStatus").GetString());
+            Assert.True(heldGroup.GetProperty("playerControlled").GetBoolean());
+            var pausedTime = heldCampaign.GetProperty("timeQuanta").GetInt64();
+            var pausedHead = heldCampaign.GetProperty("head").GetInt64();
 
             using var saved = await playerClient.PostAsync(
                 $"/player/campaigns/{campaignId}/save",
@@ -185,6 +325,11 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.Equal(pausedTime, restored.RootElement.GetProperty("timeQuanta").GetInt64());
             Assert.Equal(pausedHead, restored.RootElement.GetProperty("head").GetInt64());
             Assert.Equal(pausedHead, restored.RootElement.GetProperty("lastSavedHead").GetInt64());
+            var restoredGroup = restored.RootElement.GetProperty("friendlyGroups").EnumerateArray()
+                .First(item => item.GetProperty("groupId").GetString() == groupId);
+            Assert.Equal(holdOrderId, restoredGroup.GetProperty("activeOrderId").GetString());
+            Assert.Equal("Hold", restoredGroup.GetProperty("activeOrderKind").GetString());
+            Assert.True(restoredGroup.GetProperty("playerControlled").GetBoolean());
         }
         finally
         {

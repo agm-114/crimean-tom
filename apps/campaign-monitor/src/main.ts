@@ -30,7 +30,13 @@ type FriendlyGroup = {
   groupId: string;
   name: string;
   memberEntityIds: string[];
+  currentRegionId: string;
   activeOrderId: string | null;
+  activeOrderKind: string | null;
+  activeOrderDestinationRegionId: string | null;
+  playerControlled: boolean;
+  orderStatus: string;
+  canMove: boolean;
   revision: number;
 };
 
@@ -54,6 +60,16 @@ type Contact = {
   revision: number;
 };
 
+type Objective = {
+  objectiveId: string;
+  kind: string;
+  regionId: string;
+  regionName: string;
+  priorityMilliUnits: number;
+  assignedGroupCount: number;
+  playerAssignedGroupCount: number;
+};
+
 type PlayerCampaign = {
   campaignId: string;
   name: string;
@@ -75,7 +91,10 @@ type PlayerCampaign = {
   friendlyGroups: FriendlyGroup[];
   friendlyBases: FriendlyBase[];
   contacts: Contact[];
+  objectives: Objective[];
 };
+
+type PlayerOrderResult = { status: string; orderId: string; campaign: PlayerCampaign };
 
 type PlayerCampaignSummary = {
   campaignId: string;
@@ -91,6 +110,7 @@ type PlayerCampaignSummary = {
 };
 
 type Selection =
+  | { kind: "group"; id: string }
   | { kind: "friendly"; id: string }
   | { kind: "contact"; id: string }
   | { kind: "base"; id: string };
@@ -138,9 +158,13 @@ app.innerHTML = `
       <div id="unit-list" class="scrollbar unit-tree min-h-0 flex-1 overflow-y-auto" role="tree" aria-label="Friendly force hierarchy"></div>
     </aside>
 
-    <aside class="dock dock-right">
+    <aside class="dock dock-right scrollbar overflow-y-auto">
       <div class="window-title flex items-center justify-between px-2"><span>SELECTED</span><span id="selection-kind">NONE</span></div>
       <div id="selection"><div class="px-2 py-3 text-[10px] text-[#626262]">SELECT A FRIENDLY, BASE, OR KNOWN CONTACT</div></div>
+      <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>PLAYER ORDER</span><span id="order-state">NO GROUP</span></div>
+      <div id="order-panel" class="p-2 text-[9px] text-[#626262]">SELECT A FRIENDLY GROUP</div>
+      <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>OBJECTIVES</span><span id="objective-count">0</span></div>
+      <div id="objective-list" class="max-h-44 overflow-y-auto"></div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>CAMPAIGN STATUS</span><span id="scenario-id">WW3++</span></div>
       <div class="state-bank">
         <div class="state-cell"><div class="metric-label">Campaign entities</div><div id="entity-count" class="metric-value">0</div></div>
@@ -192,6 +216,9 @@ coastline.isPickable = false;
 let campaign: PlayerCampaign | null = null;
 let dynamicMeshes: Mesh[] = [];
 let selection: Selection | null = null;
+let orderGroupId = "";
+let destinationRegionId = "";
+let orderMessage = "SELECT A GROUP AND DESTINATION";
 let pollHandle: number | undefined;
 
 function worldPosition(longitude: number, latitude: number, y = 0): Vector3 {
@@ -274,43 +301,145 @@ function renderCampaign(data: PlayerCampaign): void {
   byId("unit-count").textContent = `${data.friendlyEntities.length.toLocaleString()} UNITS`;
   renderForceHierarchy(data);
   renderMap(data);
+  renderObjectives(data);
   if (selection) select(selection);
+  else renderOrderPanel();
 }
 
 function renderForceHierarchy(data: PlayerCampaign): void {
   const entities = new Map(data.friendlyEntities.map(entity => [entity.entityId, entity]));
   byId("unit-list").innerHTML = data.friendlyGroups.map(group => `
     <section class="tree-group">
-      <div class="tree-group-row"><span>${escapeHtml(group.name.toUpperCase())}</span><span>${group.memberEntityIds.length}</span></div>
+      <button class="tree-group-row w-full bg-transparent text-left ${group.groupId === orderGroupId ? "register-row-selected" : ""}" data-group-id="${group.groupId}"><span>${escapeHtml(group.name.toUpperCase())}</span><span>${escapeHtml(group.playerControlled ? group.orderStatus.toUpperCase() : String(group.memberEntityIds.length))}</span></button>
       ${group.memberEntityIds.map(id => entities.get(id)).filter((value): value is FriendlyEntity => Boolean(value)).map(entity => `
         <button class="tree-unit-row" data-entity-id="${entity.entityId}"><span class="friendly">□</span><span class="truncate">${escapeHtml(entity.name.toUpperCase())}</span><span>${escapeHtml(entity.fidelity.toUpperCase())}</span></button>`).join("")}
     </section>`).join("") || `<div class="px-2 py-3 text-[9px] text-[#626262]">NO FRIENDLY GROUPS</div>`;
-  document.querySelectorAll<HTMLElement>("[data-entity-id]").forEach(row => row.addEventListener("click", () => select({ kind: "friendly", id: row.dataset.entityId! })));
+  document.querySelectorAll<HTMLElement>("[data-group-id]").forEach(row => row.addEventListener("click", () => {
+    orderGroupId = row.dataset.groupId!;
+    select({ kind: "group", id: orderGroupId });
+  }));
+  document.querySelectorAll<HTMLElement>("[data-entity-id]").forEach(row => row.addEventListener("click", () => {
+    const group = data.friendlyGroups.find(item => item.memberEntityIds.includes(row.dataset.entityId!));
+    if (group) orderGroupId = group.groupId;
+    select({ kind: "friendly", id: row.dataset.entityId! });
+  }));
 }
 
 function select(next: Selection): void {
   if (!campaign) return;
   selection = next;
-  if (next.kind === "friendly") {
+  if (next.kind === "group") {
+    const group = campaign.friendlyGroups.find(item => item.groupId === next.id);
+    if (!group) return;
+    orderGroupId = group.groupId;
+    byId("selection-kind").textContent = "GROUP";
+    byId("selection").innerHTML = detail(group.name, `${group.memberEntityIds.length} FRIENDLY UNITS`, [
+      ["Region", regionName(group.currentRegionId)],
+      ["Order", group.activeOrderKind ?? "None"],
+      ["Order state", group.orderStatus],
+      ["Revision", String(group.revision)],
+    ]);
+  } else if (next.kind === "friendly") {
     const entity = campaign.friendlyEntities.find(item => item.entityId === next.id);
     if (!entity) return;
     byId("selection-kind").textContent = "FRIENDLY";
     byId("selection").innerHTML = detail(entity.name, entity.catalogUnitId, [
       ["Region", entity.regionId], ["Fidelity", entity.fidelity], ["State", entity.lifecycle], ["Revision", String(entity.revision)],
-    ]);
+    ]) + destinationButton(entity.regionId, entity.name);
+    bindDestinationButton(entity.regionId, entity.name);
   } else if (next.kind === "contact") {
     const contact = campaign.contacts.find(item => item.trackId === next.id);
     if (!contact) return;
     byId("selection-kind").textContent = "CONTACT";
     byId("selection").innerHTML = detail(contact.trackId, contact.classification, [
       ["Confidence", contact.confidence], ["Uncertainty", `${contact.uncertaintyRadiusMeters.toLocaleString()} m`], ["Observed", `T+${contact.observedAtQuanta}`],
-    ]);
+    ]) + destinationButton(contact.estimatedRegionId, contact.classification);
+    bindDestinationButton(contact.estimatedRegionId, contact.classification);
   } else {
     const base = campaign.friendlyBases.find(item => item.baseId === next.id);
     if (!base) return;
     byId("selection-kind").textContent = "BASE";
-    byId("selection").innerHTML = detail(base.name, "FRIENDLY INSTALLATION", [["Region", base.regionId]]);
+    byId("selection").innerHTML = detail(base.name, "FRIENDLY INSTALLATION", [["Region", regionName(base.regionId)]])
+      + destinationButton(base.regionId, base.name);
+    bindDestinationButton(base.regionId, base.name);
   }
+  renderOrderPanel();
+}
+
+function destinationButton(regionId: string, label: string): string {
+  return `<div class="p-2"><button id="set-order-destination" class="command-cell w-full">SET ${escapeHtml(label.toUpperCase())} AS DESTINATION</button><div class="mt-1 text-[8px] text-[#626262]">${escapeHtml(regionName(regionId).toUpperCase())}</div></div>`;
+}
+
+function bindDestinationButton(regionId: string, label: string): void {
+  byId<HTMLButtonElement>("set-order-destination").addEventListener("click", () => {
+    destinationRegionId = regionId;
+    orderMessage = `${label.toUpperCase()} SELECTED`;
+    renderOrderPanel();
+  });
+}
+
+function regionName(regionId: string): string {
+  if (!campaign) return regionId;
+  return campaign.objectives.find(item => item.regionId === regionId)?.regionName
+    ?? campaign.friendlyBases.find(item => item.regionId === regionId)?.name
+    ?? regionId;
+}
+
+function renderObjectives(data: PlayerCampaign): void {
+  byId("objective-count").textContent = String(data.objectives.length);
+  byId("objective-list").innerHTML = data.objectives.map(objective => `
+    <button class="register-row grid w-full grid-cols-[1fr_72px] gap-2 bg-transparent px-2 py-2 text-left text-[9px]" data-objective-region="${objective.regionId}">
+      <span><span class="block text-[#e2e2e2]">${escapeHtml(objective.kind.toUpperCase())} // ${escapeHtml(objective.regionName.toUpperCase())}</span><span class="mt-1 block text-[8px] text-[#626262]">${objective.assignedGroupCount} ASSIGNED // ${objective.playerAssignedGroupCount} PLAYER</span></span>
+      <span class="text-right text-[#626262]">${Math.round(objective.priorityMilliUnits / 1_000)}</span>
+    </button>`).join("") || `<div class="px-2 py-3 text-[9px] text-[#626262]">OBJECTIVES APPEAR AFTER THE WAR STARTS</div>`;
+  document.querySelectorAll<HTMLElement>("[data-objective-region]").forEach(row => row.addEventListener("click", () => {
+    destinationRegionId = row.dataset.objectiveRegion!;
+    orderMessage = `${regionName(destinationRegionId).toUpperCase()} OBJECTIVE SELECTED`;
+    renderOrderPanel();
+  }));
+}
+
+function renderOrderPanel(): void {
+  if (!campaign) return;
+  const group = campaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  byId("order-state").textContent = group?.orderStatus.toUpperCase() ?? "NO GROUP";
+  if (!group) {
+    byId("order-panel").innerHTML = "SELECT A FRIENDLY GROUP";
+    return;
+  }
+  const compatible = campaign.algorithmVersion === 19;
+  const disabled = !group.canMove || !destinationRegionId || !compatible;
+  const destination = destinationRegionId ? regionName(destinationRegionId) : "NOT SET";
+  byId("order-panel").innerHTML = `
+    <div class="detail-row"><span>GROUP</span><strong>${escapeHtml(group.name.toUpperCase())}</strong></div>
+    <div class="detail-row"><span>DESTINATION</span><strong>${escapeHtml(destination.toUpperCase())}</strong></div>
+    <div class="detail-row"><span>CURRENT</span><strong>${escapeHtml(group.orderStatus.toUpperCase())}</strong></div>
+    <div class="mt-2 grid grid-cols-2 gap-1">
+      <button id="issue-move-order" class="command-cell command-cell-primary" ${disabled ? "disabled" : ""}>ISSUE MOVE</button>
+      <button id="cancel-order" class="command-cell" ${!group.canMove || !compatible ? "disabled" : ""}>CANCEL AND HOLD</button>
+    </div>
+    <div class="mt-2 text-[8px] text-[#626262]">${escapeHtml((compatible ? orderMessage : `ORDERS REQUIRE ALGORITHM 19, CURRENT ${campaign.algorithmVersion}`).toUpperCase())}</div>`;
+  byId<HTMLButtonElement>("issue-move-order").addEventListener("click", () => void submitOrder(false).catch(showError));
+  byId<HTMLButtonElement>("cancel-order").addEventListener("click", () => void submitOrder(true).catch(showError));
+}
+
+async function submitOrder(cancel: boolean): Promise<void> {
+  if (!campaign) return;
+  const group = campaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  if (!group) return;
+  orderMessage = cancel ? "CANCELLING ORDER" : "SENDING MOVE ORDER";
+  renderOrderPanel();
+  const path = `/player/campaigns/${campaign.campaignId}/groups/${group.groupId}/orders/${cancel ? "cancel" : "move"}`;
+  const body = cancel
+    ? { expectedGroupRevision: group.revision, idempotencyKey: crypto.randomUUID() }
+    : { destinationRegionId, expectedGroupRevision: group.revision, idempotencyKey: crypto.randomUUID() };
+  const result = await request<PlayerOrderResult>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  orderMessage = `${result.status.toUpperCase()} // ORDER ${result.orderId.slice(0, 8).toUpperCase()}`;
+  renderCampaign(result.campaign);
 }
 
 function detail(title: string, subtitle: string, rows: string[][]): string {
@@ -341,6 +470,12 @@ async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").valu
   if (!id) return;
   window.clearInterval(pollHandle);
   const data = await request<PlayerCampaign>(`/player/campaigns/${id}`);
+  if (campaign?.campaignId !== data.campaignId) {
+    selection = null;
+    orderGroupId = "";
+    destinationRegionId = "";
+    orderMessage = "SELECT A GROUP AND DESTINATION";
+  }
   renderCampaign(data);
   byId("health-dot").className = "status-mark friendly";
   byId("health-label").textContent = "READY";

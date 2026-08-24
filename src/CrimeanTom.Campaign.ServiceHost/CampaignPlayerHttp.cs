@@ -21,16 +21,53 @@ internal static class CampaignPlayerHttp
         var friendlyIds = projection.FriendlyEntities
             .Select(item => item.EntityId)
             .ToHashSet();
+        var tacticallyOwnedIds = state.Assignments.Values
+            .Where(item => item.Lifecycle is not AssignmentLifecycle.Released)
+            .Select(item => item.EntityId)
+            .ToHashSet();
         var groups = state.Groups.Values
             .Where(item => item.CoalitionId == coalitionId)
             .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.GroupId.Value)
-            .Select(item => new CampaignPlayerGroupView(
-                item.GroupId.ToString(),
-                item.Name,
-                item.Members.Where(friendlyIds.Contains).Select(id => id.ToString()).ToArray(),
-                item.ActiveOrderId?.ToString(),
-                item.Revision.Value))
+            .Select(item =>
+            {
+                var memberIds = item.Members.Where(friendlyIds.Contains).ToArray();
+                var members = memberIds.Select(id => state.Entities[id]).ToArray();
+                var currentRegionId = members
+                    .GroupBy(member => member.RegionId)
+                    .OrderByDescending(group => group.Count())
+                    .ThenBy(group => group.Key)
+                    .Select(group => group.Key)
+                    .FirstOrDefault();
+                var activeOrder = item.ActiveOrderId is { } activeOrderId
+                    && state.Orders.TryGetValue(activeOrderId, out var found)
+                        ? found
+                        : null;
+                var playerControlled = activeOrder?.MustCompleteBy is null;
+                var atDestination = activeOrder is not null
+                    && members.Length > 0
+                    && members.All(member => member.RegionId == activeOrder.DestinationRegionId);
+                var orderStatus = activeOrder is null ? "Awaiting orders"
+                    : playerControlled && activeOrder.Kind == OrderKind.Hold ? "Holding"
+                    : playerControlled && atDestination ? "Holding at destination"
+                    : playerControlled ? "Moving"
+                    : $"AI {activeOrder.Kind}";
+                var canMove = members.Length > 0
+                    && members.All(member => member.SimulationDomain != SimulationDomain.Installation)
+                    && members.All(member => !tacticallyOwnedIds.Contains(member.EntityId));
+                return new CampaignPlayerGroupView(
+                    item.GroupId.ToString(),
+                    item.Name,
+                    memberIds.Select(id => id.ToString()).ToArray(),
+                    currentRegionId.ToString(),
+                    item.ActiveOrderId?.ToString(),
+                    activeOrder?.Kind.ToString(),
+                    activeOrder?.DestinationRegionId.ToString(),
+                    playerControlled,
+                    orderStatus,
+                    canMove,
+                    item.Revision.Value);
+            })
             .ToArray();
         var bases = state.Bases.Values
             .Where(item => item.CoalitionId == coalitionId)
@@ -41,6 +78,28 @@ internal static class CampaignPlayerHttp
                 item.RegionId.ToString(),
                 item.Coordinate.LatitudeMicrodegrees,
                 item.Coordinate.LongitudeMicrodegrees))
+            .ToArray();
+
+        var objectives = state.StrategicObjectives.Values
+            .Where(item => item.CoalitionId == coalitionId)
+            .OrderByDescending(item => item.PriorityMilliUnits)
+            .ThenBy(item => item.ObjectiveId)
+            .Select(item =>
+            {
+                var assigned = groups.Where(group =>
+                    string.Equals(
+                        group.ActiveOrderDestinationRegionId,
+                        item.RegionId.ToString(),
+                        StringComparison.Ordinal)).ToArray();
+                return new CampaignPlayerObjectiveView(
+                    item.ObjectiveId.ToString(),
+                    item.Kind.ToString(),
+                    item.RegionId.ToString(),
+                    state.Regions[item.RegionId].Name,
+                    item.PriorityMilliUnits,
+                    assigned.Length,
+                    assigned.Count(group => group.PlayerControlled));
+            })
             .ToArray();
 
         return new CampaignPlayerView(
@@ -81,7 +140,8 @@ internal static class CampaignPlayerHttp
                 item.UncertaintyRadiusMeters,
                 item.Classification.ToString(),
                 item.ObservedAt.Quanta,
-                item.Revision.Value)).ToArray());
+                item.Revision.Value)).ToArray(),
+            objectives);
     }
 }
 
@@ -105,13 +165,20 @@ public sealed record CampaignPlayerView(
     IReadOnlyList<CampaignFriendlyProjectionView> FriendlyEntities,
     IReadOnlyList<CampaignPlayerGroupView> FriendlyGroups,
     IReadOnlyList<CampaignPlayerBaseView> FriendlyBases,
-    IReadOnlyList<CampaignContactProjectionView> Contacts);
+    IReadOnlyList<CampaignContactProjectionView> Contacts,
+    IReadOnlyList<CampaignPlayerObjectiveView> Objectives);
 
 public sealed record CampaignPlayerGroupView(
     string GroupId,
     string Name,
     IReadOnlyList<string> MemberEntityIds,
+    string CurrentRegionId,
     string? ActiveOrderId,
+    string? ActiveOrderKind,
+    string? ActiveOrderDestinationRegionId,
+    bool PlayerControlled,
+    string OrderStatus,
+    bool CanMove,
     long Revision);
 
 public sealed record CampaignPlayerBaseView(
@@ -120,3 +187,17 @@ public sealed record CampaignPlayerBaseView(
     string RegionId,
     int LatitudeMicrodegrees,
     int LongitudeMicrodegrees);
+
+public sealed record CampaignPlayerObjectiveView(
+    string ObjectiveId,
+    string Kind,
+    string RegionId,
+    string RegionName,
+    int PriorityMilliUnits,
+    int AssignedGroupCount,
+    int PlayerAssignedGroupCount);
+
+public sealed record CampaignPlayerOrderResult(
+    string Status,
+    string OrderId,
+    CampaignPlayerView Campaign);

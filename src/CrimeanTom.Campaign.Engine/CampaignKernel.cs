@@ -762,8 +762,24 @@ public static class CampaignKernel
         var data = value.Order;
         var order = new OrderState(data.OrderId, data.GroupId, data.Kind, data.DestinationRegionId, data.StartsAt,
             data.MustCompleteBy, CompletedAt: null, new EntityRevision(1));
-        var group = state.Groups[data.GroupId] with { ActiveOrderId = data.OrderId, Revision = item.NewSubjectRevision };
-        return state with { Orders = state.Orders.Add(order.OrderId, order), Groups = state.Groups.SetItem(group.GroupId, group) };
+        var priorGroup = state.Groups[data.GroupId];
+        var orders = state.Orders;
+        if (priorGroup.ActiveOrderId is { } priorOrderId
+            && orders.TryGetValue(priorOrderId, out var priorOrder)
+            && priorOrder.CompletedAt is null)
+        {
+            orders = orders.SetItem(priorOrderId, priorOrder with
+            {
+                CompletedAt = data.StartsAt,
+                Revision = priorOrder.Revision.Next(),
+            });
+        }
+        var group = priorGroup with { ActiveOrderId = data.OrderId, Revision = item.NewSubjectRevision };
+        return state with
+        {
+            Orders = orders.Add(order.OrderId, order),
+            Groups = state.Groups.SetItem(group.GroupId, group),
+        };
     }
 
     private static CampaignState ApplyFidelity(CampaignState state, CommittedCampaignEvent item, FidelityChangedEvent value)

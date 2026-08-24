@@ -198,6 +198,14 @@ internal static class CampaignSimulation
                 []);
         }
 
+        if (order.Kind == OrderKind.Hold && order.MustCompleteBy is null)
+        {
+            var stopped = activeMembers.Select(entity => entity.Telegraph == TelegraphStop
+                ? entity
+                : entity with { Telegraph = TelegraphStop, Revision = entity.Revision.Next() }).ToArray();
+            return new GroupMovementResult(group.GroupId, group, order, stopped);
+        }
+
         var destination = RegionAnchor(
             state,
             order.DestinationRegionId,
@@ -351,6 +359,14 @@ internal static class CampaignSimulation
         if (!arrived)
         {
             return new GroupMovementResult(group.GroupId, group, order, entityUpdates);
+        }
+
+        if (order.MustCompleteBy is null)
+        {
+            var stopped = entityUpdates.Select(entity => entity.Telegraph == TelegraphStop
+                ? entity
+                : entity with { Telegraph = TelegraphStop, Revision = entity.Revision.Next() }).ToArray();
+            return new GroupMovementResult(group.GroupId, group, order, stopped);
         }
 
         var completed = order with { CompletedAt = dueAt, Revision = order.Revision.Next() };

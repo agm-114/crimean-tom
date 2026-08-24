@@ -1403,6 +1403,141 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public async Task<CampaignPlayerOrderResult> IssuePlayerOrderAsync(
+        CampaignId campaignId,
+        string groupIdValue,
+        string? destinationRegionIdValue,
+        long expectedGroupRevision,
+        string idempotencyKeyValue,
+        bool holdPosition,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            if (state.Metadata.AlgorithmVersion != CampaignSchema.AlgorithmVersion)
+            {
+                throw new CampaignStoreConflict(
+                    "campaign-algorithm-incompatible",
+                    $"Player orders require algorithm {CampaignSchema.AlgorithmVersion}; this save uses {state.Metadata.AlgorithmVersion}.");
+            }
+            if (string.IsNullOrWhiteSpace(profile.CoalitionId))
+            {
+                throw new CampaignStoreConflict("player-coalition-unassigned", "The local player has no coalition assignment.");
+            }
+
+            var coalitionId = ParseId(profile.CoalitionId, value => new CoalitionId(value));
+            var groupId = ParseId(groupIdValue, value => new GroupId(value));
+            if (!state.Groups.TryGetValue(groupId, out var group))
+            {
+                throw new CampaignStoreConflict("player-group-missing", "The selected friendly group no longer exists.");
+            }
+            if (group.CoalitionId != coalitionId)
+            {
+                throw new CampaignStoreConflict("player-group-forbidden", "The player cannot command another coalition's group.");
+            }
+            if (expectedGroupRevision < 1)
+            {
+                throw new CampaignStoreConflict("invalid-group-revision", "A positive expected group revision is required.");
+            }
+
+            var members = group.Members.Select(id => state.Entities[id]).ToArray();
+            if (members.Length == 0
+                || members.Any(member => member.SimulationDomain == SimulationDomain.Installation))
+            {
+                throw new CampaignStoreConflict("player-group-fixed", "This group contains a fixed installation and cannot move.");
+            }
+            if (members.Any(member => state.Assignments.Values.Any(assignment =>
+                    assignment.EntityId == member.EntityId
+                    && assignment.Lifecycle is not AssignmentLifecycle.Released)))
+            {
+                throw new CampaignStoreConflict(
+                    "player-group-under-tactical-authority",
+                    "This group is under Sea Power authority and cannot accept an Operational order.");
+            }
+
+            var idempotencyKey = idempotencyKeyValue.Trim();
+            if (idempotencyKey.Length is < 8 or > 128
+                || idempotencyKey.Any(character =>
+                    !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not ':'))
+            {
+                throw new CampaignStoreConflict(
+                    "invalid-idempotency-key",
+                    "The idempotency key must contain 8 to 128 letters, digits, dashes, underscores, or colons.");
+            }
+
+            var destinationRegionId = holdPosition
+                ? members.GroupBy(member => member.RegionId)
+                    .OrderByDescending(current => current.Count())
+                    .ThenBy(current => current.Key)
+                    .Select(current => current.Key)
+                    .First()
+                : ParseId(destinationRegionIdValue ?? string.Empty, value => new RegionId(value));
+            if (!state.Regions.ContainsKey(destinationRegionId))
+            {
+                throw new CampaignStoreConflict("player-destination-missing", "The selected destination region no longer exists.");
+            }
+
+            var orderKind = holdPosition ? OrderKind.Hold : OrderKind.Transit;
+            var orderId = new OrderId(KeyedGuid(
+                campaignId.Value,
+                $"player-order:{profile.PlayerId}:{idempotencyKey}"));
+            if (state.Orders.TryGetValue(orderId, out var existing))
+            {
+                if (existing.GroupId != groupId
+                    || existing.Kind != orderKind
+                    || existing.DestinationRegionId != destinationRegionId
+                    || existing.MustCompleteBy is not null)
+                {
+                    throw new CampaignStoreConflict(
+                        "idempotency-key-reused",
+                        "The idempotency key already belongs to a different player order.");
+                }
+                return new CampaignPlayerOrderResult(
+                    "duplicate",
+                    existing.OrderId.ToString(),
+                    CampaignPlayerHttp.From(state, profile));
+            }
+
+            var playerId = new PlayerId(KeyedGuid(campaignId.Value, $"player:{profile.PlayerId}"));
+            var command = new CampaignCommand(
+                new CommandId(KeyedGuid(campaignId.Value, $"player-command:{profile.PlayerId}:{idempotencyKey}")),
+                new IdempotencyKey($"player:{profile.PlayerId}:{idempotencyKey}"),
+                campaignId,
+                playerId,
+                CampaignSubject.Group(groupId),
+                new EntityRevision(expectedGroupRevision),
+                state.Time,
+                state.Time,
+                new InformationScope(coalitionId, MayCommand: true, MaySeeClassifiedTruth: false),
+                new IssueOrderCommand(
+                    orderId,
+                    groupId,
+                    orderKind,
+                    destinationRegionId,
+                    state.Time,
+                    MustCompleteBy: null));
+            try
+            {
+                state = await CommitAsync(state, command, cancellationToken);
+            }
+            catch (CampaignRuleViolation exception)
+            {
+                throw new CampaignStoreConflict(exception.Code, exception.Message);
+            }
+            return new CampaignPlayerOrderResult(
+                holdPosition ? "holding" : "accepted",
+                orderId.ToString(),
+                CampaignPlayerHttp.From(state, profile));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<bool> IsPausedCoreAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken) =>

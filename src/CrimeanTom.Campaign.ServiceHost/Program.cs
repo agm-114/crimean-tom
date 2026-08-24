@@ -239,6 +239,36 @@ app.MapPost("/player/campaigns/{campaignId}/save", async (
         return Results.Conflict(new { error = exception.Code, message = exception.Message });
     }
 });
+app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/orders/move", async (
+    string campaignId,
+    string groupId,
+    PlayerMoveOrderRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await IssuePlayerOrderAsync(
+        campaignId,
+        groupId,
+        request.DestinationRegionId,
+        request.ExpectedGroupRevision,
+        request.IdempotencyKey,
+        holdPosition: false,
+        coordinator,
+        cancellationToken));
+app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/orders/cancel", async (
+    string campaignId,
+    string groupId,
+    PlayerCancelOrderRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await IssuePlayerOrderAsync(
+        campaignId,
+        groupId,
+        destinationRegionId: null,
+        request.ExpectedGroupRevision,
+        request.IdempotencyKey,
+        holdPosition: true,
+        coordinator,
+        cancellationToken));
 app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
 {
     status = "ok",
@@ -780,6 +810,46 @@ static async Task<IResult> SetPlayerPauseAsync(
     }
 }
 
+static async Task<IResult> IssuePlayerOrderAsync(
+    string campaignId,
+    string groupId,
+    string? destinationRegionId,
+    long expectedGroupRevision,
+    string idempotencyKey,
+    bool holdPosition,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.IssuePlayerOrderAsync(
+            new CampaignId(parsed),
+            groupId,
+            destinationRegionId,
+            expectedGroupRevision,
+            idempotencyKey,
+            holdPosition,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        var statusCode = exception.Code == "player-group-forbidden"
+            ? StatusCodes.Status403Forbidden
+            : exception.Code is "player-group-missing" or "player-destination-missing"
+                ? StatusCodes.Status404NotFound
+                : exception.Code.StartsWith("invalid-", StringComparison.Ordinal)
+                    ? StatusCodes.Status400BadRequest
+                    : StatusCodes.Status409Conflict;
+        return Results.Json(
+            new { error = exception.Code, message = exception.Message },
+            statusCode: statusCode);
+    }
+}
+
 static string? FindRepositoryRoot(string startPath)
 {
     for (var directory = new DirectoryInfo(startPath); directory is not null; directory = directory.Parent)
@@ -809,3 +879,12 @@ static Uri RequireLoopbackUri(string value)
 public sealed record CampaignCreateRequest(string CampaignId, string Name, long Seed, string CatalogFingerprint);
 
 public sealed record PlayerCampaignCreateRequest(string Name, string Coalition = "Blue");
+
+public sealed record PlayerMoveOrderRequest(
+    string DestinationRegionId,
+    long ExpectedGroupRevision,
+    string IdempotencyKey);
+
+public sealed record PlayerCancelOrderRequest(
+    long ExpectedGroupRevision,
+    string IdempotencyKey);
