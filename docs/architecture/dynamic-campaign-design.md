@@ -459,6 +459,17 @@ The pure campaign core owns:
 - replica assignments, leases, epochs, checkpoints, health, and event cursors;
 - the committed command/event history and campaign outcome.
 
+The implemented strategic director receives one coalition projection, never
+hostile true state. Probable or confirmed contact classifications are matched
+against each mobile group's snapshotted Operational weapon target classes.
+Allocation tracks response coverage per objective and target class, favoring a
+missing or least-covered air, surface, subsurface, or land responder. A selected
+objective remains sticky for its original 80-quanta commitment, survives the
+intermediate 40-quanta director pass without deadline extension, and is rescored
+when that deadline arrives. This is bounded combined-arms allocation; explicit
+sortie/strike package objects, synchronized time-on-target, route deconfliction,
+and tanker/escort dependency planning remain future layers.
+
 Unity-only transforms, colliders, animation state, transient view models, and
 live guidance objects do not belong in the durable campaign schema. A tactical
 checkpoint maps those details to a versioned portable state when possible.

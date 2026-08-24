@@ -124,6 +124,9 @@ The folders separate evidence from design commitments:
 38. [Strategic AI fixed-defense qualification](evidence/strategic-ai-fixed-defense-v16-2026-08-24.md)
     records algorithm-v16's local-defense invariant for fixed complexes, the
     full 4K execution profile, and deterministic cold recovery.
+39. [Strategic AI capability allocation and replanning](evidence/strategic-ai-capability-replanning-v17-2026-08-24.md)
+    records algorithm-v17's matched v16 control, bounded commitment expiry,
+    capability-aware response roles, and full-scale recovery proof.
 
 ## Evidence labels
 

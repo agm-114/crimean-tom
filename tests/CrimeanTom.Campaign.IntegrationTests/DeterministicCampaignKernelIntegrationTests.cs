@@ -229,11 +229,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "52b70546505f4ad21f2d5e0ea7d204050eac8b5499f976c854a9bb6e5e2671d1",
+            longHorizon.Hash == "dbdf39544cbacdc6f8b6a923f8aaffcc1c45e4b45f1249a5dbe4ee41ff82a67d",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "8f648e9c5e6eff35c141e8b9981634d6f672ca55209cd7e9f51c9a079e66b83c",
+            migrated.Hash == "defbde27ab10bf14aacbb0c3b4d5559c7cbab160cd99ea1fc84a9d8db670746e",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -377,6 +377,119 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             Assert.IsType<StrategicObjectiveId>(changedBlueCommitment.ObjectiveId)];
         Assert.Equal(blueObjective.RegionId, changedBlueObjective.RegionId);
         Assert.Equal(blueObjective.Kind, changedBlueObjective.Kind);
+
+        var airThreat = red with
+        {
+            SimulationDomain = SimulationDomain.Air,
+            RegionId = Ids.Odessa,
+            Coordinate = GeoCoordinate.FromMicrodegrees(44_300_000, 31_000_000),
+            OperationalWeapons = [],
+        };
+        var surfaceThreat = red with
+        {
+            EntityId = Ids.ExchangeTarget,
+            Name = "Second known surface threat",
+            RegionId = Ids.BlackSea,
+            Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 33_000_000),
+            OperationalWeapons = [],
+        };
+        var airKey = new IntelligenceKey(Ids.BlueCoalition, Ids.RedKrivak);
+        var surfaceKey = new IntelligenceKey(Ids.BlueCoalition, Ids.ExchangeTarget);
+        var capabilityBaseline = fogBaseline with
+        {
+            Assignments = fogBaseline.Assignments.Clear(),
+            StrategicObjectives = fogBaseline.StrategicObjectives.Clear(),
+            GroupCommitments = fogBaseline.GroupCommitments.Clear(),
+            CoalitionStrategies = fogBaseline.CoalitionStrategies.Clear(),
+            Bases = fogBaseline.Bases.SetItem(
+                Ids.BlueBase,
+                fogBaseline.Bases[Ids.BlueBase] with { RegionId = Ids.Bosporus }),
+            Entities = fogBaseline.Entities
+                .SetItem(Ids.BlueKnox, fogBaseline.Entities[Ids.BlueKnox] with
+                {
+                    Fidelity = FidelityState.Operational,
+                    OperationalWeapons =
+                    [
+                        new OperationalWeaponCapability(
+                            "surface-response-missile",
+                            ContactClassification.Surface,
+                            DistanceMeters.FromMeters(300_000)),
+                    ],
+                })
+                .SetItem(Ids.RedKrivak, airThreat)
+                .Add(Ids.ExchangeTarget, surfaceThreat),
+            Intelligence = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty
+                .Add(airKey, new IntelligenceEstimate(
+                    airKey,
+                    Ids.Odessa,
+                    airThreat.Coordinate,
+                    IntelligenceConfidence.Confirmed,
+                    CampaignTime.Origin,
+                    0,
+                    ContactClassification.Air,
+                    new EntityRevision(1)))
+                .Add(surfaceKey, new IntelligenceEstimate(
+                    surfaceKey,
+                    Ids.BlackSea,
+                    surfaceThreat.Coordinate,
+                    IntelligenceConfidence.Confirmed,
+                    CampaignTime.Origin,
+                    0,
+                    ContactClassification.Surface,
+                    new EntityRevision(1))),
+        };
+        var surfaceResponse = SimulateForTest(capabilityBaseline, 110, new CampaignTime(20));
+        var surfaceObjective = surfaceResponse.StrategicObjectives[
+            Assert.IsType<StrategicObjectiveId>(
+                surfaceResponse.GroupCommitments[Ids.BlueGroup].ObjectiveId)];
+        Assert.Equal(StrategicObjectiveKind.Interdict, surfaceObjective.Kind);
+        Assert.Equal(Ids.BlackSea, surfaceObjective.RegionId);
+
+        var airCapability = capabilityBaseline with
+        {
+            Entities = capabilityBaseline.Entities.SetItem(
+                Ids.BlueKnox,
+                capabilityBaseline.Entities[Ids.BlueKnox] with
+                {
+                    OperationalWeapons =
+                    [
+                        new OperationalWeaponCapability(
+                            "air-response-missile",
+                            ContactClassification.Air,
+                            DistanceMeters.FromMeters(300_000)),
+                    ],
+                }),
+        };
+        var airResponse = SimulateForTest(airCapability, 111, new CampaignTime(20));
+        var airObjective = airResponse.StrategicObjectives[
+            Assert.IsType<StrategicObjectiveId>(airResponse.GroupCommitments[Ids.BlueGroup].ObjectiveId)];
+        Assert.Equal(StrategicObjectiveKind.Interdict, airObjective.Kind);
+        Assert.Equal(Ids.Odessa, airObjective.RegionId);
+
+        var changedCapability = surfaceResponse with
+        {
+            Entities = surfaceResponse.Entities.SetItem(
+                Ids.BlueKnox,
+                surfaceResponse.Entities[Ids.BlueKnox] with
+                {
+                    OperationalWeapons = airCapability.Entities[Ids.BlueKnox].OperationalWeapons,
+                }),
+        };
+        var originalExpiry = surfaceResponse.GroupCommitments[Ids.BlueGroup].ExpiresAt;
+        var stickyResponse = SimulateForTest(changedCapability, 112, new CampaignTime(60));
+        var stickyCommitment = stickyResponse.GroupCommitments[Ids.BlueGroup];
+        var stickyObjective = stickyResponse.StrategicObjectives[
+            Assert.IsType<StrategicObjectiveId>(stickyCommitment.ObjectiveId)];
+        Assert.Equal(Ids.BlackSea, stickyObjective.RegionId);
+        Assert.Equal(originalExpiry, stickyCommitment.ExpiresAt);
+
+        var adaptiveResponse = SimulateForTest(
+            stickyResponse with { Intelligence = capabilityBaseline.Intelligence },
+            113,
+            originalExpiry);
+        var adaptiveCommitment = adaptiveResponse.GroupCommitments[Ids.BlueGroup];
+        Assert.NotEqual(stickyCommitment.ObjectiveId, adaptiveCommitment.ObjectiveId);
+        Assert.True(adaptiveCommitment.ExpiresAt.Quanta > originalExpiry.Quanta);
 
         var fixedDefense = fogBaseline with
         {
@@ -890,7 +1003,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
         Assert.Equal(10, CampaignSchema.Version);
-        Assert.Equal(16, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(17, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

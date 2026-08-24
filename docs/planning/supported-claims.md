@@ -18,8 +18,10 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
   local blobs. Ordinary play does not require Docker or an external database.
 - Deterministic two-coalition strategic direction and domain Operational
   resolution. Fixed installation complexes remain committed to local defense
-  and cannot receive movement orders; this is a campaign driver, not a claim of
-  human-equivalent or fully adaptive opponent behavior.
+  and cannot receive movement orders. Mobile groups use only coalition-visible
+  intelligence plus their weapon target classes to prefer missing or
+  least-covered response roles. Commitments remain sticky until their original
+  bounded deadline, then replan; this is not a claim of human-equivalent command.
 - Coalition-filtered HTTP projections that omit opposing true-state sentinels.
   A player process that still holds the full campaign view is trusted private
   co-op, not an untrusted public server.

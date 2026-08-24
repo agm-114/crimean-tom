@@ -74,11 +74,14 @@ internal static class CampaignStrategicAi
 
         var currentObjectiveIds = planned.Select(item => item.ObjectiveId).ToHashSet();
         var assignedCounts = new Dictionary<StrategicObjectiveId, int>();
+        var assignedResponseCounts = new Dictionary<
+            (StrategicObjectiveId ObjectiveId, ContactClassification Classification), int>();
         var commitments = state.GroupCommitments;
         foreach (var group in view.Groups.Values)
         {
             commitments.TryGetValue(group.GroupId, out var prior);
             StrategicObjectiveId? selected = null;
+            var retainedCommitment = false;
             if (prior?.ObjectiveId is { } retainedId
                 && currentObjectiveIds.Contains(retainedId)
                 && prior.ExpiresAt.Quanta > dueAt.Quanta
@@ -86,21 +89,37 @@ internal static class CampaignStrategicAi
                 && IsCompatible(group, retained))
             {
                 selected = retainedId;
+                retainedCommitment = true;
             }
             else
             {
-                selected = SelectObjective(view, group, planned, assignedCounts, state.Metadata.Seed, dueAt);
+                selected = SelectObjective(
+                    view,
+                    group,
+                    planned,
+                    assignedCounts,
+                    assignedResponseCounts,
+                    state.Metadata.Seed,
+                    dueAt);
             }
 
             if (selected is { } objectiveId)
             {
                 assignedCounts[objectiveId] = assignedCounts.GetValueOrDefault(objectiveId) + 1;
+                var selectedObjective = planned.First(item => item.ObjectiveId == objectiveId);
+                foreach (var classification in ResponsiveClasses(view, group, selectedObjective))
+                {
+                    var key = (objectiveId, classification);
+                    assignedResponseCounts[key] = assignedResponseCounts.GetValueOrDefault(key) + 1;
+                }
             }
 
             var updated = new GroupCommitmentState(
                 group.GroupId,
                 selected,
-                new CampaignTime(checked(dueAt.Quanta + CommitmentQuanta)),
+                retainedCommitment
+                    ? prior!.ExpiresAt
+                    : new CampaignTime(checked(dueAt.Quanta + CommitmentQuanta)),
                 prior?.WithdrawLatched ?? group.RequiresRecovery,
                 prior?.LatchReleaseAt ?? new CampaignTime(
                     group.RequiresRecovery ? checked(dueAt.Quanta + RecoveryLatchQuanta) : dueAt.Quanta),
@@ -236,6 +255,7 @@ internal static class CampaignStrategicAi
         StrategicGroupView group,
         IReadOnlyList<StrategicObjectiveState> objectives,
         IReadOnlyDictionary<StrategicObjectiveId, int> assignedCounts,
+        IReadOnlyDictionary<(StrategicObjectiveId, ContactClassification), int> assignedResponseCounts,
         long seed,
         CampaignTime dueAt)
     {
@@ -257,6 +277,7 @@ internal static class CampaignStrategicAi
                 - distance * 150_000L
                 - saturation * 100_000L
                 + Affinity(group, objective.Kind)
+                + ThreatResponseAffinity(view, group, objective, assignedResponseCounts)
                 + StableJitter(seed, group.GroupId.Value, dueAt, objective.ObjectiveId.Value);
             if (score > bestScore || score == bestScore && objective.ObjectiveId.CompareTo(best!.ObjectiveId) < 0)
             {
@@ -393,6 +414,65 @@ internal static class CampaignStrategicAi
             _ => 0,
         };
 
+    private static long ThreatResponseAffinity(
+        CoalitionStrategicView view,
+        StrategicGroupView group,
+        StrategicObjectiveState objective,
+        IReadOnlyDictionary<(StrategicObjectiveId, ContactClassification), int> assignedResponseCounts)
+    {
+        if (group.ContainsInstallation)
+        {
+            return 0;
+        }
+        var threats = ThreatClasses(view, objective);
+        if (threats.Count == 0)
+        {
+            return 0;
+        }
+        var responsive = threats.Where(group.EngagementClasses.Contains).ToArray();
+        if (responsive.Length == 0)
+        {
+            // Keep unarmed transports, armor, or the wrong specialist from
+            // pre-empting an equally close group that can service the contact.
+            // This is a preference rather than an absolute fence: a group still
+            // receives a defensible fallback objective when no perfect responder
+            // exists.
+            return -400_000;
+        }
+        var leastCoveredRole = responsive.Min(classification =>
+            assignedResponseCounts.GetValueOrDefault((objective.ObjectiveId, classification)));
+        return Math.Max(0L, 350_000L - leastCoveredRole * 100_000L);
+    }
+
+    private static ImmutableSortedSet<ContactClassification> ResponsiveClasses(
+        CoalitionStrategicView view,
+        StrategicGroupView group,
+        StrategicObjectiveState objective) =>
+        ThreatClasses(view, objective)
+            .Where(group.EngagementClasses.Contains)
+            .ToImmutableSortedSet();
+
+    private static ImmutableSortedSet<ContactClassification> ThreatClasses(
+        CoalitionStrategicView view,
+        StrategicObjectiveState objective)
+    {
+        if (objective.Kind is not (StrategicObjectiveKind.Interdict or StrategicObjectiveKind.Defend))
+        {
+            return ImmutableSortedSet<ContactClassification>.Empty;
+        }
+        var includeNeighbors = objective.Kind == StrategicObjectiveKind.Defend;
+        return view.Intelligence
+            .Where(contact => contact.Confidence >= IntelligenceConfidence.Probable
+                && contact.Classification != ContactClassification.Unknown
+                && (contact.EstimatedRegionId == objective.RegionId
+                    || includeNeighbors
+                        && view.Neighbors[objective.RegionId].Contains(contact.EstimatedRegionId)))
+            .Select(contact => contact.Classification == ContactClassification.Logistics
+                ? ContactClassification.Surface
+                : contact.Classification)
+            .ToImmutableSortedSet();
+    }
+
     private static int Distance(
         IReadOnlyDictionary<RegionId, ImmutableSortedSet<RegionId>> neighbors,
         RegionId origin,
@@ -500,6 +580,7 @@ internal static class CampaignStrategicAi
         RegionId RegionId,
         SimulationDomain Domain,
         bool ContainsInstallation,
+        ImmutableSortedSet<ContactClassification> EngagementClasses,
         bool RequiresRecovery,
         bool RecoveryReady);
 
@@ -549,6 +630,9 @@ internal static class CampaignStrategicAi
                     members[0].RegionId,
                     members[0].SimulationDomain,
                     members.Any(item => item.SimulationDomain == SimulationDomain.Installation),
+                    members.SelectMany(item => item.OperationalWeapons)
+                        .Select(item => item.TargetClassification)
+                        .ToImmutableSortedSet(),
                     RequiresRecovery(members),
                     RecoveryReady(members, homeRegions));
                 groups = groups.Add(group.GroupId, view);
