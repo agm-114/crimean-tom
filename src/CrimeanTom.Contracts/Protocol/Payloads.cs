@@ -767,7 +767,6 @@ public sealed class WorldSnapshotPayload
 
     public SpatialDiagnosticsPayload SpatialDiagnostics { get; set; } = new();
 
-    public ControlledTickExperimentPayload ControlledTickExperiment { get; set; } = new();
 }
 
 public sealed class RuntimeMemoryStatePayload
@@ -861,34 +860,6 @@ public sealed class TacticalCouplingObservationPayload
     public bool UnsafeToSplit { get; set; } = true;
 }
 
-public sealed class ControlledTickExperimentRequestPayload
-{
-    public int TickCount { get; set; } = 300;
-    public double StepSeconds { get; set; } = 1d / 30d;
-    public int? Seed { get; set; }
-}
-
-public sealed class ControlledTickExperimentPayload
-{
-    public int SchemaVersion { get; set; } = 1;
-    public string Mode { get; set; } = "ControlledExperimental";
-    public string State { get; set; } = "idle";
-    public string Postcondition { get; set; } = string.Empty;
-    public bool HooksInstalled { get; set; }
-    public string InstallationError { get; set; } = string.Empty;
-    public int RequestedTicks { get; set; }
-    public int CompletedTicks { get; set; }
-    public int GameUpdateCount { get; set; }
-    public int PhysicsFixedUpdateCount { get; set; }
-    public double StepSeconds { get; set; }
-    public double? StartSimulationTimeSeconds { get; set; }
-    public double? TargetSimulationTimeSeconds { get; set; }
-    public double? CurrentSimulationTimeSeconds { get; set; }
-    public int? Seed { get; set; }
-    public string[] SeededSources { get; set; } = Array.Empty<string>();
-    public string[] UncontrolledSources { get; set; } = Array.Empty<string>();
-}
-
 public sealed class SpatialDiagnosticsPayload
 {
     public int SchemaVersion { get; set; } = 2;
@@ -960,46 +931,6 @@ public sealed class PlayerIntelligenceSnapshotPayload
     public int Index { get; set; }
     public string TimeUtc { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
-}
-
-public sealed class ExperimentalSaveLoadProbeResultPayload
-{
-    public int SchemaVersion { get; set; } = 1;
-    public string Action { get; set; } = string.Empty;
-    public string Outcome { get; set; } = string.Empty;
-    public string Postcondition { get; set; } = string.Empty;
-    public string SaveFileName { get; set; } = string.Empty;
-    public string SaveFilePath { get; set; } = string.Empty;
-    public string SaveFileSha256 { get; set; } = string.Empty;
-    public int PreTransitionWeaponCount { get; set; }
-    public string PreTransitionWeaponsSha256 { get; set; } = string.Empty;
-    public string PreTransitionCanonicalSha256 { get; set; } = string.Empty;
-}
-
-public sealed class ExperimentalWeaponLaunchRequestPayload
-{
-    public string WeaponType { get; set; } = "Missile";
-    public string AmmunitionId { get; set; } = string.Empty;
-    public string UnitId { get; set; } = string.Empty;
-    public string TargetUnitId { get; set; } = string.Empty;
-}
-
-public sealed class ExperimentalWeaponLaunchResultPayload
-{
-    public int SchemaVersion { get; set; } = 1;
-    public string Action { get; set; } = string.Empty;
-    public string Outcome { get; set; } = string.Empty;
-    public string Postcondition { get; set; } = string.Empty;
-    public string UnitId { get; set; } = string.Empty;
-    public int WeaponSystemIndex { get; set; }
-    public int ContainerIndex { get; set; }
-    public string WeaponType { get; set; } = string.Empty;
-    public string AmmunitionId { get; set; } = string.Empty;
-    public string ActiveWeaponId { get; set; } = string.Empty;
-    public string IntendedTargetUnitId { get; set; } = string.Empty;
-    public int ActiveWeaponCount { get; set; }
-    public bool NativeSaveRegistered { get; set; }
-    public int SerializableActiveWeaponCount { get; set; }
 }
 
 public sealed class ContactSnapshotPayload

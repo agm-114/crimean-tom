@@ -2177,64 +2177,6 @@ public sealed class CompanionControlIntegrationTests
             Assert.True(idempotentEnable.RootElement.GetProperty("idempotentReplay").GetBoolean());
             Assert.Equal(6, idempotentEnable.RootElement.GetProperty("revision").GetInt64());
 
-            using var controlledTicks = await PostAuthorizedJsonWithBodyAsync(
-                client,
-                token,
-                "/game/experimental/ticks/run",
-                JsonSerializer.Serialize(new ControlledTickExperimentRequestPayload
-                {
-                    TickCount = 30,
-                    StepSeconds = 1d / 30d,
-                    Seed = 1042,
-                }, JsonOptions),
-                testTimeout.Token);
-            Assert.Equal(
-                "controlled-ticks-running",
-                controlledTicks.RootElement.GetProperty("postcondition").GetString());
-            Assert.Equal(30, controlledTicks.RootElement.GetProperty("requestedTicks").GetInt32());
-
-            using var launchProbeWeapon = await PostAuthorizedJsonWithBodyAsync(
-                client,
-                token,
-                "/game/experimental/save-load/launch",
-                JsonSerializer.Serialize(new ExperimentalWeaponLaunchRequestPayload
-                {
-                    WeaponType = "Missile",
-                    AmmunitionId = "integration_missile",
-                }, JsonOptions),
-                testTimeout.Token);
-            Assert.Equal(
-                "serializable-active-weapon-launched",
-                launchProbeWeapon.RootElement.GetProperty("postcondition").GetString());
-            Assert.Equal(
-                "integration_missile",
-                launchProbeWeapon.RootElement.GetProperty("ammunitionId").GetString());
-            Assert.Equal(1, launchProbeWeapon.RootElement.GetProperty("activeWeaponCount").GetInt32());
-            Assert.True(launchProbeWeapon.RootElement.GetProperty("nativeSaveRegistered").GetBoolean());
-
-            using var saveProbe = await PostAuthorizedJsonAsync(
-                client,
-                token,
-                "/game/experimental/save-load/save",
-                testTimeout.Token);
-            Assert.Equal("completed", saveProbe.RootElement.GetProperty("outcome").GetString());
-            Assert.Equal(
-                "active-weapon-save-materialized",
-                saveProbe.RootElement.GetProperty("postcondition").GetString());
-            Assert.Equal(
-                64,
-                saveProbe.RootElement.GetProperty("saveFileSha256").GetString()!.Length);
-
-            using var loadProbe = await PostAuthorizedJsonAsync(
-                client,
-                token,
-                "/game/experimental/save-load/load",
-                testTimeout.Token);
-            Assert.Equal("scheduled", loadProbe.RootElement.GetProperty("outcome").GetString());
-            Assert.Equal(
-                "native-mission-reload-scheduled",
-                loadProbe.RootElement.GetProperty("postcondition").GetString());
-
             using var projection = await GetAuthorizedJsonAsync(
                 client,
                 token,
@@ -2800,13 +2742,6 @@ public sealed class CompanionControlIntegrationTests
             {
                 draftPending = true;
             }
-            if (command.MessageType == GameCommandTypes.SaveExperimentalProbe)
-            {
-                await File.WriteAllTextAsync(
-                    probeSavePath,
-                    "[File]\nSaveFile=true\n[Taskforce1Weapon1]\nType=integration_weapon\n",
-                    cancellationToken);
-            }
             if (command.MessageType == GameCommandTypes.CaptureGameScreenshot)
             {
                 var screenshotPath = Path.Combine(
@@ -3066,18 +3001,6 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
                     JsonOptions),
-                GameCommandTypes.RunControlledTickExperiment => JsonSerializer.Serialize(
-                    new ControlledTickExperimentPayload
-                    {
-                        State = "running",
-                        Postcondition = "controlled-ticks-running",
-                        HooksInstalled = true,
-                        RequestedTicks = 30,
-                        StepSeconds = 1d / 30d,
-                        Seed = 1042,
-                        SeededSources = ["Globals._rnd"],
-                    },
-                    JsonOptions),
                 GameCommandTypes.ArmOwnedMutationMode => JsonSerializer.Serialize(
                     new ArmOwnedMutationModeResultPayload
                     {
@@ -3192,48 +3115,6 @@ public sealed class CompanionControlIntegrationTests
                         AuthorityEpoch = 7,
                         Revision = 0,
                         IdempotencyKey = "integration-release-recovery-1",
-                    },
-                    JsonOptions),
-                GameCommandTypes.LaunchExperimentalProbeWeapon => JsonSerializer.Serialize(
-                    new ExperimentalWeaponLaunchResultPayload
-                    {
-                        Action = GameCommandTypes.LaunchExperimentalProbeWeapon,
-                        Outcome = "completed",
-                        Postcondition = "serializable-active-weapon-launched",
-                        UnitId = "unit:42",
-                        WeaponType = "Missile",
-                        AmmunitionId = "integration_missile",
-                        ActiveWeaponId = "weapon:43",
-                        ActiveWeaponCount = 1,
-                        NativeSaveRegistered = true,
-                        SerializableActiveWeaponCount = 1,
-                    },
-                    JsonOptions),
-                GameCommandTypes.SaveExperimentalProbe => JsonSerializer.Serialize(
-                    new ExperimentalSaveLoadProbeResultPayload
-                    {
-                        Action = GameCommandTypes.SaveExperimentalProbe,
-                        Outcome = "scheduled",
-                        Postcondition = "native-save-write-scheduled",
-                        SaveFileName = Path.GetFileName(probeSavePath),
-                        SaveFilePath = probeSavePath,
-                        PreTransitionWeaponCount = 1,
-                        PreTransitionWeaponsSha256 = "integration-weapons-sha256",
-                        PreTransitionCanonicalSha256 = "integration-canonical-sha256",
-                    },
-                    JsonOptions),
-                GameCommandTypes.LoadExperimentalProbe => JsonSerializer.Serialize(
-                    new ExperimentalSaveLoadProbeResultPayload
-                    {
-                        Action = GameCommandTypes.LoadExperimentalProbe,
-                        Outcome = "scheduled",
-                        Postcondition = "native-mission-reload-scheduled",
-                        SaveFileName = Path.GetFileName(probeSavePath),
-                        SaveFilePath = probeSavePath,
-                        SaveFileSha256 = new string('a', 64),
-                        PreTransitionWeaponCount = 1,
-                        PreTransitionWeaponsSha256 = "integration-weapons-sha256",
-                        PreTransitionCanonicalSha256 = "integration-canonical-sha256",
                     },
                     JsonOptions),
                 _ => throw new InvalidOperationException($"Unexpected command '{command.MessageType}'."),

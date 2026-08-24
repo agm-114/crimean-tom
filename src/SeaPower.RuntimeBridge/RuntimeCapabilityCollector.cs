@@ -69,7 +69,7 @@ internal static class RuntimeCapabilityCollector
 
         var runtimeFingerprint = new RuntimeCapabilityFingerprintPayload
         {
-            SchemaVersion = 4,
+            SchemaVersion = 5,
             FileIdentityState = fileIdentity.State,
             FileIdentityError = fileIdentity.Error,
             GameVersion = gameVersion,
@@ -130,21 +130,6 @@ internal static class RuntimeCapabilityCollector
         if (RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time"))
         {
             supportedExperimentalCommands.Add(GameCommandTypes.SetExperimentalPauseState);
-        }
-        if (RuntimeControlledTickAdapter.HooksInstalled
-            && RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time")
-            && RuntimeDeterministicHookFingerprintProvider.IsVerified("stable-update-order"))
-        {
-            supportedExperimentalCommands.Add(GameCommandTypes.RunControlledTickExperiment);
-        }
-        if (RuntimeDeterministicHookFingerprintProvider.IsVerified("native-save-load"))
-        {
-            supportedExperimentalCommands.Add(GameCommandTypes.SaveExperimentalProbe);
-            supportedExperimentalCommands.Add(GameCommandTypes.LoadExperimentalProbe);
-        }
-        if (RuntimeDeterministicHookFingerprintProvider.IsVerified("weapon-probe-launch"))
-        {
-            supportedExperimentalCommands.Add(GameCommandTypes.LaunchExperimentalProbeWeapon);
         }
 
         return new CapabilitiesPayload

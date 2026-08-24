@@ -103,10 +103,6 @@ public static class GameCommandTypes
     public const string ContinueMissionBriefing = "continue-mission-briefing";
     public const string ExitTacticalSession = "exit-tactical-session";
     public const string SetExperimentalPauseState = "set-experimental-pause-state";
-    public const string LaunchExperimentalProbeWeapon = "launch-experimental-probe-weapon";
-    public const string SaveExperimentalProbe = "save-experimental-probe";
-    public const string LoadExperimentalProbe = "load-experimental-probe";
-    public const string RunControlledTickExperiment = "run-controlled-tick-experiment";
     public const string ArmOwnedMutationMode = "arm-owned-mutation-mode";
     public const string MaterializeOwnedSurfaceUnit = "materialize-owned-surface-unit";
     public const string CaptureOwnedSurfaceCheckpoint = "capture-owned-surface-checkpoint";
@@ -156,10 +152,6 @@ public static class GameCommandTypes
     public static readonly string[] ExperimentalCommands =
     {
         SetExperimentalPauseState,
-        LaunchExperimentalProbeWeapon,
-        SaveExperimentalProbe,
-        LoadExperimentalProbe,
-        RunControlledTickExperiment,
     };
 
     public static readonly string[] MutationControlCommands =
@@ -209,10 +201,6 @@ public static class GameCommandTypes
         ContinueMissionBriefing,
         ExitTacticalSession,
         SetExperimentalPauseState,
-        LaunchExperimentalProbeWeapon,
-        SaveExperimentalProbe,
-        LoadExperimentalProbe,
-        RunControlledTickExperiment,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
         MaterializeOwnedLandUnit,

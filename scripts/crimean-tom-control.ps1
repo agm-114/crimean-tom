@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'run-controlled-ticks-experimental', 'launch-probe-weapon-experimental', 'save-probe-experimental', 'load-probe-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -64,22 +64,7 @@ param(
 
     [string]$VariantReference = 'Variant17',
 
-    [ValidateSet('Missile', 'Torpedo', 'Bomb', 'ASROC')]
-    [string]$WeaponType = 'Missile',
-
-    [string]$AmmunitionId = '',
-
     [string]$UnitId = '',
-
-    [string]$TargetUnitId = '',
-
-    [ValidateRange(1, 10000)]
-    [int]$TickCount = 300,
-
-    [ValidateRange(0.001, 0.1)]
-    [double]$TickStepSeconds = (1.0 / 30.0),
-
-    [int]$Seed = 1042,
 
     [string]$AssignmentId = 'assignment:phase2-surface-probe',
 
@@ -467,33 +452,17 @@ function Test-ControlBridge {
         throw 'The fail-open load-acceleration cache is unavailable or has no measured work.'
     }
 
-    $requiredHookNames = @(
-        'logical-time',
-        'random-sources',
-        'stable-update-order',
-        'native-save-load',
-        'weapon-probe-launch'
-    )
+    $requiredHookNames = @('logical-time')
     $reportedHooks = @($fingerprint.deterministicHooks)
     if ($reportedHooks.Count -ne $requiredHookNames.Count) {
         throw "Expected $($requiredHookNames.Count) deterministic hook inventories, got $($reportedHooks.Count)."
     }
     foreach ($requiredHookName in $requiredHookNames) {
         $reportedHook = @($reportedHooks | Where-Object name -CEQ $requiredHookName)
-        $expectedHookStatus = if ($requiredHookName -cin @(
-                'logical-time',
-                'stable-update-order',
-                'native-save-load',
-                'weapon-probe-launch')) {
-            'verified'
-        }
-        else {
-            'inventory-observed'
-        }
         if ($reportedHook.Count -ne 1 -or
-            $reportedHook[0].status -cne $expectedHookStatus -or
+            $reportedHook[0].status -cne 'verified' -or
             $reportedHook[0].methodFingerprintSha256 -notmatch '^[0-9a-f]{64}$') {
-            throw "Deterministic hook '$requiredHookName' is missing, duplicated, not inventory-observed, or has an invalid hash."
+            throw "Runtime seam '$requiredHookName' is missing, duplicated, unverified, or has an invalid hash."
         }
     }
     $uiAutomationSeams = @($fingerprint.uiAutomationSeams)
@@ -742,33 +711,6 @@ switch ($Action) {
             '/game/experimental/pause' `
             'Post' `
             ([pscustomobject]@{ isPaused = $false }))
-    }
-    'run-controlled-ticks-experimental' {
-        Show-Json (Invoke-ControlRequest `
-            '/game/experimental/ticks/run' `
-            'Post' `
-            ([pscustomobject]@{
-                tickCount = $TickCount
-                stepSeconds = $TickStepSeconds
-                seed = $Seed
-            }))
-    }
-    'save-probe-experimental' {
-        Show-Json (Invoke-ControlRequest '/game/experimental/save-load/save' 'Post')
-    }
-    'launch-probe-weapon-experimental' {
-        Show-Json (Invoke-ControlRequest `
-            '/game/experimental/save-load/launch' `
-            'Post' `
-            ([pscustomobject]@{
-                weaponType = $WeaponType
-                ammunitionId = $AmmunitionId
-                unitId = $UnitId
-                targetUnitId = $TargetUnitId
-            }))
-    }
-    'load-probe-experimental' {
-        Show-Json (Invoke-ControlRequest '/game/experimental/save-load/load' 'Post')
     }
     'arm-owned-mutations' {
         $health = Invoke-ControlRequest '/health'

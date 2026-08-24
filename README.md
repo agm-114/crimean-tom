@@ -61,7 +61,7 @@ bundle so production monitor rebuilds do not trigger a backend rescan storm.
 `pnpm dev` also starts the local .NET companion before Sea Power. The thin game
 plugin connects to it over a named pipe; commands are dispatched on Unity's main
 thread. The allow-listed surface includes read state, screenshots, typed UI
-automation, collider capture, experimental probes, and explicitly armed/fenced
+automation, collider capture, tactical pause control, and explicitly armed/fenced
 owned-surface mutations:
 
 ```powershell
@@ -85,18 +85,18 @@ The runtime bridge resolves optional per-process isolation settings at startup:
 
 - `CRIMEAN_TOM_INSTANCE_ID` identifies the runtime in its authenticated hello;
 - `CRIMEAN_TOM_GAME_PIPE_NAME` selects the matching companion pipe; and
-- `CRIMEAN_TOM_EXPERIMENTAL_SAVE_DIRECTORY` isolates bridge-owned probe saves.
+- `CRIMEAN_TOM_EXPERIMENTAL_SAVE_DIRECTORY` isolates bridge-owned artifacts.
 
 The companion already accepts a distinct `-ControlUrl`, `-RunDirectory`, and
 `-GamePipeName`. These settings isolate Crimean Tom's control port, token, logs,
-pipe, and experimental checkpoint, but they do not relocate Sea Power's native
-`Application.persistentDataPath` or Unity `PlayerPrefs`. A process is not a safe
-paired replica until those native paths are isolated too.
+pipe, and runtime artifacts, but they do not relocate Sea Power's native
+`Application.persistentDataPath` or Unity `PlayerPrefs`; concurrent Sea Power
+instances are therefore outside the active local architecture.
 
 The campaign application is local-first: .NET 8, SQLite WAL,
 and content-addressed local checkpoint files. Named pipes remain the same-machine
-game bridge. Generated gRPC/Protobuf services connect .NET companions and
-simulation workers. SignalR with MessagePack is the target player-facing
+game bridge. Generated gRPC/Protobuf services connect the companion to the
+campaign service. SignalR with MessagePack is the target player-facing
 realtime transport, but it is not implemented; the current monitor and coalition
 projection use HTTP.
 Single-player, LAN/private co-op, and a basic dedicated campaign will not require
@@ -105,24 +105,17 @@ PostgreSQL, Redis, Docker, or an external object store.
 The player-facing source of truth is
 [`docs/planning/playable-dynamic-campaign-product-contract.md`](docs/planning/playable-dynamic-campaign-product-contract.md).
 It defines the map, task-force, streaming, tactical-entry/return, campaign-time,
-orders, recovery, and minimum-playable behavior. The concise technical design is in
-[`docs/architecture/dynamic-campaign-design.md`](docs/architecture/dynamic-campaign-design.md); the
-normative ownership, time, materialization, protocol, persistence, and failure
-contracts are in [`docs/architecture/system-architecture.md`](docs/architecture/system-architecture.md).
+orders, recovery, and minimum-playable behavior. The normative ownership, time,
+materialization, protocol, persistence, and failure contracts are in
+[`docs/architecture/system-architecture.md`](docs/architecture/system-architecture.md).
 The code-to-process map is in
 [`docs/architecture/implementation-map.md`](docs/architecture/implementation-map.md), and the
 current feature/gap ledger is in
 [`docs/planning/current-status.md`](docs/planning/current-status.md).
-The controlled clock, scheduling, RNG, and ordering layer required for hot Unity
-replicas is specified in
-[`docs/architecture/deterministic-runtime-adapter.md`](docs/architecture/deterministic-runtime-adapter.md).
-Stress handling, simulation-source eligibility, whole-island migration, and the
-fixed-step/global-tempo policy are specified in
-[`docs/architecture/load-management.md`](docs/architecture/load-management.md).
 The gated delivery plan and adversarial checklist are in
-[`docs/planning/implementation-plan.md`](docs/planning/implementation-plan.md). Redundant unit
-simulation, primary/shadow/observer roles, health, and promotion are specified
-in [`docs/architecture/federated-simulation.md`](docs/architecture/federated-simulation.md).
+[`docs/planning/implementation-plan.md`](docs/planning/implementation-plan.md).
+Deferred distributed simulation work is summarized in
+[`docs/future/distributed-simulation.md`](docs/future/distributed-simulation.md).
 
 The initial multiplayer target is trusted/private co-op. Public or hostile-client
 play is not claimed: a player's Sea Power process cannot safely hold true enemy

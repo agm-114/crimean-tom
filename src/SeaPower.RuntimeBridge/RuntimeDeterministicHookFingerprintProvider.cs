@@ -26,31 +26,6 @@ internal static class RuntimeDeterministicHookFingerprintProvider
                 RequiredMethod(typeof(GameTime), "Pause"),
                 RequiredMethod(typeof(GameTime), "UnPause")),
                 "dc15ef7e141af00443c385c62384231e673e0a3e149961d117e923f8d70697f9"),
-            CaptureGroup(
-                "random-sources",
-                RequiredField(typeof(Globals), "_rnd"),
-                RequiredField(typeof(Globals), "_unityRandom")),
-            Pin(
-                CaptureGroup(
-                    "stable-update-order",
-                    RequiredMethod(typeof(GameUpdater), "update"),
-                    RequiredMethod(typeof(GameFixedUpdater), "fixedUpdate"),
-                    RequiredMethod(typeof(GameLateUpdater), "lateUpdate")),
-                "8a9f13bd821fb11bd940e82a23595f954040c31205ed2518b67cee5068839915"),
-            Pin(
-                CaptureGroup(
-                "native-save-load",
-                RequiredMethod(typeof(SaveLoadManager), "SaveGame"),
-                RequiredMethod(typeof(MissionManager), "UnloadMissionAndReload")),
-                "21390ea7badc9c245985a211a91ccfeefa556348a14fd268630f35b386a791a2"),
-            Pin(
-                CaptureGroup(
-                    "weapon-probe-launch",
-                    RequiredMethod(typeof(WeaponContainer), "testLaunch"),
-                    RequiredMethod(typeof(WeaponContainer), "launch"),
-                    RequiredMethod(typeof(WeaponContainer), "LaunchFromMagazine"),
-                    RequiredMethod(typeof(WeaponSystemHardpoint), "launch")),
-                "28870a35de4e170c642823e69dc520707187224067c89590643cca2f3a6c19c3"),
         };
     }
 
