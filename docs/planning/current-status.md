@@ -3,14 +3,15 @@
 ## Summary
 
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
-2026. Crimean Tom is an advanced campaign-runtime prototype, not a playable
-dynamic campaign.
+2026. Crimean Tom now has a durable local campaign lifecycle and player map,
+but it is not yet a playable campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
-and early map/proxy synchronization. The missing part is the product loop: the
-player still cannot reliably manage a campaign, enter with the campaign-owned
-force, fight a campaign-owned enemy, commit the complete result, and return.
+and early map/proxy synchronization. A player can now create, inspect, run,
+pause, save, and restore the full proving campaign without operator access. The
+remaining product gap starts with orders and continues through tactical entry,
+combat return, and recovery.
 
 The [product contract](playable-dynamic-campaign-product-contract.md) defines the
 goal. The [implementation plan](implementation-plan.md) defines the order.
@@ -31,20 +32,24 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
 | Visual proxies | Typed friendly selection can load a non-simulating installed model after terrain relocation; hostile selection uses a generic estimate | Live proof covers only a few catalog entries; mouse selection needs requalification |
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
-| Sessions | Coalition-filtered projections and reconnectable in-memory player sessions exist | Player identity is not durable and canonical player orders are absent |
-| Operator UI | Browser monitor shows diagnostic map, hierarchy, telemetry, and controls | It exposes operator concepts and is not the product campaign application |
+| Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity and canonical player orders are absent |
+| Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and friendly hierarchy, and provides start, pause, save, open, and restart recovery | Orders, objectives, tactical entry, packaging, and detailed degraded-state UX are absent |
+| Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
 ## What the player can and cannot do
 
-The current prototype can launch services, seed and advance a full campaign,
-connect Sea Power, project many campaign records, select some records through a
-typed bridge path, and keep one owned surface unit synchronized under a lease.
+The current prototype can launch services, create a named full campaign paused,
+show 4,096 total entities as a coalition-filtered player picture, start and
+pause time, save, restart the service, renew the local browser session, and
+restore the same campaign head. It can also connect Sea Power, project many
+campaign records, select some records through a typed bridge path, and keep one
+owned surface unit synchronized under a lease.
 
-The current prototype cannot yet provide a coherent play session because:
+It cannot yet provide a coherent war-to-battle play session because:
 
-1. the campaign UI is an operator monitor, not a player shell;
-2. canonical coalition-scoped orders and a complete objective loop are absent;
+1. canonical coalition-scoped orders and a complete objective loop are absent;
+2. the player application cannot request or follow tactical entry;
 3. the proven Sea Power mission still includes an authored placeholder task
    force instead of loading campaign membership by default;
 4. direct mouse interaction with non-local symbols and contacts is not fully
@@ -73,11 +78,11 @@ than in the active tree.
 
 ## Immediate gaps
 
-### 1. Player campaign application
+### 1. Player orders and objectives
 
-Turn the monitor into, or replace it with, a player surface for campaign
-lifecycle, filtered map, force hierarchy, orders, objectives, time controls,
-health, and tactical entry. Separate player authorization from operator access.
+Add coalition-scoped durable commands, visible acceptance and conflict results,
+task-force membership, objective progress, and an understandable campaign end
+state to the new player shell.
 
 ### 2. Campaign-owned task force
 
@@ -126,22 +131,27 @@ results must report native objects, map records, proxies, external entities, fix
 timestep, internal time dilation, frame time, memory, and campaign throughput
 separately.
 
-Earlier observations showed the map/proxy path could reconcile hundreds of
-records at 60 FPS and a 16.667 ms fixed step in one selected-unit sample. That
-is a narrow observation, not a general performance guarantee.
+The latest full-application smoke used Sea Power
+`0.8.2-23444+s358` and the native Red Sea Breakout scenario. At one tactical
+capture it reported 18 units, 3 task forces, 90 observed objects, about 60 FPS,
+a 16.667 ms engine and game fixed step, internal time dilation 1, no duplicate
+stable IDs, and no units beyond loaded terrain. Pause, resume, tactical-map
+toggle, screenshot, and native exit worked through the Runtime Bridge. This
+proves runtime compatibility for that small native scenario. It does not prove
+that the 4,096-entity campaign can enter or return from Sea Power.
 
 ## Next work
 
 The next vertical slice should:
 
-1. create and load the 4,096-entity campaign paused in a player-facing app;
-2. accept one durable player order and show its campaign effect;
+1. accept one durable player order and show its campaign effect;
+2. expose a visible objective affected by that order;
 3. enter Sea Power with a campaign-owned mixed naval task force;
 4. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 5. fight one campaign-owned hostile while the rest of the war advances;
 6. commit the result exactly once; and
-7. return, save, restart, and recover the same timeline.
+7. return and recover the same timeline already proven by the local save path.
 
 Security hardening, persistence work, and broader family support should be done
 when this slice exposes the need. Infrastructure that cannot improve this story

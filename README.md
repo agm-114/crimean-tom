@@ -29,23 +29,20 @@ pnpm status      # show paths, process state, hashes, and current load state
 pnpm inventory:determinism # generate the pinned compiled call-site manifest
 ```
 
-The operator monitor is served by the implemented campaign service:
+The local player campaign shell is served by the campaign service:
 
 ```powershell
 pnpm campaign:server
 ```
 
-Open `http://127.0.0.1:5081/monitor/` and either connect to a campaign ID or use
-**Seed Fulda** to create and advance a representative Fulda Gap Gone Hot
-campaign. The loopback host automatically issues the page an HttpOnly,
-same-site, process-lifetime monitor session; the operator never needs to find or
-paste the service bearer token. CLI and companion traffic still use the
-current-user-only token file. Its map and inspector also expose task-force
-interaction islands, current and desired fidelity, client eligibility/backlog,
-load-shedding decisions, and fixed-step target tempo. The theater is rendered as
-a black-and-white wireframe command plot with square force/event registers and
-green, red, amber, and white semantic highlights. This is an operator diagnostic
-surface that polls HTTP every two seconds; it is not yet the realtime player UI.
+Open `http://127.0.0.1:5081/monitor/` to create or open the named 4,096-entity
+campaign, inspect the coalition-filtered map and friendly hierarchy, and use the
+start, pause, and save controls. New and restored campaigns open paused. The
+loopback host gives the page an HttpOnly, same-site, process-lifetime session
+accepted only by `/player`; it cannot authorize operator endpoints. CLI and
+companion traffic use the current-user-only bearer token file. The player shell
+polls HTTP and renews its local session after a service restart. Realtime
+delivery, player orders, objectives, and tactical entry are not implemented.
 
 For iteration with backend restart and frontend hot-module replacement, run:
 
@@ -96,8 +93,8 @@ instances are therefore outside the active local architecture.
 The campaign application is local-first: .NET 8, SQLite WAL,
 and content-addressed local checkpoint files. Named pipes remain the same-machine
 game bridge. Generated gRPC/Protobuf services connect the companion to the
-campaign service. SignalR with MessagePack is the target player-facing
-realtime transport, but it is not implemented; the current monitor and coalition
+campaign service. SignalR with MessagePack is the target player-facing realtime
+transport, but it is not implemented; the current player shell and coalition
 projection use HTTP.
 Single-player, LAN/private co-op, and a basic dedicated campaign will not require
 PostgreSQL, Redis, Docker, or an external object store.

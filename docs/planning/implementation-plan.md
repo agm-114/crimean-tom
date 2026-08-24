@@ -35,6 +35,13 @@ completed feature.
 
 ## Milestone 1: make the campaign application usable
 
+**Status:** The core acceptance gate passed locally on 24 August 2026. The
+browser shell created and named the 4,096-entity campaign paused, exposed the
+coalition-filtered map and friendly hierarchy, started and paused time, saved,
+restarted the service, renewed its player session, and restored the same head.
+Packaging and richer degraded or incompatible-version presentation remain
+cross-cutting release work.
+
 Deliver the local product shell around the existing service and monitor.
 
 ### Player flow
@@ -60,6 +67,11 @@ Deliver the local product shell around the existing service and monitor.
 A clean local install can create the 4,096-entity scenario, inspect it without
 time advancing, explicitly start it, save it, restart the application, and
 restore the same campaign head.
+
+The broad service integration story covers this gate. A browser run separately
+confirmed the rendered map, hierarchy, selection, controls, and restart state.
+The same change was followed by a full Sea Power smoke on the pinned game build;
+that smoke qualifies Runtime Bridge compatibility, not campaign tactical entry.
 
 ## Milestone 2: make the war respond to the player
 

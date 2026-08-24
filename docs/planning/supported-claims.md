@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 8.
+Authenticated `GET /supported-claims` mirrors this document at schema version 9.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -15,6 +15,9 @@ update requires renewed qualification.
   or cloud storage.
 - Online backup and side-directory restore verify journal and blob integrity.
 - Operator pause rejects campaign time advances until resume.
+- The local player application can create and name the fixed 4,096-entity
+  proving scenario paused, start it, pause it, save it, restart the campaign
+  service, and restore the same campaign head and time.
 - Two coalitions can create strategic objectives, allocate capable groups, keep
   fixed installations in local defense, form bounded multi-role operational
   packages, and replan from coalition intelligence.
@@ -44,6 +47,9 @@ and installation family.
 
 ## Map and presentation
 
+- The local player application shows the authorized friendly map, force
+  hierarchy, bases, and coalition-known contacts without serializing canonical
+  enemy entities or operator diagnostics.
 - A fresh authenticated Sea Power session binds an explicit player coalition.
 - Its projection can include every non-destroyed friendly campaign entity and
   coalition-filtered hostile tracks before a tactical assignment exists.
@@ -60,15 +66,18 @@ and installation family.
 
 Generic visual loading has only narrow live qualification. Direct mouse
 selection parity, overlapping symbols, uncertainty glyphs, full catalog
-coverage, the player campaign map, and campaign-owned default task-force entry
-are not supported claims.
+coverage, and campaign-owned default task-force entry are not supported claims.
 
 ## Security and projections
 
-- Loopback companion and campaign writes require bearer authentication.
+- Loopback companion and operator writes require bearer authentication.
+- The process-lifetime browser cookie is scoped to `/player` and cannot
+  authorize operator reads or writes. A fresh local monitor session can renew
+  it after campaign-service restart.
+- An `application/grpc` content type does not bypass authentication on the
+  ordinary HTTP listener; only the dedicated HTTP/2 gRPC listener enters the
+  gRPC pipeline.
 - Coalition-filtered HTTP projections omit opposing true-state entities.
-- Hosted monitor cookies permit local reads only and cannot authorize operator
-  writes.
 - Assignment preparation and activation reject a runtime or catalog fingerprint
   mismatch against the assignment requirement.
 
@@ -77,16 +86,15 @@ claim a safe public hostile-client boundary.
 
 ## Explicitly unsupported
 
-- A complete guided player campaign loop.
+- A complete player campaign-to-tactical loop.
+- Canonical coalition-scoped player orders, objectives, and an end state.
 - A tactical loss against a campaign-owned hostile committed back to the
   campaign with complete expenditure and portable state.
 - Campaign-owned mixed task-force entry across surface, submarine, fixed-wing,
   helicopter, ground, and installation families.
 - Live game restart recovery with a measured latency and duplicate-object proof.
-- Player-session continuity across campaign-service restart.
 - Schema or algorithm upgrade of an existing save.
 - A bounded long-running campaign storage and performance envelope.
-- Authenticated writes from the hosted monitor.
 - Durable private multiplayer identity, authorization, and realtime delivery.
 - Public adversarial multiplayer or independently trusted adjudication.
 - Out-of-process Operational tick execution.

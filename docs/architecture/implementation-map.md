@@ -20,8 +20,9 @@ campaign-monitor browser
               -> Sea Power
 ```
 
-The monitor is currently an operator and development surface. It is not yet the
-campaign application defined by the product contract.
+The browser surface is now the local player campaign shell. Operator diagnostics
+remain on bearer-authenticated service routes and are not sent through the
+player projection.
 
 ## Projects and roles
 
@@ -34,7 +35,7 @@ campaign application defined by the product contract.
 | `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
 | `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
 | `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
-| `apps/campaign-monitor` | Browser map, hierarchy, telemetry, and operator controls | Not a finished player campaign app |
+| `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, selection, time, and save controls | Orders, objectives, tactical entry, packaging, and detailed recovery UX remain |
 | Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
 ## Implemented campaign path
@@ -87,10 +88,15 @@ campaign-bound default task force remain open.
 
 ## Implemented player and operator path
 
-The monitor polls true diagnostic state over loopback HTTP. Coalition-filtered
-projections and reconnectable in-memory player sessions exist. Player command
-envelopes currently cover presentation and control-transfer actions, not the
-canonical campaign orders required by the product contract.
+The browser polls a coalition-filtered player projection over loopback HTTP. It
+can create and name the fixed 4,096-entity scenario paused, start, pause, save,
+list, open, renew its process-lifetime session after service restart, and restore
+the same campaign head. Its cookie is accepted only on `/player`; operator and
+companion HTTP control remains bearer-authenticated. Enemy canonical entities
+and operator diagnostics are not serialized into the player view.
+
+Player command envelopes still cover presentation and control-transfer actions,
+not the canonical campaign orders required by the product contract.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -109,7 +115,7 @@ The design context is in [distributed simulation](../future/distributed-simulati
 
 | Product requirement | Current implementation gap |
 | --- | --- |
-| Local campaign application | Operator monitor lacks player lifecycle, orders, objectives, and result UX |
+| Local campaign application | Lifecycle and filtered map work; orders, objectives, tactical entry, packaging, and result UX remain |
 | Campaign-owned task force | Authored mission still supplies placeholder local units in the proven path |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |

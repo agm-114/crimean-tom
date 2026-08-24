@@ -3,9 +3,9 @@
 ## Decision
 
 This table is the target boundary decision. The named pipe and companion gRPC
-paths are implemented. The current operator monitor and coalition projection
-use HTTP, and there is no SignalR hub/client or MessagePack player DTO surface
-yet. SignalR remains active multiplayer work after the local player loop. See
+paths are implemented. The local player shell and coalition projection use
+HTTP, and there is no SignalR hub/client or MessagePack player DTO surface yet.
+SignalR remains active multiplayer work after the local player loop. See
 [Implementation map](implementation-map.md).
 
 Use different transports at boundaries with different requirements:
