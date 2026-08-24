@@ -398,6 +398,12 @@ public sealed class SurfaceRenderProxySpecPayload
 {
     public string EntityId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string Relationship { get; set; } = "Friendly";
+    public string Classification { get; set; } = string.Empty;
+    public string Confidence { get; set; } = string.Empty;
+    public int UncertaintyRadiusMeters { get; set; }
+    public string Lifecycle { get; set; } = "Deployed";
+    public string SimulationDomain { get; set; } = string.Empty;
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = "Default";
@@ -433,6 +439,13 @@ public sealed class SurfaceRenderProxyStatePayload
     public bool HasNativeSimulationObject { get; set; }
     public bool WorldModelVisible { get; set; }
     public bool MapMarkerVisible { get; set; }
+    public bool IsSelected { get; set; }
+    public bool PhysicalProxyRequested { get; set; }
+    public string PhysicalProxyError { get; set; } = string.Empty;
+    public string Relationship { get; set; } = string.Empty;
+    public string Classification { get; set; } = string.Empty;
+    public string Confidence { get; set; } = string.Empty;
+    public int UncertaintyRadiusMeters { get; set; }
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }

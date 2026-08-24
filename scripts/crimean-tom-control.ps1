@@ -18,15 +18,35 @@ param(
 
     [string]$GamePipeName,
 
-    [string]$CampaignGrpcUrl,
+    [string]$CampaignGrpcUrl = $(
+        if ($env:CRIMEAN_TOM_CAMPAIGN_GRPC_URL) { $env:CRIMEAN_TOM_CAMPAIGN_GRPC_URL }
+        else { '' }
+    ),
 
-    [string]$CampaignHttpUrl,
+    [string]$CampaignHttpUrl = $(
+        if ($env:CRIMEAN_TOM_CAMPAIGN_HTTP_URL) { $env:CRIMEAN_TOM_CAMPAIGN_HTTP_URL }
+        else { '' }
+    ),
 
-    [string]$CampaignId,
+    [string]$CampaignId = $(
+        if ($env:CRIMEAN_TOM_CAMPAIGN_ID) { $env:CRIMEAN_TOM_CAMPAIGN_ID }
+        else { '' }
+    ),
 
-    [string]$CampaignTokenFile,
+    [string]$PlayerCoalitionId = $(
+        if ($env:CRIMEAN_TOM_PLAYER_COALITION_ID) { $env:CRIMEAN_TOM_PLAYER_COALITION_ID }
+        else { '' }
+    ),
 
-    [string]$CampaignStateDirectory,
+    [string]$CampaignTokenFile = $(
+        if ($env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE) { $env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE }
+        else { '' }
+    ),
+
+    [string]$CampaignStateDirectory = $(
+        if ($env:CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY) { $env:CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY }
+        else { '' }
+    ),
 
     [string]$CampaignRunDirectory,
 
@@ -217,27 +237,6 @@ function Wait-ForCompanion {
 }
 
 function Start-Companion {
-    $running = Get-CompanionProcess
-    if ($null -ne $running) {
-        Write-Host "Crimean Tom companion is already running (PID $($running.Id))."
-        Wait-ForCompanion
-        return
-    }
-
-    Clear-StaleCompanionArtifacts
-
-    if (-not $SkipBuild) {
-        & dotnet build $project --configuration $Configuration
-        if ($LASTEXITCODE -ne 0) {
-            throw "Companion build failed with exit code $LASTEXITCODE."
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $companionDll)) {
-        throw "Companion DLL not found at $companionDll. Build it before using -SkipBuild."
-    }
-
-    New-Item -ItemType Directory -Path $runDir -Force | Out-Null
     if (-not [string]::IsNullOrWhiteSpace($CampaignRunDirectory)) {
         $resolvedCampaignRunDirectory = [System.IO.Path]::GetFullPath($CampaignRunDirectory)
         if ([string]::IsNullOrWhiteSpace($CampaignTokenFile)) {
@@ -267,10 +266,57 @@ function Start-Companion {
         $providedCampaignSettings.Count -ne $campaignSettings.Count) {
         throw 'Campaign companion configuration must provide all transport URLs, campaign ID, token file, and state directory.'
     }
+    $campaignTransportRequested = $providedCampaignSettings.Count -eq $campaignSettings.Count
+
+    $running = Get-CompanionProcess
+    if ($null -ne $running) {
+        $health = try { Invoke-ControlRequest '/health' } catch { $null }
+        $currentTransport = if ($null -eq $health) { $null } else { $health.campaignTransport }
+        $currentTransportEnabled = $null -ne $currentTransport -and $currentTransport.enabled
+        $bindingMatches = $currentTransportEnabled -eq $campaignTransportRequested
+        if ($bindingMatches -and $campaignTransportRequested) {
+            $bindingMatches =
+                [string]$currentTransport.campaignId -ceq $CampaignId -and
+                [string]$currentTransport.playerCoalitionId -ceq $PlayerCoalitionId -and
+                [string]$currentTransport.grpcUrl -ceq $CampaignGrpcUrl -and
+                [string]$currentTransport.httpUrl -ceq $CampaignHttpUrl
+        }
+        if ($bindingMatches) {
+            Write-Host "Crimean Tom companion is already running with the requested campaign binding (PID $($running.Id))."
+            Wait-ForCompanion
+            return
+        }
+
+        $requestedDescription = if ($campaignTransportRequested) {
+            "campaign '$CampaignId'"
+        }
+        else { 'standalone mode' }
+        Write-Host "Restarting Crimean Tom companion to use $requestedDescription."
+        Stop-Companion
+    }
+
+    Clear-StaleCompanionArtifacts
+
+    if (-not $SkipBuild) {
+        & dotnet build $project --configuration $Configuration
+        if ($LASTEXITCODE -ne 0) {
+            throw "Companion build failed with exit code $LASTEXITCODE."
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $companionDll)) {
+        throw "Companion DLL not found at $companionDll. Build it before using -SkipBuild."
+    }
+
+    New-Item -ItemType Directory -Path $runDir -Force | Out-Null
     if ($providedCampaignSettings.Count -eq $campaignSettings.Count) {
         foreach ($setting in $campaignSettings.GetEnumerator()) {
             [Environment]::SetEnvironmentVariable($setting.Key, $setting.Value, 'Process')
         }
+        [Environment]::SetEnvironmentVariable(
+            'CRIMEAN_TOM_PLAYER_COALITION_ID',
+            $PlayerCoalitionId,
+            'Process')
     }
     $process = $null
     try {

@@ -566,6 +566,31 @@ app.MapPost("/control/campaigns/{campaignId}/schedule", async (
         ? Results.Ok(await coordinator.ScheduleFidelityAsync(
             new CampaignId(parsed), request, cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
+app.MapPost("/control/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/recover-missing", async (
+    string campaignId,
+    string clientInstanceId,
+    CampaignTacticalAssignmentRecoveryRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+
+    try
+    {
+        return Results.Ok(await coordinator.RecoverMissingTacticalAssignmentsAsync(
+            new CampaignId(parsed),
+            clientInstanceId,
+            request,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapPost("/control/campaigns/{campaignId}/sim-workers", async (
     string campaignId,
     CampaignSimWorkerSpawnRequest request,

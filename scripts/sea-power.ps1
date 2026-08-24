@@ -25,6 +25,8 @@ param(
 
     [string]$CampaignId,
 
+    [string]$PlayerCoalitionId,
+
     [string]$CampaignRunDirectory,
 
     [string]$CampaignTokenFile,
@@ -288,6 +290,7 @@ function Start-SeaPowerAndVerify {
         CampaignGrpcUrl = $CampaignGrpcUrl
         CampaignHttpUrl = $CampaignHttpUrl
         CampaignId = $CampaignId
+        PlayerCoalitionId = $PlayerCoalitionId
         CampaignRunDirectory = $CampaignRunDirectory
         CampaignTokenFile = $CampaignTokenFile
         CampaignStateDirectory = $CampaignStateDirectory

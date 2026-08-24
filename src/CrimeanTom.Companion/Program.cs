@@ -35,12 +35,15 @@ builder.Services.AddSingleton<PortOperationsProjectionStore>();
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<GamePipeBroker>());
 var campaignServiceGrpcUrl = builder.Configuration["CampaignServiceGrpcUrl"]
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_GRPC_URL");
+var campaignServiceHttpUrl = string.Empty;
+var campaignId = string.Empty;
+var playerCoalitionId = string.Empty;
 if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
 {
-    var campaignServiceHttpUrl = builder.Configuration["CampaignServiceHttpUrl"]
+    campaignServiceHttpUrl = builder.Configuration["CampaignServiceHttpUrl"]
         ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_HTTP_URL")
         ?? throw new InvalidOperationException("CampaignServiceHttpUrl is required when campaign transport is enabled.");
-    var campaignId = builder.Configuration["CampaignId"]
+    campaignId = builder.Configuration["CampaignId"]
         ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_ID")
         ?? throw new InvalidOperationException("CampaignId is required when campaign transport is enabled.");
     if (!Guid.TryParseExact(campaignId, "N", out _))
@@ -53,7 +56,7 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-companion"));
     Directory.CreateDirectory(campaignStateDirectory);
     var clientInstanceId = LoadOrCreateClientInstanceId(Path.Combine(campaignStateDirectory, "client-instance-id"));
-    var playerCoalitionId = builder.Configuration["PlayerCoalitionId"]
+    playerCoalitionId = builder.Configuration["PlayerCoalitionId"]
         ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_PLAYER_COALITION_ID")
         ?? string.Empty;
     if (!string.IsNullOrWhiteSpace(playerCoalitionId)
@@ -108,6 +111,14 @@ app.MapGet("/health", (GamePipeBroker broker) => Results.Ok(new
     sessionGeneration = broker.SessionGeneration,
     lastConnectionTransitionUnixMilliseconds = broker.LastConnectionTransitionUnixMilliseconds,
     sessionId = broker.SessionId,
+    campaignTransport = new
+    {
+        enabled = !string.IsNullOrWhiteSpace(campaignServiceGrpcUrl),
+        campaignId,
+        playerCoalitionId,
+        grpcUrl = campaignServiceGrpcUrl ?? string.Empty,
+        httpUrl = campaignServiceHttpUrl,
+    },
     game = broker.GameHello,
 }));
 

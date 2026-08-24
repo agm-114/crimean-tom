@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
@@ -20,6 +21,7 @@ public sealed class CampaignCoordinator(
     CampaignSessionRegistry sessions,
     CampaignPerformanceTelemetry telemetry)
 {
+    private static readonly JsonSerializerOptions CheckpointJsonOptions = new(JsonSerializerDefaults.Web);
     private const long SnapshotIntervalCommits = 100;
     private static readonly CoordinatorId ServiceCoordinator = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000001"));
@@ -877,6 +879,15 @@ public sealed class CampaignCoordinator(
                 throw new CampaignStoreConflict("invalid-idempotency-key", "Island migration requires an idempotency key.");
             }
             var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var committedReplay = await TryReplayCommittedMigrationAsync(
+                state,
+                entityId,
+                request.IdempotencyKey,
+                cancellationToken);
+            if (committedReplay is not null)
+            {
+                return committedReplay;
+            }
             var plan = await RequireMigrationPlanAsync(state, entityId, cancellationToken);
             if (plan.AlreadyMigrated)
             {
@@ -1367,6 +1378,198 @@ public sealed class CampaignCoordinator(
         CancellationToken cancellationToken) =>
         ScheduleFidelityCoreAsync(campaignId, request, gateAlreadyHeld: false, cancellationToken);
 
+    public async Task<CampaignTacticalAssignmentRecoveryView> RecoverMissingTacticalAssignmentsAsync(
+        CampaignId campaignId,
+        string workerClientInstanceId,
+        CampaignTacticalAssignmentRecoveryRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workerClientInstanceId))
+        {
+            throw new CampaignStoreConflict(
+                "invalid-worker-client-instance-id",
+                "A tactical worker client instance id is required.");
+        }
+        if (request.MissingAssignmentIds is null
+            || request.ControlledAssignmentIds is null
+            || request.MissingAssignmentIds.Count is 0 or > 128)
+        {
+            throw new CampaignStoreConflict(
+                "invalid-missing-assignment-count",
+                "Recovery requires between one and 128 missing tactical assignments.");
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var worker = sessions.Snapshots(campaignId.ToString())
+                .SingleOrDefault(item => string.Equals(
+                    item.ClientInstanceId,
+                    workerClientInstanceId,
+                    StringComparison.Ordinal))
+                ?? throw new CampaignStoreConflict(
+                    "tactical-worker-session-unavailable",
+                    "The reporting tactical worker does not have a live campaign session.");
+            if (CampaignWorkerKind.IsOperational(worker.WorkerKind))
+            {
+                throw new CampaignStoreConflict(
+                    "invalid-tactical-worker-kind",
+                    "Operational simulation workers cannot recover Sea Power tactical assignments.");
+            }
+
+            var assignmentIds = request.MissingAssignmentIds
+                .Select(value => ParseScopedId(value, "assignment:", id => new AssignmentId(id)))
+                .Distinct()
+                .OrderBy(id => id)
+                .ToArray();
+            var controlledAssignmentIds = request.ControlledAssignmentIds
+                .Select(value => ParseScopedId(value, "assignment:", id => new AssignmentId(id)))
+                .ToHashSet();
+            if (!controlledAssignmentIds.IsSubsetOf(assignmentIds))
+            {
+                throw new CampaignStoreConflict(
+                    "invalid-controlled-recovery-assignment",
+                    "Controlled recovery assignments must be included in the missing assignment set.");
+            }
+
+            var recoveredEntities = new List<(EntityId EntityId, bool Controlled)>();
+            var releasedAssignmentIds = new List<string>();
+            foreach (var assignmentId in assignmentIds)
+            {
+                if (!state.Assignments.TryGetValue(assignmentId, out var assignment))
+                {
+                    throw new CampaignStoreConflict(
+                        "tactical-assignment-not-found",
+                        $"Tactical assignment {assignmentId} does not exist in the campaign.");
+                }
+                if (!string.Equals(
+                    assignment.WorkerClientInstanceId,
+                    workerClientInstanceId,
+                    StringComparison.Ordinal))
+                {
+                    throw new CampaignStoreConflict(
+                        "tactical-assignment-worker-mismatch",
+                        $"Tactical assignment {assignmentId} belongs to another worker.");
+                }
+                if (CampaignAssignmentKinds.IsOperationalSim(assignment)
+                    || assignment.Lifecycle != AssignmentLifecycle.Active)
+                {
+                    continue;
+                }
+
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Assignment(assignmentId),
+                    assignment.Revision,
+                    new SetAssignmentLifecycleCommand(
+                        assignmentId,
+                        assignment.AuthorityEpoch,
+                        AssignmentLifecycle.Quiescing,
+                        state.Time),
+                    $"recover-missing-local-quiesce-{assignmentId}-{assignment.AuthorityEpoch.Value}"),
+                    cancellationToken);
+                assignment = state.Assignments[assignmentId];
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Assignment(assignmentId),
+                    assignment.Revision,
+                    new SetAssignmentLifecycleCommand(
+                        assignmentId,
+                        assignment.AuthorityEpoch,
+                        AssignmentLifecycle.Released,
+                        state.Time),
+                    $"recover-missing-local-release-{assignmentId}-{assignment.AuthorityEpoch.Value}"),
+                    cancellationToken);
+                releasedAssignmentIds.Add($"assignment:{assignmentId}");
+                recoveredEntities.Add((
+                    assignment.EntityId,
+                    controlledAssignmentIds.Contains(assignmentId)));
+
+                var entity = state.Entities[assignment.EntityId];
+                var stillFenced = state.Assignments.Values.Any(item =>
+                    item.EntityId == entity.EntityId
+                    && !CampaignAssignmentKinds.IsOperationalSim(item)
+                    && item.Lifecycle is AssignmentLifecycle.Active
+                        or AssignmentLifecycle.Quiescing
+                        or AssignmentLifecycle.Quiesced);
+                if (entity.Fidelity == FidelityState.Tactical && !stillFenced)
+                {
+                    state = await CommitAsync(state, Command(
+                        state,
+                        CampaignSubject.Entity(entity.EntityId),
+                        entity.Revision,
+                        new ChangeFidelityCommand(
+                            entity.EntityId,
+                            FidelityState.Operational,
+                            "local-tactical-object-missing"),
+                        $"recover-missing-local-entity-{assignmentId}-{assignment.AuthorityEpoch.Value}"),
+                        cancellationToken);
+                }
+            }
+
+            CampaignSchedulerView? replacementSchedule = null;
+            if (recoveredEntities.Count > 0)
+            {
+                var tacticalWorkers = sessions.Snapshots(campaignId.ToString())
+                    .Where(item => !CampaignWorkerKind.IsOperational(item.WorkerKind))
+                    .ToArray();
+                var campaignTacticalCapacity = Math.Min(
+                    10_000,
+                    tacticalWorkers.Sum(item => Math.Max(0, item.TacticalEntityCapacity)));
+                var campaignTacticalReserve = Math.Min(
+                    campaignTacticalCapacity,
+                    tacticalWorkers.Sum(item => Math.Clamp(
+                        item.TacticalReserveCapacity,
+                        0,
+                        Math.Max(0, item.TacticalEntityCapacity))));
+                var observed = new HashSet<EntityId>();
+                var controlled = new HashSet<EntityId>();
+                foreach (var recovery in recoveredEntities)
+                {
+                    if (recovery.Controlled)
+                    {
+                        observed.Remove(recovery.EntityId);
+                        controlled.Add(recovery.EntityId);
+                    }
+                    else if (!controlled.Contains(recovery.EntityId))
+                    {
+                        observed.Add(recovery.EntityId);
+                    }
+                }
+
+                var health = Enum.TryParse<SchedulerHealthState>(worker.Health, out var parsedHealth)
+                    ? parsedHealth
+                    : SchedulerHealthState.Offline;
+                var eligibility = Enum.TryParse<SimulationSourceEligibility>(worker.Eligibility, out var parsedEligibility)
+                    ? parsedEligibility
+                    : SimulationSourceEligibility.Disabled;
+                replacementSchedule = await ScheduleFidelityCoreAsync(
+                    campaignId,
+                    new CampaignSchedulerRequest(
+                        observed.Select(id => id.ToString()).ToArray(),
+                        controlled.Select(id => id.ToString()).ToArray(),
+                        health,
+                        eligibility,
+                        campaignTacticalCapacity,
+                        state.SchedulerPolicy?.BacklogDepth ?? 0,
+                        campaignTacticalReserve,
+                        workerClientInstanceId),
+                    gateAlreadyHeld: true,
+                    cancellationToken);
+            }
+
+            return new CampaignTacticalAssignmentRecoveryView(
+                releasedAssignmentIds.Count,
+                releasedAssignmentIds,
+                replacementSchedule);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<CampaignSchedulerView> ScheduleFidelityCoreAsync(
         CampaignId campaignId,
         CampaignSchedulerRequest request,
@@ -1498,7 +1701,8 @@ public sealed class CampaignCoordinator(
                         liveAssignments,
                         workers,
                         plannedWorkerLoads,
-                        destinationCapacity);
+                        destinationCapacity,
+                        request.PreferredTacticalWorkerClientInstanceId);
                     if (islandWorker is null)
                     {
                         continue;
@@ -1814,12 +2018,43 @@ public sealed class CampaignCoordinator(
                 CampaignBlobPurpose.TacticalCheckpoint,
                 $"assignment:{assignment.AssignmentId}/",
                 cancellationToken);
-            if (checkpoint is not null)
+            if (checkpoint is not null
+                && await IsUsableTacticalCheckpointAsync(
+                    checkpoint,
+                    assignment,
+                    cancellationToken))
             {
                 return checkpoint;
             }
         }
         return null;
+    }
+
+    private async Task<bool> IsUsableTacticalCheckpointAsync(
+        CampaignBlobReference checkpoint,
+        AssignmentState assignment,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var content = await journal.ReadBlobAsync(checkpoint.Sha256, cancellationToken);
+            return JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(
+                content,
+                CheckpointJsonOptions) is { Unit: not null } parsed
+                && string.Equals(
+                    parsed.AssignmentId,
+                    $"assignment:{assignment.AssignmentId}",
+                    StringComparison.Ordinal)
+                && parsed.AuthorityEpoch == assignment.AuthorityEpoch.Value
+                && string.Equals(
+                    parsed.Unit.EntityId,
+                    $"unit:crimean-tom:{assignment.EntityId}",
+                    StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     private async Task<CampaignBlobReference?> FindLatestAssignmentCheckpointAsync(
@@ -2069,6 +2304,93 @@ public sealed class CampaignCoordinator(
             members);
     }
 
+    private async Task<CampaignIslandMigrationResult?> TryReplayCommittedMigrationAsync(
+        CampaignState state,
+        EntityId requestedEntityId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var causalCommandId = new CommandId(KeyedGuid(
+            state.Metadata.CampaignId.Value,
+            $"migrate-island-{idempotencyKey}"));
+        var events = await journal.ReadEventsAsync(
+            state.Metadata.CampaignId,
+            CommitPosition.Origin,
+            cancellationToken);
+        var committed = events.SingleOrDefault(item => item.CausalCommandId == causalCommandId);
+        if (committed is null)
+        {
+            return null;
+        }
+        if (committed.Data is not TacticalIslandMigratedEvent migrated
+            || migrated.Migration.Members.All(item => item.EntityId != requestedEntityId))
+        {
+            throw new CampaignStoreConflict(
+                "idempotency-conflict",
+                "The migration idempotency key was already committed for another operation or island.");
+        }
+
+        var destinationAssignments = migrated.Migration.Members
+            .Select(member => state.Assignments.TryGetValue(member.DestinationAssignmentId, out var assignment)
+                ? assignment
+                : null)
+            .ToArray();
+        if (destinationAssignments.Any(item => item is null))
+        {
+            throw new CampaignStoreConflict(
+                "island-migration-incomplete",
+                "A committed migration references a destination assignment that is no longer canonical.");
+        }
+        var destinationWorkers = destinationAssignments
+            .Select(item => item!.WorkerClientInstanceId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (destinationWorkers.Length != 1 || string.IsNullOrWhiteSpace(destinationWorkers[0]))
+        {
+            throw new CampaignStoreConflict(
+                "island-worker-affinity-conflict",
+                "A committed migration does not retain one destination worker affinity.");
+        }
+
+        var destinationStillCurrent = migrated.Migration.Members.All(member =>
+            state.Assignments.TryGetValue(member.SourceAssignmentId, out var source)
+            && source.Lifecycle == AssignmentLifecycle.Released
+            && state.Assignments.TryGetValue(member.DestinationAssignmentId, out var destination)
+            && destination.EntityId == member.EntityId
+            && destination.AuthorityEpoch == member.DestinationAuthorityEpoch
+            && destination.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+            && destination.Lifecycle == AssignmentLifecycle.Active
+            && !state.Assignments.Values.Any(candidate =>
+                candidate.EntityId == member.EntityId
+                && candidate.Role == CrimeanTom.Campaign.Contracts.AssignmentRole.Primary
+                && candidate.Lifecycle != AssignmentLifecycle.Released
+                && candidate.AuthorityEpoch.Value > member.DestinationAuthorityEpoch.Value));
+        var phase = "migration-superseded";
+        if (destinationStillCurrent)
+        {
+            var plan = await TryReconstructMigratedPlanAsync(
+                state,
+                migrated.Migration.Members.Select(item => item.EntityId).OrderBy(item => item).ToArray(),
+                destinationAssignments.Select(item => item!).OrderBy(item => item.EntityId).ToArray(),
+                cancellationToken)
+                ?? throw new CampaignStoreConflict(
+                    "island-migration-incomplete",
+                    "A committed migration could not reconstruct its current destination authority.");
+            phase = QueueActivationGrants(state, plan, idempotencyKey)
+                ? "activation-granted"
+                : "migration-committed-grants-pending";
+        }
+
+        return new CampaignIslandMigrationResult(
+            destinationWorkers[0],
+            committed.CommitPosition.Value,
+            phase,
+            migrated.Migration.Members
+                .Select(item => item.DestinationAssignmentId.ToString())
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray());
+    }
+
     private static bool MatchesPromotedDestinations(
         IReadOnlyList<TacticalIslandMigrationMember> members,
         IReadOnlyDictionary<EntityId, AssignmentState> liveByEntity)
@@ -2221,9 +2543,10 @@ public sealed class CampaignCoordinator(
                 _ = QueueActivationGrants(
                     state,
                     migrated,
-                    staged.IdempotencyKey.Length > 0
-                        ? staged.IdempotencyKey
-                        : $"activate-{assignmentId}-{staged.AuthorityEpoch}");
+                    ResolveMigrationOperationIdempotencyKey(
+                        staged.IdempotencyKey,
+                        assignment.EntityId,
+                        $"activate-{assignmentId}-{staged.AuthorityEpoch}"));
                 return;
             }
             throw new CampaignStoreConflict(
@@ -2254,9 +2577,10 @@ public sealed class CampaignCoordinator(
                 _ = QueueActivationGrants(
                     state,
                     plan,
-                    staged.IdempotencyKey.Length > 0
-                        ? staged.IdempotencyKey
-                        : $"activate-{assignmentId}-{staged.AuthorityEpoch}");
+                    ResolveMigrationOperationIdempotencyKey(
+                        staged.IdempotencyKey,
+                        assignment.EntityId,
+                        $"activate-{assignmentId}-{staged.AuthorityEpoch}"));
             }
 
             return;
@@ -2290,10 +2614,14 @@ public sealed class CampaignCoordinator(
             return;
         }
 
+        var operationIdempotencyKey = ResolveMigrationOperationIdempotencyKey(
+            staged.IdempotencyKey,
+            assignment.EntityId,
+            $"migrate-{assignmentId}-{staged.AuthorityEpoch}");
         var orchestration = CreateMigrationOrchestrationLease(
             campaignId,
             plan,
-            staged.IdempotencyKey.Length > 0 ? staged.IdempotencyKey : $"migrate-{assignmentId}-{staged.AuthorityEpoch}");
+            operationIdempotencyKey);
         await EnsureMigrationCooldownAsync(state, cancellationToken);
         if (!_migrationAdmission.IsHeld(orchestration) && !TryBeginMigrationOrchestration(orchestration))
         {
@@ -2304,8 +2632,24 @@ public sealed class CampaignCoordinator(
             state,
             plan,
             orchestration,
-            staged.IdempotencyKey.Length > 0 ? staged.IdempotencyKey : $"migrate-{assignmentId}-{staged.AuthorityEpoch}",
+            operationIdempotencyKey,
             cancellationToken);
+    }
+
+    private static string ResolveMigrationOperationIdempotencyKey(
+        string stagedIdempotencyKey,
+        EntityId entityId,
+        string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(stagedIdempotencyKey))
+        {
+            return fallback;
+        }
+
+        var stagingSuffix = $"-{entityId}-stage";
+        return stagedIdempotencyKey.EndsWith(stagingSuffix, StringComparison.Ordinal)
+            ? stagedIdempotencyKey[..^stagingSuffix.Length]
+            : stagedIdempotencyKey;
     }
 
     private async Task<CampaignIslandMigrationResult> CommitMigrationAndGrantAsync(
@@ -3548,7 +3892,8 @@ public sealed class CampaignCoordinator(
         IReadOnlyList<AssignmentState> liveAssignments,
         IReadOnlyList<CampaignSessionSnapshot> workers,
         IReadOnlyDictionary<string, int> plannedWorkerLoads,
-        int destinationCapacity)
+        int destinationCapacity,
+        string? preferredWorkerClientInstanceId = null)
     {
         var existingOwners = liveAssignments
             .Select(assignment => assignment.WorkerClientInstanceId)
@@ -3566,6 +3911,11 @@ public sealed class CampaignCoordinator(
             .Distinct()
             .Count();
         return workers
+            .Where(worker => string.IsNullOrWhiteSpace(preferredWorkerClientInstanceId)
+                || string.Equals(
+                    worker.ClientInstanceId,
+                    preferredWorkerClientInstanceId,
+                    StringComparison.Ordinal))
             .Where(worker => existingOwners.Length == 0 || string.Equals(
                 worker.ClientInstanceId,
                 existingOwners[0],
@@ -3898,7 +4248,7 @@ public sealed class CampaignCoordinator(
         var resources = string.Join('|', workers
             .OrderBy(worker => worker.ClientInstanceId, StringComparer.Ordinal)
             .Select(worker => $"{worker.ClientInstanceId}:{worker.WorkerKind},{worker.PlayerSessionBound},{worker.OwnedMaterializedEntityCount},{worker.OwnedActiveEntityCount},{worker.OwnedRetainedSuspendedEntityCount},{worker.OwnedRecoveryRequiredEntityCount},{worker.OwnedOperationalEntityCount},{worker.TacticalEntityCapacity},{worker.TacticalReserveCapacity},{worker.OperationalEntityCapacity},{worker.OperationalReserveCapacity},{worker.Health},{worker.Eligibility}"));
-        var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|resources={resources}|coupling={coupling}";
+        var material = $"observed={observed}|controlled={controlled}|health={request.Health}|eligibility={request.Eligibility}|capacity={request.TacticalEntityCapacity}|reserve={request.TacticalReserveCapacity}|backlog={request.BacklogDepth}|preferred-worker={request.PreferredTacticalWorkerClientInstanceId}|resources={resources}|coupling={coupling}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
 
@@ -4010,6 +4360,15 @@ public sealed record CampaignQuiesceRequest(
     string GameEntityId,
     long ExpectedGameRevision,
     string IdempotencyKey);
+
+public sealed record CampaignTacticalAssignmentRecoveryRequest(
+    IReadOnlyList<string> MissingAssignmentIds,
+    IReadOnlyList<string> ControlledAssignmentIds);
+
+public sealed record CampaignTacticalAssignmentRecoveryView(
+    int ReleasedAssignmentCount,
+    IReadOnlyList<string> ReleasedAssignmentIds,
+    CampaignSchedulerView? ReplacementSchedule);
 
 public sealed record CampaignBootstrapResult(
     string CampaignId,

@@ -130,6 +130,14 @@ The folders separate evidence from design commitments:
 40. [Strategic AI operational packages](evidence/strategic-ai-operational-packages-v18-2026-08-24.md)
     records algorithm-v18's durable role/phase package state, full 4K package
     composition, recovery-latch defect fix, performance, and cold recovery.
+41. [Automatic tactical restart recovery](evidence/automatic-tactical-restart-recovery-2026-08-24.md)
+    records game-session-aware missing-object detection, stale-epoch fencing,
+    checkpoint-backed replacement scheduling, migration replay safety, and the
+    full real-host/companion protocol qualification.
+42. [Map-first campaign proxy POC](evidence/map-first-campaign-proxy-poc-2026-08-24.md)
+    records full friendly/contact map reconciliation, lazy terrain-safe physical
+    selection, the off-window memory failure, and the remaining strategic-map
+    and campaign-player-task-force gaps.
 
 ## Evidence labels
 

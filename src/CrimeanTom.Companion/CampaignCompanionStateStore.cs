@@ -223,6 +223,43 @@ public sealed class CampaignCompanionStateStore
                 : throw new InvalidDataException("The durable game entity revision is missing or invalid.");
     }
 
+    public async Task SaveMaterializedGameSessionAsync(
+        string assignmentId,
+        string gameSessionId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(gameSessionId) || gameSessionId.Length > 128)
+        {
+            throw new InvalidDataException("A bounded game session id is required.");
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.game-session"),
+                Encoding.UTF8.GetBytes(gameSessionId),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public string? TryReadMaterializedGameSession(string assignmentId)
+    {
+        var path = Path.Combine(
+            _root,
+            "assignments",
+            $"{SafeKey(assignmentId)}.game-session");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+        var value = File.ReadAllText(path).Trim();
+        return string.IsNullOrWhiteSpace(value) || value.Length > 128 ? null : value;
+    }
+
     public async Task AcknowledgeOutboundAsync(string key, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);

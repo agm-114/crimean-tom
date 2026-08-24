@@ -906,6 +906,19 @@ public sealed class CompanionControlIntegrationTests
             await AssertUnauthorizedAsync(wrongTokenResponse, testTimeout.Token);
 
             var token = (await File.ReadAllTextAsync(tokenPath, testTimeout.Token)).Trim();
+            using (var companionHealth = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/health",
+                testTimeout.Token))
+            {
+                var campaignTransport = companionHealth.RootElement.GetProperty("campaignTransport");
+                Assert.True(campaignTransport.GetProperty("enabled").GetBoolean());
+                Assert.Equal(campaignId, campaignTransport.GetProperty("campaignId").GetString());
+                Assert.Equal(playerCoalitionId, campaignTransport.GetProperty("playerCoalitionId").GetString());
+                Assert.Equal(campaignGrpcUrl, campaignTransport.GetProperty("grpcUrl").GetString());
+                Assert.Equal(campaignHttpUrl, campaignTransport.GetProperty("httpUrl").GetString());
+            }
             AssertAnonymousPipeAccessDenied(gamePipeName);
             var couplingState = new FakeTacticalCouplingState();
             var tacticalCheckpointState = new FakeTacticalCheckpointState();
@@ -5246,10 +5259,18 @@ public sealed class CompanionControlIntegrationTests
             $"/control/campaigns/{campaignId}/migrate-tactical-island",
             new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-1" },
             cancellationToken);
-        Assert.True(
-            migrate.IsSuccessStatusCode,
-            await migrate.Content.ReadAsStringAsync(cancellationToken));
-        using var migrateBody = JsonDocument.Parse(await migrate.Content.ReadAsStringAsync(cancellationToken));
+        var migrateContent = await migrate.Content.ReadAsStringAsync(cancellationToken);
+        if (!migrate.IsSuccessStatusCode)
+        {
+            using var diagnosticView = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                cancellationToken);
+            var diagnosticContent = await diagnosticView.Content.ReadAsStringAsync(cancellationToken);
+            Assert.Fail(
+                $"Primary island migration failed: {(int)migrate.StatusCode} {migrate.StatusCode}: "
+                + $"{migrateContent}. Campaign view: {diagnosticContent}");
+        }
+        using var migrateBody = JsonDocument.Parse(migrateContent);
         Assert.Equal("staging-queued", migrateBody.RootElement.GetProperty("phase").GetString());
         Assert.Equal(destinationClientId, migrateBody.RootElement.GetProperty("destinationClientInstanceId").GetString());
 
@@ -5363,7 +5384,6 @@ public sealed class CompanionControlIntegrationTests
             grant.ActivationGrant.IdempotencyKey);
         AssertOwnedMutationRecoveryContracts();
         var originalCommitPosition = grant.ActivationGrant.MigrationCommitPosition;
-        var originalHash = grant.ActivationGrant.StagedCheckpointSha256;
         await WaitForCommittedMigrationMarkerAsync(
             Path.Combine(runDirectory, "campaign-companion"),
             originalCommitPosition,
@@ -5498,16 +5518,35 @@ public sealed class CompanionControlIntegrationTests
         Assert.True(destinationRestart.ExitCode == 0, destinationRestart.FormatFailure("destination-restart"));
         destinationToken = (await File.ReadAllTextAsync(destinationTokenPath, cancellationToken)).Trim();
         await WaitForCampaignSessionCountAsync(campaignClient, 2, cancellationToken);
-        using var replayResources = await GetAuthorizedJsonAsync(
-            new HttpClient(new HttpClientHandler { UseProxy = false })
-            {
-                BaseAddress = new Uri(destinationControlUrl),
-                Timeout = TimeSpan.FromSeconds(10),
-            },
+        var recoveredRuntimeResource = await WaitForActiveOwnedSurfaceResourceAsync(
+            destinationControlUrl,
             destinationToken,
-            "/game/mutations/surface/resources",
+            queued.Assignment.EntityId,
             cancellationToken);
-        Assert.Equal(0, replayResources.RootElement.GetProperty("ownedRecordCount").GetInt32());
+        using var recoveredDestinationView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("workerClientInstanceId").GetString() == destinationClientId
+                && $"assignment:{item.GetProperty("assignmentId").GetString()}"
+                    == recoveredRuntimeResource.AssignmentId
+                && item.GetProperty("authorityEpoch").GetInt64()
+                    == recoveredRuntimeResource.AuthorityEpoch
+                && item.GetProperty("lifecycle").GetString() == "Active"),
+            cancellationToken);
+        var recoveredDestinationAssignment = Assert.Single(
+            recoveredDestinationView.RootElement.GetProperty("assignments").EnumerateArray(),
+            item => item.GetProperty("entityId").GetString() == primaryEntityId
+                && item.GetProperty("workerClientInstanceId").GetString() == destinationClientId
+                && $"assignment:{item.GetProperty("assignmentId").GetString()}"
+                    == recoveredRuntimeResource.AssignmentId
+                && item.GetProperty("authorityEpoch").GetInt64()
+                    == recoveredRuntimeResource.AuthorityEpoch
+                && item.GetProperty("lifecycle").GetString() == "Active");
+        Assert.Equal(
+            recoveredRuntimeResource.AuthorityEpoch,
+            recoveredDestinationAssignment.GetProperty("authorityEpoch").GetInt64());
 
         using var stopDestinationAfterReplay = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var stoppedDestinationAfterReplay = await RunControlScriptAsync(
@@ -5566,11 +5605,10 @@ public sealed class CompanionControlIntegrationTests
             cancellationToken);
         Assert.True(
             repeated.IsSuccessStatusCode,
-            await repeated.Content.ReadAsStringAsync(cancellationToken));
+            $"Committed migration replay failed after automatic assignment recovery: "
+            + await repeated.Content.ReadAsStringAsync(cancellationToken));
         using var repeatedBody = JsonDocument.Parse(await repeated.Content.ReadAsStringAsync(cancellationToken));
-        Assert.Contains(
-            repeatedBody.RootElement.GetProperty("phase").GetString(),
-            new[] { "activation-granted", "migration-committed-grants-pending" });
+        Assert.Equal("migration-superseded", repeatedBody.RootElement.GetProperty("phase").GetString());
         Assert.Equal(originalCommitPosition, repeatedBody.RootElement.GetProperty("migrationCommitPosition").GetInt64());
 
         await AssertCampaignMigrationCooldownBlocksSecondIslandAsync(
@@ -5639,50 +5677,32 @@ public sealed class CompanionControlIntegrationTests
 
         using var recoveredRetry = await campaignClient.PostAsJsonAsync(
             $"/control/campaigns/{campaignId}/migrate-tactical-island",
-            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-restart-1" },
+            new { campaignId, canonicalEntityId = primaryEntityId, idempotencyKey = "migrate-island-1" },
             cancellationToken);
         Assert.True(
             recoveredRetry.IsSuccessStatusCode,
-            await recoveredRetry.Content.ReadAsStringAsync(cancellationToken));
+            $"Committed migration replay failed after coordinator restart: "
+            + await recoveredRetry.Content.ReadAsStringAsync(cancellationToken));
         using var recoveredRetryBody = JsonDocument.Parse(
             await recoveredRetry.Content.ReadAsStringAsync(cancellationToken));
-        Assert.Contains(
-            recoveredRetryBody.RootElement.GetProperty("phase").GetString(),
-            new[] { "activation-granted", "migration-committed-grants-pending" });
+        Assert.Equal(
+            "migration-superseded",
+            recoveredRetryBody.RootElement.GetProperty("phase").GetString());
         Assert.Equal(
             originalCommitPosition,
             recoveredRetryBody.RootElement.GetProperty("migrationCommitPosition").GetInt64());
 
-        var recoveredGrant = await WaitForServicePayloadAsync(
-            recoveredCall,
-            item => item.PayloadCase == ServiceFrame.PayloadOneofCase.ActivationGrant
-                && item.ActivationGrant.AssignmentId == queued.Assignment.AssignmentId
-                && item.ActivationGrant.MigrationCommitPosition == originalCommitPosition,
+        using var postRestartRecoveredView = await WaitForCampaignViewAsync(
+            campaignClient,
+            campaignId,
+            root => root.GetProperty("assignments").EnumerateArray().Any(item =>
+                $"assignment:{item.GetProperty("assignmentId").GetString()}"
+                    == recoveredRuntimeResource.AssignmentId
+                && item.GetProperty("authorityEpoch").GetInt64()
+                    == recoveredRuntimeResource.AuthorityEpoch
+                && item.GetProperty("role").GetString() == "Primary"
+                && item.GetProperty("lifecycle").GetString() == "Active"),
             cancellationToken);
-        Assert.Equal(originalHash, recoveredGrant.ActivationGrant.StagedCheckpointSha256);
-        Assert.Equal(originalCommitPosition, recoveredGrant.ActivationGrant.MigrationCommitPosition);
-
-        await recoveredCall.RequestStream.WriteAsync(new CompanionFrame
-        {
-            Sequence = 2,
-            FinalCheckpointStaged = new FinalCheckpointStaged
-            {
-                AssignmentId = staging.StageFinalCheckpoint.DestinationAssignmentId,
-                EntityId = staging.StageFinalCheckpoint.EntityId,
-                AuthorityEpoch = staging.StageFinalCheckpoint.DestinationAuthorityEpoch,
-                RealizedRevision = 3,
-                StagedCheckpointSha256 = staging.StageFinalCheckpoint.CheckpointSha256,
-                Ready = true,
-                IdempotencyKey = staging.StageFinalCheckpoint.IdempotencyKey,
-            },
-        });
-        var resentGrant = await WaitForServicePayloadAsync(
-            recoveredCall,
-            item => item.PayloadCase == ServiceFrame.PayloadOneofCase.ActivationGrant
-                && item.ActivationGrant.AssignmentId == queued.Assignment.AssignmentId
-                && item.ActivationGrant.MigrationCommitPosition == originalCommitPosition,
-            cancellationToken);
-        Assert.Equal(originalHash, resentGrant.ActivationGrant.StagedCheckpointSha256);
 
         await AssertCampaignMigrationCooldownBlocksSecondIslandAsync(
             campaignClient,
@@ -6244,6 +6264,42 @@ public sealed class CompanionControlIntegrationTests
             if (File.Exists(grantPath))
             {
                 return;
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task<(string AssignmentId, long AuthorityEpoch)> WaitForActiveOwnedSurfaceResourceAsync(
+        string controlUrl,
+        string token,
+        string entityId,
+        CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            BaseAddress = new Uri(controlUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+        while (true)
+        {
+            using var response = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/mutations/surface/resources",
+                cancellationToken);
+            var active = response.RootElement.GetProperty("entities").EnumerateArray()
+                .FirstOrDefault(item =>
+                    item.GetProperty("entityId").GetString() == entityId
+                    && string.Equals(
+                        item.GetProperty("lifecycleState").GetString(),
+                        "active",
+                        StringComparison.OrdinalIgnoreCase));
+            if (active.ValueKind != JsonValueKind.Undefined)
+            {
+                return (
+                    active.GetProperty("assignmentId").GetString()!,
+                    active.GetProperty("authorityEpoch").GetInt64());
             }
 
             await Task.Delay(25, cancellationToken);

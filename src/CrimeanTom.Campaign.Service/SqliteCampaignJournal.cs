@@ -1609,6 +1609,22 @@ public sealed class SqliteCampaignJournal
             }
             yield break;
         }
+        if (campaignEvent.Data is TacticalIslandMigratedEvent migratedIsland)
+        {
+            foreach (var member in migratedIsland.Migration.Members)
+            {
+                yield return (
+                    CampaignSubject.Assignment(member.SourceAssignmentId),
+                    member.ExpectedSourceAssignmentRevision.Next());
+                yield return (
+                    CampaignSubject.Assignment(member.DestinationAssignmentId),
+                    member.ExpectedDestinationAssignmentRevision.Next());
+                yield return (
+                    CampaignSubject.Entity(member.EntityId),
+                    member.ExpectedEntityRevision.Next());
+            }
+            yield break;
+        }
         if (campaignEvent.Data is not CampaignSimulatedEvent simulation)
         {
             yield break;

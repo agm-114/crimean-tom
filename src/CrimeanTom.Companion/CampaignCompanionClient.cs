@@ -284,6 +284,7 @@ public sealed class CampaignCompanionClient(
         {
             var nextStateSyncAt = DateTimeOffset.UtcNow;
             var nextRenderProxySyncAt = DateTimeOffset.UtcNow;
+            var nextAssignmentRecoveryAt = DateTimeOffset.UtcNow;
             while (!heartbeatToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
@@ -296,6 +297,7 @@ public sealed class CampaignCompanionClient(
                     heartbeatCapabilities = current;
                     var couplingRelationships = await ReadCouplingRelationshipsAsync(heartbeatToken);
                     resources = await ReadOwnedSurfaceResourcesAsync(heartbeatToken);
+                    await RecordMaterializedGameSessionsAsync(resources, heartbeatToken);
                     var workerHealth = CompanionWorkerHealthClassifier.Classify(
                         current,
                         resources,
@@ -384,6 +386,28 @@ public sealed class CampaignCompanionClient(
                     }
                 }
 
+                if (resources is not null && DateTimeOffset.UtcNow >= nextAssignmentRecoveryAt)
+                {
+                    nextAssignmentRecoveryAt = DateTimeOffset.UtcNow + RenderProxySyncInterval;
+                    try
+                    {
+                        await RecoverMissingActiveAssignmentsFromProjectionAsync(
+                            resources,
+                            token,
+                            heartbeatToken);
+                    }
+                    catch (OperationCanceledException) when (heartbeatToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception exception)
+                    {
+                        logger.LogWarning(
+                            exception,
+                            "Missing local tactical-assignment recovery failed; campaign authority remains canonical.");
+                    }
+                }
+
                 if (resources is not null
                     && heartbeatCapabilities is not null
                     && DateTimeOffset.UtcNow >= nextRenderProxySyncAt)
@@ -418,10 +442,7 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
-        if (!capabilities.SupportedCommands.Contains(
-                GameCommandTypes.ReconcileSurfaceRenderProxies,
-                StringComparer.Ordinal)
-            || string.IsNullOrWhiteSpace(capabilities.PlayerTaskforceId))
+        if (string.IsNullOrWhiteSpace(capabilities.PlayerTaskforceId))
         {
             return;
         }
@@ -488,27 +509,37 @@ public sealed class CampaignCompanionClient(
             cancellationToken);
         locallyTacticalEntities.Remove(string.Empty);
 
+        if (!capabilities.SupportedCommands.Contains(
+            GameCommandTypes.ReconcileSurfaceRenderProxies,
+            StringComparer.Ordinal))
+        {
+            return;
+        }
+
         var entities = root.GetProperty("friendlyEntities").EnumerateArray().ToArray();
+        var contacts = root.TryGetProperty("contacts", out var contactElement)
+            ? contactElement.EnumerateArray().ToArray()
+            : [];
 
         SurfaceRenderProxySpecPayload[] proxies = string.IsNullOrWhiteSpace(
                 root.GetProperty("coalitionId").GetString())
             ? Array.Empty<SurfaceRenderProxySpecPayload>()
             : entities
-                .Where(entity => string.Equals(
-                        entity.GetProperty("simulationDomain").GetString(),
-                        "Maritime",
-                        StringComparison.Ordinal)
-                    && string.Equals(
+                .Where(entity => !string.Equals(
                         entity.GetProperty("lifecycle").GetString(),
-                        "Deployed",
+                        "Destroyed",
                         StringComparison.Ordinal)
                     && !locallyTacticalEntities.Contains(
                         entity.GetProperty("entityId").GetString() ?? string.Empty))
                 .Select(entity => CreateRenderProxySpec(entity, capabilities))
                 .Where(spec => spec is not null)
                 .Cast<SurfaceRenderProxySpecPayload>()
+                .Concat(contacts
+                    .Select(CreateContactRenderProxySpec)
+                    .Where(spec => spec is not null)
+                    .Cast<SurfaceRenderProxySpecPayload>())
                 .OrderBy(spec => spec.EntityId, StringComparer.Ordinal)
-                .Take(512)
+                .Take(4_096)
                 .ToArray();
 
         await EnsureRenderProxyMutationsArmedAsync(capabilities, cancellationToken);
@@ -530,6 +561,140 @@ public sealed class CampaignCompanionClient(
             reconciled.CreatedCount,
             reconciled.UpdatedCount,
             reconciled.SuspendedCount);
+    }
+
+    private async Task RecoverMissingActiveAssignmentsFromProjectionAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateCampaignHttpClient(serviceToken);
+        client.Timeout = TimeSpan.FromSeconds(5);
+        using var response = await client.GetAsync(
+            $"/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/projection",
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(
+            stream,
+            cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        if (!string.Equals(
+            root.GetProperty("campaignId").GetString(),
+            options.CampaignId,
+            StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Tactical recovery view is bound to another campaign.");
+        }
+
+        var activeAssignmentEntities = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var assignment in root.GetProperty("assignments").EnumerateArray())
+        {
+            var lifecycle = assignment.GetProperty("lifecycle").GetString() ?? string.Empty;
+            var role = assignment.GetProperty("role").GetString() ?? string.Empty;
+            if (lifecycle != "Active" || role is not ("Primary" or "Shadow"))
+            {
+                continue;
+            }
+            var assignmentId = assignment.GetProperty("assignmentId").GetString() ?? string.Empty;
+            if (!assignmentId.StartsWith("assignment:", StringComparison.Ordinal))
+            {
+                assignmentId = $"assignment:{assignmentId}";
+            }
+            activeAssignmentEntities[assignmentId] =
+                assignment.GetProperty("entityId").GetString() ?? string.Empty;
+        }
+
+        await RecoverMissingActiveAssignmentsAsync(
+            resources,
+            activeAssignmentEntities,
+            serviceToken,
+            cancellationToken);
+    }
+
+    private async Task RecoverMissingActiveAssignmentsAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        IReadOnlyDictionary<string, string> activeAssignmentEntities,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        var materializedAssignmentIds = resources.Entities
+            .Select(item => item.AssignmentId)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.Ordinal);
+        var currentGameSessionId = CurrentGameSessionId();
+        var missingAssignmentIds = activeAssignmentEntities.Keys
+            .Where(assignmentId => !materializedAssignmentIds.Contains(assignmentId))
+            .Where(assignmentId => stateStore.TryReadMaterializedGameSession(assignmentId) is { } priorSessionId
+                && !string.Equals(priorSessionId, currentGameSessionId, StringComparison.Ordinal))
+            .OrderBy(assignmentId => assignmentId, StringComparer.Ordinal)
+            .ToArray();
+        if (missingAssignmentIds.Length == 0)
+        {
+            return;
+        }
+
+        var controlledAssignmentIds = new List<string>();
+        foreach (var assignmentId in missingAssignmentIds)
+        {
+            try
+            {
+                if (stateStore.ReadAssignment(assignmentId).FocusAfterActivation)
+                {
+                    controlledAssignmentIds.Add(assignmentId);
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // A server-side recovery remains safe without the optional local focus hint.
+            }
+        }
+
+        using var client = CreateCampaignHttpClient(serviceToken);
+        client.Timeout = TimeSpan.FromSeconds(10);
+        using var response = await client.PostAsJsonAsync(
+            $"/control/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/recover-missing",
+            new
+            {
+                missingAssignmentIds,
+                controlledAssignmentIds,
+            },
+            JsonOptions,
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Tactical assignment recovery returned {(int)response.StatusCode} ({response.StatusCode}): {detail}",
+                inner: null,
+                response.StatusCode);
+        }
+        logger.LogWarning(
+            "Reported {Count} active campaign assignments missing from the local game; stale authority was released and replacement scheduling requested.",
+            missingAssignmentIds.Length);
+    }
+
+    private async Task RecordMaterializedGameSessionsAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        CancellationToken cancellationToken)
+    {
+        var gameSessionId = CurrentGameSessionId();
+        foreach (var assignmentId in resources.Entities
+            .Select(item => item.AssignmentId)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal))
+        {
+            if (!string.Equals(
+                stateStore.TryReadMaterializedGameSession(assignmentId),
+                gameSessionId,
+                StringComparison.Ordinal))
+            {
+                await stateStore.SaveMaterializedGameSessionAsync(
+                    assignmentId,
+                    gameSessionId,
+                    cancellationToken);
+            }
+        }
     }
 
     private async Task<OwnedSurfaceResourceStatePayload> ContainStaleOwnedResourcesAsync(
@@ -598,25 +763,51 @@ public sealed class CampaignCompanionClient(
         var profile = capabilities.OwnedSurfaceMaterializationProfiles.FirstOrDefault(item =>
             string.Equals(item.UnitTypeId, unitTypeId, StringComparison.Ordinal)
             && string.Equals(item.LoadoutId, loadoutId, StringComparison.Ordinal));
-        if (profile is null)
-        {
-            return null;
-        }
         var entityId = entity.GetProperty("entityId").GetString() ?? string.Empty;
         return Guid.TryParseExact(entityId, "N", out _)
             ? new SurfaceRenderProxySpecPayload
             {
                 EntityId = $"unit:crimean-tom:{entityId}",
                 Name = entity.GetProperty("name").GetString() ?? entityId,
-                UnitTypeId = profile.UnitTypeId,
-                VariantId = profile.VariantId,
-                LoadoutId = profile.LoadoutId,
+                Relationship = "Friendly",
+                Classification = entity.GetProperty("simulationDomain").GetString() ?? string.Empty,
+                Lifecycle = entity.GetProperty("lifecycle").GetString() ?? string.Empty,
+                SimulationDomain = entity.GetProperty("simulationDomain").GetString() ?? string.Empty,
+                UnitTypeId = unitTypeId,
+                VariantId = profile?.VariantId ?? "Default",
+                LoadoutId = profile?.LoadoutId ?? loadoutId,
                 Latitude = entity.GetProperty("latitudeMicrodegrees").GetInt32() / 1_000_000d,
                 Longitude = entity.GetProperty("longitudeMicrodegrees").GetInt32() / 1_000_000d,
                 HeadingDegrees = entity.GetProperty("headingMilliDegrees").GetInt32() / 1_000d,
                 CampaignTelegraph = entity.GetProperty("telegraph").GetInt32(),
             }
             : null;
+    }
+
+    private static SurfaceRenderProxySpecPayload? CreateContactRenderProxySpec(JsonElement contact)
+    {
+        const string trackPrefix = "track:";
+        var trackId = contact.GetProperty("trackId").GetString() ?? string.Empty;
+        if (!trackId.StartsWith(trackPrefix, StringComparison.Ordinal)
+            || trackId.Length <= trackPrefix.Length)
+        {
+            return null;
+        }
+        var classification = contact.GetProperty("classification").GetString() ?? "Unknown";
+        var confidence = contact.GetProperty("confidence").GetString() ?? "Unknown";
+        return new SurfaceRenderProxySpecPayload
+        {
+            EntityId = $"contact:crimean-tom:{trackId[trackPrefix.Length..]}",
+            Name = $"{classification} contact ({confidence})",
+            Relationship = "HostileContact",
+            Classification = classification,
+            Confidence = confidence,
+            UncertaintyRadiusMeters = contact.GetProperty("uncertaintyRadiusMeters").GetInt32(),
+            Lifecycle = "Detected",
+            SimulationDomain = classification,
+            Latitude = contact.GetProperty("latitudeMicrodegrees").GetInt32() / 1_000_000d,
+            Longitude = contact.GetProperty("longitudeMicrodegrees").GetInt32() / 1_000_000d,
+        };
     }
 
     private static string? BareCampaignEntityId(string entityId)
@@ -932,6 +1123,10 @@ public sealed class CampaignCompanionClient(
                 cancellationToken);
             var materialized = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitResultPayload>(result.ResultJson, JsonOptions)
                 ?? throw new InvalidDataException("Materialization result was empty.");
+            await stateStore.SaveMaterializedGameSessionAsync(
+                assignment.AssignmentId,
+                CurrentGameSessionId(),
+                cancellationToken);
 
             var checkpointResult = await RequireGameCommandAsync(
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
@@ -1470,10 +1665,21 @@ public sealed class CampaignCompanionClient(
 
         if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
-            await FocusAfterActivationAsync(
-                stateStore.ReadAssignment(grant.AssignmentId),
-                cancellationToken);
-            return;
+            var grantedAssignment = stateStore.ReadAssignment(grant.AssignmentId);
+            var grantedResources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+            if (grantedResources.Entities.Any(item =>
+                string.Equals(item.AssignmentId, grant.AssignmentId, StringComparison.Ordinal)
+                && item.AuthorityEpoch == grant.AuthorityEpoch
+                && string.Equals(item.EntityId, grant.EntityId, StringComparison.Ordinal)
+                && string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase)))
+            {
+                await stateStore.SaveMaterializedGameSessionAsync(
+                    grant.AssignmentId,
+                    CurrentGameSessionId(),
+                    cancellationToken);
+                await FocusAfterActivationAsync(grantedAssignment, cancellationToken);
+                return;
+            }
         }
 
         CampaignAssignmentLookup lookup;
@@ -1613,6 +1819,10 @@ public sealed class CampaignCompanionClient(
                     grant.AuthorityEpoch,
                     grant.MigrationCommitPosition,
                     cancellationToken);
+                await stateStore.SaveMaterializedGameSessionAsync(
+                    grant.AssignmentId,
+                    CurrentGameSessionId(),
+                    cancellationToken);
                 await FocusAfterActivationAsync(assignment, cancellationToken);
                 return;
             }
@@ -1641,6 +1851,10 @@ public sealed class CampaignCompanionClient(
                 grant.AuthorityEpoch,
                 grant.MigrationCommitPosition,
                 cancellationToken);
+            await stateStore.SaveMaterializedGameSessionAsync(
+                grant.AssignmentId,
+                CurrentGameSessionId(),
+                cancellationToken);
             await FocusAfterActivationAsync(assignment, cancellationToken);
             return;
         }
@@ -1661,6 +1875,10 @@ public sealed class CampaignCompanionClient(
             grant.AssignmentId,
             grant.AuthorityEpoch,
             grant.MigrationCommitPosition,
+            cancellationToken);
+        await stateStore.SaveMaterializedGameSessionAsync(
+            grant.AssignmentId,
+            CurrentGameSessionId(),
             cancellationToken);
         await FocusAfterActivationAsync(assignment, cancellationToken);
     }

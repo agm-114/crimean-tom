@@ -2493,6 +2493,15 @@ internal static class GameCommandDispatcher
                 || string.Equals(UnitId(item.UniqueID), requestedId, StringComparison.Ordinal)
                 || string.Equals($"object:{item.UniqueID}", requestedId, StringComparison.Ordinal))
             .ToArray();
+        string? proxyRequestError = null;
+        if (matches.Length == 0
+            && !RuntimeRenderProxyProvider.TryResolveVisiblePivot(requestedId, out _)
+            && !RuntimeRenderProxyProvider.TryRequestPhysicalProxy(requestedId, out proxyRequestError))
+        {
+            proxyRequestError = string.IsNullOrWhiteSpace(proxyRequestError)
+                ? "the campaign map projection could not create a physical visual proxy"
+                : proxyRequestError;
+        }
         if (matches.Length == 0
             && RuntimeRenderProxyProvider.TryResolveVisiblePivot(requestedId, out var proxyPivot))
         {
@@ -2518,7 +2527,10 @@ internal static class GameCommandDispatcher
         {
             return Failure(
                 ProtocolErrorCodes.AutomationPreconditionFailed,
-                $"Unit ID '{requestedId}' resolved to {matches.Length} live native objects and no unique visible render proxy.");
+                $"Unit ID '{requestedId}' resolved to {matches.Length} live native objects and no unique visible render proxy"
+                + (string.IsNullOrWhiteSpace(proxyRequestError)
+                    ? "."
+                    : $": {proxyRequestError}."));
         }
 
         var target = matches[0];

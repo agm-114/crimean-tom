@@ -22,6 +22,16 @@ internal static class RuntimeRenderProxyProvider
         return false;
     }
 
+    public static bool TryRequestPhysicalProxy(string requestedId, out string error)
+    {
+        if (!_useNativeFallback)
+        {
+            return RuntimeVisualRenderProxyAdapter.TryRequestPhysicalProxy(requestedId, out error);
+        }
+        error = "lazy visual proxies are unavailable while the native fallback is active";
+        return false;
+    }
+
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
         ReconcileSurfaceRenderProxiesRequestPayload request,
         string commandSessionId)

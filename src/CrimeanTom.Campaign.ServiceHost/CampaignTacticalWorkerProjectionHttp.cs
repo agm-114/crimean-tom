@@ -79,6 +79,20 @@ internal static class CampaignTacticalWorkerProjectionHttp
                     item.Heading.Value,
                     item.Telegraph))
                 .ToArray();
+        var contacts = coalition is null
+            ? []
+            : CampaignProjectionBuilder.ForCoalition(state, coalition.Value).Contacts
+                .Select(item => new CampaignTacticalContactView(
+                    item.TrackId,
+                    item.EstimatedCoordinate.LatitudeMicrodegrees,
+                    item.EstimatedCoordinate.LongitudeMicrodegrees,
+                    item.Confidence.ToString(),
+                    item.UncertaintyRadiusMeters,
+                    item.Classification.ToString(),
+                    item.ObservedAt.Quanta,
+                    item.Revision.Value))
+                .OrderBy(item => item.TrackId, StringComparer.Ordinal)
+                .ToArray();
 
         return new CampaignTacticalWorkerProjectionView(
             state.Metadata.CampaignId.ToString(),
@@ -92,7 +106,8 @@ internal static class CampaignTacticalWorkerProjectionHttp
                 item.AuthorityEpoch.Value,
                 item.Role.ToString(),
                 item.Lifecycle.ToString())).ToArray(),
-            friendly);
+            friendly,
+            contacts);
     }
 }
 
@@ -103,7 +118,8 @@ public sealed record CampaignTacticalWorkerProjectionView(
     long TimeQuanta,
     long Head,
     IReadOnlyList<CampaignTacticalAssignmentView> Assignments,
-    IReadOnlyList<CampaignTacticalFriendlyEntityView> FriendlyEntities);
+    IReadOnlyList<CampaignTacticalFriendlyEntityView> FriendlyEntities,
+    IReadOnlyList<CampaignTacticalContactView> Contacts);
 
 public sealed record CampaignTacticalAssignmentView(
     string AssignmentId,
@@ -123,3 +139,13 @@ public sealed record CampaignTacticalFriendlyEntityView(
     int LongitudeMicrodegrees,
     int HeadingMilliDegrees,
     int Telegraph);
+
+public sealed record CampaignTacticalContactView(
+    string TrackId,
+    int LatitudeMicrodegrees,
+    int LongitudeMicrodegrees,
+    string Confidence,
+    int UncertaintyRadiusMeters,
+    string Classification,
+    long ObservedAtQuanta,
+    long Revision);

@@ -134,18 +134,16 @@ play. This is not complete portable tactical state: magazines, sensors,
 formations, hosted aircraft, and broader entity families remain fenced or
 unsupported.
 
-The same local POC now projects other deployed friendly maritime entities into
-the player's Sea Power instance as presentation-only surface render proxies.
-The companion derives the coalition from its own current or prior
-Primary/Shadow assignments, reads the current trusted campaign view every two
-seconds, filters to supported materialization profiles, and excludes entities
-with active tactical authority on that instance. The preferred bridge provider
-uses only Sea Power's base-object presentation loader: it creates the vessel
-mesh hierarchy before a `Vessel`, systems, sensors, physics, unique game ID, or
-`ObjectsManager` registration exists. A separate map marker and label are added
-to Sea Power's drawing layer. The presentation record has no campaign authority,
-checkpoint, native simulation object, collisions, or velocity and is moved only
-from later campaign snapshots.
+The local POC now projects the authenticated coalition's complete non-destroyed
+friendly set plus coalition-filtered hostile intelligence tracks into Sea Power's
+drawing layer. It does not gate map presence on a native-materialization profile.
+Friendly records are map-only until selected; selection relocates the tactical
+terrain window and lazily asks Sea Power's base-object loader for a presentation
+hierarchy from the vessel, aircraft, or land folders. Contact records remain
+map-only and carry classification, confidence, and uncertainty without hostile
+true-state IDs or coordinates. A presentation record has no campaign authority,
+checkpoint, native simulation object, collisions, sensors, velocity, unique game
+ID, or `ObjectsManager` registration.
 
 The earlier fenced native-vessel representation remains as a sticky per-process
 fallback if presentation-only loading fails on a compatible game build. The
@@ -157,7 +155,8 @@ record and permits the model/map proxy to represent campaign truth again, so a
 disabled native record does not make the friendly disappear.
 
 Typed `focus-camera-on-unit` resolves either a unique live native Sea Power
-object or a unique visible presentation-only proxy. Proxy focus attaches
+object or a unique campaign map record. A map-only friendly is first selected,
+terrain-relocated, and physically realized; proxy focus then attaches
 `RenderPosition` to the proxy model root and returns the distinct postcondition
 `camera-focused-on-visual-render-proxy`; the pinned camera seam fingerprints the
 pivot switch and pivot readback methods before enabling the command.
@@ -169,13 +168,12 @@ stale horizon. This behavior was verified live with a campaign-owned small
 airbase on finalized Ramstein terrain.
 
 This is a trusted local projection path, not the final multiplayer transport.
-The companion currently derives it from the privileged diagnostic campaign
-view because it holds the shared service token. It includes only deployed
-friendlies in the Maritime domain whose exact unit/loadout has a Runtime Bridge
-profile; the current verified profile is the Knox-class surface vessel. It does
-not project hostile contacts, uncertain tracks, aircraft, submarines, hosted
-children, or arbitrary catalog types. Stale presentation records are hidden
-rather than treated as recoverable canonical state. If a fence was missed
+The companion currently derives it from a worker-specific coalition projection
+while holding the shared service token. Map records cover all friendly domains
+and hostile intelligence tracks; generic physical-model loading is only proven
+for selected installed catalog entries and is not portable tactical state.
+Uncertainty is present in protocol state but has no radius glyph yet. Stale
+presentation records are hidden rather than treated as recoverable canonical state. If a fence was missed
 across reconnect, the companion compares owned records with the current
 campaign assignment projection, briefly pauses the tactical mission, and
 suspends any locally active record whose assignment is no longer authoritative
@@ -206,7 +204,7 @@ in-memory presentation records and do not issue canonical campaign orders.
 | --- | --- |
 | SignalR/MessagePack realtime player UI | No SignalR dependency or hub; HTTP polling only |
 | Campaign-owned distributed Operational execution | Worker spawn/placement exists; simulation remains in ServiceHost |
-| Multi-family tactical materialization | One portable owned-surface family, six terrain-gated ground/installation profiles, plus visual-only friendly Knox model/map proxies with a fenced native fallback; aircraft, rotary-wing, and subsurface families are absent |
+| Multi-family tactical materialization | One portable owned-surface family and six terrain-gated ground/installation profiles; map-first friendlies/contacts span domains and selected installed models can load visually, but aircraft, rotary-wing, and subsurface owned simulation families remain absent |
 | Complete portable tactical state | Damage, fuel, magazine, sensor, formation, and hosted-aircraft application remain explicitly unsupported/fenced |
 | Hot Shadow convergence and failover | Cold checkpoint/Operational fallback only |
 | Packaged player application | Developer-run .NET/TypeScript projects; no clean-machine installer/updater |

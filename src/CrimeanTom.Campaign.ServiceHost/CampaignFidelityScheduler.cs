@@ -34,7 +34,8 @@ public sealed record CampaignSchedulerRequest(
     SimulationSourceEligibility Eligibility,
     int TacticalEntityCapacity,
     int BacklogDepth,
-    int TacticalReserveCapacity = 0);
+    int TacticalReserveCapacity = 0,
+    string? PreferredTacticalWorkerClientInstanceId = null);
 
 public sealed record CampaignSchedulerView(
     string Health,

@@ -26,10 +26,39 @@ internal static class RuntimeTacticalLocationAdapter
                 ProtocolErrorCodes.InvalidSession,
                 "The tactical-location session does not match the executing pipe session.");
         }
-        if (!double.IsFinite(request.Latitude)
-            || !double.IsFinite(request.Longitude)
-            || request.Latitude is < -88d or > 88d
-            || request.Longitude is < -180d or >= 180d)
+
+        return PrepareValidated(request.Latitude, request.Longitude);
+    }
+
+    public static MutationAdapterResult<PrepareTacticalLocationResultPayload>
+        PrepareForLocalMapSelection(double latitude, double longitude)
+    {
+        var resumeAfterPreparation = !GameTime.IsPaused();
+        if (resumeAfterPreparation)
+        {
+            GameTime.Pause();
+        }
+        try
+        {
+            return PrepareValidated(latitude, longitude);
+        }
+        finally
+        {
+            if (resumeAfterPreparation && GameTime.IsPaused())
+            {
+                GameTime.UnPause();
+            }
+        }
+    }
+
+    private static MutationAdapterResult<PrepareTacticalLocationResultPayload> PrepareValidated(
+        double latitude,
+        double longitude)
+    {
+        if (!double.IsFinite(latitude)
+            || !double.IsFinite(longitude)
+            || latitude is < -88d or > 88d
+            || longitude is < -180d or >= 180d)
         {
             return MutationAdapterResult<PrepareTacticalLocationResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
@@ -51,13 +80,13 @@ internal static class RuntimeTacticalLocationAdapter
 
         var beforeProbe = RuntimeTerrainPlacementAdapter.Probe(new()
         {
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
+            Latitude = latitude,
+            Longitude = longitude,
         });
         var previousCenter = Globals._currentCenterTile;
         var targetTile = Utils.longLatToTile(new GeoPosition(
-            request.Latitude,
-            request.Longitude,
+            latitude,
+            longitude,
             0d));
         var targetInsideActiveTerrainWindow = Math.Abs(targetTile.x - previousCenter.x) <= 1f
             && Math.Abs(targetTile.y - previousCenter.y) <= 1f;
@@ -67,8 +96,8 @@ internal static class RuntimeTacticalLocationAdapter
             {
                 Outcome = "already-ready",
                 Postcondition = "requested-tactical-location-terrain-already-finalized",
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
+                Latitude = latitude,
+                Longitude = longitude,
                 PreviousCenterTileX = (int)previousCenter.x,
                 PreviousCenterTileY = (int)previousCenter.y,
                 CurrentCenterTileX = (int)previousCenter.x,
@@ -80,7 +109,7 @@ internal static class RuntimeTacticalLocationAdapter
         var timer = Stopwatch.StartNew();
         try
         {
-            var target = new GeoPosition(request.Latitude, request.Longitude, 0d);
+            var target = new GeoPosition(latitude, longitude, 0d);
             var renderPosition = Singleton<RenderPosition>.Instance;
             var localBeforeRelocation = Utils.longLatToLocalV3(
                 target,
@@ -101,8 +130,8 @@ internal static class RuntimeTacticalLocationAdapter
             var currentCenter = Globals._currentCenterTile;
             var afterProbe = RuntimeTerrainPlacementAdapter.Probe(new()
             {
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
+                Latitude = latitude,
+                Longitude = longitude,
             });
             return MutationAdapterResult<PrepareTacticalLocationResultPayload>.Success(new()
             {
@@ -110,8 +139,8 @@ internal static class RuntimeTacticalLocationAdapter
                 Postcondition = afterProbe.PlacementReady
                     ? "tactical-location-relocated-and-terrain-ready"
                     : "tactical-location-relocated-terrain-streaming-in-progress",
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
+                Latitude = latitude,
+                Longitude = longitude,
                 PreviousCenterTileX = (int)previousCenter.x,
                 PreviousCenterTileY = (int)previousCenter.y,
                 CurrentCenterTileX = (int)currentCenter.x,

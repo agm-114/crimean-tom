@@ -341,19 +341,20 @@ pnpm performance:capture -- `
   -OutputPath .run/performance/vanilla-giuk.json
 ```
 
-After a fresh restart, bootstrap and bind the full campaign, promote the
-campaign-owned Knox, wait for `Active`, remove interest until the scheduler has
-two stable samples, and require `Released` plus the full qualifying proxy set
-(currently 12 visible, non-native Knox proxies). A repeatable
-setup may pause the disposable campaign before promotion/demotion to keep its
-fixture stable, but it must resume immediately before capture. Leave Sea Power
-unpaused and require both tactical seconds and campaign quanta to advance during
-every timed sample, then capture:
+After a fresh restart, bind the full campaign with its explicit player coalition
+and require the current projection to contain every non-destroyed friendly plus
+the coalition contact set. Record relationship and representation counts rather
+than expecting a fixed number: the unattended war continues destroying and
+detecting entities. Select one known surviving friendly through
+`focus-camera-on-unit`, require exactly one `worldModelVisible` record, no native
+simulation object, and a terrain center near the selected coordinate. Leave Sea
+Power unpaused and require both tactical seconds and campaign quanta to advance
+during every timed sample, then capture:
 
 ```powershell
 pnpm performance:capture -- `
   -Label dynamic-full-campaign `
-  -Workload full-4096-entity-ww3-plus-campaign-with-12-visual-proxies `
+  -Workload full-4096-entity-ww3-plus-map-first-campaign `
   -CampaignId <32-char-guid> `
   -DurationSeconds 20 -SampleIntervalSeconds 2 `
   -OutputPath .run/performance/dynamic-full-campaign.json
@@ -383,7 +384,8 @@ The fresh-process native-baseline isolation and clean 4K session proof are in
 [Full-campaign runtime memory and fresh-session sync proof](../evidence/full-campaign-runtime-memory-and-fresh-session-sync-2026-08-24.md).
 
 For a new player session with no assignment history, configure the canonical
-32-character coalition ID before starting the companion:
+32-character coalition ID before starting the companion (or pass
+`-PlayerCoalitionId` through `pnpm dev --`):
 
 ```powershell
 $env:CRIMEAN_TOM_PLAYER_COALITION_ID = '<32-char-guid>'

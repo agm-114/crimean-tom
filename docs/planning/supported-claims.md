@@ -39,23 +39,27 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
 - A healthy Sea Power companion heartbeat renews active tactical ownership while
   unattended campaign time and unrelated entities continue advancing. Once the
   heartbeat is stale, the 120-quanta Operational fallback remains in force.
+- A reconnecting companion can distinguish an owned object lost across game
+  sessions from an assignment that is merely still materializing. The real-host
+  protocol story proves authenticated stale-epoch release, Operational fallback,
+  checkpoint-backed replacement on the same worker, exact fresh assignment/epoch
+  activation, and safe `migration-superseded` replay. Live Sea Power restart
+  latency and cross-build catalog compatibility are not claimed.
 - The owned-surface local POC durably commits changed two-second tactical
   readbacks for kinematics, telegraph, fuel/stores fractions, damage, and
   destruction. Read capture works during unpaused play; ordered mutations use a
   temporary pause and restore the prior play state.
-- A fresh authenticated Sea Power session binds one explicit player coalition,
-  and its cached service projection can immediately render deployed friendly
-  Maritime entities with the pinned Knox profile before assignment history
-  exists. The preferred representation is a model hierarchy
-  plus map annotation created before Sea Power's native `Vessel`/systems/physics
-  registration; it has no game unique ID and remains outside both the native
-  object manager and owned-resource registry. A fenced inert native vessel is a
-  compatibility fallback only. Proxies have no simulation authority, sensors,
-  collisions, or velocity and are hidden rather than duplicated during tactical
-  promotion. After demotion, the retained native object is suspended while the
-  visual proxy can represent the ship again. This remains a trusted friendly
-  true-state projection; enemy/contact visibility and a generic surface-family
-  materializer are not yet qualified.
+- A fresh authenticated Sea Power session binds one explicit player coalition.
+  Its service projection maps every non-destroyed friendly campaign entity and
+  coalition-filtered hostile intelligence track into Sea Power drawing records
+  before assignment history exists. Friendly selection lazily loads one
+  presentation hierarchy from installed vessel/aircraft/land catalog content
+  after relocating the local tactical terrain window; contacts remain marker-only
+  and never disclose exact hostile true state. These records have no game unique
+  ID, simulation authority, sensors, collisions, velocity, or owned-resource
+  registration. Generic visual loading is proven live for one Los Angeles-class
+  submarine, not qualified across the full installed catalog. The player strategic
+  map and campaign-bound default task force remain open.
 - Campaign-owned Track A Operational workers can be spawned, checked with an
   additive per-spawn identity, and used for non-player island placement/fencing.
   They also receive the shared service bearer token; health and capacity are
