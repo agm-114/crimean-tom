@@ -30,12 +30,11 @@ campaign application defined by the product contract.
 | `CrimeanTom.Campaign.Contracts` | Campaign identities, commands, events, projections, AI and fidelity contracts | Contract presence does not prove a player flow |
 | `CrimeanTom.Campaign.Engine` | Deterministic reduction, Operational simulation, strategic AI, canonical serialization | Does not call Sea Power or write storage |
 | `CrimeanTom.Campaign.Service` | SQLite WAL journal, snapshots, blobs, integrity checks, backup and restore | Long-running save evolution and compaction are not qualified |
-| `CrimeanTom.Campaign.Transport` | Generated gRPC/Protobuf companion and experimental worker protocol | Machine protocol only; not the player API |
+| `CrimeanTom.Campaign.Transport` | Generated gRPC/Protobuf companion protocol with reserved deferred-worker fields | Machine protocol only; not the player API |
 | `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
 | `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
 | `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
 | `apps/campaign-monitor` | Browser map, hierarchy, telemetry, and operator controls | Not a finished player campaign app |
-| `CrimeanTom.Campaign.OperationalWorker` | Experimental process identity, health, capacity, and placement control | Does not execute Operational ticks; future work |
 | Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
 ## Implemented campaign path
@@ -96,15 +95,15 @@ canonical campaign orders required by the product contract.
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
 
-## Experimental code outside the active path
+## Deferred code archive
 
-The repository contains worker supervision, placement, capacity, shadow,
-preparation, and migration experiments. Operational workers report health and
-accept placement, but do not compute campaign ticks. Live migration between two
-Sea Power processes is not qualified.
+The standalone Operational worker, process supervisor, second-Sea-Power scripts,
+and migration drivers were removed from the active tree. Git tag
+`archive/distributed-workers-before-local-trim-2026-08-24` preserves them. Some
+assignment, capacity, and protocol types remain because the local Sea Power
+lease uses the same fencing model.
 
-Keep this code isolated from active product dependencies. Its design context is
-preserved in [distributed simulation](../future/distributed-simulation.md).
+The design context is in [distributed simulation](../future/distributed-simulation.md).
 
 ## Current architecture gaps
 

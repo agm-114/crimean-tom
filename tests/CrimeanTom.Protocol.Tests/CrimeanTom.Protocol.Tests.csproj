@@ -20,7 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.ServiceHost\CrimeanTom.Campaign.ServiceHost.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\src\CrimeanTom.Campaign.OperationalWorker\CrimeanTom.Campaign.OperationalWorker.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\CrimeanTom.Campaign.Transport\CrimeanTom.Campaign.Transport.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Contracts\CrimeanTom.Contracts.csproj" />
     <ProjectReference Include="..\..\src\CrimeanTom.Companion\CrimeanTom.Companion.csproj" />

@@ -15,7 +15,6 @@ public sealed class CampaignCompanionGrpcService(
     CampaignSessionRegistry sessions,
     CampaignInboundSpool inboundSpool,
     CampaignCoordinator coordinator,
-    CampaignOperationalWorkerSupervisor operationalWorkers,
     SqliteCampaignJournal journal,
     ILogger<CampaignCompanionGrpcService> logger)
     : CampaignCompanionTransport.CampaignCompanionTransportBase
@@ -51,32 +50,9 @@ public sealed class CampaignCompanionGrpcService(
         var campaignId = new CampaignId(campaignGuid);
         if (CampaignWorkerKind.IsOperational(workerKind))
         {
-            if (!string.IsNullOrWhiteSpace(hello.RuntimeFingerprintSha256)
-                || !string.IsNullOrWhiteSpace(hello.PlayerTaskforceId)
-                || !string.IsNullOrWhiteSpace(hello.PlayerCoalitionId)
-                || !string.IsNullOrWhiteSpace(hello.GameSessionId)
-                || hello.MaterializationProfiles.Count > 0)
-            {
-                throw new RpcException(new Status(
-                    StatusCode.FailedPrecondition,
-                    "Operational workers must not advertise a Sea Power runtime, task force, or materialization profile."));
-            }
-
-            if (hello.TacticalEntityCapacity != 0
-                || hello.TacticalReserveCapacity != 0
-                || hello.OperationalEntityCapacity is < 1 or > 10_000
-                || hello.OperationalReserveCapacity < 0
-                || hello.OperationalReserveCapacity > hello.OperationalEntityCapacity)
-            {
-                throw new RpcException(new Status(StatusCode.FailedPrecondition, "Operational worker capacity is invalid."));
-            }
-
-            if (!operationalWorkers.ValidateOperationalHello(campaignId, hello))
-            {
-                throw new RpcException(new Status(
-                    StatusCode.PermissionDenied,
-                    "The Operational worker hello does not match a live supervisor spawn."));
-            }
+            throw new RpcException(new Status(
+                StatusCode.FailedPrecondition,
+                "Out-of-process Operational workers are not part of the local runtime."));
         }
         else if ((!string.IsNullOrWhiteSpace(hello.PlayerCoalitionId)
                 && !Guid.TryParseExact(hello.PlayerCoalitionId, "N", out _))

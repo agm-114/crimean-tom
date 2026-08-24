@@ -33,7 +33,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
 | Sessions | Coalition-filtered projections and reconnectable in-memory player sessions exist | Player identity is not durable and canonical player orders are absent |
 | Operator UI | Browser monitor shows diagnostic map, hierarchy, telemetry, and controls | It exposes operator concepts and is not the product campaign application |
-| Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger | Its current strings still emphasize Knox proxies, worker placement, replica rules, and older AI limits; reconcile it when code work resumes |
+| Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
 ## What the player can and cannot do
 
@@ -67,8 +67,9 @@ The active architecture is local-first:
 - private multiplayer extends this service after single-player works.
 
 Distributed Operational workers, hot replicas, and live tactical migration have
-moved to [future work](../future/distributed-simulation.md). Their experimental
-code may remain, but they do not define the delivery order.
+moved to [future work](../future/distributed-simulation.md). The standalone
+worker and second-process tooling are preserved under the archive tag rather
+than in the active tree.
 
 ## Immediate gaps
 

@@ -49,7 +49,7 @@ Deliver the local product shell around the existing service and monitor.
 
 ### Service work
 
-- Separate player, operator, companion, and experimental worker capabilities.
+- Separate player, operator, and companion capabilities.
 - Close the HTTP content-type authorization bypass.
 - Give hosted browser writes an authenticated path.
 - Persist player coalition, preferences, and last campaign cursor.
@@ -262,8 +262,8 @@ Do not make the local player loop depend on:
 - exhaustive support for every installed platform before one complete mixed
   island works.
 
-Existing experiments may stay in the repository. Maintain them only when an
-active change would otherwise break the build or corrupt shared contracts.
+The removed experiments remain available at Git tag
+`archive/distributed-workers-before-local-trim-2026-08-24`.
 
 ## Review questions
 

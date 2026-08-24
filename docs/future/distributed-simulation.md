@@ -19,8 +19,9 @@ critical path:
 - live tactical migration between Sea Power processes; and
 - simultaneous tactical battles hosted by several Sea Power processes.
 
-Existing experiments and code may remain. New product work must not depend on
-them.
+Git tag `archive/distributed-workers-before-local-trim-2026-08-24` preserves the
+removed worker executable, process supervisor, second-Sea-Power scripts, and
+migration drivers. New product work must not depend on them.
 
 ## Invariants to preserve
 

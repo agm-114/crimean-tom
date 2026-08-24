@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 7,
+        SchemaVersion: 8,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -22,16 +22,13 @@ public static class CampaignSupportedClaims
             "coalition-intelligence-and-weapon-capability-aware-bounded-strategic-replanning",
             "durable-role-and-phase-coordinated-operational-packages",
             "coalition-filtered-projections-without-classified-truth",
-            "replica-checkpoint-hash-disagreement-refuses-majority",
             "render-proxy-cannot-receive-simulation-authority",
-            "observer-is-never-a-primary-activation-source",
             "online-backup-restore-with-integrity-hashes",
             "operator-pause-and-drain",
             "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances",
             "owned-surface-periodic-state-sync-during-unpaused-play",
-            "friendly-deployed-knox-render-proxies-without-simulation-authority",
+            "coalition-map-projection-and-selected-visual-proxies-without-simulation-authority",
             "fresh-player-session-explicit-coalition-bound-friendly-projection",
-            "campaign-owned-operational-worker-spawn-and-placement-with-in-process-ticks",
             "unattended-kernel-simulation-without-sea-power-or-client",
         ],
         Unsupported:
@@ -43,6 +40,7 @@ public static class CampaignSupportedClaims
             "hostile-client-adjudication",
             "postgresql-or-external-object-storage-requirement",
             "out-of-process-operational-tick-execution",
+            "campaign-owned-operational-worker-spawn-and-placement",
             "sea-power-physics-or-headless-unity-in-kernel",
             "existing-campaign-schema-or-algorithm-upgrade",
             "bounded-long-running-campaign-performance-envelope",

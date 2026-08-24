@@ -13,7 +13,6 @@
       "src\\CrimeanTom.Campaign.PersistenceProbe\\CrimeanTom.Campaign.PersistenceProbe.csproj",
       "src\\CrimeanTom.Campaign.Transport\\CrimeanTom.Campaign.Transport.csproj",
       "src\\CrimeanTom.Campaign.ServiceHost\\CrimeanTom.Campaign.ServiceHost.csproj",
-      "src\\CrimeanTom.Campaign.OperationalWorker\\CrimeanTom.Campaign.OperationalWorker.csproj",
       "tests\\CrimeanTom.Protocol.Tests\\CrimeanTom.Protocol.Tests.csproj",
       "tests\\CrimeanTom.Campaign.IntegrationTests\\CrimeanTom.Campaign.IntegrationTests.csproj"
     ]

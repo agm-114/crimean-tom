@@ -158,7 +158,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(7, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(8, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -188,7 +188,7 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
-                    == "friendly-deployed-knox-render-proxies-without-simulation-authority");
+                    == "coalition-map-projection-and-selected-visual-proxies-without-simulation-authority");
             Assert.DoesNotContain(
                 supportedClaims.RootElement.GetProperty("unsupported").EnumerateArray(),
                 item => item.GetString()

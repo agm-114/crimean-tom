@@ -1,9 +1,7 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` is intended to mirror this document. Its
-current schema-v7 payload still contains several older experimental claims. This
-document is the communication boundary until code work resumes and reconciles
-that endpoint. Where either source is narrower, use the narrower statement.
+Authenticated `GET /supported-claims` mirrors this document at schema version 8.
+Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
 fingerprints can fail tactical preparation and activation closed. A later game

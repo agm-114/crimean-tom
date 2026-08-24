@@ -270,5 +270,6 @@ The active architecture does not require:
 - whole-theater ground combat in Sea Power; or
 - public adversarial multiplayer.
 
-These exclusions do not authorize deleting existing experiments. They prevent
-them from blocking the local player loop.
+The archived experiments remain available at Git tag
+`archive/distributed-workers-before-local-trim-2026-08-24`. They do not block
+the local player loop.

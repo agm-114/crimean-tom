@@ -3704,41 +3704,6 @@ public sealed class CampaignCoordinator(
         return state;
     }
 
-    public async Task ReleaseOperationalWorkerAssignmentsAsync(
-        CampaignId campaignId,
-        string clientInstanceId,
-        CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            var state = await RecoverStateAsync(campaignId, cancellationToken);
-            var live = state.Assignments.Values
-                .Where(item => CampaignAssignmentKinds.IsOperationalSim(item)
-                    && item.Lifecycle != AssignmentLifecycle.Released
-                    && string.Equals(
-                        item.WorkerClientInstanceId,
-                        clientInstanceId,
-                        StringComparison.Ordinal))
-                .OrderBy(item => item.AssignmentId.Value)
-                .ToArray();
-            foreach (var assignment in live)
-            {
-                var current = state.Assignments[assignment.AssignmentId];
-                if (current.Lifecycle == AssignmentLifecycle.Released)
-                {
-                    continue;
-                }
-
-                state = await ReleaseOperationalAssignmentAsync(state, current, cancellationToken);
-            }
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
     private async Task<CampaignState> ReleaseOperationalAssignmentAsync(
         CampaignState state,
         AssignmentState assignment,
