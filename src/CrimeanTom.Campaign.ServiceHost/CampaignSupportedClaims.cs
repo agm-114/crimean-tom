@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 12,
+        SchemaVersion: 13,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -22,6 +22,7 @@ public static class CampaignSupportedClaims
             "durable-coalition-scoped-player-transit-and-hold-orders-with-idempotency-revision-and-restart-recovery",
             "player-selected-supported-group-tactical-entry-with-preflight-idempotency-and-atomic-activation",
             "live-atomic-two-ship-player-entry-with-campaign-display-identities",
+            "live-campaign-owned-los-angeles-submarine-entry-with-parallel-campaign-advance",
             "deterministic-campaign-kernel-and-sqlite-wal-journal",
             "deterministic-two-coalition-strategic-and-operational-campaign-driver",
             "fixed-installation-complexes-remain-local-without-movement-orders",

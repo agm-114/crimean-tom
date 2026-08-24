@@ -126,10 +126,11 @@ shows per-member support and available capacity, rejects foreign, stale, or
 incomplete requests, and activates the supported group through the existing
 fenced handoff path. The broad 4,096-entity service story now proves atomic
 two-member preparation. Live Sea Power qualification loaded USS Yorktown and
-USS Spruance together with campaign names, stable tags, and positions intact.
-The milestone remains open for submarines and hosted assets, removal of authored
-placeholder membership, tactical-map interaction parity, and hostile
-participation.
+USS Spruance together with campaign names, stable tags, and positions intact. A
+second path loaded USS Honolulu as a native Los Angeles-class submarine while
+the campaign continued advancing. The milestone remains open for combined
+surface/submarine entry, hosted assets, removal of authored placeholder
+membership, tactical-map interaction parity, and hostile participation.
 
 Replace the authored placeholder force with campaign membership and make the
 map/proxy system usable.
@@ -138,8 +139,8 @@ map/proxy system usable.
 
 - Implemented for a selected group: derive membership from the campaign save,
   require the whole surviving group to be supported, and prepare it atomically.
-- Implemented: qualify a two-member mixed surface-class task force.
-- Remaining: replace authored player membership and add submarines and hosted assets.
+- Implemented: qualify a two-member mixed surface-class task force and a separate Los Angeles-class submarine patrol.
+- Remaining: combine those paths, replace authored player membership, and add hosted assets.
 - Materialize every supported available member as a real simulated object.
 - Include required hosted aircraft, helicopters, boats, and child assets when
   their portable-state contract is supported.

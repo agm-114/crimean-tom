@@ -46,7 +46,7 @@ or complete Sea Power parity.
   campaign service advances unrelated entities.
 - Stale assignment epochs are rejected. Expired authority can return to the
   accepted checkpoint or Operational fallback.
-- The owned-surface proof of concept can publish changed readbacks for pose,
+- The owned ship/submarine proof of concept can publish changed readbacks for pose,
   telegraph, fuel or stores fractions, damage, and destruction during unpaused
   play.
 - Ordered lifecycle mutations temporarily pause Sea Power and restore its prior
@@ -60,10 +60,15 @@ or complete Sea Power parity.
   campaign names, stable tags, and North Sea positions with no duplicate stable
   IDs. The earlier Knox run also showed unrelated campaign state advancing
   while its assignment lease stayed live.
+- A separate live 4,096-entity run loaded campaign-owned USS Honolulu as a
+  native Los Angeles-class submarine with its exact `Variant31` profile,
+  campaign name, stable tag, player task-force membership, and GIUK coordinate.
+  The assignment remained Active while campaign time advanced from T+0 to T+30.
 
-This is a narrow surface contract. It does not cover complete magazines,
-sensors, formations, hosted aircraft, helicopters, submarines, or every ground
-and installation family.
+This is a narrow ship and single-profile submarine contract. It does not cover
+complete magazines, sensors, formations, hosted aircraft, helicopters,
+submerged-state portability, broader submarine families, or every ground and
+installation family.
 
 ## Map and presentation
 
@@ -112,7 +117,7 @@ claim a safe public hostile-client boundary.
   ROE, complete objective progress, and a campaign end state.
 - A tactical loss against a campaign-owned hostile committed back to the
   campaign with complete expenditure and portable state.
-- Campaign-owned mixed task-force entry across surface, submarine, fixed-wing,
+- Campaign-owned combined task-force entry across surface, submarine, fixed-wing,
   helicopter, ground, and installation families.
 - Live game restart recovery with a measured latency and duplicate-object proof.
 - Schema or algorithm upgrade of an existing save.

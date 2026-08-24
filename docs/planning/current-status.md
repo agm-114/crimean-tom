@@ -3,9 +3,9 @@
 ## Summary
 
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
-2026. Crimean Tom has a durable local campaign lifecycle, player map, and a
-first multi-ship campaign-owned tactical-entry path. It is not yet a complete
-campaign-to-battle loop.
+2026. Crimean Tom has a durable local campaign lifecycle, player map, and first
+campaign-owned surface and submarine tactical-entry paths. It is not yet a
+complete campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
@@ -30,8 +30,8 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |
 | Strategic AI | Two coalitions create objectives, allocate capable groups, keep fixed defenses in place, form multi-role packages, and replan | No route or capacity deconfliction, deception, or human-level command claim |
 | Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, and collider capture | Pinned game build and narrow portable-state allow-list |
-| Tactical lease | Companion heartbeats keep surface assignments authoritative while unrelated campaign entities advance | Live restart latency and reconnect behavior still need qualification |
-| Tactical readback | Changed surface pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
+| Tactical lease | Companion heartbeats keep surface or submarine assignments authoritative while unrelated campaign entities advance | Live restart latency and reconnect behavior still need qualification |
+| Tactical readback | Changed ship or submarine pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
 | Map projection | All non-destroyed friendlies and coalition-filtered hostile tracks can reach Sea Power map records | The campaign application map and direct interaction parity are not finished |
 | Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
 | Visual proxies | Typed friendly selection can load a non-simulating installed model after terrain relocation; hostile selection uses a generic estimate | Live proof covers only a few catalog entries; mouse selection needs requalification |
@@ -39,7 +39,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
 | Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Combined-arms entry, complete objective progress, packaging, and detailed recovery UX are absent |
-| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers USS Yorktown and USS Spruance as one two-member surface group; submarines, aircraft, helicopters, and hosted children remain open |
+| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers the two-member USS Yorktown/USS Spruance surface group and the separate USS Honolulu submarine patrol; combined entry, aircraft, helicopters, and hosted children remain open |
 | Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
@@ -55,7 +55,9 @@ materialized, and enter a fully supported group. The live proof loaded USS
 Pharris as one real Knox object in the native player task force while unrelated
 campaign time advanced and the lease remained live. A later full-campaign run
 atomically loaded USS Yorktown and USS Spruance as two native player objects,
-with campaign names and stable tags preserved.
+with campaign names and stable tags preserved. A third full-campaign run loaded
+USS Honolulu as a native submarine and kept its campaign lease active while
+Operational time advanced.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
@@ -68,7 +70,7 @@ It cannot yet provide a coherent war-to-battle play session because:
 4. direct mouse interaction with non-local symbols and contacts is not fully
    qualified;
 5. proxy and tactical materialization support does not cover the required
-   aircraft, helicopter, submarine, ground, and installation families;
+   aircraft, helicopter, broader submarine, ground, and installation families;
 6. no qualified flow commits the fate and expenditure of a campaign-owned
    hostile after a real battle; and
 7. game and service restart recovery has not been proven as a complete live
@@ -93,9 +95,10 @@ than in the active tree.
 
 ### 1. Expand campaign-owned task-force entry
 
-The selected-group transaction, unsupported-member report, and first two-ship
-surface group now work. Expand the runtime profile set to submarines and hosted
-assets, then remove the authored mission as the source of player membership.
+The selected-group transaction, unsupported-member report, two-ship surface
+group, and one-member submarine patrol now work. Qualify a combined naval group
+and hosted assets, then remove the authored mission as the source of player
+membership.
 
 ### 2. Map and proxy parity
 
@@ -124,7 +127,7 @@ service restart, long-running storage, and one schema and algorithm upgrade.
 
 ### 6. Broader combined arms
 
-Add portable aircraft, helicopters, submarines, ground targets, airbases,
+Add portable aircraft, helicopters, broader submarine families, ground targets, airbases,
 radars, GBAD, strategic air defenses, ballistic launchers, logistics, and shore
 sites through the same map, entry, return, and recovery contract.
 
@@ -172,13 +175,26 @@ objects under `taskforce:Taskforce1`, retained their campaign names and stable
 tags, and placed them at their North Sea coordinates. Readback reported two
 campaign identities, no duplicate stable IDs, about 60 FPS, a 16.667 ms game
 fixed step, and internal time dilation 1. This proves mixed surface-class entry,
-not submarines, hosted aircraft, combat return, or restart recovery.
+not a combined surface/submarine group, hosted aircraft, combat return, or
+restart recovery.
+
+A third full-application run entered the one-member NATO GIUK submarine patrol
+from a 4,096-entity campaign. Sea Power created USS Honolulu as a native
+`Submarine` using `usn_ssn_los_angeles / Variant31 / Default`, preserved its
+campaign name and stable tag, and placed it at the campaign coordinate under
+`taskforce:Taskforce1`. Formation Manager and the selected-unit strip showed
+the campaign identity. Readback reported one campaign identity, no duplicate
+stable IDs, about 60 FPS, a 16.667 ms fixed step, and internal time dilation 1.
+Campaign time advanced from T+0 to T+30 while the tactical assignment remained
+Active. This proves one submarine profile and parallel campaign advancement,
+not combined entry, submerged-state portability, combat return, or restart
+recovery.
 
 ## Next work
 
 The next vertical slice should:
 
-1. expand the proven two-ship surface entry with a submarine and hosted rotary-wing assets, then remove authored placeholder membership;
+1. combine the proven surface and submarine entry paths, add hosted rotary-wing assets, then remove authored placeholder membership;
 2. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 3. fight one campaign-owned hostile while the rest of the war advances;

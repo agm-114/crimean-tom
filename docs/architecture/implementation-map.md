@@ -58,14 +58,14 @@ the local tactical lease while the service advances unrelated entities. When
 the heartbeat expires, the system can release stale authority and fall back to
 the accepted checkpoint or Operational state.
 
-The bridge can materialize an allow-listed owned surface profile and several
+The bridge can materialize allow-listed owned ship and submarine profiles and several
 terrain-gated ground or installation profiles. Terrain preparation relocates
 the local window, waits for finalized land terrain, samples height, and rejects
-water or unready placement. The two-second surface readback can commit changed
+water or unready placement. The two-second naval readback can commit changed
 kinematics, telegraph, fuel or stores fractions, damage, and destruction.
 
 This is not complete portable tactical state. Magazines, sensors, formations,
-hosted aircraft, helicopters, broader aircraft, and subsurface ownership still
+hosted aircraft, helicopters, broader aircraft, and broader subsurface ownership still
 need explicit extraction, application, and return contracts.
 
 ## Implemented map and proxy path
@@ -114,9 +114,11 @@ member. The write requires that reviewed revision and an idempotency key. It
 uses the existing fenced handoff path and activates multi-member groups only
 after the complete batch is prepared. The full 4,096-entity service story and a
 live Sea Power run now pass for the two-member USS Yorktown and USS Spruance
-group. Their campaign identities cross the service, companion, and Runtime
-Bridge boundary into native Formation Manager labels. Submarines, hosted assets,
-combined-arms entry, and authored-force replacement remain open.
+group. A separate run passes for USS Honolulu as a native Los Angeles-class
+submarine while campaign time advances. Their campaign identities cross the
+service, companion, and Runtime Bridge boundary into native Formation Manager
+labels. Combined surface/submarine entry, hosted assets, broader submarine
+families, combined-arms entry, and authored-force replacement remain open.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -136,10 +138,10 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | One two-ship surface group can enter atomically; the authored mission still supplies the rest of the placeholder local force |
+| Campaign-owned task force | One two-ship surface group and one separate submarine patrol can enter; the authored mission still supplies the rest of the placeholder local force |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
-| Portable state | Aircraft, helicopters, submarines, magazines, hosted assets, sensors, and formations are incomplete |
+| Portable state | Aircraft, helicopters, broader submarine state, magazines, hosted assets, sensors, and formations are incomplete |
 | Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |
 | Save longevity | Schema and algorithm migration plus long-running compaction remain open |
 | Private multiplayer | Durable identity, authorization, realtime UI, and shared-control policy do not exist |
