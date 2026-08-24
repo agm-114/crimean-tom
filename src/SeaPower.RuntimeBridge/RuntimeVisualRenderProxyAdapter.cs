@@ -122,6 +122,61 @@ internal static class RuntimeVisualRenderProxyAdapter
         return matches[0].RequestPhysicalProxy(out error);
     }
 
+    public static bool TrySelectMapProjection(
+        object hitObject,
+        GeoPosition mousePosition,
+        MapBase map,
+        float selectionRadiusPixels)
+    {
+        if (map is null
+            || mousePosition.IsInvalid()
+            || selectionRadiusPixels <= 0f)
+        {
+            return false;
+        }
+
+        var direct = Records.Values.FirstOrDefault(record => record.IsMapMarker(hitObject));
+        if (direct is not null)
+        {
+            direct.RequestPhysicalProxy(out _);
+            return true;
+        }
+
+        // Preserve Sea Power's native selection path when its hit test found a
+        // real selectable object. The proximity fallback only exists because
+        // passive authored-symbol elements are not returned by that hit test.
+        if (hitObject is IMapSelectable)
+        {
+            return false;
+        }
+
+        var mousePoint = map.LocationToView(mousePosition);
+        VisualProxyRecord? nearest = null;
+        var nearestDistanceSquared = selectionRadiusPixels * selectionRadiusPixels;
+        foreach (var record in Records.Values.Where(item => item.MapMarkerIsVisible))
+        {
+            var markerPoint = map.LocationToView(record.MapPosition);
+            var deltaX = markerPoint.X - mousePoint.X;
+            var deltaY = markerPoint.Y - mousePoint.Y;
+            var distanceSquared = deltaX * deltaX + deltaY * deltaY;
+            if (distanceSquared > nearestDistanceSquared)
+            {
+                continue;
+            }
+
+            nearestDistanceSquared = distanceSquared;
+            nearest = record;
+        }
+
+        if (nearest is null)
+        {
+            return false;
+        }
+
+        nearest.RequestPhysicalProxy(out _);
+        return true;
+    }
+
     private static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload>
         ReconcileValidated(ReconcileSurfaceRenderProxiesRequestPayload request)
     {
@@ -434,6 +489,11 @@ internal static class RuntimeVisualRenderProxyAdapter
         }
 
         internal bool WorldModelVisible => !_disposed && _root?.activeSelf == true;
+        internal bool MapMarkerIsVisible => MapMarkerVisible;
+        internal GeoPosition MapPosition => PresentationPosition();
+
+        internal bool IsMapMarker(object candidate) => ReferenceEquals(_mapMarker, candidate);
+
         private bool MapMarkerVisible => !_disposed
             && _mapMarker is not null
             && Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements.Contains(_mapMarker) == true;

@@ -25,6 +25,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     {
         _mainThreadId = Environment.CurrentManagedThreadId;
         RuntimeControlledTickAdapter.Install();
+        RuntimeCampaignMapSelectionAdapter.Install();
         _fileFingerprintProvider = RuntimeFileFingerprintProvider.Start();
         _executionThreadGuardSelfTest.Start(_mainThreadId, _fileFingerprintProvider);
 
