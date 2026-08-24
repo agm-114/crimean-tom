@@ -78,7 +78,7 @@ internal static class RuntimeOwnedMutationAdapter
     private const int MaximumArmDurationSeconds = 600;
     private const double PositionToleranceDegrees = 0.000000001d;
     private const double HeadingToleranceDegrees = 0.001d;
-    private const double AltitudeToleranceFeet = 2d;
+    private const double AltitudeToleranceFeet = 5d;
     private const double SpeedToleranceKnots = 0.001d;
     private const long FuelFractionToleranceMilliunits = 2_000;
 
@@ -416,7 +416,7 @@ internal static class RuntimeOwnedMutationAdapter
             var position = new GeoPosition(
                 predicted.Latitude!.Value,
                 predicted.Longitude!.Value,
-                FeetToMeters(predicted.AltitudeFeet ?? 0d));
+                FeetToUnityHeight(predicted.AltitudeFeet ?? 0d));
             var heading = new Vector3(0f, (float)NormalizeHeading(predicted.HeadingDegrees!.Value), 0f);
             created = CreateOwnedUnit(
                 request.UnitTypeId,
@@ -443,7 +443,7 @@ internal static class RuntimeOwnedMutationAdapter
                 created.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
                 created.transform.eulerAngles = heading;
                 created._geoPosition = position;
-                created.setTelegraph(request.Telegraph);
+                ApplyTelegraph(created, request.Telegraph);
                 created._velocityInKnots = SpeedForTelegraph(created, request.Telegraph);
                 created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
                 Physics.SyncTransforms();
@@ -781,7 +781,7 @@ internal static class RuntimeOwnedMutationAdapter
             var position = new GeoPosition(
                 request.Latitude,
                 request.Longitude,
-                FeetToMeters(altitudeFeet));
+                FeetToUnityHeight(altitudeFeet));
             vessel.transform.position = Utils.longLatToLocalV3(
                 position,
                 Globals._currentCenterTile);
@@ -791,7 +791,7 @@ internal static class RuntimeOwnedMutationAdapter
                 0f);
             vessel._geoPosition = position;
             InjectFailure(request.FaultInjectionStep, "after-position-apply");
-            vessel.setTelegraph(request.Telegraph);
+            ApplyTelegraph(vessel, request.Telegraph);
             vessel._velocityInKnots = SpeedForTelegraph(vessel, request.Telegraph);
             vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
             InjectFailure(request.FaultInjectionStep, "after-telegraph-apply");
@@ -1100,7 +1100,7 @@ internal static class RuntimeOwnedMutationAdapter
                 var position = new GeoPosition(
                     checkpointLatitude,
                     checkpointLongitude,
-                    FeetToMeters(checkpoint.Unit.AltitudeFeet ?? 0d));
+                    FeetToUnityHeight(checkpoint.Unit.AltitudeFeet ?? 0d));
                 var heading = new Vector3(
                     0f,
                     (float)NormalizeHeading(checkpointHeading),
@@ -1489,14 +1489,14 @@ internal static class RuntimeOwnedMutationAdapter
         var position = new GeoPosition(
             state.Latitude!.Value,
             state.Longitude!.Value,
-            FeetToMeters(state.AltitudeFeet ?? 0d));
+            FeetToUnityHeight(state.AltitudeFeet ?? 0d));
         vessel.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
         vessel.transform.eulerAngles = new Vector3(
             0f,
             (float)NormalizeHeading(state.HeadingDegrees!.Value),
             0f);
         vessel._geoPosition = position;
-        vessel.setTelegraph(state.Telegraph);
+        ApplyTelegraph(vessel, state.Telegraph);
         vessel._velocityInKnots = (float)state.SpeedKnots!.Value;
         vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
         ApplyFuel(vessel, state.FuelFractionMilliunits);
@@ -1838,13 +1838,43 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return submarine.SpeedCommand.Value.GetDemandedSpeedInKnots(submarine);
         }
-        if (unit is Helicopter helicopter && helicopter.SpeedCommand.HasValue)
+        if (unit is Helicopter helicopter && helicopter.SpeedCommand.Value is { } helicopterSpeed)
         {
-            return helicopter.SpeedCommand.Value.GetDemandedSpeedInKnots(helicopter);
+            return helicopterSpeed.GetDemandedSpeedInKnots(helicopter);
         }
 
         throw new InvalidOperationException(
             $"The supported owned unit '{unit._obp?._objectIniName}' has no native telegraph speed command.");
+    }
+
+    private static void ApplyTelegraph(ObjectBase unit, int telegraph)
+    {
+        if (unit is Helicopter helicopter)
+        {
+            var demandedSpeed = telegraph <= 0
+                ? 0f
+                : helicopter._maxSpeedSeaLevel * Math.Clamp(telegraph, 0, 5) / 5f;
+            helicopter.SetSpeedCommand(new ConstantSpeed(demandedSpeed, helicopter));
+            return;
+        }
+
+        unit.setTelegraph(telegraph);
+    }
+
+    private static int CaptureTelegraph(ObjectBase unit)
+    {
+        if (unit is not Helicopter helicopter
+            || helicopter.SpeedCommand.Value is not { } speedCommand
+            || helicopter._maxSpeedSeaLevel <= 0f)
+        {
+            return unit.getTelegraph();
+        }
+
+        var demandedSpeed = speedCommand.GetDemandedSpeedInKnots(helicopter);
+        return Math.Clamp(
+            (int)Math.Round(demandedSpeed * 5f / helicopter._maxSpeedSeaLevel),
+            0,
+            5);
     }
 
     private static void ApplyDisplayName(ObjectBase vessel, string displayName)
@@ -1909,7 +1939,7 @@ internal static class RuntimeOwnedMutationAdapter
         AltitudeFeet = Finite(vessel.getHeightInFeet()),
         HeadingDegrees = Finite(vessel.getHeading()),
         SpeedKnots = Finite(vessel.getVelocityInKnots()),
-        Telegraph = vessel.getTelegraph(),
+        Telegraph = CaptureTelegraph(vessel),
         FuelFractionMilliunits = fuelFraction,
         StoresFractionMilliunits = storesFraction,
         DamageFractionMilliunits = damageFraction,
@@ -2061,7 +2091,7 @@ internal static class RuntimeOwnedMutationAdapter
     private static double? Finite(double value) =>
         double.IsFinite(value) ? value : null;
 
-    private static double FeetToMeters(double value) => value / 3.280839895d;
+    private static double FeetToUnityHeight(double value) => value * 0.3048d * 0.0148809375d;
 
     private static bool ValidAltitude(double? altitudeFeet) =>
         altitudeFeet is null
