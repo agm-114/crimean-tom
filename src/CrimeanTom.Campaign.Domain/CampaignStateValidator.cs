@@ -171,6 +171,45 @@ public static class CampaignStateValidator
             }
         }
 
+        var packagedGroups = new HashSet<GroupId>();
+        foreach (var (key, package) in state.OperationalPackages)
+        {
+            if (key != package.PackageId
+                || package.Revision.Value <= 0
+                || package.Members.Count < 2
+                || !state.StrategicObjectives.TryGetValue(package.ObjectiveId, out var objective)
+                || objective.CoalitionId != package.CoalitionId
+                || objective.RegionId != package.RegionId
+                || package.AssemblyAt.Quanta < 0
+                || package.AssemblyAt.Quanta > state.Time.Quanta
+                || package.ExecuteAt.Quanta < package.AssemblyAt.Quanta
+                || package.ExpiresAt.Quanta < package.ExecuteAt.Quanta)
+            {
+                throw Invalid("operational-package", "An operational package identity, objective, timing, or membership is invalid.");
+            }
+            CampaignInvariants.RequireId(package.CoalitionId);
+            foreach (var (groupId, member) in package.Members)
+            {
+                if (groupId != member.GroupId
+                    || !packagedGroups.Add(groupId)
+                    || !Enum.IsDefined(member.Role)
+                    || member.StartsAt.Quanta < package.AssemblyAt.Quanta
+                    || member.StartsAt.Quanta > package.ExecuteAt.Quanta
+                    || !state.Groups.TryGetValue(groupId, out var group)
+                    || group.CoalitionId != package.CoalitionId
+                    || !group.Members.Any(entityId => state.Entities[entityId].Lifecycle
+                        is not (EntityLifecycle.Disabled or EntityLifecycle.Destroyed or EntityLifecycle.Retired))
+                    || group.Members.Any(entityId => state.Entities[entityId].SimulationDomain == SimulationDomain.Installation)
+                    || !state.GroupCommitments.TryGetValue(groupId, out var commitment)
+                    || commitment.WithdrawLatched
+                    || commitment.ObjectiveId != package.ObjectiveId
+                    || commitment.ExpiresAt.Quanta < package.ExpiresAt.Quanta)
+                {
+                    throw Invalid("operational-package-member", "An operational package member is invalid, duplicated, fixed, withdrawing, or not committed to its objective.");
+                }
+            }
+        }
+
         foreach (var (key, strategy) in state.CoalitionStrategies)
         {
             if (key != strategy.CoalitionId

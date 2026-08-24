@@ -158,7 +158,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(6, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(7, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -175,6 +175,9 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
                     == "coalition-intelligence-and-weapon-capability-aware-bounded-strategic-replanning");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString() == "durable-role-and-phase-coordinated-operational-packages");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString() == "hosted-monitor-local-cookie-read-access-without-operator-identity");

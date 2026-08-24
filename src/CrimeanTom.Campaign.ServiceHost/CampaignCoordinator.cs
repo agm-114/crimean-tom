@@ -1187,6 +1187,19 @@ public sealed class CampaignCoordinator(
                 item.WithdrawLatched,
                 item.LatchReleaseAt.Quanta,
                 item.Revision.Value)).ToArray(),
+            state.OperationalPackages.Values.Select(item => new CampaignOperationalPackageView(
+                item.PackageId.ToString(),
+                item.CoalitionId.ToString(),
+                item.ObjectiveId.ToString(),
+                item.RegionId.ToString(),
+                item.AssemblyAt.Quanta,
+                item.ExecuteAt.Quanta,
+                item.ExpiresAt.Quanta,
+                item.Members.Values.Select(member => new CampaignOperationalPackageMemberView(
+                    member.GroupId.ToString(),
+                    member.Role.ToString(),
+                    member.StartsAt.Quanta)).ToArray(),
+                item.Revision.Value)).ToArray(),
             state.CoalitionStrategies.Values.Select(item => new CampaignCoalitionStrategyView(
                 item.CoalitionId.ToString(),
                 item.NextDirectorAt.Quanta,
@@ -4057,6 +4070,7 @@ public sealed record CampaignDiagnosticView(
     IReadOnlyList<CampaignGroupView> Groups,
     IReadOnlyList<CampaignStrategicObjectiveView> StrategicObjectives,
     IReadOnlyList<CampaignGroupCommitmentView> GroupCommitments,
+    IReadOnlyList<CampaignOperationalPackageView> OperationalPackages,
     IReadOnlyList<CampaignCoalitionStrategyView> CoalitionStrategies,
     IReadOnlyList<CampaignAssignmentView> Assignments,
     IReadOnlyList<CampaignOperationalOutcomeView> RecentOperationalOutcomes,
@@ -4137,6 +4151,22 @@ public sealed record CampaignGroupCommitmentView(
     bool WithdrawLatched,
     long LatchReleaseAtQuanta,
     long Revision);
+
+public sealed record CampaignOperationalPackageView(
+    string PackageId,
+    string CoalitionId,
+    string ObjectiveId,
+    string RegionId,
+    long AssemblyAtQuanta,
+    long ExecuteAtQuanta,
+    long ExpiresAtQuanta,
+    IReadOnlyList<CampaignOperationalPackageMemberView> Members,
+    long Revision);
+
+public sealed record CampaignOperationalPackageMemberView(
+    string GroupId,
+    string Role,
+    long StartsAtQuanta);
 
 public sealed record CampaignCoalitionStrategyView(
     string CoalitionId,

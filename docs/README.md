@@ -127,6 +127,9 @@ The folders separate evidence from design commitments:
 39. [Strategic AI capability allocation and replanning](evidence/strategic-ai-capability-replanning-v17-2026-08-24.md)
     records algorithm-v17's matched v16 control, bounded commitment expiry,
     capability-aware response roles, and full-scale recovery proof.
+40. [Strategic AI operational packages](evidence/strategic-ai-operational-packages-v18-2026-08-24.md)
+    records algorithm-v18's durable role/phase package state, full 4K package
+    composition, recovery-latch defect fix, performance, and cold recovery.
 
 ## Evidence labels
 

@@ -229,11 +229,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "dbdf39544cbacdc6f8b6a923f8aaffcc1c45e4b45f1249a5dbe4ee41ff82a67d",
+            longHorizon.Hash == "025b19ddafe9b979c3b99dcae7b32c7dd97f056cbdfbca9c7e512fa46a1d7a9d",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "defbde27ab10bf14aacbb0c3b4d5559c7cbab160cd99ea1fc84a9d8db670746e",
+            migrated.Hash == "fdcfe9e516ae4965ce074c58016ce0d8b97e8a6fcc522f4a0ba6dcb35f0c0d02",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -490,6 +490,122 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         var adaptiveCommitment = adaptiveResponse.GroupCommitments[Ids.BlueGroup];
         Assert.NotEqual(stickyCommitment.ObjectiveId, adaptiveCommitment.ObjectiveId);
         Assert.True(adaptiveCommitment.ExpiresAt.Quanta > originalExpiry.Quanta);
+
+        var packageAir = OperationalEntity(
+            Ids.PackageAir,
+            Ids.BlueCoalition,
+            SimulationDomain.Air,
+            "Blue package fighter",
+            "synthetic-package-fighter",
+            [new OperationalWeaponCapability(
+                "package-air-to-air",
+                ContactClassification.Air,
+                DistanceMeters.FromMeters(200_000))]) with
+        {
+            RegionId = Ids.Odessa,
+            Coordinate = GeoCoordinate.FromMicrodegrees(44_200_000, 29_000_000),
+            HomeBaseId = Ids.BlueBase,
+        };
+        var packageSubmarine = OperationalEntity(
+            Ids.PackageSubmarine,
+            Ids.BlueCoalition,
+            SimulationDomain.Maritime,
+            "Blue package submarine",
+            "synthetic-package-ssn",
+            [new OperationalWeaponCapability(
+                "package-asw-torpedo",
+                ContactClassification.Subsurface,
+                DistanceMeters.FromMeters(80_000))]) with
+        {
+            RegionId = Ids.Odessa,
+            Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 29_100_000),
+            HomeBaseId = Ids.BlueBase,
+        };
+        var packageSubsurfaceThreat = OperationalEntity(
+            Ids.PackageSubsurfaceThreat,
+            Ids.RedCoalition,
+            SimulationDomain.Maritime,
+            "Red known submarine",
+            "synthetic-package-red-ssn",
+            []) with
+        {
+            RegionId = Ids.BlackSea,
+            Coordinate = GeoCoordinate.FromMicrodegrees(44_000_000, 32_800_000),
+            HomeBaseId = Ids.RedBase,
+        };
+        var packageBaseline = capabilityBaseline with
+        {
+            Entities = capabilityBaseline.Entities
+                .SetItem(Ids.RedKrivak, airThreat with
+                {
+                    RegionId = Ids.BlackSea,
+                    Coordinate = GeoCoordinate.FromMicrodegrees(44_100_000, 32_900_000),
+                })
+                .Add(packageAir.EntityId, packageAir)
+                .Add(packageSubmarine.EntityId, packageSubmarine)
+                .Add(packageSubsurfaceThreat.EntityId, packageSubsurfaceThreat),
+            Groups = capabilityBaseline.Groups
+                .Add(Ids.PackageAirGroup, new GroupState(
+                    Ids.PackageAirGroup,
+                    "Blue package fighter group",
+                    Ids.BlueCoalition,
+                    ImmutableSortedSet.Create(packageAir.EntityId),
+                    null,
+                    new EntityRevision(1)))
+                .Add(Ids.PackageSubmarineGroup, new GroupState(
+                    Ids.PackageSubmarineGroup,
+                    "Blue package submarine group",
+                    Ids.BlueCoalition,
+                    ImmutableSortedSet.Create(packageSubmarine.EntityId),
+                    null,
+                    new EntityRevision(1))),
+            Intelligence = capabilityBaseline.Intelligence
+                .SetItem(airKey, capabilityBaseline.Intelligence[airKey] with
+                {
+                    EstimatedRegionId = Ids.BlackSea,
+                    EstimatedCoordinate = GeoCoordinate.FromMicrodegrees(44_100_000, 32_900_000),
+                })
+                .Add(new IntelligenceKey(Ids.BlueCoalition, packageSubsurfaceThreat.EntityId),
+                    new IntelligenceEstimate(
+                        new IntelligenceKey(Ids.BlueCoalition, packageSubsurfaceThreat.EntityId),
+                        Ids.BlackSea,
+                        packageSubsurfaceThreat.Coordinate,
+                        IntelligenceConfidence.Confirmed,
+                        CampaignTime.Origin,
+                        0,
+                        ContactClassification.Subsurface,
+                        new EntityRevision(1))),
+        };
+        var packagedResponse = SimulateForTest(packageBaseline, 114, new CampaignTime(20));
+        var package = Assert.Single(
+            packagedResponse.OperationalPackages.Values,
+            item => item.CoalitionId == Ids.BlueCoalition && item.RegionId == Ids.BlackSea);
+        Assert.Equal(3, package.Members.Count);
+        Assert.Equal(package.AssemblyAt, package.Members[Ids.BlueGroup].StartsAt);
+        Assert.Equal(package.AssemblyAt, package.Members[Ids.PackageSubmarineGroup].StartsAt);
+        Assert.Equal(package.ExecuteAt.Quanta - 10, package.Members[Ids.PackageAirGroup].StartsAt.Quanta);
+        Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.Strike);
+        Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.AirCover);
+        Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.AntiSubmarine);
+        Assert.Equal(OrderKind.Cap, packagedResponse.Orders[
+            Assert.IsType<OrderId>(packagedResponse.Groups[Ids.PackageAirGroup].ActiveOrderId)].Kind);
+        Assert.Equal(OrderKind.Asw, packagedResponse.Orders[
+            Assert.IsType<OrderId>(packagedResponse.Groups[Ids.PackageSubmarineGroup].ActiveOrderId)].Kind);
+        var packageRecovery = SimulateForTest(packagedResponse with
+        {
+            Entities = packagedResponse.Entities.SetItem(
+                Ids.PackageAir,
+                packagedResponse.Entities[Ids.PackageAir] with { DamageMilliUnits = 500_000 }),
+        }, 115, new CampaignTime(30));
+        var reducedPackage = Assert.Single(
+            packageRecovery.OperationalPackages.Values,
+            item => item.CoalitionId == Ids.BlueCoalition && item.RegionId == Ids.BlackSea);
+        Assert.Equal(2, reducedPackage.Members.Count);
+        Assert.DoesNotContain(Ids.PackageAirGroup, reducedPackage.Members.Keys);
+        Assert.Equal(
+            CampaignCanonicalSerializer.Serialize(packagedResponse),
+            CampaignCanonicalSerializer.Serialize(CampaignCanonicalSerializer.Deserialize(
+                CampaignCanonicalSerializer.Serialize(packagedResponse))));
 
         var fixedDefense = fogBaseline with
         {
@@ -1002,8 +1118,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(10, CampaignSchema.Version);
-        Assert.Equal(17, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(11, CampaignSchema.Version);
+        Assert.Equal(18, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
@@ -1982,9 +2098,14 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         public static readonly EntityId NeutralObserver = new(Guid.Parse("60000000-0000-0000-0000-000000000004"));
         public static readonly EntityId ExchangeActor = new(Guid.Parse("60000000-0000-0000-0000-000000000011"));
         public static readonly EntityId ExchangeTarget = new(Guid.Parse("60000000-0000-0000-0000-000000000012"));
+        public static readonly EntityId PackageAir = new(Guid.Parse("60000000-0000-0000-0000-000000000013"));
+        public static readonly EntityId PackageSubmarine = new(Guid.Parse("60000000-0000-0000-0000-000000000014"));
+        public static readonly EntityId PackageSubsurfaceThreat = new(Guid.Parse("60000000-0000-0000-0000-000000000015"));
         public static readonly GroupId BlueGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000001"));
         public static readonly GroupId RedGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000002"));
         public static readonly GroupId ExchangeGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000011"));
+        public static readonly GroupId PackageAirGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000013"));
+        public static readonly GroupId PackageSubmarineGroup = new(Guid.Parse("70000000-0000-0000-0000-000000000014"));
         public static readonly OrderId TransitOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000001"));
         public static readonly OrderId ExchangeOrder = new(Guid.Parse("80000000-0000-0000-0000-000000000011"));
         public static readonly RegionId ExchangeRegion = new(Guid.Parse("40000000-0000-0000-0000-000000000011"));

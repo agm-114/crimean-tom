@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 6,
+        SchemaVersion: 7,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -20,6 +20,7 @@ public static class CampaignSupportedClaims
             "deterministic-two-coalition-strategic-and-operational-campaign-driver",
             "fixed-installation-complexes-remain-local-without-movement-orders",
             "coalition-intelligence-and-weapon-capability-aware-bounded-strategic-replanning",
+            "durable-role-and-phase-coordinated-operational-packages",
             "coalition-filtered-projections-without-classified-truth",
             "replica-checkpoint-hash-disagreement-refuses-majority",
             "render-proxy-cannot-receive-simulation-authority",

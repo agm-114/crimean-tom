@@ -22,6 +22,10 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
   intelligence plus their weapon target classes to prefer missing or
   least-covered response roles. Commitments remain sticky until their original
   bounded deadline, then replan; this is not a claim of human-equivalent command.
+- Canonical Operational packages group complementary strike, air-cover,
+  anti-submarine, escort, sustainment, land-attack, and ground-support roles on
+  one objective and phase their order starts toward a shared execution boundary.
+  This is not precise route-aware time-on-target or a complete air-tasking order.
 - Coalition-filtered HTTP projections that omit opposing true-state sentinels.
   A player process that still holds the full campaign view is trusted private
   co-op, not an untrusted public server.
@@ -77,8 +81,8 @@ it is not a claimed live two-process Sea Power recovery objective.
 - A tactical loss against a campaign-owned hostile committed back to the journal.
 - Player-session continuity across a ServiceHost restart.
 - Authenticated writes from the hosted production monitor.
-- Human-equivalent adaptive strategic AI, coordinated mission packages,
-  deception, or learned opponent response.
+- Human-equivalent adaptive strategic AI, route-/capacity-deconflicted mission
+  planning, deception, or learned opponent response.
 
 ## Remaining qualification
 

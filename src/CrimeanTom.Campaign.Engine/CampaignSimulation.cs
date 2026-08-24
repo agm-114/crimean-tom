@@ -100,8 +100,13 @@ internal static class CampaignSimulation
                 .Where(item => !state.CoalitionStrategies.TryGetValue(item.CoalitionId, out var prior) || item != prior)
                 .Select(ToUpdate)
                 .ToArray(),
+            world.OperationalPackages.Values
+                .Where(item => !state.OperationalPackages.TryGetValue(item.PackageId, out var prior) || item != prior)
+                .Select(ToUpdate)
+                .ToArray(),
             compactActivityDueAt,
-            state.Orders.Keys.Where(id => !world.Orders.ContainsKey(id)).ToArray());
+            state.Orders.Keys.Where(id => !world.Orders.ContainsKey(id)).ToArray(),
+            state.OperationalPackages.Keys.Where(id => !world.OperationalPackages.ContainsKey(id)).ToArray());
     }
 
     private static TickResult ResolveTick(CampaignState state, CampaignTime dueAt, int workerCount)
@@ -2419,6 +2424,20 @@ internal static class CampaignSimulation
 
     private static SimulatedCoalitionStrategyUpdate ToUpdate(CoalitionStrategyState item) => new(
         item.CoalitionId, item.NextDirectorAt, item.Epoch, item.Revision);
+
+    private static SimulatedOperationalPackageUpdate ToUpdate(OperationalPackageState item) => new(
+        item.PackageId,
+        item.CoalitionId,
+        item.ObjectiveId,
+        item.RegionId,
+        item.AssemblyAt,
+        item.ExecuteAt,
+        item.ExpiresAt,
+        item.Members.Values.Select(member => new SimulatedOperationalPackageMemberUpdate(
+            member.GroupId,
+            member.Role,
+            member.StartsAt)).ToArray(),
+        item.Revision);
 
     private static ScheduledCampaignActivity ToContract(ScheduledActivityState item) => new(
         item.ActivityId, item.Kind, item.Subject, item.DueAt, item.Revision);

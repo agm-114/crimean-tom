@@ -61,6 +61,12 @@ public readonly record struct StrategicObjectiveId(Guid Value) : ICampaignId, IC
     public override string ToString() => Value.ToString("N", CultureInfo.InvariantCulture);
 }
 
+public readonly record struct OperationalPackageId(Guid Value) : ICampaignId, IComparable<OperationalPackageId>
+{
+    public int CompareTo(OperationalPackageId other) => Value.CompareTo(other.Value);
+    public override string ToString() => Value.ToString("N", CultureInfo.InvariantCulture);
+}
+
 public readonly record struct AssignmentId(Guid Value) : ICampaignId, IComparable<AssignmentId>
 {
     public int CompareTo(AssignmentId other) => Value.CompareTo(other.Value);

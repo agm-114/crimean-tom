@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 10;
-    public const int AlgorithmVersion = 17;
+    public const int Version = 11;
+    public const int AlgorithmVersion = 18;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalAssignmentQuanta = 120;
 }
@@ -70,6 +70,18 @@ public enum StrategicObjectiveKind
     Interdict,
     Sustain,
     ProjectForce,
+}
+
+public enum OperationalPackageRole
+{
+    Strike,
+    AirCover,
+    SurfaceEscort,
+    AntiSubmarine,
+    LandAttack,
+    Escort,
+    Sustainment,
+    GroundSupport,
 }
 
 public enum AssignmentRole
@@ -607,6 +619,22 @@ public sealed record SimulatedGroupCommitmentUpdate(
     CampaignTime LatchReleaseAt,
     EntityRevision Revision);
 
+public sealed record SimulatedOperationalPackageMemberUpdate(
+    GroupId GroupId,
+    OperationalPackageRole Role,
+    CampaignTime StartsAt);
+
+public sealed record SimulatedOperationalPackageUpdate(
+    OperationalPackageId PackageId,
+    CoalitionId CoalitionId,
+    StrategicObjectiveId ObjectiveId,
+    RegionId RegionId,
+    CampaignTime AssemblyAt,
+    CampaignTime ExecuteAt,
+    CampaignTime ExpiresAt,
+    IReadOnlyList<SimulatedOperationalPackageMemberUpdate> Members,
+    EntityRevision Revision);
+
 public sealed record SimulatedCoalitionStrategyUpdate(
     CoalitionId CoalitionId,
     CampaignTime NextDirectorAt,
@@ -626,8 +654,10 @@ public sealed record CampaignSimulatedEvent(
     IReadOnlyList<SimulatedStrategicObjectiveUpdate>? StrategicObjectives = null,
     IReadOnlyList<SimulatedGroupCommitmentUpdate>? GroupCommitments = null,
     IReadOnlyList<SimulatedCoalitionStrategyUpdate>? CoalitionStrategies = null,
+    IReadOnlyList<SimulatedOperationalPackageUpdate>? OperationalPackages = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CampaignTime? PendingActivityDueAt = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OrderId>? RemovedOrderIds = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OrderId>? RemovedOrderIds = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OperationalPackageId>? RemovedOperationalPackageIds = null)
     : CampaignEventData;
 
 public sealed record AssignmentLifecycleChangedEvent(SetAssignmentLifecycleCommand Change) : CampaignEventData;

@@ -1123,6 +1123,29 @@ public static class CampaignKernel
                 update.Revision));
         }
 
+        var operationalPackages = state.OperationalPackages;
+        foreach (var removedPackageId in value.RemovedOperationalPackageIds ?? [])
+        {
+            operationalPackages = operationalPackages.Remove(removedPackageId);
+        }
+        foreach (var update in value.OperationalPackages ?? [])
+        {
+            operationalPackages = operationalPackages.SetItem(update.PackageId, new OperationalPackageState(
+                update.PackageId,
+                update.CoalitionId,
+                update.ObjectiveId,
+                update.RegionId,
+                update.AssemblyAt,
+                update.ExecuteAt,
+                update.ExpiresAt,
+                update.Members.Select(member => new OperationalPackageMemberState(
+                        member.GroupId,
+                        member.Role,
+                        member.StartsAt))
+                    .ToImmutableSortedDictionary(member => member.GroupId, member => member),
+                update.Revision));
+        }
+
         var coalitionStrategies = state.CoalitionStrategies;
         foreach (var update in value.CoalitionStrategies ?? [])
         {
@@ -1149,6 +1172,7 @@ public static class CampaignKernel
             Orders = orders,
             StrategicObjectives = strategicObjectives,
             GroupCommitments = groupCommitments,
+            OperationalPackages = operationalPackages,
             CoalitionStrategies = coalitionStrategies,
             Intelligence = intelligence,
             ScheduledActivities = scheduled,

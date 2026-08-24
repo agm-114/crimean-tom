@@ -466,9 +466,14 @@ Allocation tracks response coverage per objective and target class, favoring a
 missing or least-covered air, surface, subsurface, or land responder. A selected
 objective remains sticky for its original 80-quanta commitment, survives the
 intermediate 40-quanta director pass without deadline extension, and is rescored
-when that deadline arrives. This is bounded combined-arms allocation; explicit
-sortie/strike package objects, synchronized time-on-target, route deconfliction,
-and tanker/escort dependency planning remain future layers.
+when that deadline arrives. Groups on one objective are assembled into durable
+Operational packages with strike, air-cover, surface-escort, anti-submarine,
+land-attack, escort, sustainment, and ground-support roles. Packages carry one
+assembly/execution/expiry window; their roles select CAP, ASW, escort, resupply,
+reinforcement, or attack orders and phase air/rotary starts behind slower
+elements. Precise estimated-time-of-arrival synchronization, route
+deconfliction, runway/tanker capacity, and SEAD dependency planning remain
+future layers.
 
 Unity-only transforms, colliders, animation state, transient view models, and
 live guidance objects do not belong in the durable campaign schema. A tactical

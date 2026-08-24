@@ -35,6 +35,7 @@ internal static class CampaignStrategicAi
             var coalitionId = coalitions[index];
             var view = CoalitionStrategicView.Create(result, coalitionId);
             result = RefreshRecoveryLatches(result, view, dueAt);
+            result = PruneOperationalPackages(result, coalitionId, dueAt);
 
             if (!result.CoalitionStrategies.TryGetValue(coalitionId, out var strategy)
                 || strategy.NextDirectorAt.Quanta <= dueAt.Quanta)
@@ -44,6 +45,42 @@ internal static class CampaignStrategicAi
         }
 
         return IssueOperationalOrders(result, dueAt);
+    }
+
+    private static CampaignState PruneOperationalPackages(
+        CampaignState state,
+        CoalitionId coalitionId,
+        CampaignTime dueAt)
+    {
+        var packages = state.OperationalPackages;
+        foreach (var package in state.OperationalPackages.Values.Where(
+            item => item.CoalitionId == coalitionId))
+        {
+            var retainedMembers = package.Members.Values.Where(member =>
+                    state.Groups.TryGetValue(member.GroupId, out var group)
+                    && group.CoalitionId == coalitionId
+                    && group.Members.Any(entityId => IsOperational(state, state.Entities[entityId]))
+                    && !group.Members.Any(entityId =>
+                        state.Entities[entityId].SimulationDomain == SimulationDomain.Installation)
+                    && state.GroupCommitments.TryGetValue(member.GroupId, out var commitment)
+                    && !commitment.WithdrawLatched
+                    && commitment.ObjectiveId == package.ObjectiveId
+                    && commitment.ExpiresAt.Quanta >= package.ExpiresAt.Quanta)
+                .ToImmutableSortedDictionary(member => member.GroupId, member => member);
+            if (package.ExpiresAt.Quanta <= dueAt.Quanta || retainedMembers.Count < 2)
+            {
+                packages = packages.Remove(package.PackageId);
+            }
+            else if (retainedMembers.Count != package.Members.Count)
+            {
+                packages = packages.SetItem(package.PackageId, package with
+                {
+                    Members = retainedMembers,
+                    Revision = package.Revision.Next(),
+                });
+            }
+        }
+        return state with { OperationalPackages = packages };
     }
 
     private static CampaignState DirectCoalition(
@@ -76,6 +113,9 @@ internal static class CampaignStrategicAi
         var assignedCounts = new Dictionary<StrategicObjectiveId, int>();
         var assignedResponseCounts = new Dictionary<
             (StrategicObjectiveId ObjectiveId, ContactClassification Classification), int>();
+        var assignedPackageRoleCounts = new Dictionary<
+            (StrategicObjectiveId ObjectiveId, OperationalPackageRole Role), int>();
+        var replannedGroups = new List<GroupId>();
         var commitments = state.GroupCommitments;
         foreach (var group in view.Groups.Values)
         {
@@ -99,6 +139,7 @@ internal static class CampaignStrategicAi
                     planned,
                     assignedCounts,
                     assignedResponseCounts,
+                    assignedPackageRoleCounts,
                     state.Metadata.Seed,
                     dueAt);
             }
@@ -111,6 +152,18 @@ internal static class CampaignStrategicAi
                 {
                     var key = (objectiveId, classification);
                     assignedResponseCounts[key] = assignedResponseCounts.GetValueOrDefault(key) + 1;
+                }
+                if (!group.ContainsInstallation
+                    && !(prior?.WithdrawLatched ?? group.RequiresRecovery))
+                {
+                    var packageRole = SelectPackageRole(
+                        view,
+                        group,
+                        selectedObjective,
+                        localRoleCounts: null,
+                        assignedPackageRoleCounts);
+                    var roleKey = (objectiveId, packageRole);
+                    assignedPackageRoleCounts[roleKey] = assignedPackageRoleCounts.GetValueOrDefault(roleKey) + 1;
                 }
             }
 
@@ -125,6 +178,32 @@ internal static class CampaignStrategicAi
                     group.RequiresRecovery ? checked(dueAt.Quanta + RecoveryLatchQuanta) : dueAt.Quanta),
                 prior is null ? new EntityRevision(1) : prior.Revision.Next());
             commitments = commitments.SetItem(group.GroupId, updated);
+            if (prior is not null && !retainedCommitment)
+            {
+                replannedGroups.Add(group.GroupId);
+            }
+        }
+
+        var groups = state.Groups;
+        var orders = state.Orders;
+        foreach (var groupId in replannedGroups)
+        {
+            var group = groups[groupId];
+            if (group.ActiveOrderId is not { } orderId
+                || !orders.TryGetValue(orderId, out var order))
+            {
+                continue;
+            }
+            orders = orders.SetItem(orderId, order with
+            {
+                CompletedAt = dueAt,
+                Revision = order.Revision.Next(),
+            });
+            groups = groups.SetItem(groupId, group with
+            {
+                ActiveOrderId = null,
+                Revision = group.Revision.Next(),
+            });
         }
 
         var nextAt = new CampaignTime(checked(
@@ -134,12 +213,173 @@ internal static class CampaignStrategicAi
             nextAt,
             epoch,
             priorStrategy is null ? new EntityRevision(1) : priorStrategy.Revision.Next());
+        var operationalPackages = BuildOperationalPackages(
+            state,
+            view,
+            commitments,
+            objectives,
+            dueAt,
+            epoch);
         return state with
         {
             StrategicObjectives = objectives,
             GroupCommitments = commitments,
+            OperationalPackages = operationalPackages,
+            Groups = groups,
+            Orders = orders,
             CoalitionStrategies = state.CoalitionStrategies.SetItem(view.CoalitionId, strategy),
         };
+    }
+
+    private static ImmutableSortedDictionary<OperationalPackageId, OperationalPackageState> BuildOperationalPackages(
+        CampaignState state,
+        CoalitionStrategicView view,
+        ImmutableSortedDictionary<GroupId, GroupCommitmentState> commitments,
+        ImmutableSortedDictionary<StrategicObjectiveId, StrategicObjectiveState> objectives,
+        CampaignTime dueAt,
+        long epoch)
+    {
+        var packages = state.OperationalPackages
+            .Where(item => item.Value.CoalitionId != view.CoalitionId
+                || item.Value.ExpiresAt.Quanta > dueAt.Quanta
+                    && item.Value.Members.Keys.All(groupId =>
+                        commitments.TryGetValue(groupId, out var commitment)
+                        && !commitment.WithdrawLatched
+                        && commitment.ObjectiveId == item.Value.ObjectiveId
+                        && commitment.ExpiresAt.Quanta >= item.Value.ExpiresAt.Quanta))
+            .ToImmutableSortedDictionary();
+        var alreadyPackaged = packages.Values
+            .Where(package => package.CoalitionId == view.CoalitionId)
+            .SelectMany(package => package.Members.Keys)
+            .ToHashSet();
+        var eligible = view.Groups.Values
+            .Where(group => !group.ContainsInstallation
+                && !alreadyPackaged.Contains(group.GroupId)
+                && commitments.TryGetValue(group.GroupId, out var commitment)
+                && !commitment.WithdrawLatched
+                && commitment.ObjectiveId is not null
+                && commitment.ExpiresAt.Quanta > dueAt.Quanta)
+            .GroupBy(group => commitments[group.GroupId].ObjectiveId!.Value)
+            .OrderBy(group => group.Key);
+
+        foreach (var objectiveGroups in eligible)
+        {
+            if (!objectives.TryGetValue(objectiveGroups.Key, out var objective))
+            {
+                continue;
+            }
+            var groups = objectiveGroups.OrderBy(group => group.GroupId).ToArray();
+            if (groups.Length < 2)
+            {
+                continue;
+            }
+            var executeAt = new CampaignTime(checked(dueAt.Quanta + OrderQuanta));
+            var expiresAt = new CampaignTime(groups.Min(group => commitments[group.GroupId].ExpiresAt.Quanta));
+            if (executeAt.Quanta > expiresAt.Quanta)
+            {
+                executeAt = expiresAt;
+            }
+            var roleCounts = new Dictionary<OperationalPackageRole, int>();
+            var members = ImmutableSortedDictionary<GroupId, OperationalPackageMemberState>.Empty;
+            foreach (var group in groups)
+            {
+                var role = SelectPackageRole(view, group, objective, roleCounts);
+                roleCounts[role] = roleCounts.GetValueOrDefault(role) + 1;
+                var startsAt = PackageStartsAt(group.Domain, dueAt, executeAt);
+                members = members.Add(group.GroupId, new OperationalPackageMemberState(
+                    group.GroupId,
+                    role,
+                    startsAt));
+            }
+            var packageId = new OperationalPackageId(KeyedGuid(
+                state.Metadata.Seed,
+                objective.ObjectiveId.Value,
+                dueAt,
+                $"operational-package-{epoch}"));
+            packages = packages.Add(packageId, new OperationalPackageState(
+                packageId,
+                view.CoalitionId,
+                objective.ObjectiveId,
+                objective.RegionId,
+                dueAt,
+                executeAt,
+                expiresAt,
+                members,
+                new EntityRevision(1)));
+        }
+        return packages;
+    }
+
+    private static OperationalPackageRole SelectPackageRole(
+        CoalitionStrategicView view,
+        StrategicGroupView group,
+        StrategicObjectiveState objective,
+        IReadOnlyDictionary<OperationalPackageRole, int>? localRoleCounts,
+        IReadOnlyDictionary<(StrategicObjectiveId, OperationalPackageRole), int>? assignedRoleCounts = null)
+    {
+        int Count(OperationalPackageRole role) => localRoleCounts?.GetValueOrDefault(role)
+            ?? assignedRoleCounts?.GetValueOrDefault((objective.ObjectiveId, role))
+            ?? 0;
+        if (group.Domain == SimulationDomain.Logistics)
+        {
+            return OperationalPackageRole.Sustainment;
+        }
+        if (group.Domain is SimulationDomain.Ground or SimulationDomain.LandAbstract)
+        {
+            return objective.Kind == StrategicObjectiveKind.Interdict
+                && group.EngagementClasses.Contains(ContactClassification.LandFormation)
+                    ? OperationalPackageRole.LandAttack
+                    : OperationalPackageRole.GroundSupport;
+        }
+
+        var responsive = ThreatClasses(view, objective)
+            .Where(group.EngagementClasses.Contains)
+            .Select(classification => classification switch
+            {
+                ContactClassification.Air => OperationalPackageRole.AirCover,
+                ContactClassification.Subsurface => OperationalPackageRole.AntiSubmarine,
+                ContactClassification.LandFormation => OperationalPackageRole.LandAttack,
+                _ => OperationalPackageRole.SurfaceEscort,
+            })
+            .Distinct()
+            .OrderBy(Count)
+            .ThenBy(role => role)
+            .ToArray();
+        if (objective.Kind is StrategicObjectiveKind.Interdict or StrategicObjectiveKind.ProjectForce
+            && Count(OperationalPackageRole.Strike) == 0
+            && responsive.Any(role => role is OperationalPackageRole.SurfaceEscort
+                or OperationalPackageRole.LandAttack))
+        {
+            return OperationalPackageRole.Strike;
+        }
+        if (group.Domain is SimulationDomain.Air or SimulationDomain.RotaryWing
+            && group.EngagementClasses.Contains(ContactClassification.Air))
+        {
+            return OperationalPackageRole.AirCover;
+        }
+        if (responsive.Length > 0)
+        {
+            return responsive[0];
+        }
+        if (group.ContainsSubsurface)
+        {
+            return OperationalPackageRole.AntiSubmarine;
+        }
+        return OperationalPackageRole.Escort;
+    }
+
+    private static CampaignTime PackageStartsAt(
+        SimulationDomain domain,
+        CampaignTime assemblyAt,
+        CampaignTime executeAt)
+    {
+        var leadQuanta = domain switch
+        {
+            SimulationDomain.Air => 10,
+            SimulationDomain.RotaryWing => 20,
+            _ => OrderQuanta,
+        };
+        return new CampaignTime(Math.Max(assemblyAt.Quanta, executeAt.Quanta - leadQuanta));
     }
 
     private static CampaignState RefreshRecoveryLatches(
@@ -256,6 +496,7 @@ internal static class CampaignStrategicAi
         IReadOnlyList<StrategicObjectiveState> objectives,
         IReadOnlyDictionary<StrategicObjectiveId, int> assignedCounts,
         IReadOnlyDictionary<(StrategicObjectiveId, ContactClassification), int> assignedResponseCounts,
+        IReadOnlyDictionary<(StrategicObjectiveId, OperationalPackageRole), int> assignedPackageRoleCounts,
         long seed,
         CampaignTime dueAt)
     {
@@ -278,6 +519,7 @@ internal static class CampaignStrategicAi
                 - saturation * 100_000L
                 + Affinity(group, objective.Kind)
                 + ThreatResponseAffinity(view, group, objective, assignedResponseCounts)
+                + PackageRoleAffinity(view, group, objective, assignedPackageRoleCounts)
                 + StableJitter(seed, group.GroupId.Value, dueAt, objective.ObjectiveId.Value);
             if (score > bestScore || score == bestScore && objective.ObjectiveId.CompareTo(best!.ObjectiveId) < 0)
             {
@@ -288,10 +530,44 @@ internal static class CampaignStrategicAi
         return best?.ObjectiveId;
     }
 
+    private static long PackageRoleAffinity(
+        CoalitionStrategicView view,
+        StrategicGroupView group,
+        StrategicObjectiveState objective,
+        IReadOnlyDictionary<(StrategicObjectiveId, OperationalPackageRole), int> assignedPackageRoleCounts)
+    {
+        if (group.ContainsInstallation || objective.Kind == StrategicObjectiveKind.Sustain)
+        {
+            return 0;
+        }
+        var role = SelectPackageRole(
+            view,
+            group,
+            objective,
+            localRoleCounts: null,
+            assignedPackageRoleCounts);
+        var assigned = assignedPackageRoleCounts.GetValueOrDefault((objective.ObjectiveId, role));
+        return role switch
+        {
+            OperationalPackageRole.AirCover when assigned == 0 => 500_000,
+            OperationalPackageRole.Sustainment when assigned == 0 => 500_000,
+            OperationalPackageRole.Strike when assigned == 0 => 350_000,
+            OperationalPackageRole.AntiSubmarine when assigned == 0 => 300_000,
+            OperationalPackageRole.SurfaceEscort when assigned == 0 => 250_000,
+            OperationalPackageRole.LandAttack when assigned == 0 => 250_000,
+            OperationalPackageRole.GroundSupport when assigned == 0 => 200_000,
+            OperationalPackageRole.AirCover or OperationalPackageRole.Sustainment when assigned == 1 => 125_000,
+            _ => 0,
+        };
+    }
+
     private static CampaignState IssueOperationalOrders(CampaignState state, CampaignTime dueAt)
     {
         var groups = state.Groups;
         var orders = state.Orders;
+        var packageMembers = state.OperationalPackages.Values
+            .SelectMany(package => package.Members.Values.Select(member => (Package: package, Member: member)))
+            .ToDictionary(item => item.Member.GroupId);
         foreach (var group in state.Groups.Values)
         {
             if (group.ActiveOrderId is not null
@@ -318,6 +594,8 @@ internal static class CampaignStrategicAi
             var first = members[0];
             RegionId destination;
             OrderKind kind;
+            var startsAt = dueAt;
+            var mustCompleteBy = new CampaignTime(checked(dueAt.Quanta + OrderQuanta));
             if (commitment.WithdrawLatched)
             {
                 var home = members.Select(item => item.HomeBaseId)
@@ -338,6 +616,12 @@ internal static class CampaignStrategicAi
             {
                 destination = objective.RegionId;
                 kind = OperationalOrderKind(first, objective.Kind);
+                if (packageMembers.TryGetValue(group.GroupId, out var packageMember))
+                {
+                    startsAt = packageMember.Member.StartsAt;
+                    mustCompleteBy = packageMember.Package.ExecuteAt;
+                    kind = PackageOrderKind(kind, packageMember.Member.Role);
+                }
             }
             else
             {
@@ -352,8 +636,8 @@ internal static class CampaignStrategicAi
                 group.GroupId,
                 kind,
                 destination,
-                dueAt,
-                new CampaignTime(checked(dueAt.Quanta + OrderQuanta)),
+                startsAt,
+                mustCompleteBy,
                 CompletedAt: null,
                 new EntityRevision(1));
             orders = orders.SetItem(orderId, order);
@@ -365,6 +649,17 @@ internal static class CampaignStrategicAi
         }
         return state with { Groups = groups, Orders = orders };
     }
+
+    private static OrderKind PackageOrderKind(OrderKind fallback, OperationalPackageRole role) =>
+        role switch
+        {
+            OperationalPackageRole.AirCover => OrderKind.Cap,
+            OperationalPackageRole.AntiSubmarine => OrderKind.Asw,
+            OperationalPackageRole.SurfaceEscort or OperationalPackageRole.Escort => OrderKind.Escort,
+            OperationalPackageRole.Sustainment => OrderKind.Resupply,
+            OperationalPackageRole.GroundSupport => OrderKind.Reinforce,
+            _ => fallback,
+        };
 
     private static OrderKind OperationalOrderKind(EntityState lead, StrategicObjectiveKind objective) =>
         lead.SimulationDomain switch
@@ -397,7 +692,7 @@ internal static class CampaignStrategicAi
         }
         return group.Domain switch
         {
-            SimulationDomain.Logistics => objective.Kind is StrategicObjectiveKind.Sustain or StrategicObjectiveKind.Defend,
+            SimulationDomain.Logistics => true,
             SimulationDomain.Ground or SimulationDomain.LandAbstract => objective.Kind is not StrategicObjectiveKind.Sustain,
             _ => true,
         };
@@ -580,6 +875,7 @@ internal static class CampaignStrategicAi
         RegionId RegionId,
         SimulationDomain Domain,
         bool ContainsInstallation,
+        bool ContainsSubsurface,
         ImmutableSortedSet<ContactClassification> EngagementClasses,
         bool RequiresRecovery,
         bool RecoveryReady);
@@ -630,6 +926,7 @@ internal static class CampaignStrategicAi
                     members[0].RegionId,
                     members[0].SimulationDomain,
                     members.Any(item => item.SimulationDomain == SimulationDomain.Installation),
+                    members.Any(IsSubsurface),
                     members.SelectMany(item => item.OperationalWeapons)
                         .Select(item => item.TargetClassification)
                         .ToImmutableSortedSet(),

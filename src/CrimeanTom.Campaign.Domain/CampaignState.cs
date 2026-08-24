@@ -86,6 +86,22 @@ public sealed record GroupCommitmentState(
     CampaignTime LatchReleaseAt,
     EntityRevision Revision);
 
+public sealed record OperationalPackageMemberState(
+    GroupId GroupId,
+    OperationalPackageRole Role,
+    CampaignTime StartsAt);
+
+public sealed record OperationalPackageState(
+    OperationalPackageId PackageId,
+    CoalitionId CoalitionId,
+    StrategicObjectiveId ObjectiveId,
+    RegionId RegionId,
+    CampaignTime AssemblyAt,
+    CampaignTime ExecuteAt,
+    CampaignTime ExpiresAt,
+    ImmutableSortedDictionary<GroupId, OperationalPackageMemberState> Members,
+    EntityRevision Revision);
+
 public sealed record CoalitionStrategyState(
     CoalitionId CoalitionId,
     CampaignTime NextDirectorAt,
@@ -169,6 +185,7 @@ public sealed record CampaignState
     public ImmutableSortedDictionary<OrderId, OrderState> Orders { get; init; } = ImmutableSortedDictionary<OrderId, OrderState>.Empty;
     public ImmutableSortedDictionary<StrategicObjectiveId, StrategicObjectiveState> StrategicObjectives { get; init; } = ImmutableSortedDictionary<StrategicObjectiveId, StrategicObjectiveState>.Empty;
     public ImmutableSortedDictionary<GroupId, GroupCommitmentState> GroupCommitments { get; init; } = ImmutableSortedDictionary<GroupId, GroupCommitmentState>.Empty;
+    public ImmutableSortedDictionary<OperationalPackageId, OperationalPackageState> OperationalPackages { get; init; } = ImmutableSortedDictionary<OperationalPackageId, OperationalPackageState>.Empty;
     public ImmutableSortedDictionary<CoalitionId, CoalitionStrategyState> CoalitionStrategies { get; init; } = ImmutableSortedDictionary<CoalitionId, CoalitionStrategyState>.Empty;
     public ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate> Intelligence { get; init; } = ImmutableSortedDictionary<IntelligenceKey, IntelligenceEstimate>.Empty;
     public ImmutableSortedDictionary<RegionId, WeatherState> Weather { get; init; } = ImmutableSortedDictionary<RegionId, WeatherState>.Empty;
