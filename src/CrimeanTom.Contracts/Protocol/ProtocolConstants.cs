@@ -103,6 +103,7 @@ public static class GameCommandTypes
     public const string ContinueMissionBriefing = "continue-mission-briefing";
     public const string ExitTacticalSession = "exit-tactical-session";
     public const string SetExperimentalPauseState = "set-experimental-pause-state";
+    public const string SetExperimentalTimeCompression = "set-experimental-time-compression";
     public const string ArmOwnedMutationMode = "arm-owned-mutation-mode";
     public const string MaterializeOwnedSurfaceUnit = "materialize-owned-surface-unit";
     public const string RegisterOwnedHostedAircraft = "register-owned-hosted-aircraft";
@@ -154,6 +155,7 @@ public static class GameCommandTypes
     public static readonly string[] ExperimentalCommands =
     {
         SetExperimentalPauseState,
+        SetExperimentalTimeCompression,
     };
 
     public static readonly string[] MutationControlCommands =
@@ -205,6 +207,7 @@ public static class GameCommandTypes
         ContinueMissionBriefing,
         ExitTacticalSession,
         SetExperimentalPauseState,
+        SetExperimentalTimeCompression,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
         RegisterOwnedHostedAircraft,

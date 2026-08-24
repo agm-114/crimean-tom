@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'register-hosted-aircraft', 'launch-hosted-aircraft', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'set-time-compression', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'register-hosted-aircraft', 'launch-hosted-aircraft', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -109,6 +109,12 @@ param(
     [int]$MutationArmSeconds = 300,
 
     [int]$Quantity = 1,
+
+    [ValidateRange(0, 1000000)]
+    [long]$FuelFractionMilliunits = 1000000,
+
+    [ValidateSet(0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 20, 30, 50, 100)]
+    [double]$TimeCompression = 1,
 
     [ValidateSet('map', 'formation', 'flight-deck', 'hud', 'pause-resume')]
     [string]$Panel = 'map',
@@ -722,6 +728,12 @@ switch ($Action) {
             'Post' `
             ([pscustomobject]@{ isPaused = $false }))
     }
+    'set-time-compression' {
+        Show-Json (Invoke-ControlRequest `
+            '/game/experimental/time-compression' `
+            'Post' `
+            ([pscustomobject]@{ timeCompression = $TimeCompression }))
+    }
     'arm-owned-mutations' {
         $health = Invoke-ControlRequest '/health'
         $capabilities = Invoke-ControlRequest '/game/capabilities'
@@ -784,6 +796,7 @@ switch ($Action) {
                 unitTypeId = $AircraftType
                 variantId = $SquadronReference
                 loadoutId = $AircraftLoadout
+                fuelFractionMilliunits = $FuelFractionMilliunits
             }))
     }
     'launch-hosted-aircraft' {

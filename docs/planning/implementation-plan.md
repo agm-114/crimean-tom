@@ -134,8 +134,10 @@ The bridge now also registers campaign-tagged helicopter inventory on a native
 ship flight deck and carries the same identity through Sea Power's real launch
 cycle. The full campaign now supplies canonical host-child assignments: the
 North Sea group enters as two native ships plus an SH-2F and SH-3H in
-Yorktown's native flight-deck inventory. The milestone remains open for combined
-surface/submarine entry, hosted-aircraft recovery, removal of authored
+Yorktown's native flight-deck inventory. A fresh full-campaign run also carried
+the canonical SH-2F through Sea Power's native launch cycle with campaign
+identity, loadout, ammunition, and fuel intact. The milestone remains open for
+combined surface/submarine entry, hosted-aircraft recovery, removal of authored
 placeholder membership, tactical-map interaction parity, and hostile
 participation.
 
@@ -151,7 +153,7 @@ map/proxy system usable.
   SH-2F/SH-3H group.
 - Implemented: canonical ship-hosted SH-2F/SH-3H inventory in player entry,
   world-object capacity accounting, Flight Deck UI inspection, native launch
-  scheduling, and campaign identity adoption after launch.
+  scheduling, campaign identity adoption after launch, and fuel portability.
 - Remaining: combine the entry paths, replace authored player membership, and
   implement hosted recovery and restart reconciliation.
 - Represent every supported available member as a real simulated object or a

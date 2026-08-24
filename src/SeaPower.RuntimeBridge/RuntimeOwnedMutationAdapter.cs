@@ -319,7 +319,8 @@ internal static class RuntimeOwnedMutationAdapter
             request.UnitTypeId,
             request.VariantId,
             request.LoadoutId,
-            host.TaskforceId));
+            host.TaskforceId,
+            request.FuelFractionMilliunits ?? 1_000_000));
         if (!flightDeck.AddVehicle(
             request.UnitTypeId,
             request.VariantId,
@@ -1974,6 +1975,11 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return InvalidHosted("Initial hosted-aircraft registration requires a positive authority epoch and expectedRevision 0.");
         }
+        if (request.FuelFractionMilliunits is { } fuelFraction
+            && !ValidFraction(fuelFraction))
+        {
+            return InvalidHosted("Hosted-aircraft fuel fraction must be between 0 and 1000000 milliunits.");
+        }
         if (string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
             || request.Context.IdempotencyKey.Length > 128
             || string.IsNullOrWhiteSpace(request.DisplayName)
@@ -2142,6 +2148,7 @@ internal static class RuntimeOwnedMutationAdapter
         UnitTypeId = request.UnitTypeId,
         VariantId = request.VariantId,
         LoadoutId = request.LoadoutId,
+        FuelFractionMilliunits = request.FuelFractionMilliunits ?? 1_000_000,
         LifecycleState = request.Context!.DryRun ? "validated-for-hosting" : "hosted-on-board",
         AircraftOnBoard = flightDeck.AircraftCurrentlyOnBoard
             + (request.Context.DryRun ? 1 : 0),
@@ -2180,6 +2187,7 @@ internal static class RuntimeOwnedMutationAdapter
                 continue;
             }
 
+            ApplyFuel(launched, hosted.FuelFractionMilliunits);
             ApplyDisplayName(launched, hosted.DisplayName);
             OwnedEntities.Add(entityId, new(
                 hosted.AssignmentId,
@@ -2663,7 +2671,8 @@ internal static class RuntimeOwnedMutationAdapter
         string UnitTypeId,
         string VariantId,
         string LoadoutId,
-        string TaskforceId);
+        string TaskforceId,
+        long FuelFractionMilliunits);
 
     private sealed record LifecycleIdempotencyRecord(
         string RequestJson,

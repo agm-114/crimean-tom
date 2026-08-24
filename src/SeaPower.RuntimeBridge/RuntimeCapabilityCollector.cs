@@ -130,6 +130,7 @@ internal static class RuntimeCapabilityCollector
         if (RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time"))
         {
             supportedExperimentalCommands.Add(GameCommandTypes.SetExperimentalPauseState);
+            supportedExperimentalCommands.Add(GameCommandTypes.SetExperimentalTimeCompression);
         }
 
         return new CapabilitiesPayload

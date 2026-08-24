@@ -5,9 +5,9 @@
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
 2026. Crimean Tom has a durable local campaign lifecycle, player map, and its
 first campaign-owned surface, submarine, airborne-helicopter, and native hosted
-helicopter tactical-entry paths. The Runtime Bridge can also launch a campaign-
-tagged helicopter from a native ship flight deck. It is not yet a complete
-campaign-to-battle loop.
+helicopter tactical-entry paths. The canonical hosted SH-2F now also survives a
+native flight-deck launch with identity, loadout, ammunition, and fuel intact.
+It is not yet a complete campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
@@ -67,7 +67,9 @@ the two-aircraft capacity, scheduled Sea Power's real launch task, and preserved
 the helicopter's campaign identity and host relation after it became airborne.
 The canonical North Sea group now enters from the full campaign as USS Yorktown
 and USS Spruance plus one SH-2F and one SH-3H in Yorktown's native flight-deck
-inventory.
+inventory. A fresh full-campaign run launched the SH-2F through Sea Power's
+native deck cycle and retained its campaign identity, host relation, ASW
+loadout, ammunition, and full fuel state.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
@@ -108,9 +110,9 @@ than in the active tree.
 The selected-group transaction, unsupported-member report, one-member submarine
 patrol, and two-member airborne helicopter group work. The canonical North Sea
 group also enters as two native ships plus two helicopters in Yorktown's native
-flight-deck inventory. Qualify a combined surface/submarine group, implement
-hosted recovery and restart reconciliation, and then remove the authored mission
-as the source of player membership.
+flight-deck inventory, and its SH-2F completes native launch. Qualify a combined
+surface/submarine group, implement hosted recovery and restart reconciliation,
+and then remove the authored mission as the source of player membership.
 
 ### 2. Map and proxy parity
 
@@ -239,16 +241,27 @@ active while campaign time advanced past T+3500; the worker retained two active
 world objects and four owned campaign resources without duplicate stable IDs.
 The game reported about 60 FPS, a 16.667 ms fixed step, and internal time
 dilation 1. This proves canonical host-child entry and correct capacity
-accounting. It does not prove launch from this player-entry batch, recovery,
-restart reconciliation, combat return, or fixed-wing operations.
+accounting. It does not prove recovery, restart reconciliation, combat return,
+or fixed-wing operations.
+
+A seventh run launched the canonical SH-2F from a fresh full-campaign player-
+entry batch. Sea Power completed the native deck cycle and adopted the airborne
+object under the same campaign ID, display name, host relation, and
+`Squadron4 / ASW` profile. Native readback reported two Mk 46 torpedoes, fifteen
+sonobuoys, and 1,214 of 1,214 kg fuel; campaign readback reported 1,000,000 fuel
+milliunits. The assignment stayed Active with a live lease, the world had no
+duplicate stable IDs, and Sea Power returned from a bounded x10 wait to x1 at
+about 60 FPS, a 16.667 ms fixed step, and internal time dilation 1. A concurrent
+pre-activation readback was also made harmless so it cannot terminate the
+companion stream. Recovery, restart reconciliation, and return to the host
+remain unsupported.
 
 ## Next work
 
 The next vertical slice should:
 
-1. combine the surface, submarine, and helicopter paths, qualify native launch
-   and recovery from a canonical player-entry batch, then remove authored
-   placeholder membership;
+1. combine the surface, submarine, and helicopter paths, qualify native recovery
+   and return to the host, then remove authored placeholder membership;
 2. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 3. fight one campaign-owned hostile while the rest of the war advances;

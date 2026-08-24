@@ -1131,6 +1131,7 @@ public sealed class CampaignCompanionClient(
                         UnitTypeId = assignment.UnitTypeId,
                         VariantId = assignment.VariantId,
                         LoadoutId = assignment.LoadoutId,
+                        FuelFractionMilliunits = assignment.InitialFuelMilliunits,
                     }, JsonOptions),
                     cancellationToken);
                 var hosted = JsonSerializer.Deserialize<RegisterOwnedHostedAircraftResultPayload>(

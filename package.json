@@ -34,6 +34,7 @@
     "game:coupling": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 coupling",
     "game:campaign": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 campaign",
     "game:ui": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 ui",
+    "game:time-compression": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 set-time-compression",
     "game:screenshot": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 screenshot",
     "game:colliders": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 colliders",
     "game:colliders:capture": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/crimean-tom-control.ps1 colliders-capture",

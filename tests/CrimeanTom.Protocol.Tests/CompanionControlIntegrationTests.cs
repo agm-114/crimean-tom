@@ -158,7 +158,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(16, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(17, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -1943,6 +1943,21 @@ public sealed class CompanionControlIntegrationTests
                 testTimeout.Token);
             Assert.True(pause.RootElement.GetProperty("isPaused").GetBoolean());
 
+            using var timeCompression = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/experimental/time-compression",
+                JsonSerializer.Serialize(new ExperimentalTimeCompressionRequestPayload
+                {
+                    TimeCompression = 10,
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "tactical-time-compression-set",
+                timeCompression.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(10, timeCompression.RootElement.GetProperty("timeCompression").GetSingle());
+            Assert.False(timeCompression.RootElement.GetProperty("isPaused").GetBoolean());
+
             using var connectedHealth = await GetAuthorizedJsonAsync(
                 client,
                 token,
@@ -2022,6 +2037,7 @@ public sealed class CompanionControlIntegrationTests
                     UnitTypeId = "usn_sh-2f",
                     VariantId = "Squadron4",
                     LoadoutId = "ASW",
+                    FuelFractionMilliunits = 750_000,
                 }, JsonOptions),
                 testTimeout.Token);
             Assert.Equal(
@@ -2033,6 +2049,12 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("realizedAircraft")
                     .GetProperty("lifecycleState")
                     .GetString());
+            Assert.Equal(
+                750_000,
+                registeredHostedAircraft.RootElement
+                    .GetProperty("realizedAircraft")
+                    .GetProperty("fuelFractionMilliunits")
+                    .GetInt64());
 
             using var launchedHostedAircraft = await PostAuthorizedJsonWithBodyAsync(
                 client,
@@ -3078,6 +3100,9 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
                     JsonOptions),
+                GameCommandTypes.SetExperimentalTimeCompression => JsonSerializer.Serialize(
+                    CreateExperimentalTimeCompressionResult(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.ArmOwnedMutationMode => JsonSerializer.Serialize(
                     new ArmOwnedMutationModeResultPayload
                     {
@@ -3134,6 +3159,7 @@ public sealed class CompanionControlIntegrationTests
                             UnitTypeId = "usn_sh-2f",
                             VariantId = "Squadron4",
                             LoadoutId = "ASW",
+                            FuelFractionMilliunits = 750_000,
                             LifecycleState = "hosted-on-board",
                             AircraftOnBoard = 1,
                             AircraftCapacity = 2,
@@ -3374,6 +3400,9 @@ public sealed class CompanionControlIntegrationTests
                     JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.SetExperimentalTimeCompression => JsonSerializer.Serialize(
+                    CreateExperimentalTimeCompressionResult(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.ArmOwnedMutationMode => JsonSerializer.Serialize(
                     new ArmOwnedMutationModeResultPayload
@@ -4063,6 +4092,22 @@ public sealed class CompanionControlIntegrationTests
             Postcondition = request.IsPaused
                 ? "tactical-time-paused"
                 : "tactical-time-running",
+        };
+    }
+
+    private static ExperimentalTimeCompressionResultPayload CreateExperimentalTimeCompressionResult(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<ExperimentalTimeCompressionRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new ExperimentalTimeCompressionResultPayload
+        {
+            RequestedTimeCompression = request.TimeCompression,
+            TimeCompression = request.TimeCompression,
+            IsPaused = false,
+            SimulationTimeSeconds = 10,
+            Postcondition = "tactical-time-compression-set",
         };
     }
 
@@ -6349,6 +6394,7 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.GetSceneState
                 or GameCommandTypes.GetCapabilities
                 or GameCommandTypes.SetExperimentalPauseState
+                or GameCommandTypes.SetExperimentalTimeCompression
                 or GameCommandTypes.GetTacticalCouplingState
                 or GameCommandTypes.GetWorldSnapshot
                 or GameCommandTypes.ProbeTerrainPlacement

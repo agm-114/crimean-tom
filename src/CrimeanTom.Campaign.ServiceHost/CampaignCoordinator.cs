@@ -3722,6 +3722,16 @@ public sealed class CampaignCoordinator(
         {
             throw new CampaignStoreConflict("tactical-event-fenced", "Tactical proposal epoch is stale.");
         }
+        // The runtime object becomes observable before a batched assignment is
+        // activated. A concurrent heartbeat may therefore publish its initial
+        // readback while the campaign assignment is still Preparing or Prepared.
+        // It has no authority to change campaign state yet, but it is not a
+        // transport failure and must not tear down the companion session.
+        if (proposal.Kind == TacticalEventKind.StateSync
+            && assignment.Lifecycle is not (AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing))
+        {
+            return;
+        }
         if (assignment.Lifecycle == AssignmentLifecycle.Released)
         {
             return;

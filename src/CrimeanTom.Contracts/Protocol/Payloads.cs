@@ -324,6 +324,7 @@ public sealed class RegisterOwnedHostedAircraftRequestPayload
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = "Default";
+    public long? FuelFractionMilliunits { get; set; }
 }
 
 public sealed class OwnedHostedAircraftStatePayload
@@ -333,6 +334,7 @@ public sealed class OwnedHostedAircraftStatePayload
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = string.Empty;
+    public long? FuelFractionMilliunits { get; set; }
     public string LifecycleState { get; set; } = string.Empty;
     public int AircraftOnBoard { get; set; }
     public int AircraftCapacity { get; set; }
@@ -1700,6 +1702,26 @@ public sealed class ExperimentalPauseResultPayload
     public double? SimulationTimeSeconds { get; set; }
 
     public double? TimeCompression { get; set; }
+
+    public string Postcondition { get; set; } = string.Empty;
+}
+
+public sealed class ExperimentalTimeCompressionRequestPayload
+{
+    public float TimeCompression { get; set; } = 1;
+}
+
+public sealed class ExperimentalTimeCompressionResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public float RequestedTimeCompression { get; set; }
+
+    public float TimeCompression { get; set; }
+
+    public bool IsPaused { get; set; }
+
+    public double? SimulationTimeSeconds { get; set; }
 
     public string Postcondition { get; set; } = string.Empty;
 }

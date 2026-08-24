@@ -78,6 +78,14 @@ pnpm game:ui
 pnpm game:screenshot
 ```
 
+For a bounded live wait such as native flight-deck preparation, set one of Sea
+Power's normal tactical compression steps and restore x1 afterward:
+
+```powershell
+pnpm game:time-compression -- -TimeCompression 10
+pnpm game:time-compression -- -TimeCompression 1
+```
+
 Do not leave extra Sea Power or companion processes running after a test unless
 the user asks to keep them open.
 

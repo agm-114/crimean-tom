@@ -504,6 +504,17 @@ app.MapPost("/game/experimental/pause", (
         CommandPriorities.Control,
         cancellationToken));
 
+app.MapPost("/game/experimental/time-compression", (
+    ExperimentalTimeCompressionRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.SetExperimentalTimeCompression,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/mutations/arm", (
     ArmOwnedMutationModeRequestPayload request,
     GamePipeBroker broker,

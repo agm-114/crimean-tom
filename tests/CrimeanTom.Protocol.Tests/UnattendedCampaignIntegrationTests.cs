@@ -489,6 +489,32 @@ public sealed class UnattendedCampaignIntegrationTests
                 });
                 if (index == 0)
                 {
+                    // Runtime resource discovery and assignment activation run
+                    // concurrently. Prove that an initial readback observed in
+                    // that window is ignored instead of terminating the stream.
+                    await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+                    {
+                        Sequence = nextCompanionSequence++,
+                        TacticalEvent = new TacticalEventProposal
+                        {
+                            EventId = "pre-activation-state-sync-race",
+                            IdempotencyKey = "pre-activation-state-sync-race-0001",
+                            AssignmentId = entry.AssignmentId,
+                            EntityId = entry.EntityId,
+                            AuthorityEpoch = entry.AuthorityEpoch,
+                            ExpectedEntityRevision = entry.ExpectedEntityRevision,
+                            EffectiveTimeQuanta = entry.HandoffTimeQuanta,
+                            Kind = TacticalEventKind.StateSync,
+                            LatitudeMicrodegrees = entry.LatitudeMicrodegrees,
+                            LongitudeMicrodegrees = entry.LongitudeMicrodegrees,
+                            HeadingMillidegrees = entry.HeadingMillidegrees,
+                            FuelMilliunits = entry.InitialFuelMilliunits,
+                            StoresMilliunits = entry.InitialStoresMilliunits,
+                            DamageMilliunits = entry.InitialDamageMilliunits,
+                            Telegraph = entry.Telegraph,
+                            CheckpointSha256 = new string('b', 64),
+                        },
+                    });
                     using var partiallyPrepared = await playerClient.GetAsync(
                         $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
                         testTimeout.Token);

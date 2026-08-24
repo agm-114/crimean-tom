@@ -130,6 +130,8 @@ internal static partial class GameCommandDispatcher
                     GameCommandTypes.ExitTacticalSession => ExitTacticalSession(),
                     GameCommandTypes.SetExperimentalPauseState => SetExperimentalPauseState(
                         command.PayloadJson),
+                    GameCommandTypes.SetExperimentalTimeCompression =>
+                        SetExperimentalTimeCompression(command.PayloadJson),
                     GameCommandTypes.ArmOwnedMutationMode => ArmOwnedMutationMode(
                         command.PayloadJson,
                         command.SessionId,
@@ -1427,6 +1429,51 @@ internal static partial class GameCommandDispatcher
             SimulationTimeSeconds = Finite(GameTime.time),
             TimeCompression = Finite(GameTime.TimeCompression),
             Postcondition = actual ? "tactical-time-paused" : "tactical-time-running",
+        });
+    }
+
+    private static CommandResponsePayload SetExperimentalTimeCompression(string payloadJson)
+    {
+        if (!RuntimeDeterministicHookFingerprintProvider.IsVerified("logical-time"))
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "The pinned logical-time seam is not verified for this game build.");
+        }
+        if (!Singleton<GameMain>.InstanceExists())
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "A tactical mission is required for experimental time-compression control.");
+        }
+
+        var request = JsonSerializer.Deserialize<ExperimentalTimeCompressionRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new ExperimentalTimeCompressionRequestPayload();
+        var supported = new[] { 0.1f, 0.2f, 0.5f, 1f, 2f, 3f, 5f, 10f, 20f, 30f, 50f, 100f };
+        if (!float.IsFinite(request.TimeCompression)
+            || !supported.Contains(request.TimeCompression))
+        {
+            return Failure(
+                ProtocolErrorCodes.InvalidMessage,
+                "Time compression must be one of Sea Power's supported tactical steps from 0.1 through 100.");
+        }
+
+        GameTime.SetTimeCompression(request.TimeCompression);
+        var actual = GameTime.TimeCompression;
+        if (Math.Abs(actual - request.TimeCompression) > 0.001f)
+        {
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "Sea Power did not reach the requested tactical time compression.");
+        }
+        return Success(new ExperimentalTimeCompressionResultPayload
+        {
+            RequestedTimeCompression = request.TimeCompression,
+            TimeCompression = actual,
+            IsPaused = GameTime.IsPaused(),
+            SimulationTimeSeconds = Finite(GameTime.time),
+            Postcondition = "tactical-time-compression-set",
         });
     }
 

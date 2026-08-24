@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 16.
+Authenticated `GET /supported-claims` mirrors this document at schema version 17.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -81,6 +81,14 @@ or complete Sea Power parity.
   campaign advanced past T+3500. The worker reported two world objects and four
   owned campaign resources, with no duplicate stable IDs. The game held about
   60 FPS, a 16.667 ms fixed step, and internal time dilation 1.
+- A fresh live full-campaign run launched that canonical onboard SH-2F through
+  Sea Power's native flight-deck cycle. The airborne object retained its stable
+  campaign identity, name, `Squadron4 / ASW` profile, host relation, ammunition,
+  and full 1,214 kg fuel load. Campaign readback reported 1,000,000 fuel
+  milliunits, the assignment remained Active with a live lease, and the world
+  contained no duplicate stable IDs. The game returned from a bounded x10 deck
+  wait to x1 at about 60 FPS, a 16.667 ms fixed step, and internal time dilation
+  1.
 
 This is a narrow ship, single-profile submarine, two-profile airborne
 helicopter, and two-profile hosted-helicopter entry contract. It does not cover
