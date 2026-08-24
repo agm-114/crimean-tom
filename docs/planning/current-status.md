@@ -5,7 +5,9 @@
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
 2026. Crimean Tom has a durable local campaign lifecycle, player map, and its
 first campaign-owned surface, submarine, and airborne-helicopter tactical-entry
-paths. It is not yet a complete campaign-to-battle loop.
+paths. The Runtime Bridge can also register and launch a campaign-tagged
+helicopter from a bridge-owned ship's native flight deck. It is not yet a
+complete campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
@@ -29,7 +31,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Scenario | Sourced 55-region, 81-base, 4,096-entity WW3++ proving seed | It is an engineering load scenario, not a balanced release campaign |
 | Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |
 | Strategic AI | Two coalitions create objectives, allocate capable groups, keep fixed defenses in place, form multi-role packages, and replan | No route or capacity deconfliction, deception, or human-level command claim |
-| Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, and collider capture | Pinned game build and narrow portable-state allow-list |
+| Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, collider capture, and native hosted-helicopter registration and launch | Pinned game build, narrow portable-state allow-list, and no hosted-aircraft recovery contract |
 | Tactical lease | Companion heartbeats keep ship, submarine, or airborne helicopter assignments authoritative while unrelated campaign entities advance | Live restart latency and reconnect behavior still need qualification |
 | Tactical readback | Changed ship or submarine pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
 | Map projection | All non-destroyed friendlies and coalition-filtered hostile tracks can reach Sea Power map records | The campaign application map and direct interaction parity are not finished |
@@ -59,7 +61,10 @@ with campaign names and stable tags preserved. A third full-campaign run loaded
 USS Honolulu as a native submarine and kept its campaign lease active while
 Operational time advanced. A fourth run atomically loaded native SH-2F and
 SH-3H campaign helicopters at roughly 500 feet and kept both leases active
-while Operational time advanced.
+while Operational time advanced. A separate bridge-level run registered an
+SH-2F in a campaign-owned Ticonderoga's native flight-deck inventory, enforced
+the two-aircraft capacity, scheduled Sea Power's real launch task, and preserved
+the helicopter's campaign identity and host relation after it became airborne.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
@@ -72,8 +77,8 @@ It cannot yet provide a coherent war-to-battle play session because:
 4. direct mouse interaction with non-local symbols and contacts is not fully
    qualified;
 5. proxy and tactical materialization support does not cover the required
-   fixed-wing, hosted-helicopter, broader submarine, ground, and installation
-   families;
+   fixed-wing, broader submarine, ground, and installation families, and the
+   player-entry path does not yet derive hosted children from campaign state;
 6. no qualified flow commits the fate and expenditure of a campaign-owned
    hostile after a real battle; and
 7. game and service restart recovery has not been proven as a complete live
@@ -100,8 +105,10 @@ than in the active tree.
 
 The selected-group transaction, unsupported-member report, two-ship surface
 group, one-member submarine patrol, and two-member airborne helicopter group
-now work. Qualify a combined naval group and ship-hosted assets, then remove the
-authored mission as the source of player membership.
+now work. Native ship inventory and SH-2F launch also work at the bridge level.
+Add canonical host-child assignments, include hosted children in player entry,
+qualify a combined naval group, and then remove the authored mission as the
+source of player membership.
 
 ### 2. Map and proxy parity
 
@@ -130,7 +137,7 @@ service restart, long-running storage, and one schema and algorithm upgrade.
 
 ### 6. Broader combined arms
 
-Add portable fixed-wing aircraft, ship-hosted helicopter launch and recovery,
+Add portable fixed-wing aircraft, ship-hosted helicopter recovery and return,
 broader submarine families, ground targets, airbases,
 radars, GBAD, strategic air defenses, ballistic launchers, logistics, and shore
 sites through the same map, entry, return, and recovery contract.
@@ -207,12 +214,26 @@ proves independent airborne helicopter entry, not ship-hosted inventory
 transfer, launch and recovery, fixed-wing entry, combat return, or restart
 recovery.
 
+A fifth live runtime run exercised the hosted-aircraft primitive in
+the native Red Sea Breakout mission. The bridge created a campaign-owned
+Ticonderoga, registered an SH-2F as native onboard inventory, exposed Sea
+Power's Flight Deck panel, rejected inventory beyond the ship's two-aircraft
+capacity, and scheduled the real native launch cycle. Sea Power transferred the
+campaign tag to the launched SH-2F. The bridge then adopted it as an active
+campaign object, retained its campaign display name and `HostEntityId`, and
+focused it by stable campaign ID. The airborne readback showed the requested
+`Squadron4 / ASW` profile, full fuel, about 60 FPS, a 16.667 ms fixed step, and
+internal time dilation 1. This proves the bridge primitive, not canonical
+campaign host-child assignment, player-application entry, recovery, restart
+reconciliation, or fixed-wing operations.
+
 ## Next work
 
 The next vertical slice should:
 
-1. combine the proven surface, submarine, and airborne-helicopter paths, add
-   ship-hosted inventory transfer, then remove authored placeholder membership;
+1. add canonical host-child assignments, wire the proven native hosted-aircraft
+   primitive into player entry, combine the surface, submarine, and helicopter
+   paths, then remove authored placeholder membership;
 2. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 3. fight one campaign-owned hostile while the rest of the war advances;

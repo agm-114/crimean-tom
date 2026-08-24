@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 14.
+Authenticated `GET /supported-claims` mirrors this document at schema version 15.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -69,12 +69,18 @@ or complete Sea Power parity.
   `Squadron4 / ASW` and `Squadron1 / ASW` profiles, campaign names, stable tags,
   player task-force membership, and roughly 500-foot entry altitude. Both
   assignments remained Active while campaign time advanced from T+0 to T+40.
+- A separate live bridge-level run registered a campaign-tagged SH-2F in a
+  bridge-owned Ticonderoga's native flight-deck inventory, enforced native deck
+  capacity, created Sea Power's real launch task, and adopted the launched
+  helicopter under the same campaign identity and host relation. The airborne
+  object retained the requested `Squadron4 / ASW` profile and full native fuel.
 
-This is a narrow ship, single-profile submarine, and two-profile airborne
-helicopter contract. It does not cover complete magazines, sensors, formations,
-ship-hosted launch and recovery, fixed-wing aircraft, submerged-state
-portability, broader submarine families, or every ground and installation
-family.
+This is a narrow ship, single-profile submarine, two-profile airborne
+helicopter, and bridge-level SH-2F hosted-launch contract. It does not wire
+hosted children from canonical campaign assignments into player entry, and it
+does not cover hosted-aircraft recovery, complete magazines, sensors,
+formations, fixed-wing aircraft, submerged-state portability, broader
+submarine families, or every ground and installation family.
 
 ## Map and presentation
 

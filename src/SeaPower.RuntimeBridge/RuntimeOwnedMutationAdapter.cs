@@ -88,8 +88,15 @@ internal static class RuntimeOwnedMutationAdapter
     };
     private static readonly Dictionary<string, OwnedEntityRecord> OwnedEntities =
         new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, HostedEntityRecord> HostedEntities =
+        new(StringComparer.Ordinal);
+    private static readonly HashSet<string> HostedLaunchPending = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, IdempotencyRecord> IdempotencyRecords =
         new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, HostedIdempotencyRecord> HostedIdempotencyRecords =
+        new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, HostedLaunchIdempotencyRecord>
+        HostedLaunchIdempotencyRecords = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, LifecycleIdempotencyRecord>
         LifecycleIdempotencyRecords = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, RecoveryReleaseIdempotencyRecord>
@@ -109,7 +116,7 @@ internal static class RuntimeOwnedMutationAdapter
         && string.Equals(_armedSessionId, sessionId, StringComparison.Ordinal);
 
     internal static bool HasOwnedEntity(string entityId) =>
-        OwnedEntities.ContainsKey(entityId);
+        OwnedEntities.ContainsKey(entityId) || HostedEntities.ContainsKey(entityId);
 
     internal static bool HasActiveOwnedEntity(string entityId) =>
         OwnedEntities.TryGetValue(entityId, out var record)
@@ -168,6 +175,8 @@ internal static class RuntimeOwnedMutationAdapter
             _armedSessionId = string.Empty;
             _expiresAtUnixMilliseconds = 0;
             IdempotencyRecords.Clear();
+            HostedIdempotencyRecords.Clear();
+            HostedLaunchIdempotencyRecords.Clear();
             LifecycleIdempotencyRecords.Clear();
             RecoveryReleaseIdempotencyRecords.Clear();
         }
@@ -175,7 +184,8 @@ internal static class RuntimeOwnedMutationAdapter
 
     public static OwnedSurfaceResourceStatePayload CaptureResourceState()
     {
-        var entries = OwnedEntities
+        ReconcileLaunchedHostedAircraft();
+        var materializedEntries = OwnedEntities
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .Select(pair =>
             {
@@ -198,9 +208,22 @@ internal static class RuntimeOwnedMutationAdapter
                     HasCheckpoint = record.Checkpoint is not null,
                     RecoveryRequired = record.RecoveryRequired,
                     GameUniqueId = vessel == null ? null : vessel.UniqueID,
+                    HostEntityId = record.HostEntityId,
                 };
             })
             .ToArray();
+        var hostedEntries = HostedEntities
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => new OwnedSurfaceResourceEntryPayload
+            {
+                EntityId = pair.Key,
+                AssignmentId = pair.Value.AssignmentId,
+                AuthorityEpoch = pair.Value.AuthorityEpoch,
+                Revision = pair.Value.Revision,
+                LifecycleState = "hosted-on-board",
+                HostEntityId = pair.Value.HostEntityId,
+            });
+        var entries = materializedEntries.Concat(hostedEntries).ToArray();
         var active = entries.Count(entry => entry.LifecycleState == "active");
         var suspended = entries.Count(entry =>
             entry.LifecycleState is "suspended-retained" or "recovery-required-suspended");
@@ -219,6 +242,182 @@ internal static class RuntimeOwnedMutationAdapter
             SchedulerPolicy = "active-and-suspended-retained-objects-consume-materialized-capacity",
             Entities = entries,
         };
+    }
+
+    public static MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>
+        RegisterHostedAircraft(
+            RegisterOwnedHostedAircraftRequestPayload request,
+            string commandSessionId)
+    {
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var idempotencyKey = string.Join(
+            "|",
+            request.Context?.AssignmentId,
+            request.Context?.IdempotencyKey);
+        if (IsArmedFor(commandSessionId)
+            && string.Equals(request.Context?.SessionId, commandSessionId, StringComparison.Ordinal)
+            && HostedIdempotencyRecords.TryGetValue(idempotencyKey, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with different hosted-aircraft data.");
+            }
+
+            var replay = CloneHosted(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Success(replay);
+        }
+
+        var invalid = ValidateHostedAircraft(request, commandSessionId);
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+        var context = request.Context!;
+
+        var duplicateError = ExistingHostedIdentityError(request);
+        if (duplicateError is not null)
+        {
+            return duplicateError;
+        }
+
+        var host = OwnedEntities[request.HostEntityId];
+        var flightDeck = host.Unit!._obp!._flightDeck!;
+        var realized = HostedState(request, flightDeck);
+        var result = new RegisterOwnedHostedAircraftResultPayload
+        {
+            Outcome = context.DryRun ? "validated" : "registered-on-board",
+            Postcondition = context.DryRun
+                ? "owned-hosted-aircraft-registration-valid"
+                : "owned-aircraft-present-in-native-flight-deck-inventory",
+            AssignmentId = context.AssignmentId,
+            AuthorityEpoch = context.AuthorityEpoch,
+            Revision = context.DryRun ? context.ExpectedRevision : 1,
+            IdempotencyKey = context.IdempotencyKey,
+            DryRun = context.DryRun,
+            RealizedAircraft = realized,
+        };
+        if (context.DryRun)
+        {
+            return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Success(result);
+        }
+
+        var nativeRecord = new FlightDeck.CampaignUnitOnBoard(
+            request.UnitTypeId,
+            request.VariantId,
+            request.EntityId);
+        InitializeNewHostedFlightDeckStores(request.HostEntityId, flightDeck);
+        flightDeck._campaignUnitsOnBoard.Add(nativeRecord);
+        HostedEntities.Add(request.EntityId, new(
+            context.AssignmentId,
+            context.AuthorityEpoch,
+            result.Revision,
+            request.HostEntityId,
+            request.DisplayName,
+            request.UnitTypeId,
+            request.VariantId,
+            request.LoadoutId,
+            host.TaskforceId));
+        if (!flightDeck.AddVehicle(
+            request.UnitTypeId,
+            request.VariantId,
+            1,
+            spawnRandom: false,
+            logErrors: false))
+        {
+            flightDeck._campaignUnitsOnBoard.Remove(nativeRecord);
+            HostedEntities.Remove(request.EntityId);
+            return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The host flight deck rejected the requested aircraft profile or capacity.");
+        }
+
+        result.RealizedAircraft = HostedState(request, flightDeck);
+        HostedIdempotencyRecords.Add(
+            idempotencyKey,
+            new(requestJson, CloneHosted(result)));
+        return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Success(result);
+    }
+
+    public static MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>
+        LaunchHostedAircraft(
+            LaunchOwnedHostedAircraftRequestPayload request,
+            string commandSessionId)
+    {
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var idempotencyKey = string.Join(
+            "|",
+            request.Context?.AssignmentId,
+            request.Context?.IdempotencyKey);
+        if (IsArmedFor(commandSessionId)
+            && string.Equals(request.Context?.SessionId, commandSessionId, StringComparison.Ordinal)
+            && HostedLaunchIdempotencyRecords.TryGetValue(idempotencyKey, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with a different hosted-aircraft launch.");
+            }
+
+            var replay = CloneHostedLaunch(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Success(replay);
+        }
+
+
+        var invalid = ValidateHostedLaunch(request, commandSessionId);
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+        var context = request.Context!;
+
+        var hosted = HostedEntities[request.EntityId];
+        var host = OwnedEntities[hosted.HostEntityId];
+        var flightDeck = host.Unit!._obp!._flightDeck!;
+        var vehicle = flightDeck.GetVehicleByName(hosted.UnitTypeId)!;
+        var squadron = vehicle.Squadrons.First(item => string.Equals(
+            item._name,
+            hosted.VariantId,
+            StringComparison.Ordinal));
+        var loadout = vehicle.Loadouts.First(item => string.Equals(
+            item.Name,
+            hosted.LoadoutId,
+            StringComparison.Ordinal));
+        var callsign = squadron.Callsigns.First();
+        var task = flightDeck.createLaunchTask(
+            vehicle,
+            loadout,
+            squadron,
+            callsign,
+            new LaunchTaskParameters { _launchCount = 1 });
+        if (task is null)
+        {
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Sea Power rejected the native launch task, usually because the selected loadout cannot be supplied.");
+        }
+
+        var result = new LaunchOwnedHostedAircraftResultPayload
+        {
+            Outcome = "launch-scheduled",
+            Postcondition = "native-flight-deck-launch-task-created",
+            AssignmentId = context.AssignmentId,
+            AuthorityEpoch = context.AuthorityEpoch,
+            Revision = hosted.Revision,
+            IdempotencyKey = context.IdempotencyKey,
+            EntityId = request.EntityId,
+            HostEntityId = hosted.HostEntityId,
+            FlightDeckTaskCount = flightDeck.FlightDeckTasks.Count,
+        };
+        HostedLaunchIdempotencyRecords.Add(
+            idempotencyKey,
+            new(requestJson, CloneHostedLaunch(result)));
+        HostedLaunchPending.Add(request.EntityId);
+        return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Success(result);
     }
 
     public static MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>
@@ -1739,6 +1938,263 @@ internal static class RuntimeOwnedMutationAdapter
         return null;
     }
 
+    private static MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>?
+        ValidateHostedAircraft(
+            RegisterOwnedHostedAircraftRequestPayload request,
+            string commandSessionId)
+    {
+        MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload> InvalidHosted(
+            string message) =>
+            MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                message);
+
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        if (request.Context is null
+            || !string.Equals(request.Context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The hosted-aircraft context session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.Context.AssignmentId, "assignment:")
+            || !ValidScopedId(request.EntityId, "unit:crimean-tom:")
+            || !ValidScopedId(request.HostEntityId, "unit:crimean-tom:")
+            || string.Equals(request.EntityId, request.HostEntityId, StringComparison.Ordinal))
+        {
+            return InvalidHosted("The assignment, hosted-aircraft, or host identity is invalid.");
+        }
+        if (request.Context.AuthorityEpoch < 1
+            || request.Context.ExpectedRevision != 0)
+        {
+            return InvalidHosted("Initial hosted-aircraft registration requires a positive authority epoch and expectedRevision 0.");
+        }
+        if (string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+            || request.Context.IdempotencyKey.Length > 128
+            || string.IsNullOrWhiteSpace(request.DisplayName)
+            || request.DisplayName.Length > 128)
+        {
+            return InvalidHosted("The idempotency key or display name is outside its supported bound.");
+        }
+        if (string.IsNullOrWhiteSpace(request.UnitTypeId)
+            || string.IsNullOrWhiteSpace(request.VariantId)
+            || string.IsNullOrWhiteSpace(request.LoadoutId)
+            || !IsHelicopterProfile(request.UnitTypeId)
+            || !Supports(request.UnitTypeId, request.VariantId, request.LoadoutId))
+        {
+            return InvalidHosted("The requested hosted-aircraft profile is not allow-listed.");
+        }
+        if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<ObjectsManager>.InstanceExists()
+            || !Singleton<SceneCreator>.InstanceExists()
+            || !Singleton<SceneCreator>.Instance.IsLoadingDone
+            || !GameTime.IsPaused())
+        {
+            return InvalidHosted("A fully loaded, paused tactical mission is required.");
+        }
+        if (!OwnedEntities.TryGetValue(request.HostEntityId, out var host)
+            || host.Unit is not { Disabled: false } hostUnit
+            || hostUnit._obp?._flightDeck is not { } flightDeck)
+        {
+            return InvalidHosted("The requested host is not an active bridge-owned unit with a native flight deck.");
+        }
+        var supportedVehicle = flightDeck.GetVehicleByName(request.UnitTypeId);
+        if (supportedVehicle is null
+            || supportedVehicle.Squadrons.All(squadron =>
+                !string.Equals(squadron._name, request.VariantId, StringComparison.Ordinal))
+            || flightDeck.AircraftCurrentlyOnBoard >= flightDeck.MaxAircraftOnBoard)
+        {
+            return InvalidHosted("The host flight deck does not support the requested squadron or has no free capacity.");
+        }
+        return null;
+    }
+
+    private static MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>?
+        ValidateHostedLaunch(
+            LaunchOwnedHostedAircraftRequestPayload request,
+            string commandSessionId)
+    {
+        MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload> InvalidLaunch(
+            string message) =>
+            MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                message);
+
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        if (request.Context is null
+            || !string.Equals(request.Context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The hosted-aircraft launch session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.Context.AssignmentId, "assignment:")
+            || !ValidScopedId(request.EntityId, "unit:crimean-tom:")
+            || request.Context.AuthorityEpoch < 1
+            || request.Context.ExpectedRevision < 1
+            || string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+            || request.Context.IdempotencyKey.Length > 128)
+        {
+            return InvalidLaunch("The hosted-aircraft launch identity or fence is invalid.");
+        }
+        if (!Singleton<GameMain>.InstanceExists()
+            || !Singleton<ObjectsManager>.InstanceExists()
+            || !Singleton<SceneCreator>.InstanceExists()
+            || !Singleton<SceneCreator>.Instance.IsLoadingDone
+            || !GameTime.IsPaused())
+        {
+            return InvalidLaunch("A fully loaded, paused tactical mission is required.");
+        }
+        if (!HostedEntities.TryGetValue(request.EntityId, out var hosted)
+            || !string.Equals(hosted.AssignmentId, request.Context.AssignmentId, StringComparison.Ordinal))
+        {
+            return InvalidLaunch("No onboard campaign aircraft belongs to the requested assignment.");
+        }
+        if (hosted.AuthorityEpoch != request.Context.AuthorityEpoch)
+        {
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.StaleAuthorityEpoch,
+                $"Expected authority epoch {hosted.AuthorityEpoch}, received {request.Context.AuthorityEpoch}.");
+        }
+        if (hosted.Revision != request.Context.ExpectedRevision)
+        {
+            return MutationAdapterResult<LaunchOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                $"Expected hosted-aircraft revision {hosted.Revision}, received {request.Context.ExpectedRevision}.");
+        }
+        if (HostedLaunchPending.Contains(request.EntityId))
+        {
+            return InvalidLaunch("This hosted aircraft already has a pending native launch task.");
+        }
+        if (!OwnedEntities.TryGetValue(hosted.HostEntityId, out var host)
+            || host.Unit is not { Disabled: false } hostUnit
+            || hostUnit._obp?._flightDeck is not { } flightDeck)
+        {
+            return InvalidLaunch("The hosted aircraft no longer has an active bridge-owned flight deck.");
+        }
+        var vehicle = flightDeck.GetVehicleByName(hosted.UnitTypeId);
+        var squadron = vehicle?.Squadrons.FirstOrDefault(item => string.Equals(
+            item._name,
+            hosted.VariantId,
+            StringComparison.Ordinal));
+        var loadout = vehicle?.Loadouts.FirstOrDefault(item => string.Equals(
+            item.Name,
+            hosted.LoadoutId,
+            StringComparison.Ordinal));
+        if (vehicle is null
+            || vehicle.Numbers < 1
+            || squadron is null
+            || squadron.Numbers < 1
+            || squadron.Callsigns.Count == 0
+            || loadout is null)
+        {
+            return InvalidLaunch("The native flight deck no longer has the requested aircraft, squadron, callsign, or loadout.");
+        }
+        var nextCampaignAircraft = flightDeck._campaignUnitsOnBoard.FirstOrDefault(item =>
+            string.Equals(item.IniRef, hosted.UnitTypeId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.SquadronRef, hosted.VariantId, StringComparison.OrdinalIgnoreCase));
+        if (nextCampaignAircraft is null
+            || !string.Equals(
+                nextCampaignAircraft.CampaignTag,
+                request.EntityId,
+                StringComparison.Ordinal))
+        {
+            return InvalidLaunch(
+                "Sea Power launches matching campaign aircraft in flight-deck order; launch the first matching campaign aircraft before this one.");
+        }
+        return null;
+    }
+
+    private static MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>?
+        ExistingHostedIdentityError(RegisterOwnedHostedAircraftRequestPayload request)
+    {
+        var host = OwnedEntities[request.HostEntityId];
+        var flightDeck = host.Unit!._obp!._flightDeck!;
+        return OwnedEntities.ContainsKey(request.EntityId)
+            || HostedEntities.ContainsKey(request.EntityId)
+            || Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
+                candidate is not null
+                && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal))
+            || flightDeck._campaignUnitsOnBoard.Any(item =>
+                string.Equals(item.CampaignTag, request.EntityId, StringComparison.Ordinal))
+            ? MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                "The requested hosted aircraft already has a live, retained, or onboard identity.")
+            : null;
+    }
+
+    private static OwnedHostedAircraftStatePayload HostedState(
+        RegisterOwnedHostedAircraftRequestPayload request,
+        FlightDeck flightDeck) => new()
+    {
+        EntityId = request.EntityId,
+        HostEntityId = request.HostEntityId,
+        UnitTypeId = request.UnitTypeId,
+        VariantId = request.VariantId,
+        LoadoutId = request.LoadoutId,
+        LifecycleState = request.Context!.DryRun ? "validated-for-hosting" : "hosted-on-board",
+        AircraftOnBoard = flightDeck.AircraftCurrentlyOnBoard
+            + (request.Context.DryRun ? 1 : 0),
+        AircraftCapacity = flightDeck.MaxAircraftOnBoard,
+    };
+
+    private static void InitializeNewHostedFlightDeckStores(
+        string hostEntityId,
+        FlightDeck flightDeck)
+    {
+        if (HostedEntities.Values.Any(item =>
+            string.Equals(item.HostEntityId, hostEntityId, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        flightDeck.LoadFlightDeckAirgroupAndAmmo(loadAirgroup: false, loadAmmo: true);
+    }
+
+    private static void ReconcileLaunchedHostedAircraft()
+    {
+        if (HostedEntities.Count == 0 || !Singleton<ObjectsManager>.InstanceExists())
+        {
+            return;
+        }
+
+        foreach (var (entityId, hosted) in HostedEntities.ToArray())
+        {
+            var launched = Singleton<ObjectsManager>.Instance._listOfAllObjects.FirstOrDefault(candidate =>
+                candidate is not null
+                && !candidate.Disabled
+                && candidate._obp is not null
+                && string.Equals(candidate._campaignTag, entityId, StringComparison.Ordinal));
+            if (launched is null)
+            {
+                continue;
+            }
+
+            ApplyDisplayName(launched, hosted.DisplayName);
+            OwnedEntities.Add(entityId, new(
+                hosted.AssignmentId,
+                hosted.AuthorityEpoch,
+                hosted.Revision,
+                hosted.TaskforceId,
+                hosted.DisplayName,
+                launched,
+                StoreQuantity(launched),
+                hostEntityId: hosted.HostEntityId));
+            HostedEntities.Remove(entityId);
+            HostedLaunchPending.Remove(entityId);
+        }
+    }
+
     private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> Invalid(
         string message) =>
         MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
@@ -2059,6 +2515,20 @@ internal static class RuntimeOwnedMutationAdapter
             JsonSerializer.Serialize(value, JsonOptions),
             JsonOptions) ?? throw new InvalidOperationException("Could not clone mutation result.");
 
+    private static RegisterOwnedHostedAircraftResultPayload CloneHosted(
+        RegisterOwnedHostedAircraftResultPayload value) =>
+        JsonSerializer.Deserialize<RegisterOwnedHostedAircraftResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException(
+                "Could not clone hosted-aircraft registration result.");
+
+    private static LaunchOwnedHostedAircraftResultPayload CloneHostedLaunch(
+        LaunchOwnedHostedAircraftResultPayload value) =>
+        JsonSerializer.Deserialize<LaunchOwnedHostedAircraftResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException(
+                "Could not clone hosted-aircraft launch result.");
+
     private static OwnedSurfaceLifecycleResultPayload CloneLifecycle(
         OwnedSurfaceLifecycleResultPayload value) =>
         JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(
@@ -2157,7 +2627,8 @@ internal static class RuntimeOwnedMutationAdapter
         string displayName,
         ObjectBase unit,
         long initialStoresQuantity,
-        bool recoveryRequired = false)
+        bool recoveryRequired = false,
+        string? hostEntityId = null)
     {
         public string AssignmentId { get; set; } = assignmentId;
         public long AuthorityEpoch { get; set; } = authorityEpoch;
@@ -2168,11 +2639,31 @@ internal static class RuntimeOwnedMutationAdapter
         public ObjectBase? Unit { get; set; } = unit;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
         public bool RecoveryRequired { get; set; } = recoveryRequired;
+        public string? HostEntityId { get; } = hostEntityId;
     }
 
     private sealed record IdempotencyRecord(
         string RequestJson,
         MaterializeOwnedSurfaceUnitResultPayload Result);
+
+    private sealed record HostedIdempotencyRecord(
+        string RequestJson,
+        RegisterOwnedHostedAircraftResultPayload Result);
+
+    private sealed record HostedLaunchIdempotencyRecord(
+        string RequestJson,
+        LaunchOwnedHostedAircraftResultPayload Result);
+
+    private sealed record HostedEntityRecord(
+        string AssignmentId,
+        long AuthorityEpoch,
+        long Revision,
+        string HostEntityId,
+        string DisplayName,
+        string UnitTypeId,
+        string VariantId,
+        string LoadoutId,
+        string TaskforceId);
 
     private sealed record LifecycleIdempotencyRecord(
         string RequestJson,

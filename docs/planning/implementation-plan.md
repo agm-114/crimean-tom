@@ -130,9 +130,12 @@ USS Spruance together with campaign names, stable tags, and positions intact. A
 second path loaded USS Honolulu as a native Los Angeles-class submarine while
 the campaign continued advancing. A third path atomically loaded native SH-2F
 and SH-3H campaign helicopters at about 500 feet while the campaign advanced.
-The milestone remains open for combined surface/submarine/helicopter entry,
-hosted assets, removal of authored placeholder
-membership, tactical-map interaction parity, and hostile participation.
+The bridge now also registers campaign-tagged helicopter inventory on a native
+ship flight deck and carries the same identity through Sea Power's real launch
+cycle. The milestone remains open for canonical host-child assignment,
+combined surface/submarine/helicopter entry, hosted-aircraft recovery, removal
+of authored placeholder membership, tactical-map interaction parity, and
+hostile participation.
 
 Replace the authored placeholder force with campaign membership and make the
 map/proxy system usable.
@@ -144,8 +147,12 @@ map/proxy system usable.
 - Implemented: qualify a two-member mixed surface-class task force, a separate
   Los Angeles-class submarine patrol, and a separate two-member airborne
   SH-2F/SH-3H group.
-- Remaining: combine those paths, replace authored player membership, and add
-  explicit ship-hosted inventory transfer, launch, and recovery.
+- Implemented at bridge level: native ship-hosted SH-2F/SH-3H inventory,
+  capacity checks, Flight Deck UI inspection, launch scheduling, and campaign
+  identity adoption after launch.
+- Remaining: add canonical host-child assignments, wire hosted children into
+  player entry, combine the entry paths, replace authored player membership,
+  and implement recovery and restart reconciliation.
 - Materialize every supported available member as a real simulated object.
 - Include required hosted aircraft, helicopters, boats, and child assets when
   their portable-state contract is supported.

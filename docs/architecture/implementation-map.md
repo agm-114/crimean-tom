@@ -60,15 +60,18 @@ the accepted checkpoint or Operational state.
 
 The bridge can materialize allow-listed owned ship, submarine, and airborne
 helicopter profiles, plus several terrain-gated ground or installation
-profiles. Terrain preparation relocates
+profiles. It can register allow-listed helicopters in a bridge-owned ship's
+native flight-deck inventory, enforce native capacity, schedule a native launch
+task, and adopt the launched object without changing its campaign identity.
+Terrain preparation relocates
 the local window, waits for finalized land terrain, samples height, and rejects
 water or unready placement. The two-second naval readback can commit changed
 kinematics, telegraph, fuel or stores fractions, damage, and destruction.
 
-This is not complete portable tactical state. Magazines, sensors, formations,
-hosted aircraft, fixed-wing aircraft, broader rotary-wing profiles, and broader
-subsurface ownership still need explicit extraction, application, and return
-contracts.
+This is not complete portable tactical state. Hosted-aircraft recovery and
+canonical assignment wiring, magazines, sensors, formations, fixed-wing
+aircraft, broader rotary-wing profiles, and broader subsurface ownership still
+need explicit extraction, application, and return contracts.
 
 ## Implemented map and proxy path
 
@@ -143,10 +146,10 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | One two-ship surface group, one separate submarine patrol, and one separate two-helicopter group can enter; the authored mission still supplies the rest of the placeholder local force |
+| Campaign-owned task force | One two-ship surface group, one separate submarine patrol, and one separate two-helicopter group can enter; hosted launch works only as a bridge primitive, and the authored mission still supplies the rest of the placeholder local force |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
-| Portable state | Fixed-wing aircraft, ship-hosted helicopter transfer and recovery, broader submarine state, magazines, sensors, and formations are incomplete |
+| Portable state | Fixed-wing aircraft, canonical ship-hosted assignment and recovery, broader submarine state, magazines, sensors, and formations are incomplete |
 | Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |
 | Save longevity | Schema and algorithm migration plus long-running compaction remain open |
 | Private multiplayer | Durable identity, authorization, realtime UI, and shared-control policy do not exist |

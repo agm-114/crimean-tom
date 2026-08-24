@@ -158,7 +158,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(14, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(15, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -179,6 +179,10 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
                     == "live-atomic-two-helicopter-player-entry-at-altitude-with-parallel-campaign-advance");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString()
+                    == "live-bridge-owned-ship-hosted-helicopter-inventory-and-native-launch-with-campaign-identity");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
@@ -1993,6 +1997,62 @@ public sealed class CompanionControlIntegrationTests
                     .GetProperty("stableUnitId")
                     .GetString());
 
+            using var registeredHostedAircraft = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/hosted-aircraft/register",
+                JsonSerializer.Serialize(new RegisterOwnedHostedAircraftRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-hosted-aircraft",
+                        AuthorityEpoch = 9,
+                        ExpectedRevision = 0,
+                        IdempotencyKey = "integration-hosted-sh2f-1",
+                    },
+                    EntityId = "unit:crimean-tom:integration-hosted-sh2f-1",
+                    DisplayName = "Integration SH-2F",
+                    HostEntityId = "unit:crimean-tom:integration-knox-1",
+                    UnitTypeId = "usn_sh-2f",
+                    VariantId = "Squadron4",
+                    LoadoutId = "ASW",
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "owned-aircraft-present-in-native-flight-deck-inventory",
+                registeredHostedAircraft.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(
+                "hosted-on-board",
+                registeredHostedAircraft.RootElement
+                    .GetProperty("realizedAircraft")
+                    .GetProperty("lifecycleState")
+                    .GetString());
+
+            using var launchedHostedAircraft = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/hosted-aircraft/launch",
+                JsonSerializer.Serialize(new LaunchOwnedHostedAircraftRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-hosted-aircraft",
+                        AuthorityEpoch = 9,
+                        ExpectedRevision = 1,
+                        IdempotencyKey = "integration-launch-sh2f-1",
+                    },
+                    EntityId = "unit:crimean-tom:integration-hosted-sh2f-1",
+                }, JsonOptions),
+                testTimeout.Token);
+            Assert.Equal(
+                "native-flight-deck-launch-task-created",
+                launchedHostedAircraft.RootElement.GetProperty("postcondition").GetString());
+            Assert.Equal(
+                "unit:crimean-tom:integration-knox-1",
+                launchedHostedAircraft.RootElement.GetProperty("hostEntityId").GetString());
+
             using var materializedLand = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -3050,6 +3110,43 @@ public sealed class CompanionControlIntegrationTests
                             HeadingDegrees = 90,
                             Telegraph = 0,
                         },
+                    },
+                    JsonOptions),
+                GameCommandTypes.RegisterOwnedHostedAircraft => JsonSerializer.Serialize(
+                    new RegisterOwnedHostedAircraftResultPayload
+                    {
+                        Outcome = "registered-on-board",
+                        Postcondition =
+                            "owned-aircraft-present-in-native-flight-deck-inventory",
+                        AssignmentId = "assignment:integration-hosted-aircraft",
+                        AuthorityEpoch = 9,
+                        Revision = 1,
+                        IdempotencyKey = "integration-hosted-sh2f-1",
+                        RealizedAircraft = new OwnedHostedAircraftStatePayload
+                        {
+                            EntityId = "unit:crimean-tom:integration-hosted-sh2f-1",
+                            HostEntityId = "unit:crimean-tom:integration-knox-1",
+                            UnitTypeId = "usn_sh-2f",
+                            VariantId = "Squadron4",
+                            LoadoutId = "ASW",
+                            LifecycleState = "hosted-on-board",
+                            AircraftOnBoard = 1,
+                            AircraftCapacity = 2,
+                        },
+                    },
+                    JsonOptions),
+                GameCommandTypes.LaunchOwnedHostedAircraft => JsonSerializer.Serialize(
+                    new LaunchOwnedHostedAircraftResultPayload
+                    {
+                        Outcome = "launch-scheduled",
+                        Postcondition = "native-flight-deck-launch-task-created",
+                        AssignmentId = "assignment:integration-hosted-aircraft",
+                        AuthorityEpoch = 9,
+                        Revision = 1,
+                        IdempotencyKey = "integration-launch-sh2f-1",
+                        EntityId = "unit:crimean-tom:integration-hosted-sh2f-1",
+                        HostEntityId = "unit:crimean-tom:integration-knox-1",
+                        FlightDeckTaskCount = 1,
                     },
                     JsonOptions),
                 GameCommandTypes.MaterializeOwnedLandUnit => JsonSerializer.Serialize(
@@ -6275,6 +6372,8 @@ public sealed class CompanionControlIntegrationTests
 
         private static bool IsMutationCommand(string commandType) =>
             commandType is GameCommandTypes.MaterializeOwnedSurfaceUnit
+                or GameCommandTypes.RegisterOwnedHostedAircraft
+                or GameCommandTypes.LaunchOwnedHostedAircraft
                 or GameCommandTypes.MaterializeOwnedLandUnit
                 or GameCommandTypes.CaptureOwnedSurfaceCheckpoint
                 or GameCommandTypes.UpdateOwnedSurfaceUnit

@@ -105,6 +105,8 @@ public static class GameCommandTypes
     public const string SetExperimentalPauseState = "set-experimental-pause-state";
     public const string ArmOwnedMutationMode = "arm-owned-mutation-mode";
     public const string MaterializeOwnedSurfaceUnit = "materialize-owned-surface-unit";
+    public const string RegisterOwnedHostedAircraft = "register-owned-hosted-aircraft";
+    public const string LaunchOwnedHostedAircraft = "launch-owned-hosted-aircraft";
     public const string CaptureOwnedSurfaceCheckpoint = "capture-owned-surface-checkpoint";
     public const string UpdateOwnedSurfaceUnit = "update-owned-surface-unit";
     public const string SetOwnedSurfaceSuspension = "set-owned-surface-suspension";
@@ -162,6 +164,8 @@ public static class GameCommandTypes
     public static readonly string[] MutationCommands =
     {
         MaterializeOwnedSurfaceUnit,
+        RegisterOwnedHostedAircraft,
+        LaunchOwnedHostedAircraft,
         MaterializeOwnedLandUnit,
         PrepareTacticalLocation,
         CaptureOwnedSurfaceCheckpoint,
@@ -203,6 +207,8 @@ public static class GameCommandTypes
         SetExperimentalPauseState,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
+        RegisterOwnedHostedAircraft,
+        LaunchOwnedHostedAircraft,
         MaterializeOwnedLandUnit,
         CaptureOwnedSurfaceCheckpoint,
         UpdateOwnedSurfaceUnit,

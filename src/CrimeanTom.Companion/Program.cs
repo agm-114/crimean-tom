@@ -536,6 +536,35 @@ app.MapPost("/game/mutations/surface/materialize", (
             cancellationToken);
 });
 
+app.MapPost("/game/mutations/hosted-aircraft/register", (
+    RegisterOwnedHostedAircraftRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateHostedAircraftRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.RegisterOwnedHostedAircraft,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+});
+
+app.MapPost("/game/mutations/hosted-aircraft/launch", (
+    LaunchOwnedHostedAircraftRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    ForwardOwnedSurfaceCommand(
+        request,
+        request.Context,
+        request.EntityId,
+        GameCommandTypes.LaunchOwnedHostedAircraft,
+        broker,
+        wireJsonOptions,
+        cancellationToken));
+
 app.MapPost("/game/mutations/land/materialize", (
     MaterializeOwnedLandUnitRequestPayload request,
     GamePipeBroker broker,
@@ -864,6 +893,7 @@ static IResult? ValidateSurfaceMutationRequest(
         || string.IsNullOrWhiteSpace(request.EntityId)
         || request.EntityId.Length > 128
         || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.DisplayName)
         || request.DisplayName.Length > 128
         || string.IsNullOrWhiteSpace(request.UnitTypeId)
         || request.UnitTypeId.Length > 128
@@ -952,6 +982,53 @@ static IResult? ValidateLandMutationRequest(
         {
             error = ProtocolErrorCodes.InvalidMessage,
             message = "The owned land mutation payload is incomplete or invalid.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
+
+static IResult? ValidateHostedAircraftRequest(
+    RegisterOwnedHostedAircraftRequestPayload request,
+    GamePipeBroker broker)
+{
+    if (request.Context is null)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The hosted-aircraft mutation context is required.",
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    var sessionError = ValidateMutationSession(request.Context.SessionId, broker);
+    if (sessionError is not null)
+    {
+        return sessionError;
+    }
+    if (string.IsNullOrWhiteSpace(request.Context.AssignmentId)
+        || request.Context.AssignmentId.Length > 128
+        || !request.Context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+        || request.Context.AuthorityEpoch < 1
+        || request.Context.ExpectedRevision != 0
+        || string.IsNullOrWhiteSpace(request.Context.IdempotencyKey)
+        || request.Context.IdempotencyKey.Length > 128
+        || string.IsNullOrWhiteSpace(request.EntityId)
+        || request.EntityId.Length > 128
+        || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.HostEntityId)
+        || request.HostEntityId.Length > 128
+        || !request.HostEntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || string.Equals(request.EntityId, request.HostEntityId, StringComparison.Ordinal)
+        || request.DisplayName.Length > 128
+        || request.UnitTypeId is not ("usn_sh-2f" or "usn_sh-3h")
+        || string.IsNullOrWhiteSpace(request.VariantId)
+        || request.VariantId.Length > 128
+        || string.IsNullOrWhiteSpace(request.LoadoutId)
+        || request.LoadoutId.Length > 128)
+    {
+        return Results.Json(new
+        {
+            error = ProtocolErrorCodes.InvalidMessage,
+            message = "The hosted-aircraft mutation payload is incomplete or invalid.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     return null;

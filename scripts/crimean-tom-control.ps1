@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
+    [ValidateSet('start', 'stop', 'status', 'health', 'ping', 'capabilities', 'scene', 'world', 'coupling', 'catalog', 'catalog-diagnostics', 'ammunition', 'sensors', 'catalog-files', 'campaign', 'ui', 'screenshot', 'colliders', 'colliders-capture', 'focus-camera', 'hud-panel', 'dismiss-modal', 'start-port-operations', 'open-task-force-builder', 'add-maintenance-unit', 'start-scenario', 'continue-briefing', 'exit-tactical', 'pause-experimental', 'unpause-experimental', 'arm-owned-mutations', 'dry-run-owned-surface', 'materialize-owned-surface', 'register-hosted-aircraft', 'launch-hosted-aircraft', 'checkpoint-owned-surface', 'update-owned-surface', 'suspend-owned-surface', 'enable-owned-surface', 'restore-owned-surface', 'owned-surface-resources', 'render-proxies', 'release-owned-surface-recovery', 'port-projection', 'materialize-port-projection', 'import-port-draft', 'test')]
     [string]$Action = 'status',
 
     [ValidateSet('Debug', 'Release')]
@@ -70,6 +70,16 @@ param(
 
     [string]$EntityId = 'unit:crimean-tom:phase2-knox-1',
 
+    [string]$HostEntityId = 'unit:crimean-tom:phase2-knox-1',
+
+    [string]$DisplayName = 'Campaign SH-2F',
+
+    [string]$AircraftType = 'usn_sh-2f',
+
+    [string]$SquadronReference = 'Squadron4',
+
+    [string]$AircraftLoadout = 'ASW',
+
     [string]$CheckpointId = '',
 
     [string]$CheckpointSha256 = '',
@@ -100,7 +110,7 @@ param(
 
     [int]$Quantity = 1,
 
-    [ValidateSet('map', 'formation', 'hud', 'pause-resume')]
+    [ValidateSet('map', 'formation', 'flight-deck', 'hud', 'pause-resume')]
     [string]$Panel = 'map',
 
     [switch]$SkipBuild
@@ -752,6 +762,45 @@ switch ($Action) {
                 faultInjectionConfirmation = if ($ConfirmFaultInjection) {
                     'inject-owned-mutation-failure'
                 } else { '' }
+            }))
+    }
+    'register-hosted-aircraft' {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/hosted-aircraft/register' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
+                displayName = $DisplayName
+                hostEntityId = $HostEntityId
+                unitTypeId = $AircraftType
+                variantId = $SquadronReference
+                loadoutId = $AircraftLoadout
+            }))
+    }
+    'launch-hosted-aircraft' {
+        $health = Invoke-ControlRequest '/health'
+        Show-Json (Invoke-ControlRequest `
+            '/game/mutations/hosted-aircraft/launch' `
+            'Post' `
+            ([pscustomobject]@{
+                context = [pscustomobject]@{
+                    sessionId = $health.sessionId
+                    assignmentId = $AssignmentId
+                    authorityEpoch = $AuthorityEpoch
+                    expectedRevision = $ExpectedEntityRevision
+                    idempotencyKey = $MutationIdempotencyKey
+                    dryRun = $false
+                }
+                entityId = $EntityId
             }))
     }
     'checkpoint-owned-surface' {

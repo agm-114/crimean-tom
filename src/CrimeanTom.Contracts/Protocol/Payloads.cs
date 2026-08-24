@@ -315,6 +315,64 @@ public sealed class MaterializeOwnedSurfaceUnitResultPayload
     public string[] UnsupportedFields { get; set; } = Array.Empty<string>();
 }
 
+public sealed class RegisterOwnedHostedAircraftRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string HostEntityId { get; set; } = string.Empty;
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = "Default";
+}
+
+public sealed class OwnedHostedAircraftStatePayload
+{
+    public string EntityId { get; set; } = string.Empty;
+    public string HostEntityId { get; set; } = string.Empty;
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = string.Empty;
+    public string LifecycleState { get; set; } = string.Empty;
+    public int AircraftOnBoard { get; set; }
+    public int AircraftCapacity { get; set; }
+}
+
+public sealed class RegisterOwnedHostedAircraftResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool DryRun { get; set; }
+    public bool IdempotentReplay { get; set; }
+    public OwnedHostedAircraftStatePayload RealizedAircraft { get; set; } = new();
+}
+
+public sealed class LaunchOwnedHostedAircraftRequestPayload
+{
+    public OwnedMutationContextPayload Context { get; set; } = new();
+    public string EntityId { get; set; } = string.Empty;
+}
+
+public sealed class LaunchOwnedHostedAircraftResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool IdempotentReplay { get; set; }
+    public string EntityId { get; set; } = string.Empty;
+    public string HostEntityId { get; set; } = string.Empty;
+    public int FlightDeckTaskCount { get; set; }
+}
+
 public sealed class OwnedSurfaceEntityRequestPayload
 {
     public OwnedMutationContextPayload Context { get; set; } = new();
@@ -364,7 +422,7 @@ public sealed class StageOwnedSurfaceCheckpointRequestPayload
 
 public sealed class OwnedSurfaceResourceStatePayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public int OwnedRecordCount { get; set; }
     public int ActiveObjectCount { get; set; }
     public int SuspendedRetainedObjectCount { get; set; }
@@ -388,6 +446,7 @@ public sealed class OwnedSurfaceResourceEntryPayload
     public bool HasCheckpoint { get; set; }
     public bool RecoveryRequired { get; set; }
     public int? GameUniqueId { get; set; }
+    public string? HostEntityId { get; set; }
 }
 
 public sealed class ReconcileSurfaceRenderProxiesRequestPayload
@@ -1546,7 +1605,7 @@ public sealed class ScenarioAutomationStatePayload
 
 public sealed class UiInspectionPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -1567,6 +1626,8 @@ public sealed class UiInspectionPayload
     public bool HudVisible { get; set; }
 
     public bool FormationManagerVisible { get; set; }
+
+    public bool FlightDeckVisible { get; set; }
 
     public bool EventLogAvailable { get; set; }
 

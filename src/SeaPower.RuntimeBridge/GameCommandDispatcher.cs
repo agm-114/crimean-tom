@@ -137,6 +137,10 @@ internal static partial class GameCommandDispatcher
                         executionThreadGuardSelfTest),
                     GameCommandTypes.MaterializeOwnedSurfaceUnit =>
                         MaterializeOwnedSurfaceUnit(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.RegisterOwnedHostedAircraft =>
+                        RegisterOwnedHostedAircraft(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.LaunchOwnedHostedAircraft =>
+                        LaunchOwnedHostedAircraft(command.PayloadJson, command.SessionId),
                     GameCommandTypes.MaterializeOwnedLandUnit =>
                         MaterializeOwnedLandUnit(command.PayloadJson, command.SessionId),
                     GameCommandTypes.CaptureOwnedSurfaceCheckpoint =>
@@ -1465,6 +1469,36 @@ internal static partial class GameCommandDispatcher
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
     }
 
+    private static CommandResponsePayload RegisterOwnedHostedAircraft(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<RegisterOwnedHostedAircraftRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new RegisterOwnedHostedAircraftRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.RegisterHostedAircraft(
+            request,
+            commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload LaunchOwnedHostedAircraft(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<LaunchOwnedHostedAircraftRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new LaunchOwnedHostedAircraftRequestPayload();
+        var result = RuntimeOwnedMutationAdapter.LaunchHostedAircraft(
+            request,
+            commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
     private static CommandResponsePayload MaterializeOwnedLandUnit(
         string payloadJson,
         string commandSessionId)
@@ -1615,6 +1649,7 @@ internal static partial class GameCommandDispatcher
         var selected = Singleton<RenderPosition>.InstanceExists()
             ? Singleton<RenderPosition>.Instance.getSelectedObject()
             : null;
+        var selectedViewModel = main?.SelectedViewModel?.Value as ObjectBaseViewModel;
         return new UiInspectionPayload
         {
             SceneName = SceneManager.GetActiveScene().name ?? string.Empty,
@@ -1627,6 +1662,7 @@ internal static partial class GameCommandDispatcher
             MapVisible = main?.MapVisible ?? false,
             HudVisible = MainGameViewModel.GetHudVisible(),
             FormationManagerVisible = main?.ShowFormationManager ?? false,
+            FlightDeckVisible = selectedViewModel?.ObjectFlightDeck?.FlightDeckVisible ?? false,
             EventLogAvailable = main?.EventLog is not null,
             SelectedUnitId = selected is not null && selected.isUnit()
                 ? StableUnitId(selected)
@@ -1964,6 +2000,23 @@ internal static partial class GameCommandDispatcher
                     : "formation-manager-hidden";
                 break;
             }
+            case "flight-deck":
+            {
+                if (main!.SelectedViewModel?.Value is not ObjectBaseViewModel selectedViewModel
+                    || selectedViewModel.ObjectFlightDeck is null)
+                {
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPreconditionFailed,
+                        "The selected player unit has no available flight-deck controls.");
+                }
+
+                var desired = request.Visible
+                    ?? !selectedViewModel.ObjectFlightDeck.FlightDeckVisible;
+                selectedViewModel.ObjectFlightDeck.FlightDeckVisible = desired;
+                selectedViewModel.ObjectFlightDeck.UpdateFlightDeck();
+                postcondition = desired ? "flight-deck-visible" : "flight-deck-hidden";
+                break;
+            }
             case "hud":
             {
                 var desired = request.Visible ?? !MainGameViewModel.GetHudVisible();
@@ -1990,7 +2043,7 @@ internal static partial class GameCommandDispatcher
             default:
                 return Failure(
                     ProtocolErrorCodes.InvalidMessage,
-                    "Panel must be map, formation, hud, or pause-resume.");
+                    "Panel must be map, formation, flight-deck, hud, or pause-resume.");
         }
 
         return Success(new UiAutomationActionResultPayload
