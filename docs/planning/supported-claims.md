@@ -52,10 +52,13 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
 - A fresh authenticated Sea Power session binds one explicit player coalition.
   Its service projection maps every non-destroyed friendly campaign entity and
   coalition-filtered hostile intelligence track into Sea Power drawing records
-  before assignment history exists. Friendly selection lazily loads one
+  before assignment history exists. Those records use relationship-colored,
+  native authored-unit domain/posture symbols instead of Sea Power's generic
+  drawing-marker X. Friendly selection lazily loads one
   presentation hierarchy from installed vessel/aircraft/land catalog content
-  after relocating the local tactical terrain window; contacts remain marker-only
-  and never disclose exact hostile true state. These records have no game unique
+  after relocating the local tactical terrain window. Selecting a contact creates
+  only a generic red uncertainty proxy at the coalition track estimate; it never
+  loads the hostile model or discloses exact hostile true state. These records have no game unique
   ID, simulation authority, sensors, collisions, velocity, or owned-resource
   registration. Generic visual loading is proven live for one Los Angeles-class
   submarine, not qualified across the full installed catalog. The player strategic

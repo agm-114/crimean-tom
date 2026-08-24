@@ -301,8 +301,8 @@ internal static class RuntimeVisualRenderProxyAdapter
     {
         private ObjectBaseParameters? _parameters;
         private GameObject? _root;
-        private CampaignMapMarkerDrawing? _mapMarker;
-        private TextDrawing? _mapLabel;
+        private Material? _contactMaterial;
+        private CampaignMapSymbolItem? _mapMarker;
         private bool _disposed;
         private bool _selected;
         private bool _physicalProxyRequested;
@@ -420,63 +420,57 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 Cleanup(_parameters);
             }
+            else if (_root is not null)
+            {
+                UnityEngine.Object.Destroy(_root);
+            }
+            if (_contactMaterial is not null)
+            {
+                UnityEngine.Object.Destroy(_contactMaterial);
+            }
             _parameters = null;
             _root = null;
+            _contactMaterial = null;
         }
 
         internal bool WorldModelVisible => !_disposed && _root?.activeSelf == true;
         private bool MapMarkerVisible => !_disposed
             && _mapMarker is not null
-            && Globals._mainGameViewModel?.Map?.DrawingLayer?.Graphics.Contains(_mapMarker) == true;
+            && Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements.Contains(_mapMarker) == true;
 
         private void EnsureMapAnnotations(GeoPosition position)
         {
-            var layer = Globals._mainGameViewModel?.Map?.DrawingLayer;
-            if (layer is null)
+            var map = Globals._mainGameViewModel?.Map;
+            var foreground = map?.DisplayMap?.ForegroundElements;
+            if (foreground is null)
             {
                 return;
             }
 
-            _mapMarker ??= new CampaignMapMarkerDrawing(RequestPhysicalProxy)
+            _mapMarker ??= new CampaignMapSymbolItem(RequestPhysicalProxy)
             {
+                SectionName = $"CrimeanTom_{_proxyNumber}",
+                ShowInMission = true,
                 ColorPreset = _relationship == "HostileContact"
                     ? DrawingColorPreset.Red
                     : DrawingColorPreset.Blue,
+                FontPreset = DrawingFontPreset.Type,
+                FontSize = 18f,
             };
+            _mapMarker.Kind = MissionEditorMapSymbolKind.UnitIcon;
+            _mapMarker.Domain = MapSymbolDomain();
+            _mapMarker.Side = _relationship == "HostileContact" ? "Hostile" : "Friendly";
             _mapMarker.ColorPreset = _relationship == "HostileContact"
                 ? DrawingColorPreset.Red
                 : DrawingColorPreset.Blue;
-            _mapMarker.Location = position;
-            if (!layer.Graphics.Contains(_mapMarker))
+            _mapMarker.Bearing = _headingDegrees.ToString(
+                "0.###",
+                System.Globalization.CultureInfo.InvariantCulture);
+            _mapMarker.SetLabel(_selected ? _name : string.Empty);
+            _mapMarker.PlaceAt(position);
+            if (!foreground.Contains(_mapMarker))
             {
-                layer.Graphics.Add(_mapMarker);
-            }
-
-            if (!_selected && !WorldModelVisible)
-            {
-                if (_mapLabel is not null)
-                {
-                    layer.Graphics.Remove(_mapLabel);
-                }
-                return;
-            }
-
-            _mapLabel ??= new TextDrawing(_name)
-            {
-                ColorPreset = _relationship == "HostileContact"
-                    ? DrawingColorPreset.Red
-                    : DrawingColorPreset.Blue,
-                FontSize = 11f,
-                Locked = true,
-            };
-            _mapLabel.ColorPreset = _relationship == "HostileContact"
-                ? DrawingColorPreset.Red
-                : DrawingColorPreset.Blue;
-            _mapLabel.Text = _name;
-            _mapLabel.Location = position;
-            if (!layer.Graphics.Contains(_mapLabel))
-            {
-                layer.Graphics.Add(_mapLabel);
+                foreground.Add(_mapMarker);
             }
         }
 
@@ -493,13 +487,15 @@ internal static class RuntimeVisualRenderProxyAdapter
                 return false;
             }
             _selected = true;
-            _physicalProxyRequested = string.Equals(
-                _relationship,
-                "Friendly",
-                StringComparison.Ordinal);
+            _mapMarker?.SetSelection(true);
+            _physicalProxyRequested = _relationship is "Friendly" or "HostileContact";
             foreach (var other in Records.Values.Where(item => !ReferenceEquals(item, this)))
             {
                 other.ClearSelectionAndHideWorldModel();
+            }
+            if (Globals._mainGameViewModel?.Map?.DisplayMap is { } displayMap)
+            {
+                displayMap.Center = PresentationPosition();
             }
             if (_physicalProxyRequested)
             {
@@ -510,23 +506,30 @@ internal static class RuntimeVisualRenderProxyAdapter
                 {
                     _physicalProxyError = preparation.ErrorMessage;
                 }
-                else if (_simulationDomain is "Ground" or "Installation" or "LandAbstract"
+                else if (UsesTerrainSurface()
                     && preparation.Payload?.Terrain.PlacementReady != true)
                 {
                     _physicalProxyError =
-                        "target terrain is still streaming; select the campaign unit again when terrain is ready";
+                        string.Equals(
+                            preparation.Payload?.Terrain.Postcondition,
+                            "terrain-sample-is-water",
+                            StringComparison.Ordinal)
+                            ? "target position does not resolve to land terrain"
+                            : "target terrain is still streaming; select the campaign unit again when terrain is ready";
                 }
                 else
                 {
-                    EnsureWorldModel();
+                    if (string.Equals(_relationship, "HostileContact", StringComparison.Ordinal))
+                    {
+                        EnsureContactEstimateProxy();
+                    }
+                    else
+                    {
+                        EnsureWorldModel();
+                    }
                 }
             }
             EnsureMapAnnotations(PresentationPosition());
-            if (!_physicalProxyRequested)
-            {
-                error = "hostile contact projections do not expose exact physical world positions";
-                return false;
-            }
             if (!WorldModelVisible)
             {
                 error = string.IsNullOrWhiteSpace(_physicalProxyError)
@@ -539,6 +542,42 @@ internal static class RuntimeVisualRenderProxyAdapter
             return true;
         }
 
+        private void EnsureContactEstimateProxy()
+        {
+            if (_root is not null)
+            {
+                _root.SetActive(true);
+                ApplyWorldTransform(PresentationPosition());
+                _physicalProxyError = string.Empty;
+                return;
+            }
+
+            var root = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            root.name = $"CrimeanTom uncertain contact estimate - {_name}";
+            var collider = root.GetComponent<Collider>();
+            if (collider is not null)
+            {
+                collider.enabled = false;
+            }
+            var renderer = root.GetComponent<Renderer>();
+            if (renderer is not null)
+            {
+                _contactMaterial = new Material(renderer.sharedMaterial)
+                {
+                    color = new Color(1f, 0.15f, 0.15f, 0.65f),
+                };
+                renderer.sharedMaterial = _contactMaterial;
+            }
+            var uncertaintyScale = Mathf.Clamp(
+                _uncertaintyRadiusMeters / 25_000f,
+                2f,
+                30f);
+            root.transform.localScale = Vector3.one * uncertaintyScale;
+            _root = root;
+            ApplyWorldTransform(PresentationPosition());
+            _physicalProxyError = string.Empty;
+        }
+
         private void ClearSelectionAndHideWorldModel()
         {
             _selected = false;
@@ -546,11 +585,8 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 _root.SetActive(false);
             }
-            var graphics = Globals._mainGameViewModel?.Map?.DrawingLayer?.Graphics;
-            if (graphics is not null && _mapLabel is not null)
-            {
-                graphics.Remove(_mapLabel);
-            }
+            _mapMarker?.SetSelection(false);
+            _mapMarker?.SetLabel(string.Empty);
         }
 
         private void EnsureWorldModel()
@@ -620,8 +656,107 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 return;
             }
-            _root.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
+            var local = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
+            float? terrainHeight = null;
+            if (UsesTerrainSurface())
+            {
+                var terrain = RuntimeTerrainPlacementAdapter.Probe(new()
+                {
+                    Latitude = _latitude,
+                    Longitude = _longitude,
+                });
+                if (!terrain.PlacementReady || terrain.TerrainHeightUnity is not { } height)
+                {
+                    return;
+                }
+                terrainHeight = (float)height;
+                local.y = terrainHeight.Value;
+            }
+            _root.transform.position = local;
             _root.transform.eulerAngles = new Vector3(0f, (float)_headingDegrees, 0f);
+            if (terrainHeight is { } surfaceHeight)
+            {
+                var renderers = _root.GetComponentsInChildren<Renderer>(includeInactive: false)
+                    .Where(item => item is MeshRenderer or SkinnedMeshRenderer)
+                    .ToArray();
+                if (renderers.Length > 0)
+                {
+                    var minimumVisibleY = renderers.Min(item => item.bounds.min.y);
+                    const float terrainClearanceUnity = 0.01f;
+                    if (float.IsFinite(minimumVisibleY)
+                        && minimumVisibleY < surfaceHeight + terrainClearanceUnity)
+                    {
+                        _root.transform.position += Vector3.up
+                            * (surfaceHeight + terrainClearanceUnity - minimumVisibleY);
+                    }
+                }
+            }
+        }
+
+        private bool UsesTerrainSurface() =>
+            _simulationDomain is "Ground" or "Installation" or "LandAbstract"
+            || _classification.Contains("Land", StringComparison.OrdinalIgnoreCase)
+            || _classification.Contains("Ground", StringComparison.OrdinalIgnoreCase)
+            || _classification.Contains("Installation", StringComparison.OrdinalIgnoreCase);
+
+        private string MapSymbolDomain()
+        {
+            var domain = string.IsNullOrWhiteSpace(_simulationDomain)
+                ? _classification
+                : _simulationDomain;
+            if (domain.Contains("Air", StringComparison.OrdinalIgnoreCase))
+            {
+                return "air";
+            }
+            if (domain.Contains("Rotary", StringComparison.OrdinalIgnoreCase)
+                || domain.Contains("Helicopter", StringComparison.OrdinalIgnoreCase))
+            {
+                return "helicopter";
+            }
+            if (domain.Contains("Maritime", StringComparison.OrdinalIgnoreCase)
+                || domain.Contains("Surface", StringComparison.OrdinalIgnoreCase))
+            {
+                return _unitTypeId.Contains("_ss", StringComparison.OrdinalIgnoreCase)
+                    || _unitTypeId.Contains("sub", StringComparison.OrdinalIgnoreCase)
+                    || _classification.Contains("Submarine", StringComparison.OrdinalIgnoreCase)
+                        ? "submarine"
+                        : "surface";
+            }
+            if (domain.Contains("Installation", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_unitTypeId.Contains("airbase", StringComparison.OrdinalIgnoreCase)
+                    || _unitTypeId.Contains("runway", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "airbase";
+                }
+                if (_unitTypeId.Contains("sam", StringComparison.OrdinalIgnoreCase)
+                    || _unitTypeId.Contains("mim-", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "sam";
+                }
+                if (_unitTypeId.Contains("radar", StringComparison.OrdinalIgnoreCase)
+                    || _unitTypeId.Contains("ewr", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "radar";
+                }
+                if (_unitTypeId.Contains("port", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "port";
+                }
+                return "installation";
+            }
+            if (domain.Contains("Ground", StringComparison.OrdinalIgnoreCase)
+                || domain.Contains("Land", StringComparison.OrdinalIgnoreCase))
+            {
+                return "mobileunit";
+            }
+            if (domain.Contains("Logistics", StringComparison.OrdinalIgnoreCase))
+            {
+                return "installation";
+            }
+            // Sea Power's authored unit-symbol resolver intentionally treats an
+            // unrecognized domain as its native generic surface-symbol fallback.
+            return "unknown";
         }
 
         private GeoPosition PresentationPosition()
@@ -635,6 +770,11 @@ internal static class RuntimeVisualRenderProxyAdapter
                     StringComparison.OrdinalIgnoreCase) => -50d,
                 _ => 0d,
             };
+            if (_relationship == "HostileContact"
+                && _classification.Contains("Air", StringComparison.OrdinalIgnoreCase))
+            {
+                altitudeMeters = 5_000d;
+            }
             return new GeoPosition(_latitude, _longitude, altitudeMeters);
         }
 
@@ -648,18 +788,10 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         private void RemoveMapAnnotations()
         {
-            var graphics = Globals._mainGameViewModel?.Map?.DrawingLayer?.Graphics;
-            if (graphics is null)
-            {
-                return;
-            }
+            var foreground = Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements;
             if (_mapMarker is not null)
             {
-                graphics.Remove(_mapMarker);
-            }
-            if (_mapLabel is not null)
-            {
-                graphics.Remove(_mapLabel);
+                foreground?.Remove(_mapMarker);
             }
         }
 
@@ -716,9 +848,25 @@ internal static class RuntimeVisualRenderProxyAdapter
             }
         }
 
-        private sealed class CampaignMapMarkerDrawing(Action selected) : MarkerDrawing, IMapSelectable
+        private sealed class CampaignMapSymbolItem : MissionEditorMapSymbolItem, IMapSelectable
         {
+            private readonly Action _onSelected;
             private bool _selected;
+
+            public CampaignMapSymbolItem(Action onSelected)
+            {
+                _onSelected = onSelected;
+            }
+
+            public void SetLabel(string label)
+            {
+                Label = label;
+            }
+
+            public void SetSelection(bool selected)
+            {
+                _selected = selected;
+            }
 
             public bool Selected
             {
@@ -728,7 +876,7 @@ internal static class RuntimeVisualRenderProxyAdapter
                     _selected = value;
                     if (value)
                     {
-                        selected();
+                        _onSelected();
                     }
                 }
             }

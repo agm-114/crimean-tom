@@ -137,11 +137,21 @@ unsupported.
 The local POC now projects the authenticated coalition's complete non-destroyed
 friendly set plus coalition-filtered hostile intelligence tracks into Sea Power's
 drawing layer. It does not gate map presence on a native-materialization profile.
+The tactical map uses selectable subclasses of Sea Power's authored unit-symbol
+item rather than the generic drawing-marker X. Its native domain/posture template
+renders air, rotary-wing, surface, submarine, land, airbase, installation, SAM,
+radar, port, and logistics records; unclassified tracks use Sea Power's authored
+unit-symbol fallback. Heading, selection state, and the selected label are carried
+by the same native map item. Relationship color remains blue for friendly and red
+for coalition-detected hostile tracks.
+Selection centers the tactical display on that campaign record before requesting
+its local presentation proxy.
 Friendly records are map-only until selected; selection relocates the tactical
 terrain window and lazily asks Sea Power's base-object loader for a presentation
-hierarchy from the vessel, aircraft, or land folders. Contact records remain
-map-only and carry classification, confidence, and uncertainty without hostile
-true-state IDs or coordinates. A presentation record has no campaign authority,
+hierarchy from the vessel, aircraft, or land folders. Contact records carry
+classification, confidence, and uncertainty without hostile true-state IDs or
+coordinates; selection shows a generic red estimate sphere rather than a hostile
+catalog model. A presentation record has no campaign authority,
 checkpoint, native simulation object, collisions, sensors, velocity, unique game
 ID, or `ObjectsManager` registration.
 

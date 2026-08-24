@@ -38,6 +38,17 @@ GiB. This is a short diagnostic pair, not a 4K soak budget.
   still required.
 - Generic presentation loading is live-proven for this submarine only. Installed
   catalog variant/loadout resolution and visual qualification remain incomplete.
+- Detected hostile selection uses a generic red uncertainty proxy at the filtered
+  track estimate. It deliberately does not expose or load the hostile truth model.
+- Map records use selectable Sea Power authored-unit symbols (air, rotary wing,
+  surface, submarine, land, airbase, installation, SAM, radar, port, logistics,
+  or Sea Power's unknown-domain fallback), heading, selected label, and relationship
+  color; they no longer use the generic authored-marker X for every campaign entity.
+- Ground, installation, land-formation, and land-contact presentation transforms
+  require finalized land terrain, use the sampled terrain height, and lift visible
+  mesh bounds above the surface instead of placing their roots at altitude zero.
+  An existing proxy retains its last safe transform when a later terrain sample is
+  unavailable; it is never moved to a zero-altitude fallback.
 
 Broad verification after the change: campaign integration 11/11 and protocol
 integration 12/12 passed.
