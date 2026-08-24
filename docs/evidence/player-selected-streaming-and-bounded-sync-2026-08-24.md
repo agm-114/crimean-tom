@@ -56,10 +56,14 @@ the earlier stale-revision rejection did not recur.
 
 The companion no longer downloads the full 4,096-entity privileged diagnostic
 view every two seconds. It reads a tactical-worker projection containing local
-assignments plus coalition-friendly visual-proxy fields. Typical observed
-responses were 4–10 ms; one direct request measured 26.8 ms. Requests can still
-take roughly 4–5 seconds while the unattended simulator holds the coordinator
-gate, so an immutable projection cache remains desirable.
+assignments plus coalition-friendly visual-proxy fields. The projection now
+uses the coordinator's immutable last-committed cache after cold recovery rather
+than rechecking SQLite on every poll, and retains coalition identity from the
+worker's assignment history when no assignment is currently live. Friendly
+proxies therefore do not disappear between tactical handoffs. With 1,827
+friendly records serialized, 30 requests across active simulation commits
+measured 33.79 ms median, 50.78 ms p95, and 61.41 ms maximum; the prior path had
+shown roughly 4–5 second stalls.
 
 Historical full-state events exceeded gRPC's default 4 MiB server send limit,
 which made catch-up reconnect once per oversized event. The server now uses the
@@ -102,8 +106,8 @@ safe to remove manually.
 
 ## Remaining gates
 
-1. Replace coordinator-gated projection reconstruction with an immutable cached
-   worker/player projection or versioned deltas.
+1. Replace repeated full 1,827-friendly-record serialization with a versioned
+   worker/player projection delta or conditional response.
 2. Bound full-seed simulation event payloads rather than relying on the 64 MiB
    transport ceiling.
 3. Add a player-facing selection/streaming progress surface and remove the

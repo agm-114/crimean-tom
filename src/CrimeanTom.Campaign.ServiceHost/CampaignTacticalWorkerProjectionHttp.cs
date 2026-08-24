@@ -10,16 +10,21 @@ internal static class CampaignTacticalWorkerProjectionHttp
         CampaignState state,
         string clientInstanceId)
     {
-        var assignments = state.Assignments.Values
+        var workerAssignments = state.Assignments.Values
             .Where(item => string.Equals(
                     item.WorkerClientInstanceId,
                     clientInstanceId,
                     StringComparison.Ordinal)
-                && item.Role is AssignmentRole.Primary or AssignmentRole.Shadow
-                && item.Lifecycle != AssignmentLifecycle.Released)
+                && item.Role is AssignmentRole.Primary or AssignmentRole.Shadow)
             .OrderBy(item => item.AssignmentId.Value)
             .ToArray();
-        var coalitions = assignments
+        var assignments = workerAssignments
+            .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+            .ToArray();
+        // Keep the player's coalition-scoped visual theater stable between
+        // tactical assignments. Released assignment history is durable and a
+        // worker is forbidden from crossing coalition boundaries below.
+        var coalitions = workerAssignments
             .Select(item => state.Entities[item.EntityId].CoalitionId)
             .Distinct()
             .OrderBy(item => item)

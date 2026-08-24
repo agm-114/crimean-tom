@@ -1261,6 +1261,16 @@ public sealed class CampaignCoordinator(
         string clientInstanceId,
         CancellationToken cancellationToken)
     {
+        // The coordinator cache contains immutable states and is replaced only
+        // after a durable commit. Tactical projection is a high-frequency,
+        // eventually consistent read, so serving the last committed cached
+        // state avoids contending with the large SQLite append currently in
+        // progress. A cold process still performs normal durable recovery.
+        if (_stateCache.TryGetValue(campaignId, out var cached))
+        {
+            return CampaignTacticalWorkerProjectionHttp.From(cached.State, clientInstanceId);
+        }
+
         var state = await RecoverStateAsync(campaignId, cancellationToken);
         return CampaignTacticalWorkerProjectionHttp.From(state, clientInstanceId);
     }
