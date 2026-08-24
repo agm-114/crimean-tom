@@ -75,16 +75,26 @@ that smoke qualifies Runtime Bridge compatibility, not campaign tactical entry.
 
 ## Milestone 2: make the war respond to the player
 
+**Status:** The first command slice passed locally on 24 August 2026. A player
+can select a movable friendly group, issue a durable Transit order to a visible
+region, observe movement and objective assignment, replace the order with Hold,
+and retain that exact order through save and service restart. Coalition scope,
+expected revisions, idempotent retry, altered-key conflict, foreign-group
+rejection, and strategic-AI non-interference are covered by the broad service
+story using the full 4,096-entity seed. The rendered browser flow was also
+checked. The milestone remains open for the broader command set, task-force and
+policy controls, objective progress, and campaign end state.
+
 Add canonical coalition-scoped commands and one understandable campaign
 ruleset.
 
 ### Commands
 
-- Move, patrol, hold, escort or support, engage, withdraw, and cancel.
-- Create and edit task-force membership.
-- Set readiness, EMCON, and ROE policy where the platform supports it.
-- Return accepted, conflicted, unauthorized, unsupported, or superseded.
-- Use durable idempotency keys and expected revisions.
+- Implemented: move, hold, cancel-to-hold, accepted or duplicate response,
+  authorization and revision conflicts, durable idempotency keys, and expected
+  revisions.
+- Remaining: patrol, escort or support, engage, withdraw, explicit superseded
+  response, task-force membership, readiness, EMCON, and ROE.
 
 ### Campaign rules
 
@@ -100,6 +110,13 @@ ruleset.
 The player can redirect one campaign-owned force, observe the accepted order and
 its effects over time, cancel or replace it, and reach a durable objective state
 without operator endpoints or scripts.
+
+The redirect and cancel/replace portions pass. Destination-based objective
+assignment is visible, but durable objective progress and an end state do not
+yet pass.
+
+This narrow command slice is sufficient to start Milestone 3. Finish one
+campaign-to-battle loop before widening the order surface.
 
 ## Milestone 3: enter a campaign-owned battle
 

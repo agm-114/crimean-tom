@@ -37,12 +37,15 @@ pnpm campaign:server
 
 Open `http://127.0.0.1:5081/monitor/` to create or open the named 4,096-entity
 campaign, inspect the coalition-filtered map and friendly hierarchy, and use the
-start, pause, and save controls. New and restored campaigns open paused. The
-loopback host gives the page an HttpOnly, same-site, process-lifetime session
-accepted only by `/player`; it cannot authorize operator endpoints. CLI and
-companion traffic use the current-user-only bearer token file. The player shell
-polls HTTP and renews its local session after a service restart. Realtime
-delivery, player orders, objectives, and tactical entry are not implemented.
+start, pause, and save controls. Select a movable friendly group and a visible
+objective, base, friendly, or known-contact region to issue a durable move order;
+`Cancel and hold` replaces it with a persistent hold. New and restored campaigns
+open paused. The loopback host gives the page an HttpOnly, same-site,
+process-lifetime session accepted only by `/player`; it cannot authorize operator
+endpoints. CLI and companion traffic use the current-user-only bearer token file.
+The player shell polls HTTP and renews its local session after a service restart.
+Realtime delivery, broader orders and policy controls, complete objective
+progress, campaign end state, and tactical entry are not implemented.
 
 For iteration with backend restart and frontend hot-module replacement, run:
 

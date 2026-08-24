@@ -67,10 +67,16 @@ lease for one interaction island. During that lease:
 - the campaign service continues advancing unrelated entities; and
 - presentation proxies remain non-authoritative.
 
-Every durable mutation includes a campaign ID, entity or island identity,
-expected revision, authority epoch, and idempotency key. The service accepts a
-tactical result once or rejects it. Transport delivery may repeat without
-repeating the campaign effect.
+Every durable mutation includes the applicable campaign, entity or island,
+revision, authority-epoch, and idempotency fields. The service accepts a tactical
+result once or rejects it. Transport delivery may repeat without repeating the
+campaign effect.
+
+The player API derives coalition authority from the durable local player
+profile. A client does not select its own coalition or command scope in an order
+request. Each player order names a friendly group, expected group revision, and
+idempotency key. Reusing a key with a different payload conflicts; repeating the
+same payload is a duplicate success.
 
 The journal, not any process memory or UI cache, determines the accepted
 timeline.

@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 9.
+Authenticated `GET /supported-claims` mirrors this document at schema version 10.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -18,6 +18,14 @@ update requires renewed qualification.
 - The local player application can create and name the fixed 4,096-entity
   proving scenario paused, start it, pause it, save it, restart the campaign
   service, and restore the same campaign head and time.
+- The player can give a movable friendly group a coalition-scoped Transit order
+  to a visible region, replace it with Hold, and see whether the write was
+  accepted, duplicated, conflicted, or rejected. The commands use expected
+  revisions and durable idempotency keys. They survive save and service restart,
+  and strategic replanning leaves them under player control.
+- The campaign view shows coalition objectives and counts groups whose current
+  destination matches each objective. This is assignment visibility, not yet a
+  complete objective-progress or victory system.
 - Two coalitions can create strategic objectives, allocate capable groups, keep
   fixed installations in local defense, form bounded multi-role operational
   packages, and replan from coalition intelligence.
@@ -87,7 +95,8 @@ claim a safe public hostile-client boundary.
 ## Explicitly unsupported
 
 - A complete player campaign-to-tactical loop.
-- Canonical coalition-scoped player orders, objectives, and an end state.
+- Player patrol, escort, engage, withdraw, task-force editing, readiness, EMCON,
+  ROE, complete objective progress, and a campaign end state.
 - A tactical loss against a campaign-owned hostile committed back to the
   campaign with complete expenditure and portable state.
 - Campaign-owned mixed task-force entry across surface, submarine, fixed-wing,

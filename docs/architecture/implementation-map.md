@@ -35,7 +35,7 @@ player projection.
 | `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
 | `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
 | `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
-| `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, selection, time, and save controls | Orders, objectives, tactical entry, packaging, and detailed recovery UX remain |
+| `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, objective assignment, Transit/Hold orders, time, and save controls | Broader orders, objective progress, tactical entry, packaging, and detailed recovery UX remain |
 | Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
 ## Implemented campaign path
@@ -95,8 +95,17 @@ the same campaign head. Its cookie is accepted only on `/player`; operator and
 companion HTTP control remains bearer-authenticated. Enemy canonical entities
 and operator diagnostics are not serialized into the player view.
 
-Player command envelopes still cover presentation and control-transfer actions,
-not the canonical campaign orders required by the product contract.
+The first canonical player-order slice accepts Transit to a visible region and
+Hold for movable friendly groups. The service derives coalition authority from
+the persisted player profile, checks the group revision, binds an idempotency key
+to the request payload, and returns accepted, duplicate, conflict, or rejection
+feedback. An open-ended player order remains active at its destination so the
+strategic AI cannot immediately retask the group. Replacing an order completes
+the prior order at the new order's start time.
+
+The player view exposes current strategic objectives and destination-based
+assignment counts. Patrol, escort, engage, withdraw, task-force editing, policy
+orders, objective progress, victory, and defeat remain unimplemented.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -115,7 +124,7 @@ The design context is in [distributed simulation](../future/distributed-simulati
 
 | Product requirement | Current implementation gap |
 | --- | --- |
-| Local campaign application | Lifecycle and filtered map work; orders, objectives, tactical entry, packaging, and result UX remain |
+| Local campaign application | Lifecycle, filtered map, objective assignment, and Transit/Hold work; broader orders, objective progress, tactical entry, packaging, and result UX remain |
 | Campaign-owned task force | Authored mission still supplies placeholder local units in the proven path |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |

@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 9,
+        SchemaVersion: 10,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -19,6 +19,7 @@ public static class CampaignSupportedClaims
             "http-content-type-cannot-bypass-bearer-authentication",
             "local-player-create-pause-resume-save-and-restart-restore",
             "full-4096-player-scenario-coalition-filtered-map-and-friendly-hierarchy",
+            "durable-coalition-scoped-player-transit-and-hold-orders-with-idempotency-revision-and-restart-recovery",
             "deterministic-campaign-kernel-and-sqlite-wal-journal",
             "deterministic-two-coalition-strategic-and-operational-campaign-driver",
             "fixed-installation-complexes-remain-local-without-movement-orders",
@@ -48,7 +49,7 @@ public static class CampaignSupportedClaims
             "existing-campaign-schema-or-algorithm-upgrade",
             "bounded-long-running-campaign-performance-envelope",
             "campaign-owned-hostile-tactical-loss-committed-to-journal",
-            "canonical-coalition-player-orders-objectives-and-campaign-end-state",
+            "player-patrol-escort-engage-withdraw-taskforce-policy-objective-progress-and-campaign-end-state",
             "complete-player-campaign-to-tactical-loop",
             "human-equivalent-adaptive-strategic-ai-deception-or-learned-opponent-response",
         ]);
