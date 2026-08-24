@@ -120,16 +120,30 @@ campaign-to-battle loop before widening the order surface.
 
 ## Milestone 3: enter a campaign-owned battle
 
+**Status:** The first entry slice passed locally on 24 August 2026. The campaign
+application checks the selected friendly group against the connected runtime,
+shows per-member support and available capacity, rejects foreign, stale, or
+incomplete requests, and activates the supported group through the existing
+fenced handoff path. The broad 4,096-entity service story covers offline state,
+authorization, readiness, preparation, activation, duplicate retry, and
+continued campaign movement. A rendered browser run and live Sea Power run
+loaded the one-member USS Pharris group as one real Knox object. The milestone
+remains open for mixed task-force entry, removal of authored placeholder
+membership, tactical-map interaction parity, broader profiles, and hostile
+participation.
+
 Replace the authored placeholder force with campaign membership and make the
 map/proxy system usable.
 
 ### Tactical preparation
 
-- Build the Sea Power task force from the campaign save.
+- Implemented for a selected group: derive membership from the campaign save,
+  require the whole surviving group to be supported, and prepare it atomically.
+- Remaining: replace authored player membership and qualify a mixed task force.
 - Materialize every supported available member as a real simulated object.
 - Include required hosted aircraft, helicopters, boats, and child assets when
   their portable-state contract is supported.
-- Report unsupported members before activation.
+- Implemented: report unsupported members and capacity before activation.
 - Compute and fence the full interaction island under one epoch.
 - Validate terrain and initial placement before showing land objects.
 

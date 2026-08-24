@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 10.
+Authenticated `GET /supported-claims` mirrors this document at schema version 11.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -26,6 +26,11 @@ update requires renewed qualification.
 - The campaign view shows coalition objectives and counts groups whose current
   destination matches each objective. This is assignment visibility, not yet a
   complete objective-progress or victory system.
+- The campaign application can inspect a selected friendly group for tactical
+  entry, including connected-session state, usable capacity, and exact runtime
+  profile support for each surviving member. Entry requires the reviewed group
+  revision and an idempotency key, rejects foreign or incomplete groups, and
+  prepares the whole supported group before activation.
 - Two coalitions can create strategic objectives, allocate capable groups, keep
   fixed installations in local defense, form bounded multi-role operational
   packages, and replan from coalition intelligence.
@@ -48,6 +53,9 @@ or complete Sea Power parity.
   play state.
 - A `RenderProxy` cannot receive simulation authority or publish campaign
   outcomes.
+- Live qualification on the pinned build loaded the selected one-member USS
+  Pharris group as one campaign-owned Knox in the native player task force. The
+  campaign advanced unrelated state while the assignment lease stayed live.
 
 This is a narrow surface contract. It does not cover complete magazines,
 sensors, formations, hosted aircraft, helicopters, submarines, or every ground
@@ -74,7 +82,8 @@ and installation family.
 
 Generic visual loading has only narrow live qualification. Direct mouse
 selection parity, overlapping symbols, uncertainty glyphs, full catalog
-coverage, and campaign-owned default task-force entry are not supported claims.
+coverage, mixed campaign-owned task-force entry, and replacement of authored
+mission membership are not supported claims.
 
 ## Security and projections
 

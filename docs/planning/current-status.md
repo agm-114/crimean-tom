@@ -3,16 +3,19 @@
 ## Summary
 
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
-2026. Crimean Tom now has a durable local campaign lifecycle and player map,
-but it is not yet a playable campaign-to-battle loop.
+2026. Crimean Tom has a durable local campaign lifecycle, player map, and a
+first campaign-owned tactical-entry path. It is not yet a complete
+campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
 and early map/proxy synchronization. A player can now create, inspect, run,
 pause, save, and restore the full proving campaign without operator access. The
-first durable player-order slice now works. The remaining product gap starts
-with broader orders and objective progress, then continues through tactical
-entry, combat return, and recovery.
+first durable player-order slice now works. The campaign application can also
+check a selected friendly group against the connected Sea Power runtime and
+activate the whole supported group. The remaining product gap is mixed-force
+entry, usable tactical-map continuity, combat return, recovery, broader orders,
+and objective progress.
 
 The [product contract](playable-dynamic-campaign-product-contract.md) defines the
 goal. The [implementation plan](implementation-plan.md) defines the order.
@@ -35,7 +38,8 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
-| Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map, friendly hierarchy, visible objectives and assignment counts, issues Transit/Hold, and provides start, pause, save, open, and restart recovery | Complete objective progress, tactical entry, packaging, and detailed degraded-state UX are absent |
+| Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Mixed-force entry, complete objective progress, packaging, and detailed recovery UX are absent |
+| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers the one-member USS Pharris group and the Knox runtime profile, not a mixed task force |
 | Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
@@ -46,16 +50,19 @@ show 4,096 total entities as a coalition-filtered player picture, start and
 pause time, save, restart the service, renew the local browser session, and
 restore the same campaign head. It can redirect a movable friendly group to a
 visible region, cancel it into Hold, and see objective assignment. It can also
-connect Sea Power, project many campaign records, select some records through a
-typed bridge path, and keep one owned surface unit synchronized under a lease.
+connect Sea Power, inspect whether every surviving selected-group member can be
+materialized, and enter a fully supported group. The live proof loaded USS
+Pharris as one real Knox object in the native player task force while unrelated
+campaign time advanced and the lease remained live.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
 1. only Transit and Hold player orders exist; broader commands, task-force
    editing, policy controls, objective progress, and campaign end state are absent;
-2. the player application cannot request or follow tactical entry;
-3. the proven Sea Power mission still includes an authored placeholder task
+2. the proven Sea Power mission still includes an authored placeholder task
    force instead of loading campaign membership by default;
+3. entry has not been qualified for a mixed surface, submarine, fixed-wing,
+   helicopter, ground, and installation island;
 4. direct mouse interaction with non-local symbols and contacts is not fully
    qualified;
 5. proxy and tactical materialization support does not cover the required
@@ -82,11 +89,12 @@ than in the active tree.
 
 ## Immediate gaps
 
-### 1. Campaign-owned task force
+### 1. Expand campaign-owned task-force entry
 
-Remove the authored mission as the source of player membership. Load every
-supported available member from the campaign save and report unsupported state
-before activation.
+The selected-group transaction and unsupported-member report now work. Expand
+the runtime profile set, load a mixed campaign task force, include supported
+hosted children, and remove the authored mission as the source of player
+membership.
 
 ### 2. Map and proxy parity
 
@@ -136,21 +144,31 @@ results must report native objects, map records, proxies, external entities, fix
 timestep, internal time dilation, frame time, memory, and campaign throughput
 separately.
 
-The latest full-application smoke used Sea Power
+The baseline full-application smoke used Sea Power
 `0.8.2-23444+s358` and the native Red Sea Breakout scenario. It reported 18
 stable units, 3 task forces, 43 observed objects after weapons and effects had
 spawned, about 60 FPS, a 16.667 ms engine and game fixed step, internal time
 dilation 1, no invalid geodetic positions, and no units beyond loaded terrain.
 Briefing continuation, pause, resume, contact and event capture, screenshot, and
 native exit worked through the Runtime Bridge. This proves runtime compatibility
-for that small native scenario. It does not prove that the 4,096-entity campaign
-can enter or return from Sea Power.
+for that small native scenario.
+
+A later full-application run kept the 4,096-entity campaign loaded, selected the
+one-member NATO GIUK barrier group in the campaign application, and entered Sea
+Power with USS Pharris. Sea Power created one campaign-owned Knox under
+`taskforce:Taskforce1`, relocated the origin and camera to the GIUK position,
+and reported no duplicate stable IDs or invalid positions. The running sample
+reported about 60 FPS, a 16.667 ms engine and game fixed step, and internal time
+dilation 1. Campaign time advanced from T+0 to T+40 while the selected group
+remained Active and its lease remained live. This proves selected single-group
+entry for the supported Knox profile. It does not prove mixed-force entry,
+tactical-map parity, combat return, or restart recovery.
 
 ## Next work
 
 The next vertical slice should:
 
-1. enter Sea Power with the player-selected campaign-owned mixed naval task force;
+1. expand the proven one-member entry into a campaign-owned mixed naval task force and remove authored placeholder membership;
 2. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 3. fight one campaign-owned hostile while the rest of the war advances;
