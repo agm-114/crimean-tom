@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 12.
+Authenticated `GET /supported-claims` mirrors this document at schema version 14.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -64,11 +64,17 @@ or complete Sea Power parity.
   native Los Angeles-class submarine with its exact `Variant31` profile,
   campaign name, stable tag, player task-force membership, and GIUK coordinate.
   The assignment remained Active while campaign time advanced from T+0 to T+30.
+- A live 4,096-entity run atomically loaded a two-member maritime helicopter
+  group as native SH-2F and SH-3H objects. Sea Power preserved the exact
+  `Squadron4 / ASW` and `Squadron1 / ASW` profiles, campaign names, stable tags,
+  player task-force membership, and roughly 500-foot entry altitude. Both
+  assignments remained Active while campaign time advanced from T+0 to T+40.
 
-This is a narrow ship and single-profile submarine contract. It does not cover
-complete magazines, sensors, formations, hosted aircraft, helicopters,
-submerged-state portability, broader submarine families, or every ground and
-installation family.
+This is a narrow ship, single-profile submarine, and two-profile airborne
+helicopter contract. It does not cover complete magazines, sensors, formations,
+ship-hosted launch and recovery, fixed-wing aircraft, submerged-state
+portability, broader submarine families, or every ground and installation
+family.
 
 ## Map and presentation
 
