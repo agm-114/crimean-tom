@@ -17,7 +17,7 @@ depot buildid `24297410`, Unity `6000.0.67f1`, PhysX `4.1.2`).
 | Radius | What it actually is | Approximate size on this build | Source |
 | --- | --- | --- | --- |
 | Camera relocation | When the **camera** is far enough from the current local origin, the whole world is re-centred | `RebaseToOrigin` default 1000 Unity units ≈ **67.2 km** | `RenderPosition.checkAndPerformRelocation`, `Globals._rebaseToOrigin` |
-| Instantiated tactical set | Every live `ObjectBase` in `GameMain._objects`, including units the player cannot see | Measured to **~300 km** radius / **~376 km** pair separation in Red Sea Breakout without proving weapon/terrain continuity | [Phase 1 live evidence](../evidence/phase-1-live-evidence-2026-08-20.md) |
+| Instantiated tactical set | Every live `ObjectBase` in `GameMain._objects`, including units the player cannot see | A 20 August 2026 Red Sea Breakout probe reached about **300 km** radius and **376 km** pair separation without proving weapon or terrain continuity | Retained in git history and local run artifacts |
 | Native campaign mission pull-in | Which **abstract campaign groups** `CampaignMain.SetupGroupsForTacticalMission` copies into a generated tactical mission | `Location.GetDistance(...) / 1000 < 925.9999990463257` ≈ **500 nmi / 926 km** from the central group | `CampaignMain.cs` |
 
 Crimean Tom's operational kernel is a fourth layer: units that **never become**

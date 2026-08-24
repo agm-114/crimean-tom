@@ -21,7 +21,7 @@ destinations are confined to a new child of the service run directory.
 
 ## Operator workflow
 
-1. `POST /control/campaigns/{id}/drain`: stop admitting new Primary/Shadow load
+1. `POST /control/campaigns/{id}/drain`: stop admitting new tactical work
 2. `POST /control/campaigns/{id}/pause`: reject time advances until resume
 3. `POST /control/backups`: online backup with integrity hashes
 4. `POST /control/campaigns/{id}/resume` after the backup is verified

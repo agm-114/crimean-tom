@@ -1,234 +1,148 @@
 # Current code and product status
 
-## Snapshot
+## Summary
 
-Reviewed through algorithm-v18 strategic-AI, physical-movement, full-scale
-recovery, automatic tactical restart reconciliation, and live land-streaming
-qualification on 24 August 2026 and against
-the installed Sea Power build
-`0.8.2-23444+s358`. This is the living status ledger. Dated files in
-`docs/evidence/` remain the proof record; the phase plan remains the target and
-gate definition. The
-[playable dynamic campaign product contract](playable-dynamic-campaign-product-contract.md)
-is the source of truth for the intended player experience and minimum playable
-acceptance story.
+Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
+2026. Crimean Tom is an advanced campaign-runtime prototype, not a playable
+dynamic campaign.
 
-The repository is an advanced campaign-runtime prototype with a local
-tactical-sync, land-target, and friendly-render-proxy POC, not yet a complete playable
-dynamic-campaign product. Its
-strongest areas are deterministic reduction and
-replay, authority fencing, the Sea Power control boundary, broad integration
-stories, and an increasingly capable Operational analogue. The POC can keep a
-real owned surface assignment alive by heartbeat while the rest of the campaign
-advances, and can commit changed local tactical state during unpaused play. The
-guided player loop, complete result contract, save evolution, and
-principal-separated browser writes remain open before an alpha.
+The strongest parts are deterministic campaign state, SQLite persistence,
+authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
+and early map/proxy synchronization. The missing part is the product loop: the
+player still cannot reliably manage a campaign, enter with the campaign-owned
+force, fight a campaign-owned enemy, commit the complete result, and return.
+
+The [product contract](playable-dynamic-campaign-product-contract.md) defines the
+goal. The [implementation plan](implementation-plan.md) defines the order.
 
 ## What works now
 
-| Area | Current capability | Qualification |
+| Area | Current capability | Limit |
 | --- | --- | --- |
-| Sea Power adapter | Authenticated companion/pipe session, extraction, screenshot/UI automation, controlled surface and land/installation mutation, terrain preparation/probing, checkpoints, collider capture | Pinned game build; narrow allow-list of one surface and six land/installation profiles |
-| Campaign core | Immutable canonical state, typed commands/events, fixed logical time, deterministic replay/hash; sourced 55-region/81-base/4,096-entity WW3++ proving seed; two-sided strategic AI persists coalition strategies, objectives, bounded group commitments, operational packages, and orders; allocation uses coalition intelligence, weapon capability, target-response saturation, and missing package roles; fixed defense complexes cannot move | Algorithm v18 kept capability matching at 95.5% while producing 63 durable packages over 418 unique groups: 61 phased their starts, 53 carried at least three roles, and every explicit strike package included air cover; zero fixed groups moved |
-| Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, compressed stored journal payloads, completed-order retirement, prepared coordinator appends, bounded periodic snapshots, CAS blobs, integrity checks, online backup and side-directory restore; companion catch-up now retains only tactical-migration proofs instead of every full event | Algorithm-v18 4,096-entity journal recovery at time 400 restored all 63 packages and matched its hash in 3.41 seconds (4.48 seconds through the HTTP view); the live companion spool stopped growing across 11 further commits after an obsolete 1.716 GB full-event cache exposed the defect, but campaign-event deltas and a 10,000-commit retention/compaction envelope remain unqualified |
-| Operational simulation | Unattended physical-distance movement toward graph-leg anchors, domain-scaled fuel/stores, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and operational sub-AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not full Sea Power parity; movement no longer teleports one region or creates damage merely by travelling; detailed ground-ground combat remains deliberately absent |
-| Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, resident strategic-system policy, Primary/Shadow fencing, cold reconstruction, migration protocol | Strategic SAM/radar/ballistic islands stay Operational without a compatible worker and request constant Tactical presence with one; live two-container completion remains unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface state; terrain-gated ground/installation materialization, retained-object rebind, and lifecycle; game-session-aware detection of missing owned objects with automatic stale-epoch release, checkpoint-backed same-worker rescheduling, and safe superseded-migration replay; coalition-map projection of every non-destroyed friendly plus coalition-filtered hostile contact tracks; native-symbol map records with lazy presentation-only model loading; explicit authenticated player-coalition binding for fresh sessions; automatic focus, terrain-window relocation, pause/restore, and stale-authority containment | The live 4,096-entity campaign first reconciled 1,761 records (1,235 friendlies and 526 contacts). A later continuously advancing sample reconciled 869 records (311 surviving friendlies and 558 contacts); selecting an Atlantic Los Angeles-class record through the typed bridge path produced exactly one non-simulating model after terrain relocation, held 60 FPS at a 16.667 ms fixed step and dilation 1, and added about 0.24 GiB working set. The authored GIUK mission still supplies an unbound static Pharris/Honolulu player task force, Sea Power's local tactical-display viewport is not yet the intended player strategic map, and direct mouse-selection parity for the newer authored-symbol renderer remains under live requalification. Automatic process-restart recovery passes the real-host/companion protocol story but still needs a live kill/relaunch latency and duplicate-object qualification. |
-| WW3++ scenario content | 4,096 deterministic opening entities: full usable installed catalog coverage (241 vessels, 111 aircraft, 187 land units/sites), two-ocean US and Soviet global fleets, China/Japan and regional participation, Soviet-aligned Cuba, 38 defended airbase complexes, 149 helicopters, 984 physical ground targets, theater IADS/coastal batteries, ports, industry, depots, sealift, and civilian traffic | Research provenance and authored what-if premises are tracked; opening sorties exist and six ground/installation profiles can materialize, but recurring air tasking, neutral diplomacy/multi-coalition relations, rotary-wing materialization, and general catalog coverage remain open |
-| Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
-| Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
-| Operator experience | Hosted world monitor, force hierarchy, scheduler/worker/performance/outcome diagnostics, Fulda seed UI | HTTP polling; hosted reads use a locally issued cookie, while mutations currently work only through the authenticated dev proxy |
-| Performance comparison | Qualified vanilla/candidate capture and JSON comparison for FPS, snapshot latency, clocks, object/proxy counts, process CPU/memory, and campaign throughput; current full-seed pair measured 60.000 average FPS candidate versus 60.001 vanilla; typed Unity asset diagnostics now separate native mission allocations from campaign/proxy cost | The prior 12-Knox result is historical, not representative of the map-first path. In the current live sample, 869 map records used 4.95 GiB working set / 11.39 GiB private memory; one terrain-relocated physical proxy raised those to 5.19 / 11.60 GiB. The pre-fix off-window focus reached 12.2 / 19.5 GiB and is retained as failure evidence. These remain short local samples, not a soak or final 4K marker budget. |
-| Runtime geometry | Durable versioned collider cache and optional meter-space Bepu terminal silhouette | Optional analogue path; no armor/penetration model |
+| Campaign core | Immutable state, typed commands and events, fixed logical time, deterministic replay and hashing | Save schema and algorithm evolution are not qualified |
+| Persistence | SQLite WAL, writer fencing, periodic snapshots, compressed events, content-addressed blobs, integrity checks, online backup, side-directory restore | Long campaigns, compaction, disk pressure, and upgrade paths remain open |
+| Scenario | Sourced 55-region, 81-base, 4,096-entity WW3++ proving seed | It is an engineering load scenario, not a balanced release campaign |
+| Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |
+| Strategic AI | Two coalitions create objectives, allocate capable groups, keep fixed defenses in place, form multi-role packages, and replan | No route or capacity deconfliction, deception, or human-level command claim |
+| Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, and collider capture | Pinned game build and narrow portable-state allow-list |
+| Tactical lease | Companion heartbeats keep one surface assignment authoritative while unrelated campaign entities advance | Live restart latency and duplicate-object behavior still need qualification |
+| Tactical readback | Changed surface pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
+| Map projection | All non-destroyed friendlies and coalition-filtered hostile tracks can reach Sea Power map records | The campaign application map and direct interaction parity are not finished |
+| Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
+| Visual proxies | Typed friendly selection can load a non-simulating installed model after terrain relocation; hostile selection uses a generic estimate | Live proof covers only a few catalog entries; mouse selection needs requalification |
+| Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
+| Sessions | Coalition-filtered projections and reconnectable in-memory player sessions exist | Player identity is not durable and canonical player orders are absent |
+| Operator UI | Browser monitor shows diagnostic map, hierarchy, telemetry, and controls | It exposes operator concepts and is not the product campaign application |
+| Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger | Its current strings still emphasize Knox proxies, worker placement, replica rules, and older AI limits; reconcile it when code work resumes |
 
-## Documentation drift found in this review
+## What the player can and cannot do
 
-| Drift | Correction |
-| --- | --- |
-| Root documentation called the companion surface read-only | The bridge now has typed UI automation, experimental probes, and fenced owned-surface mutation |
-| Root documentation called the campaign application planned | ServiceHost, engine, SQLite journal, monitor, gRPC transport, and Operational worker all exist |
-| Architecture project list stopped after the first three projects | [Implemented architecture map](../architecture/implementation-map.md) now maps every production/tool project |
-| Architecture diagrams implied SignalR was live | SignalR is a target only; the current monitor and player projection use HTTP |
-| Phase status labels said phases 5-8 were implemented | Individual infrastructure slices are implemented, but their playable/realtime/scale exit gates remain open |
-| Recent collider cache and Bepu terminal work was absent | It is now documented as an optional Operational analogue path |
-| The handoff diary mixed live URLs, historical proofs, and next steps | It is replaced by this stable status/gap ledger; evidence stays under `docs/evidence/` |
+The current prototype can launch services, seed and advance a full campaign,
+connect Sea Power, project many campaign records, select some records through a
+typed bridge path, and keep one owned surface unit synchronized under a lease.
 
-## Blocking foundation gaps
+The current prototype cannot yet provide a coherent play session because:
 
-These are prerequisites, not release-polish tasks:
+1. the campaign UI is an operator monitor, not a player shell;
+2. canonical coalition-scoped orders and a complete objective loop are absent;
+3. the proven Sea Power mission still includes an authored placeholder task
+   force instead of loading campaign membership by default;
+4. direct mouse interaction with non-local symbols and contacts is not fully
+   qualified;
+5. proxy and tactical materialization support does not cover the required
+   aircraft, helicopter, submarine, ground, and installation families;
+6. no qualified flow commits the fate and expenditure of a campaign-owned
+   hostile after a real battle; and
+7. game and service restart recovery has not been proven as a complete live
+   player story.
 
-1. **Bounded long-journal recovery.** Seed import now validates and commits
-   all 5,892 records atomically with one final snapshot. A clean 4,096-entity
-   bootstrap measured 8.009 seconds, 162.8 MiB peak working set, and a 32.3 MiB
-   database under the new local workstation-GC default. Coordinator reads and
-   appends now reuse immutable recovered state after checking the durable SQLite
-   head, and the full protocol story passes in 1 minute 3 seconds. A clean
-   30-quanta advance measured 2.065 seconds; cold recovery plus a full diagnostic
-   view measured 1.189 seconds at commit 5,893. The default unattended loop now
-   reads that cache instead of retaining a fresh replay across every timer wait;
-   at live head 9,300 the service held 77.2 MiB of managed objects rather than
-   the observed pre-fix 1.0-1.2 GiB sawtooth. A
-   10,000-commit restart/recovery/storage envelope is still unqualified. The
-   companion-side copy of every replayed event was a separate unbounded spool:
-   it reached 1.716 GB in the live full-seed run and now stores only compact
-   tactical-migration proofs. Full-seed simulation events themselves still need
-   bounded deltas.
-2. **Campaign contract evolution.** Campaign recovery hard-rejects any stored
-   schema or algorithm version other than the compiled constants. There is no
-   upcaster, compatible old-engine path, or export-only recovery mode. Any
-   objectives/ruleset work is likely to change these contracts, so save upgrade
-   policy must precede private-alpha iteration.
-3. **Tactical clock and lease qualification.** A live companion heartbeat now
-   renews tactical authority while campaign time and unrelated entities advance;
-   the 120-quanta deadline applies after the owner becomes stale. The local POC
-   crossed multiple old deadlines during unpaused play. Service-restart grace,
-   long-session soak, clock-rate UX, and explicit capture-time versus commit-time
-   semantics still need qualification. The 23 August local proof also showed
-   both clocks advancing together while an assignment remained active and
-   lease-live; this is not yet a long soak or service-restart grace proof.
-4. **Principals and browser writes.** Companion, workers, and operator tooling
-   share the master service token. The hosted monitor is issued a read cookie
-   without an operator identity and cannot authenticate writes. The general
-   `application/grpc` content-type bypass also reaches non-gRPC control routes
-   and must be removed before treating the loopback control plane as hardened.
-5. **Shipping-default verification.** The broad protocol story disables
-   unattended simulation and changes migration timing, leaving the default
-   clock/expiry interaction untested. Keep broad scenario tests, but add a
-   shipping-default story and a long-journal performance/recovery gate.
+## Architecture decision
 
-## Missing product features
+The active architecture is local-first:
 
-### P0: complete a player-visible campaign loop
+- the campaign application owns strategy, orders, saves, and tactical entry;
+- Sea Power owns the battle and tactical map;
+- one campaign service runs Operational simulation and strategic AI;
+- one local Sea Power process receives a renewable tactical lease; and
+- private multiplayer extends this service after single-player works.
 
-1. **Explicit campaign lifecycle.** New and restored campaigns need a
-   player-visible paused/running state, explicit start/resume behavior, save
-   selection, and time controls. The current unattended host advances every
-   non-paused campaign and a long-lived development campaign can therefore open
-   days into an attritional war with few surviving friendlies; that is valid
-   simulation state but not an acceptable implicit new-game experience.
-2. **Canonical player orders and UI.** Convert coalition-scoped authenticated
-   player intent into
-   authorized, journaled `IssueOrderCommand`/policy commands with deterministic
-   conflict handling and clear rejection feedback. Do not turn the privileged
-   true-state operator monitor into the player trust boundary: either provide a
-   distinct player surface or an explicit coalition-filtered mode. Operator
-   tooling still needs order creation/cancellation, ROE/doctrine,
-   destination/tasking, pause/resume, and ruleset configuration.
-3. **Objectives and campaign progression.** Add durable objectives, victory and
-   failure predicates, scenario/campaign end state, political/narrative events,
-   reinforcement/replacement policy, and an authorable ruleset. The current
-   Fulda campaign is hard-coded proving content.
-4. **Playable tactical round trip.** Replace the now-proven script-guided local
-   POC with an operator/player flow that moves a selected interaction island
-   into Sea Power, exposes assignment/preparation and lease progress, starts
-   play, and returns cleanly to the campaign. Prove the fate of a
-   campaign-owned hostile, not only owned-vessel kinematics/resources/damage.
-5. **Broaden portable state and entity families.** Qualify or add aircraft,
-   rotary-wing, subsurface, general base/land, formation, and hosted-aircraft materialization. Apply
-   or explicitly model damage, fuel, magazines, sensors, formations, and hosted
-   children instead of leaving them fenced as unsupported fields. The local
-   land POC covers M60, M113, Vulcan, MIM-23 launcher, EWR, and small-airbase
-   profiles. The map-first replica path now accepts every friendly domain and
-   filtered hostile contact tracks, and it can lazily load installed vessel,
-   aircraft, and land presentation models. This is not simulation-family parity:
-   native owned materialization remains narrow, model/loadout variants need
-   catalog qualification, and the player still needs a strategic map, explicit
-   campaign task-force membership, zoom/framing, uncertainty symbology, labels,
-   and lifecycle/error feedback.
-6. **Campaign management UI.** Expose backup/restore, pause/drain, worker
-   lifecycle, diagnostics, integrity status, and failure recovery through a
-   safe operator workflow rather than HTTP/scripts alone.
-7. **Airbase operations and integrated defense.** Turn seeded opening sorties
-   into durable aircraft inventories and air-tasking cycles: mission creation,
-   launch/recovery, turnaround, fuel and magazine draw, runway damage/repair,
-   dispersal, radar-network degradation, GBAD command relationships, and SEAD.
-   The current airbase complexes provide the objects and opening orders, not
-   this lifecycle.
-8. **Diplomacy and noncombatants.** Add relationship-aware hostility, neutral
-   traffic, protected/noncombatant status, identification, ROE, diversion, and
-   unintended-effects consequences. Current civilian traffic is assigned to a
-   protection coalition because the engine treats every other coalition as
-   hostile.
+Distributed Operational workers, hot replicas, and live tactical migration have
+moved to [future work](../future/distributed-simulation.md). Their experimental
+code may remain, but they do not define the delivery order.
 
-### P1: move prototype execution across its intended boundaries
+## Immediate gaps
 
-1. **Out-of-process Operational work.** Implement immutable island work leases,
-   deterministic worker execution, result hashes/events, validation, timeout,
-   idempotent replay, quarantine, and atomic coordinator commit. Until then,
-   Operational workers do not provide CPU isolation or horizontal capacity.
-2. **Realtime player transport.** Add SignalR/MessagePack only after the player
-   projection/command DTOs are stable. Reconnect must resume from campaign
-   cursors; realtime delivery must never become a canonical commit path.
-3. **Qualified tactical migration/recovery.** Complete a real isolated
-   two-process Sea Power migration, active-weapon/hosted-aircraft round trips,
-   destination-failure recovery, and measured recovery objectives.
-4. **Content/catalog pipeline.** Replace hard-coded catalog assumptions with a
-   versioned normalized catalog and campaign package format, diagnostics,
-   migration rules, mod/update invalidation, and authoring validation.
-5. **Calibration.** Compare Operational sensors, movement, expenditure, damage,
-   and engagement outcomes against batches of Sea Power observations and expose
-   a versioned ruleset/calibration profile.
+### 1. Player campaign application
 
-### P2: qualify deployment, trust, and scale
+Turn the monitor into, or replace it with, a player surface for campaign
+lifecycle, filtered map, force hierarchy, orders, objectives, time controls,
+health, and tactical entry. Separate player authorization from operator access.
 
-1. **Packaged application lifecycle.** Installer/portable bundle, configuration,
-   clean-machine startup, update/rollback, campaign import/export, retention and
-   compaction, privacy-safe diagnostics, and a full recovery runbook.
-2. **Long-duration evidence.** Soak, restart storms, resource exhaustion,
-   malformed catalog/checkpoint fuzzing, large-theater benchmarks, and explicit
-   latency/storage/recovery envelopes.
-3. **Network deployment.** TLS, durable identity/authorization, invitation and
-   revocation, LAN/private-host configuration, rate limiting, and audit UX.
-4. **Hostile-client model.** Neutral adjudication or independently validated
-   outcomes, proxy/fog-of-war qualification, abuse resistance, and side-channel
-   review before any public multiplayer claim.
-5. **Hot replicas, only if justified.** Finish the deterministic runtime-adapter
-   D0-D5 program before implementing promotable live Unity Shadows. Cold
-   checkpoint/Operational fallback remains the supported design otherwise.
+### 2. Campaign-owned task force
 
-## Recommended implementation order
+Remove the authored mission as the source of player membership. Load every
+supported available member from the campaign save and report unsupported state
+before activation.
 
-The next work should build only the foundation needed for an honest playable
-slice, then traverse that slice vertically:
+### 3. Map and proxy parity
 
-1. close the HTTP content-type bypass and implement scoped
-   companion/worker/operator/player credentials plus an authenticated hosted
-   browser write channel;
-2. extend the recovered-head cache and 100-commit snapshot evidence through at
-   least 10,000 commits, including cold restart, storage, and full-event payload
-   bounds;
-3. choose and implement campaign save-contract evolution, proving that a saved
-   campaign can cross one schema and one algorithm change;
-4. soak the heartbeat-renewed tactical lease across service/game restarts and
-   define capture-time, commit-time, and clock-rate UX for human sessions;
-5. expose canonical coalition-scoped player orders headlessly, with durable
-   idempotency, control-right checks, expected-revision conflicts, and typed
-   rejection feedback;
-6. add one small durable objective/victory ruleset and player/operator UI around
-   that command path;
-7. prove a guided tactical round trip that commits the fate of a
-   campaign-owned hostile, then close only the portable-state fields that the
-   round trip demonstrates are missing;
-8. defer out-of-process Operational leases, SignalR, broader entity families,
-   packaging, soak, and multiplayer qualification until the vertical slice is
-   real.
+Finish native-looking mouse selection, labels, overlap handling, contact
+uncertainty, focus, bounded loading feedback, and terrain-safe visual proxies.
+Local and non-local records must be indistinguishable at the map interaction
+level.
 
-### Delivery outlook
+### 4. Complete tactical return
 
-For one strong developer/agent with local-only Sea Power verification, these are
-planning ranges rather than commitments:
+Commit campaign-owned hostile fate, player damage, fuel, stores, ammunition,
+hosted assets, and objective effects once. Show unsupported or rejected fields
+instead of silently discarding them.
 
-| Outcome | Current planning range | Dominant uncertainty |
-| --- | --- | --- |
-| Survivable foundation (steps 1-4) | 3-5 weeks | migration design, long-journal behavior, live tactical clock policy |
-| Honest narrow playable slice (steps 1-7) | 9-13 weeks | campaign-owned hostile round trip and portable native state |
-| Private single-player alpha | 20-28 weeks | content/ruleset depth, management UI, save compatibility, repeated live verification |
-| Single-machine documented release | 7-9 months | packaging, update/rollback, soak, recovery and compatibility qualification |
-| Broader networked release | 9-15 months | identity, hostile-client boundaries, distributed execution and multiplayer evidence |
+### 5. Recovery and save longevity
 
-SignalR, hot replicas, PostgreSQL/brokers, broad entity-family expansion, and a
-second live Sea Power container should not consume the critical path yet.
+Qualify clean exit, forced game termination, game relaunch, companion restart,
+service restart, long-running storage, and one schema and algorithm upgrade.
 
-Each slice should update this file, the machine-readable supported claims when
-appropriate, and a dated evidence record. A feature is not complete merely
-because its control-plane endpoint or DTO exists.
+### 6. Broader combined arms
+
+Add portable aircraft, helicopters, submarines, ground targets, airbases,
+radars, GBAD, strategic air defenses, ballistic launchers, logistics, and shore
+sites through the same map, entry, return, and recovery contract.
+
+### 7. Private multiplayer
+
+After the local loop works, add durable identities, invitations, coalition
+roles, realtime filtered projections, reconnect, shared-control policy, TLS, and
+rate limits. This does not require distributed simulation.
+
+## Performance position
+
+The architecture targets 4,096 campaign entities, not 4,096 Sea Power objects.
+The full campaign should keep most entities in the Operational model while Sea
+Power holds a bounded interaction island, map records, and selected proxies.
+
+The 500-entity all-native scenario is the safe vanilla comparison. Dynamic
+campaign tests exist at 500, 1,000, 2,000, and 4,096 entities. Future results
+must report native objects, map records, proxies, external entities, fixed
+timestep, internal time dilation, frame time, memory, and campaign throughput
+separately.
+
+Earlier observations showed the map/proxy path could reconcile hundreds of
+records at 60 FPS and a 16.667 ms fixed step in one selected-unit sample. That
+is a narrow observation, not a general performance guarantee.
+
+## Next work
+
+The next vertical slice should:
+
+1. create and load the 4,096-entity campaign paused in a player-facing app;
+2. accept one durable player order and show its campaign effect;
+3. enter Sea Power with a campaign-owned mixed naval task force;
+4. make local units, non-local friendlies, and hostile tracks selectable with
+   native interaction behavior;
+5. fight one campaign-owned hostile while the rest of the war advances;
+6. commit the result exactly once; and
+7. return, save, restart, and recover the same timeline.
+
+Security hardening, persistence work, and broader family support should be done
+when this slice exposes the need. Infrastructure that cannot improve this story
+should wait.

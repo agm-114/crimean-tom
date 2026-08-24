@@ -1,105 +1,104 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` is the machine-readable copy of this
-document. If the two disagree, the HTTP contract is wrong.
+Authenticated `GET /supported-claims` is intended to mirror this document. Its
+current schema-v7 payload still contains several older experimental claims. This
+document is the communication boundary until code work resumes and reconciles
+that endpoint. Where either source is narrower, use the narrower statement.
 
-Game build in evidence: Sea Power `0.8.2-23444+s358`. A later game update can
-invalidate runtime fingerprints, UI automation, and catalog hashes. Assignment
-preparation and activation fail closed when the companion's current runtime or
-catalog fingerprint differs from the fingerprint pinned into that assignment.
-The scheduler does not yet enforce a campaign-global build fingerprint.
+The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
+fingerprints can fail tactical preparation and activation closed. A later game
+update requires renewed qualification.
 
-## Supported
+## Campaign and persistence
 
-- Bearer-authenticated loopback companion writes and campaign control writes.
-  Hosted monitor reads use a same-origin local cookie issued on monitor entry;
-  this is not an authenticated operator identity.
-- Deterministic campaign kernel with a SQLite WAL journal and content-addressed
-  local blobs. Ordinary play does not require Docker or an external database.
-- Deterministic two-coalition strategic direction and domain Operational
-  resolution. Fixed installation complexes remain committed to local defense
-  and cannot receive movement orders. Mobile groups use only coalition-visible
-  intelligence plus their weapon target classes to prefer missing or
-  least-covered response roles. Commitments remain sticky until their original
-  bounded deadline, then replan; this is not a claim of human-equivalent command.
-- Canonical Operational packages group complementary strike, air-cover,
-  anti-submarine, escort, sustainment, land-attack, and ground-support roles on
-  one objective and phase their order starts toward a shared execution boundary.
-  This is not precise route-aware time-on-target or a complete air-tasking order.
-- Coalition-filtered HTTP projections that omit opposing true-state sentinels.
-  A player process that still holds the full campaign view is trusted private
-  co-op, not an untrusted public server.
-- Live replica checkpoint SHA-256 disagreement refuses migration. There is no
-  majority vote.
-- `RenderProxy` cannot receive simulation authority. The only activation path is
-  a fenced prepared Shadow; Observer is never a Primary activation source.
-- Online backup and side-directory restore verify event/hash integrity.
-- Operator pause rejects campaign time advances until resume. Drain sets
-  scheduler health to Draining and eligibility to DrainOnly.
-- A healthy Sea Power companion heartbeat renews active tactical ownership while
-  unattended campaign time and unrelated entities continue advancing. Once the
-  heartbeat is stale, the 120-quanta Operational fallback remains in force.
-- A reconnecting companion can distinguish an owned object lost across game
-  sessions from an assignment that is merely still materializing. The real-host
-  protocol story proves authenticated stale-epoch release, Operational fallback,
-  checkpoint-backed replacement on the same worker, exact fresh assignment/epoch
-  activation, and safe `migration-superseded` replay. Live Sea Power restart
-  latency and cross-build catalog compatibility are not claimed.
-- The owned-surface local POC durably commits changed two-second tactical
-  readbacks for kinematics, telegraph, fuel/stores fractions, damage, and
-  destruction. Read capture works during unpaused play; ordered mutations use a
-  temporary pause and restore the prior play state.
-- A fresh authenticated Sea Power session binds one explicit player coalition.
-  Its service projection maps every non-destroyed friendly campaign entity and
-  coalition-filtered hostile intelligence track into Sea Power drawing records
-  before assignment history exists. Those records use relationship-colored,
-  native authored-unit domain/posture symbols instead of Sea Power's generic
-  drawing-marker X. Typed friendly selection lazily loads one
-  presentation hierarchy from installed vessel/aircraft/land catalog content
-  after relocating the local tactical terrain window. Selecting a contact creates
-  only a generic red uncertainty proxy at the coalition track estimate; it never
-  loads the hostile model or discloses exact hostile true state. These records have no game unique
-  ID, simulation authority, sensors, collisions, velocity, or owned-resource
-  registration. Generic visual loading is proven live for one Los Angeles-class
-  submarine, not qualified across the full installed catalog. Direct mouse
-  selection parity for the authored-symbol renderer is not yet requalified. The
-  player strategic map and campaign-bound default task force remain open.
-- Campaign-owned Track A Operational workers can be spawned, checked with an
-  additive per-spawn identity, and used for non-player island placement/fencing.
-  They also receive the shared service bearer token; health and capacity are
-  self-reported. Tick execution remains in the service process.
+- The deterministic campaign kernel uses typed commands and events, canonical
+  hashing, fixed logical time, and SQLite WAL persistence.
+- Ordinary local play does not require Docker, an external database, a broker,
+  or cloud storage.
+- Online backup and side-directory restore verify journal and blob integrity.
+- Operator pause rejects campaign time advances until resume.
+- Two coalitions can create strategic objectives, allocate capable groups, keep
+  fixed installations in local defense, form bounded multi-role operational
+  packages, and replan from coalition intelligence.
+- Operational simulation covers movement, sustainment, intelligence, sensors,
+  weapons, countermeasures, damage, weather effects, and withdrawal.
 
-Failover is the cold checkpoint / operational path. Hot Shadow promotion is
-implemented as fenced island migration in tests with a mock destination worker;
-it is not a claimed live two-process Sea Power recovery objective.
+These are deterministic game systems, not a claim of human-equivalent command
+or complete Sea Power parity.
+
+## Authority and local synchronization
+
+- A healthy companion heartbeat renews one tactical assignment lease while the
+  campaign service advances unrelated entities.
+- Stale assignment epochs are rejected. Expired authority can return to the
+  accepted checkpoint or Operational fallback.
+- The owned-surface proof of concept can publish changed readbacks for pose,
+  telegraph, fuel or stores fractions, damage, and destruction during unpaused
+  play.
+- Ordered lifecycle mutations temporarily pause Sea Power and restore its prior
+  play state.
+- A `RenderProxy` cannot receive simulation authority or publish campaign
+  outcomes.
+
+This is a narrow surface contract. It does not cover complete magazines,
+sensors, formations, hosted aircraft, helicopters, submarines, or every ground
+and installation family.
+
+## Map and presentation
+
+- A fresh authenticated Sea Power session binds an explicit player coalition.
+- Its projection can include every non-destroyed friendly campaign entity and
+  coalition-filtered hostile tracks before a tactical assignment exists.
+- Projected records use relationship-colored, authored Sea Power domain and
+  posture symbols instead of generic drawing-marker X symbols.
+- Typed friendly selection can relocate the tactical terrain window and load a
+  presentation-only model from installed content.
+- Selecting a hostile track creates a generic estimate proxy and does not load
+  the hostile catalog model or reveal exact true state.
+- Presentation proxies have no game unique ID, physics, sensors, weapons,
+  velocity, campaign authority, or checkpoint rights.
+- Terrain-gated ground and installation materialization waits for ready terrain
+  and rejects invalid land or water placement.
+
+Generic visual loading has only narrow live qualification. Direct mouse
+selection parity, overlapping symbols, uncertainty glyphs, full catalog
+coverage, the player campaign map, and campaign-owned default task-force entry
+are not supported claims.
+
+## Security and projections
+
+- Loopback companion and campaign writes require bearer authentication.
+- Coalition-filtered HTTP projections omit opposing true-state entities.
+- Hosted monitor cookies permit local reads only and cannot authorize operator
+  writes.
+- Assignment preparation and activation reject a runtime or catalog fingerprint
+  mismatch against the assignment requirement.
+
+The current design is trusted local or private cooperative play. It does not
+claim a safe public hostile-client boundary.
 
 ## Explicitly unsupported
 
-- Hot-shadow failover after primary process death within a measured recovery
-  objective.
-- Untrusted public multiplayer and hostile-client adjudication.
-- SignalR as a canonical commit path. Player envelopes never commit campaign
-  outcomes directly.
-- Authenticated live migration across two real Sea Power containers.
-- PostgreSQL, brokers, or object storage as requirements for ordinary players.
-- Out-of-process Operational tick execution or worker-computed result commits.
-- Schema/algorithm upgrade of an existing campaign save.
-- A bounded long-running-campaign performance envelope; published throughput
-  measurements cover short, near-empty journals.
-- A tactical loss against a campaign-owned hostile committed back to the journal.
-- Player-session continuity across a ServiceHost restart.
-- Authenticated writes from the hosted production monitor.
-- Human-equivalent adaptive strategic AI, route-/capacity-deconflicted mission
-  planning, deception, or learned opponent response.
+- A complete guided player campaign loop.
+- A tactical loss against a campaign-owned hostile committed back to the
+  campaign with complete expenditure and portable state.
+- Campaign-owned mixed task-force entry across surface, submarine, fixed-wing,
+  helicopter, ground, and installation families.
+- Live game restart recovery with a measured latency and duplicate-object proof.
+- Player-session continuity across campaign-service restart.
+- Schema or algorithm upgrade of an existing save.
+- A bounded long-running campaign storage and performance envelope.
+- Authenticated writes from the hosted monitor.
+- Durable private multiplayer identity, authorization, and realtime delivery.
+- Public adversarial multiplayer or independently trusted adjudication.
+- Out-of-process Operational tick execution.
+- Hot replica failover or live migration between Sea Power processes.
+- Human-equivalent strategic AI, route and capacity deconfliction, deception, or
+  learned opponent response.
 
-## Remaining qualification
+## Qualification rule
 
-Soak campaigns, a clean-machine install/update/export runbook, and independent
-hostile-client review are not claimed. Resource exhaustion and catalog fuzzing
-remain follow-on work. Campaign-spawned Track A Operational workers can be
-spawned, hello'd, and assigned; Operational ticks are still resolved in-process.
-They are not headless Sea Power. The tactical lease/state-sync claim is a narrow
-owned-surface POC, not complete portable state or a finished player flow.
-Documentation here is limited to behavior covered by the broad kernel and
-protocol integration stories plus the live evidence already on disk under
-`docs/evidence/`.
+Broad integration tests support deterministic service claims. Player-visible
+Sea Power claims also require a live run on the pinned game build. Store raw
+benchmark output and screenshots with the run artifacts or release record. Do
+not create a parallel dated evidence documentation tree.

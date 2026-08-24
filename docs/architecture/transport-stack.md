@@ -2,17 +2,18 @@
 
 ## Decision
 
-This table is the target boundary decision. The named pipe and gRPC machine
+This table is the target boundary decision. The named pipe and companion gRPC
 paths are implemented. The current operator monitor and coalition projection
 use HTTP, and there is no SignalR hub/client or MessagePack player DTO surface
-yet. See [Implemented architecture map](implementation-map.md).
+yet. SignalR remains active multiplayer work after the local player loop. See
+[Implementation map](implementation-map.md).
 
 Use different transports at boundaries with different requirements:
 
 | Boundary | Default transport | Contract format | Reason |
 | --- | --- | --- | --- |
 | Sea Power bridge -> local companion | Current-user Windows named pipe | Bounded versioned JSON frames initially | Same-machine isolation and Unity-thread handoff |
-| Companion/worker -> campaign service | ASP.NET Core gRPC | Protobuf-generated clients and services | Fully typed bidirectional machine protocol and explicit schema evolution |
+| Companion -> campaign service | ASP.NET Core gRPC | Protobuf-generated clients and services | Fully typed bidirectional machine protocol and explicit schema evolution |
 | Campaign service -> player UI | ASP.NET Core SignalR | MessagePack for realtime DTOs | Browser support, groups, notifications, and managed connection lifecycle |
 | Administration and bulk content | HTTPS API | JSON metadata; content-addressed binary bodies | Simple tooling and resumable checkpoint/catalog transfer |
 
@@ -30,9 +31,9 @@ permanent bulk starvation.
 
 ## Why gRPC is the canonical machine protocol
 
-The companions and operational workers are .NET applications. They need typed
-commands, events, assignments, health reports, checkpoints, resumable cursors,
-and bidirectional streams. gRPC defines these in versioned `.proto` files and
+The companion is a .NET application. It needs typed commands, events,
+assignments, health reports, checkpoints, resumable cursors, and bidirectional
+streams. gRPC defines these in versioned `.proto` files and
 generates both the C# client and server surfaces. Renaming or changing a method
 or payload incompatibly therefore produces build-time failures at the adapter
 boundary rather than scattered runtime method-name errors.
@@ -80,7 +81,7 @@ describe the transport selection and bounded reconnect behavior.
 
 | Concern | gRPC/Protobuf | SignalR/MessagePack | Crimean Tom consequence |
 | --- | --- | --- | --- |
-| End-to-end .NET typing | Generated client, service base, methods, and messages | Typed server callbacks; client edge still uses hub method registration/invocation | gRPC for canonical companion/worker RPC |
+| End-to-end .NET typing | Generated client, service base, methods, and messages | Typed server callbacks; client edge still uses hub method registration/invocation | gRPC for canonical companion RPC |
 | Schema evolution | Stable numbered fields, reserved identifiers, generated code | Typed DTOs but serializer/member-shape compatibility must be governed separately | Protobuf for journal-facing network contracts |
 | Bidirectional streaming | Native HTTP/2 duplex streaming | Bidirectional hub calls and streaming abstractions | Either works; gRPC is clearer for machine sessions |
 | Browser support | Native browser gRPC unavailable; gRPC-Web lacks client and bidirectional streaming | First-class browser clients over WebSockets/fallbacks | SignalR for campaign UI |
@@ -151,7 +152,7 @@ The default package contains:
 ```text
 Crimean Tom application (.NET 8)
 |- ASP.NET Core/Kestrel
-|  |- gRPC endpoint for companions/workers
+|  |- gRPC endpoint for the Sea Power companion
 |  |- SignalR endpoint for realtime UI
 |  `- HTTPS API for administration and bulk content
 |- deterministic campaign engine
@@ -169,7 +170,7 @@ a developer SDK.
 
 - **SignalR everywhere:** rejected as the baseline because its typing is weaker
   at the client edge and its UI-oriented hub model adds no benefit to generated
-  .NET worker RPCs.
+  .NET companion RPCs.
 - **gRPC everywhere:** rejected because browser gRPC cannot provide the required
   bidirectional streaming experience without a proxy or reduced gRPC-Web
   feature set.

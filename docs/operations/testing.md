@@ -1,618 +1,220 @@
 # Testing and observation
 
-## Test layers
+## Purpose
 
-Use the cheapest layer that can answer the question:
+Tests must answer whether the player loop works, the campaign keeps one
+timeline, Sea Power behaves as expected, and the 4,096-entity design stays
+within budget. Prefer a few broad stories over many narrow tests.
+
+No single layer is sufficient:
 
 | Layer | Proves | Does not prove |
 | --- | --- | --- |
-| Compile | C# and references are valid. | Deployment or runtime load. |
-| Hash/deploy check | The built DLL matches the installed DLL. | Loader execution. |
-| Fresh log marker | AnchorChain reached Sea Power Runtime Bridge's entry point. | Feature behavior. |
-| Menu/UI smoke | Game reached a usable screen. | Tactical hooks or campaign correctness. |
-| Tactical smoke | A mission initialized and core panels respond. | Long-run simulation correctness. |
-| Control round trip | Companion reaches the plugin, completes its dispatch queue, reports an executing thread equal to the Unity thread captured during initialization, and requires the actual dispatcher to reject a deliberate worker-thread call. | State mutation or remote networking. |
-| Materialization round trip | A campaign entity enters and leaves a tactical worker without losing identity/state. | Balance or large-scale determinism. |
-| Replay/property tests | Strategic invariants and determinism hold. | Unity integration. |
+| Build | Projects and generated contracts compile | Runtime or player behavior |
+| Campaign integration | Deterministic commands, simulation, persistence, AI | Unity behavior |
+| Protocol integration | Real service, companion, journal, leases, and bridge contracts | Sea Power rendering or physics |
+| Runtime smoke | Plugin load, typed commands, UI state, live object behavior | Long campaign correctness |
+| Player flow | The product can be used from start to recovery | Broad performance by itself |
+| Benchmark | Measured time, memory, and scale on one setup | Correctness or parity by itself |
 
-## Source inspection baseline
+## Build and automated integration
 
-After a Sea Power update:
-
-```powershell
-pnpm decompile
-pnpm decompile:anchorchain
-```
-
-Record:
-
-- visible game version;
-- timestamps/hashes of the inspected assemblies;
-- count of generated C# files;
-- important renamed/missing types from [Source map](../research/source-map.md);
-- any decompiler warnings.
-
-Do not commit the generated tree.
-
-## Continuous integration
-
-GitHub Actions (`.github/workflows/ci.yml`) builds the game-independent DLLs
-from `CrimeanTom.CI.slnf`, builds the campaign monitor, and runs the campaign
-kernel tests against that Release build. A second Windows job runs
-`pnpm test:protocol`. The Sea Power Runtime Bridge plugin is excluded because
-it needs installed game assemblies. One workflow run is in flight at a time so
-a stacked `gh stack push` does not start a job pair per PR. `pnpm test:ci`
-reproduces the Linux job locally; it does not run the Windows protocol job.
-
-```powershell
-pnpm test:ci
-```
-
-## Runtime baseline
-
-Run the game-independent broad integration scenario first:
+Use repository scripts from the root:
 
 ```powershell
 pnpm test
 ```
 
-Regenerate the pinned compiled determinism inventory after a game assembly or
-classifier change:
+For narrower diagnosis:
 
 ```powershell
-pnpm inventory:determinism
+pnpm monitor:build
+pnpm test:campaign
+pnpm test:protocol
 ```
 
-The ignored manifest is deterministic and includes method-level IL hashes. Its
-`promotionCriticalUnknownCount` is an authority blocker, not a coverage number
-to suppress by broadening name heuristics.
+CI compute may be unavailable. A local result must record the commit, command,
+exit code, machine, and game build. A passing local run is still valid evidence
+when those details are retained.
 
-It starts the real companion and crosses Kestrel token authentication, the
-current-user named-pipe boundary, one connected game peer, capability/catalog/
-world reads, typed UI actions, and uncommitted port-draft validation. Avoid
-reintroducing narrow unit-test matrices; extend this scenario when a new surface
-fits the same end-to-end story.
+## Run the local campaign stack
+
+Start the campaign service and browser application:
 
 ```powershell
-pnpm status
-pnpm dev
+pnpm campaign:dev
 ```
 
-`pnpm dev` may restart Sea Power, builds and deploys the plugin, launches through
-Steam, and waits for a fresh health marker. A process alone is not success.
-
-For an already running build:
+Build, deploy, launch, and inspect the Sea Power integration with the
+repository-local `sea-power-runtime` skill and these entry points:
 
 ```powershell
+pnpm build
+pnpm deploy
+pnpm launch
 pnpm verify
+pnpm status
 pnpm logs
 ```
 
-Validate the local control plane with:
+Start or inspect the local companion when it is not already managed by the
+workflow:
 
 ```powershell
+pnpm companion:start
+pnpm companion:health
 pnpm companion:status
-pnpm game:control-test
 ```
 
-The smoke test requires the companion/game handshake, invokes ping,
-capabilities, and scene inspection, and proves the dispatch round trip. Ping and
-scene each compare their actual executing thread with the Unity main-thread ID
-captured during plugin initialization. A one-shot initialization self-test also
-invokes the actual dispatcher from a managed worker thread and must receive a
-structured `wrong-execution-thread` response. Its top-level capability result
-must be `passed`; `pending` and sanitized `failed:*` results remain authority
-blockers.
-
-The capability response must reach `fileIdentityState: ready`, contain a
-64-character `fingerprintSha256`, list all required managed assemblies, and
-identify every reason `authorityEligible` is false. During P0, expected blockers
-include unavailable catalog/mod fingerprints, uninstalled deterministic hooks,
-and disabled mutating commands. A missing or pending hash must never silently
-produce an authority-eligible client. Engine and game fixed-delta values are
-reported as timing diagnostics because Sea Power may change them with FPS; they
-are not stable compatibility-hash inputs.
-
-`pnpm game:control-test` enforces those file-identity/hash invariants, checks the
-exact required assembly set, and captures capabilities twice to prove that
-dynamic timing diagnostics do not perturb the compatibility fingerprint.
-It also requires negotiation of transmitted cancellation and the Bulk (`-100`),
-Normal (`0`), and Control (`100`) priority lanes, plus a passed execution-thread
-guard self-test.
-
-The broad scenario also seeds a recycled unrelated PID and stale token/log
-artifacts, verifies missing/wrong/correct HTTP tokens, requires anonymous Windows
-pipe access denial followed by current-user connection, and checks clean
-companion shutdown. Protocol invariants that do not yet fit this flow should be
-proven through a new broad failure/recovery scenario, not a collection of narrow
-method tests.
-
-### Full-seed headless scale checkpoint
-
-The current deterministic WW3++ seed contains 4,096 entities and 5,892 initial
-journal commits. On the 24-logical-core development machine, the local baseline
-is an approximately eight-second clean bootstrap, two-second 30-quanta advance,
-and 1.2-second cold restart/recovery plus full diagnostic view. Run both
-`pnpm test:campaign` and `pnpm test:protocol` after changing campaign
-persistence, canonical serialization, simulation indexing, or the seed. Record
-new measurements in
-[the full-catalog evidence](../evidence/full-catalog-ww3-plus-expansion-2026-08-23.md);
-do not substitute these headless timings for the separate live Sea Power
-vanilla-versus-dynamic performance comparison.
-
-### Named tactical workers (experimental second instance)
-
-The default `pnpm dev` / `pnpm status` path remains the primary demo launcher.
-Named workers use isolated state and do not build, deploy, or stop that default
-process:
+Use typed Runtime Bridge inspection before desktop coordinates:
 
 ```powershell
-pnpm worker:start -- -WorkerId worker-a -SkipBuild `
-  -CampaignId <32-char-guid> `
-  -CampaignGrpcUrl http://127.0.0.1:5082 `
-  -CampaignHttpUrl http://127.0.0.1:5081 `
-  -CampaignRunDirectory .run/campaign-service
-pnpm worker:status -- -WorkerId worker-a -CampaignId <guid> `
-  -CampaignHttpUrl http://127.0.0.1:5081 `
-  -CampaignRunDirectory .run/campaign-service
-pnpm worker:stop -- -WorkerId worker-a
+pnpm game:ping
+pnpm game:capabilities
+pnpm game:scene
+pnpm game:world
+pnpm game:campaign
+pnpm game:ui
+pnpm game:screenshot
 ```
 
-Each named worker stores campaign companion state under its own run directory
-(for example `.run/workers/worker-a/campaign-companion-state-<campaignId>`), so
-two workers on the same campaign service receive distinct client instance IDs.
+Do not leave extra Sea Power or companion processes running after a test unless
+the user asks to keep them open.
 
-```powershell
-pnpm worker:live-proof -- -CampaignId <guid> `
-  -CampaignHttpUrl http://127.0.0.1:5081 `
-  -WorkerIds review-a -WorkerIds review-b
-```
+## First-playable acceptance story
 
-Alternatively pass one quoted comma- or space-separated list:
+Run this story against the full 4,096-entity campaign:
 
-```powershell
-pnpm worker:live-proof -- -CampaignId <guid> -WorkerIds "review-a,review-b"
-```
+1. Start from no running Crimean Tom processes.
+2. Create a campaign and confirm it is paused.
+3. Inspect the friendly order of battle and coalition-known contacts.
+4. Issue one player order, start time, and confirm its durable effect.
+5. Select a campaign-owned task force and request tactical entry.
+6. Confirm that every supported task-force member is a real Sea Power object.
+7. Maximize the tactical map and inspect local units, non-local friendlies, and
+   hostile tracks.
+8. Select each kind through the player input path. Confirm native symbology,
+   labels, focus, and bounded loading feedback.
+9. Select a distant friendly and confirm one non-simulating visual proxy appears
+   above valid terrain without creating a duplicate.
+10. Fight one campaign-owned hostile for at least 15 unpaused minutes while the
+    campaign service advances unrelated entities.
+11. Exit normally and confirm hostile fate, player damage, fuel, stores,
+    ammunition, and objective effects commit once.
+12. Save, restart the application, and confirm the same campaign head.
+13. Repeat with a forced Sea Power termination. Confirm stale authority is
+    fenced and no duplicate object or second timeline appears.
 
-To verify workers from another repo root or deployment layout, pass `-WorkersRunRoot`:
+Record every unsupported field and family. Do not reinterpret a visible proxy
+or a service event as a complete tactical round trip.
 
-```powershell
-pnpm worker:live-proof -- -WorkersRunRoot C:\path\to\.run\workers `
-  -CampaignId <guid> `
-  -CampaignHttpUrl http://127.0.0.1:5081 `
-  -CampaignTokenFile C:\path\to\.run\campaign-service\service.token `
-  -WorkerIds worker-a,worker-b
-```
+## Terrain and proxy checks
 
-From a worktree, point status at an external run directory per worker:
+For every ground unit or installation materialized in Sea Power:
 
-```powershell
-pnpm worker:status -- -WorkerId worker-a `
-  -RunDirectory C:\path\to\.run\workers\worker-a
-```
+- wait for loaded and finalized terrain;
+- sample the terrain height at the final latitude and longitude;
+- reject water or unresolved placement;
+- confirm the visible model bounds remain above the terrain surface;
+- inspect again after focus, proxy promotion, reconnect, and demotion; and
+- confirm a failed placement leaves a selectable map record and clear error.
 
-Live proof refuses synthetic gRPC test sessions (`container-worker-probe`,
-repeated-digit fingerprints, and similar protocol-test stand-ins). It also
-requires each worker's recorded Sea Power PID to match the installed executable,
-recorded UTC start time, and worker `-logFile` path before trusting companion
-health. A mock pipe peer cannot qualify without that live game process. Success means
-two real runtime+companion workers coexist with distinct game session IDs, client
-instance IDs, and campaign session IDs. It does not claim safe two-container
-island migration.
+For map and visual proxies:
 
-Limitations (fail closed):
+- compare symbols for local and non-local units of the same domain;
+- test direct mouse selection, not only typed bridge selection;
+- test overlapping symbols and large uncertainty regions;
+- confirm repeated selection is idempotent;
+- confirm hostile proxies use contact estimates, not true position or model;
+- confirm proxies have no AI, physics, sensors, weapons, unique game identity,
+  checkpoint, or publication path; and
+- confirm promotion hides the proxy before the real object becomes visible.
 
-- Steam's single-process launch may block a second game; the worker script uses
-  direct `Sea Power.exe` launch as an experimental path only. Worker game starts
-  set per-process `SteamAppId` and `SteamGameId` (default `1286220`, override
-  with `-SteamAppId`) so Steamworks can recognize a developer launch while the
-  Steam client remains running. The script does not write `steam_appid.txt` or
-  mutate install/global environment variables.
-- Same-user `Application.persistentDataPath`, `PlayerPrefs`, native logs, and
-  `last_save` remain shared; per-worker isolation covers Crimean Tom control
-  traffic, experimental probe saves, and `-logFile` redirection only.
-- Do not run `pnpm worker:stop` against the default demo worker ID or paths.
+## Native and dynamic scale scenarios
 
-**First live host attempt (21 Aug 2026):** `worker-a` companion start succeeded,
-Unity initialized on the isolated direct launch, then Steamworks.NET exited with
-`RestartAppIfNecessary returned true` while the default `pnpm dev` game remained
-healthy. Transactional rollback removed worker PID/metadata files and stopped the
-worker companion; the harness had waited 120s on plugin load because it did not
-detect the early game exit. **No two-container claim** from that run. Per-process
-Steam app context (`SteamAppId` / `SteamGameId`, default `1286220`) was the next
-experiment.
+The repository includes manual all-native Sea Power missions:
 
-**Coexistence proof (21 Aug 2026, campaign `08eed6175b1a4e1abf50004d4e5808c8`):**
-with per-process Steam app context, two named workers coexist on the live host:
-
-| Worker | Game PID | Companion PID | Game session | Client instance | Campaign session |
-| --- | --- | --- | --- | --- | --- |
-| `worker-a` | 47840 | 35088 | `75189b90542e446482ecdddd7a48dd88` | `39d074634b5d40d380a1191c33c109da` | `67d7dec5de9a4557b8c96bb731e30246` |
-| `worker-b` | 46160 | 42392 | `d1269ddd9d6748faac76d4d05ee3185c` | `e3b6431ff5d74518ac47469734483ea1` | `a2a3074e3b7b4a698a87de28bd4e1931` |
-
-`pnpm worker:live-proof` with `-WorkersRunRoot` against the main `.run\workers`
-root returned `LIVE_PROOF_SUCCEEDED`. **Coexistence of two real runtime+companion
-workers is proven** on this host. **Cross-worker tactical-island migration remains
-unproven**. Do not claim two-container migration or automatic rebalance until
-`pnpm worker:live-migrate -Execute` (or `pnpm worker:migration-proof -Execute`)
-succeeds with destination Primary Active and source Primary Released.
-
-Closed-loop driver (22 August 2026): read-only `pnpm worker:live-migrate`
-preflight does not repair campaign state. `-Execute` authorizes pinned
-`prepare-source` on `-SourceWorkerId` and then reuses the migration-proof path.
-Optional `-CreateCampaign` is a separate setup mutation: it allocates a journal,
-bootstraps the Phase 4 Knox set, and exits. Named workers must then reconnect to
-that campaign ID with a loaded player task force before preflight. See
-`docs/evidence/phase-5-live-migrate-driver-2026-08-22.md`.
-
-Two-process divergence sampler (22 August 2026): `pnpm worker:divergence-sample`
-polls both workers' `/game/world` clocks and hashes. It requires the same
-scenario, clock mode, and runtime/content fingerprint, records sequential
-capture skew, and classifies hashes only inside the configured logical-time
-delta. It never claims hot-shadow failover. See
-`docs/evidence/e1a-divergence-sampler-2026-08-22.md`.
-
-Cross-worker migration driver (implementation landed 21 Aug 2026):
-
-```powershell
-pnpm worker:migration-proof -- `
-  -CampaignId 08eed6175b1a4e1abf50004d4e5808c8 `
-  -CampaignHttpUrl http://127.0.0.1:5081 `
-  -CampaignTokenFile C:\Users\Varun\repos\crimean-tom\.run\campaign-service\service.token `
-  -WorkersRunRoot C:\Users\Varun\repos\crimean-tom\.run\workers `
-  -SourceWorkerId worker-a `
-  -DestinationWorkerId worker-b
-```
-
-Read-only preflight stops with exit `2` when migration is unsafe. A successful
-`-AllowGhostRelease`-only repair step exits `0` with refreshed blockers (typically
-`source-preparation-required` after Operational demotion) instead of retaining
-stale pre-repair blockers or exiting `1`. Add `-Execute` only after preflight
-passes. Use `-AllowGhostRelease` to release a disconnected legacy Primary
-(`advance` + `resolve-expired`). Use `-AllowSourcePreparation` to pin Primary
-handoff onto the requested source worker via `POST /control/campaigns/{id}/prepare-source`
-from an Operational interaction island with no live Primary; the server promotes
-back to Tactical after materialization. Scheduler promotion remains a separate,
-nondeterministic `-AllowSchedulerPromotion` legacy step. `-AllowRepair` is a convenience alias for
-`-AllowGhostRelease` plus `-AllowSourcePreparation` only; it never enables scheduler promotion. Migration execution passes `preferredDestinationClientInstanceId`
-to `prepare-shadow` for pinned Shadow placement.
-See `docs/evidence/phase-5-migration-proof-2026-08-21.md`.
-
-After a mission is fully loaded and paused, the pinned experimental logical-tick
-adapter can be exercised without menu input:
-
-```powershell
-pwsh -File scripts/crimean-tom-control.ps1 run-controlled-ticks-experimental `
-  -SkipBuild -TickCount 300 -TickStepSeconds 0.0333333333333333 -Seed 1042
-```
-
-Treat the response as diagnostics, not authority evidence. Exact requested time
-and update counts are positive logical-clock evidence; unequal fixed-update
-counts, listed uncontrolled sources, or hook mismatches remain explicit
-determinism blockers.
-
-Owned Phase 2 mutations start disabled. In a disposable, fully loaded paused
-mission, arm only the current authenticated pipe session, dry-run, and then
-materialize the first allow-listed surface fixture:
-
-```powershell
-pwsh -File scripts/crimean-tom-control.ps1 arm-owned-mutations -SkipBuild
-pwsh -File scripts/crimean-tom-control.ps1 dry-run-owned-surface -SkipBuild `
-  -Latitude 12.9396320322755 -Longitude 43.1309606993161 `
-  -HeadingDegrees 144.830795288086
-pwsh -File scripts/crimean-tom-control.ps1 materialize-owned-surface -SkipBuild `
-  -Latitude 12.9396320322755 -Longitude 43.1309606993161 `
-  -HeadingDegrees 144.830795288086
-```
-
-Use unique assignment/entity/idempotency values for a new live object. Repeating
-the exact same payload is an idempotency check and must return the original
-object/revision. Never aim this command at a user/scenario identity; the plugin
-accepts only its `unit:crimean-tom:` ownership namespace.
-
-The Windows ACL test impersonates the anonymous security token against the
-actual broker, requires kernel access denial before handshake, then proves the
-same listener still accepts the current user. This is not a substitute for the
-final named-second-user proof, which requires a disposable credential or
-pre-authorized helper unavailable to the current medium-integrity session.
-
-Use the repository-local runtime skill for the compact diagnosis route. Its
-BepInEx and AnchorChain references are intentionally separate edge-case guides.
-
-## Vanilla versus full-campaign performance
-
-Use `scripts/sea-power-performance-compare.ps1` for paired system-level
-captures. Both sides must start from a fresh Sea Power process, load the same
-authored mission, use the same camera/weather/pause state, and run for the same
-duration and sample interval. The current proving mission is
-`Fulda Gap Gone Hot - GIUK Dynamic Campaign Window`: vanilla contains its four
-authored combat units; the candidate binds the complete Fulda proving campaign
-(55 regions, 81 bases, 4,096 entities, 919 groups) and adds the currently visible
-presentation-only proxies. Do not compare the one-unit worker shell to the full
-campaign or call a warmed process a paired run.
-
-Capture vanilla first, with no campaign binding:
-
-```powershell
-pnpm performance:capture -- `
-  -Label vanilla-giuk `
-  -Workload native-authored-giuk-window-4-combat-units `
-  -DurationSeconds 20 -SampleIntervalSeconds 2 `
-  -OutputPath .run/performance/vanilla-giuk.json
-```
-
-After a fresh restart, bind the full campaign with its explicit player coalition
-and require the current projection to contain every non-destroyed friendly plus
-the coalition contact set. Record relationship and representation counts rather
-than expecting a fixed number: the unattended war continues destroying and
-detecting entities. Select one known surviving friendly through
-`focus-camera-on-unit`, require exactly one `worldModelVisible` record, no native
-simulation object, and a terrain center near the selected coordinate. Leave Sea
-Power unpaused and require both tactical seconds and campaign quanta to advance
-during every timed sample, then capture:
-
-```powershell
-pnpm performance:capture -- `
-  -Label dynamic-full-campaign `
-  -Workload full-4096-entity-ww3-plus-map-first-campaign `
-  -CampaignId <32-char-guid> `
-  -DurationSeconds 20 -SampleIntervalSeconds 2 `
-  -OutputPath .run/performance/dynamic-full-campaign.json
-
-pnpm performance:compare -- `
-  -BaselinePath .run/performance/vanilla-giuk.json `
-  -CandidatePath .run/performance/dynamic-full-campaign.json `
-  -OutputPath .run/performance/vanilla-vs-dynamic-full.json
-```
-
-The capture records FPS, main-thread snapshot latency, the engine and Sea Power
-fixed timesteps, internal `GameTime.TimeDilation`, tactical clock rate,
-object/proxy counts, campaign quanta and commit throughput, plus normalized CPU
-and memory for Sea Power, the companion, and the actual ServiceHost child
-process. Fixed timestep and internal dilation are context metrics: also inspect
-the measured tactical seconds per wall second to detect an engine falling
-behind without changing its configured dilation. The comparison is
-intentionally system-level and not unit-count normalized. Always inspect the
-reported object/entity/proxy counts and `anyPausedSample`; a hidden/destroyed
-proxy or mismatched workload invalidates a visual-proxy comparison even if the
-command succeeds. Keep `.run/performance` artifacts local and summarize
-qualifying runs in a dated evidence document.
-The current qualified pair and the associated replay/memory investigation are
-recorded in
-[Full dynamic campaign sync and performance proof](../evidence/full-dynamic-campaign-sync-performance-2026-08-23.md).
-The fresh-process native-baseline isolation and clean 4K session proof are in
-[Full-campaign runtime memory and fresh-session sync proof](../evidence/full-campaign-runtime-memory-and-fresh-session-sync-2026-08-24.md).
-
-For a new player session with no assignment history, configure the canonical
-32-character coalition ID before starting the companion (or pass
-`-PlayerCoalitionId` through `pnpm dev --`):
-
-```powershell
-$env:CRIMEAN_TOM_PLAYER_COALITION_ID = '<32-char-guid>'
-```
-
-The value is authenticated as part of the companion session and repeated in
-heartbeats. The service rejects malformed IDs, changes during the session, and
-any player-coalition value in the Operational-worker namespace. Inspect Unity's
-current memory/assets through authenticated `GET /game/memory`; compare process
-private and working-set memory externally because those operating-system counters
-are not reliable inside every Unity/Mono build.
-
-For a matched entity-count fixture without expanding the full force multiplier,
-create the campaign metadata normally and then call:
-
-```text
-POST /control/campaigns/{campaignId}/bootstrap/fulda-gap/subset/{entityCount}
-```
-
-`entityCount` is bounded to 1–4,096. The selector is deterministic across
-campaign IDs, always retains Pharris, and retains the complete current Knox
-tactical/proxy set whenever the requested bound has room for it. The
-qualified native-versus-dynamic 500 result is recorded in
-[Native versus dynamic 500-entity performance](../evidence/native-vs-dynamic-500-performance-2026-08-23.md).
-
-### Manual all-native scale ladder
-
-Four generated user missions instantiate deterministic nested subsets of the
-same fresh 4,096-entity WW3++ campaign. They are intentionally pathological
-controls for comparing Sea Power-native simulation with campaign offload, not
-play-balanced scenarios:
-
-- `Crimean Tom - Native Campaign Benchmark - 500 Units`
+- `Crimean Tom - Native Campaign Benchmark - 0500 Units`
 - `Crimean Tom - Native Campaign Benchmark - 1000 Units`
 - `Crimean Tom - Native Campaign Benchmark - 2000 Units`
-- `Crimean Tom - Native Campaign Benchmark - Full 4K (4004 Native)`
+- `Crimean Tom - Native Campaign Benchmark - 4096 Campaign - 4004 Native Units`
 
-The full file contains 4,004 physical Sea Power objects. The remaining 92
-campaign records are 90 intentionally abstract land formations and the
-`merchant_roro_convoy` / `usn_ao_neosho` aliases, which have no installed native
-unit definition. Each file declares exactly as many task-force unit sections as
-its title reports. The generator resolves native categories from the installed
-Sea Power catalog and writes a JSON manifest under `.run/performance`:
+Only the 500-unit all-native mission is considered safe for routine vanilla
+benchmarking. The larger missions are manual stress fixtures and may exhaust
+memory or stall the game.
 
-```powershell
-pnpm campaign:export-native-benchmark -- `
-  -CampaignId <32-char-guid> `
-  -BlueCoalitionId <32-char-guid> `
-  -RedCoalitionId <32-char-guid> `
-  -MaximumNativeEntities 500 `
-  -MissionName 'Crimean Tom - Native Campaign Benchmark - 500 Units' `
-  -OutputPath 'content/missions/Crimean Tom - Native Campaign Benchmark - 0500 Units.ini'
-```
+The dynamic campaign uses the same full seed with bounded subsets of 500,
+1,000, 2,000, or 4,096 campaign entities. A dynamic count is not a native-object
+count.
 
-Deploy with `pnpm run deploy`, then launch through `pnpm launch`. On the current
-machine, the 500-entry file retained 383 runtime units at about 20.3 FPS and
-used 4.98 GiB working set / 10.56 GiB private memory while its tactical clock
-remained at zero. The 1,000-entry file retained 633 runtime units at about 10.6
-FPS and used 5.30 GiB working set / 11.15 GiB private memory. The 4,004-native
-file reached 8.34 GiB working set / 14.89 GiB private memory and stopped
-answering runtime commands. Treat these as load failures until a fresh run
-shows advancing tactical time; do not report authored section count as live
-native object count.
+## Performance comparison
 
-## Deterministic UI smoke
-
-The safe read-only smoke path is:
-
-1. Launch through `pnpm launch` and require a fresh Sea Power Runtime Bridge marker.
-2. Use a typed Runtime Bridge UI action for any navigation seam already
-   discovered and fingerprinted on the pinned build.
-3. Select the one Sea Power window returned by the desktop-control API only for
-   remaining visual verification or automation gaps.
-4. Close the news popup if present and press F7 if UnityExplorer obscures the
-   game; replace these clicks when normal feature work discovers stable seams.
-5. Confirm the main menu and record the version string.
-6. Open Scenarios and select `Intro > 01 Red Sea Breakout - NATO (1988)`, using
-   bridge automation when available.
-7. Start the scenario and advance the briefing, again preferring bridge actions.
-8. In tactical play, toggle pause and verify date/time plus formation/map UI.
-9. Open Event Log and confirm tabs and live contact reporting.
-10. Open Flight Deck and confirm capacity/operations surfaces.
-11. Press Escape and verify Resume, Restart Mission, save/load, report, and exit
-    actions are available.
-12. Exit through the After Action Report and return to the menu.
-
-Do not treat screen coordinates as constants. Desktop input is the fallback,
-not the target interface: capture the current window before every remaining
-desktop action, act once, and capture again. When Computer Use is unavailable,
-use `pnpm game:screenshot` and `pnpm game:ui` plus typed bridge actions instead
-of coordinate clicks. `pnpm game:bubble-probe` samples `/game/world` twice and
-records rebase, geodetic, and loaded-terrain occupancy. It fails closed outside
-a loaded tactical mission or before initial terrain loading completes, and it
-does not qualify a combat radius. When a test repeatedly encounters a stable
-game command/view-model seam, automate it in the bridge as part of that
-feature's work rather than maintaining a coordinate script.
-
-## Editor smoke
-
-Without saving content:
-
-1. Open Mission Editor.
-2. Verify Scenario, Groups, Triggers, Mission Briefing, and Map Elements tabs.
-3. Verify unit placement/filter toolbar and world map.
-4. Leave through Back and accept the exit confirmation.
-
-This catches major Noesis binding failures and mission-authoring regressions
-without changing user files.
-
-## Mod Manager smoke
-
-Open Mod Manager but do not toggle or accept changes unless the test calls for
-it. Verify User Data, Base Game, local data directories, and Anchor Chain are
-discoverable. Missing Sea Power Runtime Bridge description text is a content-metadata issue;
-it is not a failed DLL health check.
-
-## Campaign smoke
-
-At minimum verify:
-
-- campaign list loads;
-- a standard campaign shows narrative and Play/Load;
-- Task Force Mode shows difficulty and persistence/economy rules;
-- the Crimean Tom port-operations shell opens through the typed bridge action
-  and reports populated ship, submarine, and air roster groups;
-- returning to the main menu does not mutate or create a campaign save.
-
-When campaign features exist, use a disposable named campaign or save. Never
-overwrite the user's real campaign state as part of a smoke test.
-
-The eventual port-operations integration scenario should cover the whole
-administrative transaction in one run: external docked-force fixture, projection
-generation, controlled restart/reload, refit and reinforcement draft, typed
-import, validation, external commit, second projection, and verification that
-unrelated theater entities continued advancing. Do not split this into a large
-collection of view-model unit tests. A native mission result from the shell is
-never acceptable evidence of an authoritative campaign outcome.
-
-## Strategic engine tests
-
-The standalone engine should use a small number of broad deterministic scenarios
-covering movement, logistics, detection, repair, and reducers together, plus:
-
-- property tests for conservation (units/stores cannot appear without an event),
-  non-negative resources, graph reachability, and idempotent results;
-- golden replay tests that compare final snapshot/event hashes;
-- randomized long runs with fixed seeds;
-- partition tests that compare single-worker, primary/shadow, and reassigned
-  interaction-island outcomes;
-- schema migration tests for every persisted version;
-- catalog compatibility tests against the installed data fingerprint.
-
-For a read-only production-journal recovery summary, use the existing
-persistence probe:
+Use the capture script for both baseline and candidate:
 
 ```powershell
-dotnet src/CrimeanTom.Campaign.PersistenceProbe/bin/Debug/net8.0/CrimeanTom.Campaign.PersistenceProbe.dll `
-  inspect <campaign.db> <blob-directory> <campaign-id>
+pnpm performance:capture -- -Label vanilla-500 -DurationSeconds 120
+pnpm performance:capture -- -Label dynamic-500 -DurationSeconds 120
 ```
 
-The JSON reports the stored schema/algorithm versions, head/time, entity and
-group counts, active/completed/unreferenced order counts, objective/commitment
-counts, recovery duration, and the recomputed canonical hash. Run it in a
-separate process so the measurement exercises ordinary journal recovery rather
-than ServiceHost's in-memory cache.
+Compare retained captures with:
 
-### Essential invariants
+```powershell
+pnpm performance:compare -- -BaselinePath <baseline.json> -CandidatePath <candidate.json>
+```
 
-- A unit instance has one canonical location/revision at a campaign tick, even
-  when several clients simulate replicas.
-- One authority epoch has at most one primary event publisher per entity or
-  interaction island.
-- Events from an expired or fenced epoch cannot be committed.
-- Every full replica identifies its checkpoint and applied event cursor.
-- Stores and aircraft quantities never fall below zero.
-- Applying the same tactical event twice changes state only once.
-- Same version + seed + initial state + commands produces the same final hash.
-- Cross-region transfer has exactly one source removal and one destination add.
-- Destroyed units cannot be repaired or reissued without an explicit replacement
-  event.
-- A render proxy is never promotion eligible; an observer is eligible only when
-  it has complete required state.
+Use the same machine, game build, graphics settings, camera state, scenario
+pairing, warm-up, duration, and time controls. Record:
 
-## Tactical worker contract tests
+- Sea Power frame rate and frame-time distribution;
+- engine and game fixed timestep;
+- internal time dilation and selected time compression;
+- process working set and managed memory where available;
+- campaign advances and work units per wall second;
+- native simulated objects, map records, visual proxies, Operational entities,
+  contacts, weapons, and terrain-backed objects;
+- tactical-entry and selected-proxy latency; and
+- checkpoint size and result-commit latency.
 
-Keep small checkpoint/event fixtures for:
+Compare the 500-unit all-native mission with the 500-entity dynamic campaign.
+Use the 1,000, 2,000, and 4,096 dynamic campaigns to validate scaling. Do not
+claim that the unsafe large all-native fixtures are production baselines.
 
-- surface-only engagement;
-- air group hosted on a ship;
-- submarine with uncertain contact;
-- damaged unit with partially spent magazines;
-- base capture/facility damage;
-- retreat/withdrawal;
-- event replay and duplicate-event rejection;
-- primary loss and warm-shadow promotion;
-- observer-to-shadow promotion eligibility;
-- materialize, checkpoint, dematerialize, and rematerialize.
+## Parity portfolio
 
-Test serialization, replay, fencing, and promotion separately from Sea Power.
-Then run a small number of real game integrations to validate live
-materialization, event capture, checkpointing, and correction.
+Use small matched cases before aggregate battles. Compare native Sea Power with
+the Operational model for:
 
-## Load and tempo contract tests
+- movement, heading, depth or altitude, and fuel use;
+- sensor detection, classification, uncertainty, and track aging;
+- weapon range, launch conditions, flight time, interception, hit, and damage;
+- aircraft and helicopter sortie, basing, turnaround, and recovery;
+- submarine and surface behavior;
+- ground target, radar, GBAD, airbase, and installation behavior; and
+- player-visible controls, symbols, selection, and focus.
 
-Use the stress matrix in [Load management](../architecture/load-management.md) to throttle CPU
-and GPU, collapse render rate, fill pipe/network/checkpoint queues, pause a game,
-fail a migration destination, pressure every destination, repeat overload, and
-submit false capacity metrics. Verify fixed steps and canonical hashes are not
-stretched or skipped; old epochs never publish; optional work is shed before
-global tempo; and a disabled simulation source remains connected for authorized
-commands and filtered presentation.
+Keep source inputs and seeds. Record systematic differences as calibration
+data or explicit unsupported behavior. Do not tune one aggregate battle until
+its component paths agree well enough to explain the result.
 
-Every global tempo change names an effective tick. All required replicas must
-show the same tempo policy at that tick while keeping `FixedStepDuration`
-unchanged. Thresholds and cooldowns come from recorded benchmarks.
+## Persistence and recovery portfolio
 
-## Evidence recording
+Exercise:
 
-For every live failure retain:
+- at least 10,000 commits with periodic snapshots;
+- cold service restart and replay from the latest valid snapshot;
+- online backup and side-directory restore;
+- interrupted writes and partial blob creation;
+- malformed or mismatched checkpoint, catalog, runtime, and ruleset inputs;
+- bounded journal, snapshot, blob, and memory growth;
+- one schema version change and one campaign algorithm change; and
+- game, companion, and service failure at each tactical handoff stage.
 
-- game and plugin version/hash;
-- launch time and relevant log excerpt;
-- scenario/campaign name;
-- gameplay difficulty/options;
-- exact UI checkpoint reached;
-- assignment, authority epoch, checkpoint/event cursor, and hashes, if applicable;
-- screenshot only when it materially clarifies UI state.
+Success means the service either recovers one canonical head or refuses the
+operation without changing the source save.
 
-Logs and generated save/mission fixtures may contain local paths or user-created
-content. Sanitize before sharing.
+## Retain test results
+
+Store raw captures, logs, screenshots, and environment details with the run
+artifacts or release record. Keep durable conclusions in current status and
+supported claims. Do not add dated evidence pages, handoff diaries, or temporary
+review documents to `docs/`.

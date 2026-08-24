@@ -1,232 +1,123 @@
-# Implemented architecture map
+# Implementation map
 
-## Purpose and status
+## Purpose
 
-This document maps the code that exists in the repository as of 24 August 2026.
-It complements [System architecture](system-architecture.md), which describes
-the normative target. A target component or transport must not be inferred to
-exist merely because it appears in a design diagram.
+This document maps the active architecture to the current repository. It
+describes code that exists, including experiments that are no longer on the
+critical path. It does not turn an implemented endpoint or type into a supported
+player feature.
 
-Player-visible gaps are evaluated against the
-[playable dynamic campaign product contract](../planning/playable-dynamic-campaign-product-contract.md).
-
-The canonical durable boundary is the campaign journal. Sea Power, the
-companion, the operator monitor, and Operational workers are clients of that
-boundary; none may allocate campaign time, authority epochs, or committed
-history independently.
-
-## Runtime topology
+## Runtime processes
 
 ```text
-                                      HTTP operator monitor
-                                      (2 second polling)
-                                                |
-                                                v
-+--------------------+   gRPC stream   +--------------------------+
-| Operational worker |<-------------->| Campaign ServiceHost     |
-| placement/health   |                 | coordinator + scheduler  |
-| (ticks not here)   |                 | + in-process simulation  |
-+--------------------+                 +------------+-------------+
-                                                   |
-                                     SQLite WAL + content-addressed blobs
-                                                   |
-                                            durable campaign head
-                                                   ^
-                                                   |
-+-------------------+   named pipe   +-------------+------------+
-| Sea Power +       |<-------------->| Companion                |
-| Runtime Bridge    |                | gRPC campaign client +   |
-| Unity main thread |                | authenticated local HTTP |
-+-------------------+                +--------------------------+
+campaign-monitor browser
+  -> Campaign ServiceHost
+     -> SQLite journal and local blob store
+     -> in-process CampaignSimulation
+     -> gRPC companion session
+        -> local companion
+           -> Runtime Bridge named pipe
+              -> Sea Power
 ```
 
-The browser monitor is currently an operator diagnostic application. It uses
-loopback same-origin HTTP snapshots and polling, not SignalR. Loading the hosted
-monitor issues a read cookie without establishing an operator identity; writes
-require the bearer token and therefore work through the Vite development proxy,
-but not from the hosted production monitor. The player-session and
-coalition-projection HTTP APIs exist, but there is no complete player command UI
-or realtime player client.
+The monitor is currently an operator and development surface. It is not yet the
+campaign application defined by the product contract.
 
-## Project ownership
+## Projects and roles
 
-| Project | Implemented responsibility | Important boundary |
+| Project or path | Current role | Important limit |
 | --- | --- | --- |
-| `SeaPower.RuntimeBridge` | AnchorChain-loaded Unity adapter; capability/world extraction; typed UI automation; controlled surface and allow-listed land/installation mutation; tactical terrain preparation/probing; checkpoints; collider capture; experimental tick/save probes | Runs on Unity's main thread and contains no campaign persistence or remote credentials |
-| `CrimeanTom.Contracts` | Bounded local pipe envelopes and payloads shared by Mono and .NET 8 | No Sea Power types or campaign policy |
-| `CrimeanTom.LoadAcceleration` | Installed-data lookup, persistent file hashes, and versioned collider geometry cache | Portable .NET Standard code shared by bridge, companion, and campaign engine |
-| `CrimeanTom.Companion` | Current-user named-pipe broker, authenticated loopback HTTP, durable outbound spool, campaign gRPC client, checkpoint/content transfer, port-operations projection | Never owns canonical campaign truth; currently holds the shared campaign-service bearer token |
-| `CrimeanTom.Campaign.Contracts` | Stable IDs, quantized values, commands, events, fidelity and authority types | No Unity or persistence implementation |
-| `CrimeanTom.Campaign.Domain` | Immutable canonical state, invariants, coalition projections | Pure deterministic state model |
-| `CrimeanTom.Campaign.Engine` | Command reduction, deterministic simulation, canonical serialization, operational combat, optional Bepu collider-assisted terminal resolution | Does not write storage or call Sea Power |
-| `CrimeanTom.Campaign.Service` | SQLite WAL journal, writer epoch, compressed field-level simulation events, recovered-head state cache, snapshot primitives, content-addressed blobs, integrity verification, backup and side-directory restore | Sole durable history implementation; ServiceHost snapshots every 100 commits and validates cached state against the durable head |
-| `CrimeanTom.Campaign.Transport` | Generated bidirectional gRPC/Protobuf companion and worker protocol | Machine/control transport only; not a player UI protocol |
-| `CrimeanTom.Campaign.ServiceHost` | ASP.NET Core host, coordinator, scheduler, migration fences, sessions, HTTP control/projection APIs, worker supervisor, unattended in-process simulation | Sole allocator of campaign time, authority, and commits |
-| `CrimeanTom.Campaign.OperationalWorker` | Campaign-spawned process identity, health, capacity, ordered stream participation, assignment fencing | Does not execute `CampaignSimulation`; receives the shared service token and its health/capacity are self-reported |
-| `CrimeanTom.CallsiteInventory` | Pinned Sea Power deterministic-hook/call-site inspection | Development diagnostic only |
-| `CrimeanTom.Campaign.PersistenceProbe` | Abrupt-exit and writer-lock persistence fault probe plus read-only recovered-state inspection | Development/qualification tool only |
-| `apps/campaign-monitor` | Babylon/TypeScript operator map, hierarchy, telemetry, scheduler and outcome display, Fulda seed convenience | Read-mostly operator surface; not the multiplayer client |
+| `CrimeanTom.Campaign.Contracts` | Campaign identities, commands, events, projections, AI and fidelity contracts | Contract presence does not prove a player flow |
+| `CrimeanTom.Campaign.Engine` | Deterministic reduction, Operational simulation, strategic AI, canonical serialization | Does not call Sea Power or write storage |
+| `CrimeanTom.Campaign.Service` | SQLite WAL journal, snapshots, blobs, integrity checks, backup and restore | Long-running save evolution and compaction are not qualified |
+| `CrimeanTom.Campaign.Transport` | Generated gRPC/Protobuf companion and experimental worker protocol | Machine protocol only; not the player API |
+| `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
+| `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
+| `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
+| `apps/campaign-monitor` | Browser map, hierarchy, telemetry, and operator controls | Not a finished player campaign app |
+| `CrimeanTom.Campaign.OperationalWorker` | Experimental process identity, health, capacity, and placement control | Does not execute Operational ticks; future work |
+| Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
-The broad integration suites are intentionally cross-component:
-`CrimeanTom.Campaign.IntegrationTests` exercises the deterministic campaign
-story and `CrimeanTom.Protocol.Tests` exercises the real host, companion,
-persistence, worker, and bridge-facing contracts.
+## Implemented campaign path
 
-## Implemented data flows
-
-### Campaign command and persistence
-
-Authenticated control HTTP reaches `CampaignCoordinator`, which validates a
-typed `CampaignCommand`, reduces it through `CampaignKernel`, and appends the
-command/events under a compare-and-swap writer epoch in `SqliteCampaignJournal`.
-Snapshot APIs accelerate recovery but do not replace the ordered event head.
-ServiceHost saves a canonical snapshot every 100 commits, bounding the ordinary
-replay tail while retaining the append-only journal. The coordinator keeps an
-immutable recovered-state cache and checks it against the durable head before
-reuse. Large simulation payloads are stored as deterministic field-level
-patches and Brotli-compressed journal bytes while canonical hashes remain over
-the uncompressed contract. Completed strategic orders are removed from state
-and their subject-revision rows are retired. Long-journal retention and
-compaction beyond the current short full-scale proof remain unqualified.
-
-### Unattended Operational simulation
+The coordinator validates typed commands, reduces them through the campaign
+kernel, and appends events under a writer epoch and expected head. SQLite WAL,
+periodic snapshots, content-addressed blobs, online backup, and side-directory
+restore exist.
 
 `CampaignUnattendedSimulationHostedService` advances campaigns without Sea
-Power. `CampaignSimulation` resolves movement, sustainment, intelligence,
-weather effects, doctrine, sensors, in-flight ordnance, countermeasures, point
-defense, damage, and withdrawal. The service process still executes all ticks,
-including islands placed on Track A Operational workers.
+Power. `CampaignSimulation` handles movement, sustainment, intelligence,
+weather, doctrine, sensors, weapons, countermeasures, damage, and withdrawal.
+Strategic AI generates coalition plans, objectives, commitments, packages, and
+orders. All Operational ticks still execute in the service process.
 
-Optional collider-assisted terminal resolution loads schema-v2, root-oriented
-meter geometry from `ColliderGeometryCache` and raycasts shape and bounds
-silhouettes with BepuPhysics. It is an analogue hit silhouette, not Unity PhysX,
-Blastzone armor, or penetration simulation. Without an enabled valid catalog,
-the existing deterministic probabilistic path remains authoritative.
+## Implemented Sea Power path
 
-### Tactical materialization and return
+The service assigns and fences interaction islands. Companion heartbeats renew
+the local tactical lease while the service advances unrelated entities. When
+the heartbeat expires, the system can release stale authority and fall back to
+the accepted checkpoint or Operational state.
 
-The coordinator assigns and fences complete interaction islands. The companion
-translates assignment/checkpoint frames to allow-listed Runtime Bridge commands.
-Destroyed and retired entities remain in canonical history but are excluded
-from scheduler island construction, so later interest-policy changes cannot
-attempt invalid fidelity transitions or place terminal entities with workers.
-The implemented portable mutation families are one owned surface profile and
-six allow-listed ground/installation profiles. Land preparation relocates the
-floating origin, waits for loaded/finalized/flattened land terrain, samples the
-terrain height, and rejects water or unready placement before construction.
-Preparation,
-staging, activation grants, quiesce/release, and late-epoch rejection exist;
-live two-Sea-Power migration is not qualified. No evidence yet demonstrates a
-tactical loss against a campaign-owned hostile being committed back into the
-journal.
+The bridge can materialize an allow-listed owned surface profile and several
+terrain-gated ground or installation profiles. Terrain preparation relocates
+the local window, waits for finalized land terrain, samples height, and rejects
+water or unready placement. The two-second surface readback can commit changed
+kinematics, telegraph, fuel or stores fractions, damage, and destruction.
 
-The companion heartbeat now renews a process-local tactical ownership lease.
-While that lease is live, unattended campaign time continues and the kernel
-advances unrelated entities, but the active tactical entity remains fenced from
-the analogue and is not reclaimed by the fixed campaign-time deadline. After
-the heartbeat becomes stale, the existing 120-quanta bound remains the cold
-Operational fallback.
+This is not complete portable tactical state. Magazines, sensors, formations,
+hosted aircraft, helicopters, broader aircraft, and subsurface ownership still
+need explicit extraction, application, and return contracts.
 
-For the owned-surface POC, the companion captures a lightweight checkpoint
-readback every two seconds and publishes a durable `StateSync` proposal only
-when its stable state fingerprint changes. The coordinator commits observed
-kinematics, telegraph, fuel/stores fractions, damage, and destruction at the
-current campaign head. Checkpoint capture is read-only and is allowed while Sea
-Power is unpaused; ordered lifecycle mutations temporarily pause and restore
-play. This is not complete portable tactical state: magazines, sensors,
-formations, hosted aircraft, and broader entity families remain fenced or
-unsupported.
+## Implemented map and proxy path
 
-The local POC now projects the authenticated coalition's complete non-destroyed
-friendly set plus coalition-filtered hostile intelligence tracks into Sea Power's
-drawing layer. It does not gate map presence on a native-materialization profile.
-The tactical map uses subclasses of Sea Power's authored unit-symbol item rather
-than the generic drawing-marker X. Its native domain/posture template
-renders air, rotary-wing, surface, submarine, land, airbase, installation, SAM,
-radar, port, and logistics records; unclassified tracks use Sea Power's authored
-unit-symbol fallback. Heading, selection state, and the selected label are
-carried by the same native map item. Relationship color remains blue for
-friendly and red for coalition-detected hostile tracks. Typed selection centers
-the tactical display on that campaign record before requesting its local
-presentation proxy. The authored-symbol renderer is decorative in Sea Power's
-normal tactical interaction path, so direct mouse hit routing is implemented in
-the runtime adapter but remains under live requalification; do not treat visual
-hover highlighting alone as a successful selection callback.
-Friendly records are map-only until selected; selection relocates the tactical
-terrain window and lazily asks Sea Power's base-object loader for a presentation
-hierarchy from the vessel, aircraft, or land folders. Contact records carry
-classification, confidence, and uncertainty without hostile true-state IDs or
-coordinates; selection shows a generic red estimate sphere rather than a hostile
-catalog model. A presentation record has no campaign authority,
-checkpoint, native simulation object, collisions, sensors, velocity, unique game
-ID, or `ObjectsManager` registration.
+An authenticated Sea Power session can receive every non-destroyed friendly
+campaign record and coalition-filtered hostile tracks. Map presence is not tied
+to the tactical materialization allow-list. Records use Sea Power authored unit
+symbols rather than the generic drawing-marker X.
 
-The earlier fenced native-vessel representation remains as a sticky per-process
-fallback if presentation-only loading fails on a compatible game build. The
-`GET /game/render-proxies` diagnostic reports the selected provider and, per
-entity, whether a native object exists and whether its world model and map
-annotation are visible. Promotion hides the matching proxy before owned
-materialization. Demotion or reconnect containment suspends the retained native
-record and permits the model/map proxy to represent campaign truth again, so a
-disabled native record does not make the friendly disappear.
+Typed selection can center the map and request a presentation-only model after
+terrain relocation. Friendly proxies use campaign state. Hostile proxies use a
+generic estimate and do not load the hostile catalog model or exact true state.
+A proxy has no game identity, physics, sensors, weapons, velocity, campaign
+authority, or checkpoint rights.
 
-Typed `focus-camera-on-unit` resolves either a unique live native Sea Power
-object or a unique campaign map record. A map-only friendly is first selected,
-terrain-relocated, and physically realized; proxy focus then attaches
-`RenderPosition` to the proxy model root and returns the distinct postcondition
-`camera-focused-on-visual-render-proxy`; the pinned camera seam fingerprints the
-pivot switch and pivot readback methods before enabling the command.
-Native focus is idempotent: it restores follow mode, target geodetic position,
-and native default distance even if a prior map/formation selection already
-attached the same unit. `LandUnit` targets receive an elevated 30-degree
-oblique framing so a successful selection cannot leave the player looking at a
-stale horizon. This behavior was verified live with a campaign-owned small
-airbase on finalized Ramstein terrain.
+Current live qualification is narrow. Generic visual loading has been observed
+for one submarine and one land installation. Direct mouse selection parity,
+full catalog coverage, proper overlap handling, uncertainty glyphs, and a
+campaign-bound default task force remain open.
 
-This is a trusted local projection path, not the final multiplayer transport.
-The companion currently derives it from a worker-specific coalition projection
-while holding the shared service token. Map records cover all friendly domains
-and hostile intelligence tracks; generic physical-model loading is only proven
-for selected installed catalog entries and is not portable tactical state.
-Uncertainty is present in protocol state but has no radius glyph yet. Stale
-presentation records are hidden rather than treated as recoverable canonical state. If a fence was missed
-across reconnect, the companion compares owned records with the current
-campaign assignment projection, briefly pauses the tactical mission, and
-suspends any locally active record whose assignment is no longer authoritative
-before restoring the prior play state.
+## Implemented player and operator path
 
-### Operational worker supervision
+The monitor polls true diagnostic state over loopback HTTP. Coalition-filtered
+projections and reconnectable in-memory player sessions exist. Player command
+envelopes currently cover presentation and control-transfer actions, not the
+canonical campaign orders required by the product contract.
 
-The service spawns Track A workers with additive per-spawn credentials and
-validates their process identity, while also giving them the shared master
-service token. Workers self-report health/capacity and accept Operational
-placement. They are control-plane targets only: immutable work leases,
-worker-computed results, coordinator validation, and result commit are not yet
-implemented.
+There is no packaged application, durable player identity, SignalR client, or
+private multiplayer flow yet.
 
-### Player and operator surfaces
+## Experimental code outside the active path
 
-The operator monitor receives true diagnostic state over loopback same-origin
-HTTP and polls every two seconds. The hosted read cookie is a local convenience,
-not an authenticated operator principal, and the hosted UI cannot currently
-authorize writes. Coalition-filtered projections and reconnectable in-memory
-player-session endpoints are implemented. Player command envelopes currently
-accept only `acknowledge`, `observe`, and `transfer-control`; they are bounded
-in-memory presentation records and do not issue canonical campaign orders.
+The repository contains worker supervision, placement, capacity, shadow,
+preparation, and migration experiments. Operational workers report health and
+accept placement, but do not compute campaign ticks. Live migration between two
+Sea Power processes is not qualified.
 
-## Deliberate target/implementation differences
+Keep this code isolated from active product dependencies. Its design context is
+preserved in [distributed simulation](../future/distributed-simulation.md).
 
-| Target architecture | Current implementation |
+## Current architecture gaps
+
+| Product requirement | Current implementation gap |
 | --- | --- |
-| SignalR/MessagePack realtime player UI | No SignalR dependency or hub; HTTP polling only |
-| Campaign-owned distributed Operational execution | Worker spawn/placement exists; simulation remains in ServiceHost |
-| Multi-family tactical materialization | One portable owned-surface family and six terrain-gated ground/installation profiles; map-first friendlies/contacts span domains and selected installed models can load visually, but aircraft, rotary-wing, and subsurface owned simulation families remain absent |
-| Complete portable tactical state | Damage, fuel, magazine, sensor, formation, and hosted-aircraft application remain explicitly unsupported/fenced |
-| Hot Shadow convergence and failover | Cold checkpoint/Operational fallback only |
-| Packaged player application | Developer-run .NET/TypeScript projects; no clean-machine installer/updater |
-| Versioned campaign content/catalog pipeline | Installed-data readers and hard-coded Fulda seed; no authoring/package pipeline |
-| Public/hostile multiplayer | Trusted private deployment with coalition-filtered projections |
+| Local campaign application | Operator monitor lacks player lifecycle, orders, objectives, and result UX |
+| Campaign-owned task force | Authored mission still supplies placeholder local units in the proven path |
+| Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
+| Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
+| Portable state | Aircraft, helicopters, submarines, magazines, hosted assets, sensors, and formations are incomplete |
+| Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |
+| Save longevity | Schema and algorithm migration plus long-running compaction remain open |
+| Private multiplayer | Durable identity, authorization, realtime UI, and shared-control policy do not exist |
 
-See [Current code and product status](../planning/current-status.md) for the
-feature gap order and [Supported claims](../planning/supported-claims.md) for the
-narrow behavior the application currently advertises.
+The [current status](../planning/current-status.md) owns the priority order. The
+[supported claims](../planning/supported-claims.md) owns the proof boundary.

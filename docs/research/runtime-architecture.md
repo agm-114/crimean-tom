@@ -458,8 +458,8 @@ lever. It fixes the logical step, reports falling tick throughput as client
 pressure, and lets the coordinator remove optional work, migrate/demote whole
 interaction islands, disable that process as a simulation source, or reduce the
 global target ticks per wall second. See the
-[deterministic runtime adapter](../architecture/deterministic-runtime-adapter.md) and
-[load-management policy](../architecture/load-management.md).
+[active system architecture](../architecture/system-architecture.md) and the
+[deferred distributed-simulation note](../future/distributed-simulation.md).
 
 ### Pause
 

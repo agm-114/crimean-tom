@@ -1,1364 +1,282 @@
-# Crimean Tom implementation plan
+# Implementation plan
 
-## Purpose
+## Goal
 
-This plan converts the
-[Playable dynamic campaign product contract](playable-dynamic-campaign-product-contract.md)
-and [System architecture](../architecture/system-architecture.md) into ordered,
-reviewable work. The product contract defines what the player must experience;
-this plan defines the implementation dependencies and proof gates. It
-intentionally stops at gates. A later phase must not build on an unproven game
-mapping, state contract, or failure assumption.
+Build one complete local campaign loop before expanding infrastructure:
 
-The [current code and product status](current-status.md) records the implemented
-state, open product gaps, and recommended next slices. Phase headings below are
-target and gate definitions. A completed infrastructure slice does not imply
-that a whole phase exit gate is closed.
+```text
+create or load campaign
+  -> inspect the war and issue orders
+  -> enter Sea Power with a campaign-owned task force
+  -> fight while the rest of the war advances
+  -> commit the result once
+  -> return, save, quit, and recover
+```
 
-Phases 0-4 have live-evidenced foundation slices. Phases 5-9 contain substantial
-implementation, but their player-loop, distributed execution, realtime,
-packaging, scale, and release gates remain open. The narrow claims are listed in
-[supported claims](supported-claims.md).
+The proving dataset contains 4,096 campaign entities. The first tactical proof
+uses a bounded interaction island. It does not place the full dataset in Unity.
 
-The local
-control plane, authenticated bounded transport, Unity-main-thread dispatch,
-catalog/provenance reads, canonical world snapshots, typed scenario/campaign
-navigation, and disposable port-maintenance draft flow have live evidence on
-game build `0.8.2-23444+s358`. Runtime authority and external campaign commit
-remain disabled by default. The first opt-in, ownership-scoped surface-unit
-materializer now has live dry-run, create, read-back, and idempotent-replay
-evidence. One broad integration scenario crosses the real companion,
-HTTP authentication, named pipe, mock game peer, catalogs, UI actions, and port
-draft validation, and the mutation admission path.
+Private multiplayer follows the local loop. Distributed Operational workers,
+hot replicas, and live tactical migration are [future work](../future/distributed-simulation.md).
 
-## Delivery rules
+## Definition of done
 
-- Keep every phase vertically testable and revertible.
-- Add one mutation family at a time behind negotiated capabilities.
-- Preserve a working read-only inspection path throughout development.
-- Never call a feature complete from compilation or a load marker alone.
-- Store fixtures and generated artifacts without proprietary game binaries.
-- Pin game build and catalog fingerprints in all integration evidence.
-- Treat stable identity, idempotency, and authority fencing as prerequisites,
-  not later cleanup.
-- Prefer controlled experiments against disposable Crimean Tom entities and
-  saves. Never mutate unrelated local mods or user campaigns during a test.
-- Benchmark before fixing scale, timing, checkpoint, or timeout constants.
-- Keep the default application runnable on one machine with packaged .NET,
-  SQLite, and local files. External databases, brokers, object stores, and
-  containers are optional scale adapters, never baseline requirements.
-- After each phase, conduct the adversarial review at the end of this document.
-- Prefer a few broad vertical integration scenarios over collections of narrow
-  unit tests. Working campaign behavior is the primary goal; tests exist to
-  protect complete flows and high-risk boundaries.
+A milestone is complete only when:
 
-## Workstreams
+- its player-visible flow works from a fresh start;
+- campaign identity, authority, and fog-of-war rules hold;
+- expected failures produce clear recovery or rejection states;
+- broad automated tests cover the durable service path;
+- Sea Power behavior is checked live where Unity is involved; and
+- current status and supported claims are updated.
 
-The phases combine seven continuous workstreams:
+An endpoint, DTO, process launch, screenshot, or isolated map symbol is not a
+completed feature.
 
-| Workstream | Outcome |
-| --- | --- |
-| Game adapter | Known, versioned mappings between portable state and Sea Power |
-| Campaign engine | Deterministic domain state, reducers, systems, and replay |
-| Control/network | Safe local and remote sessions with flow control and fencing |
-| Persistence | Transactional journal, snapshots, checkpoints, and recovery |
-| Federation | Assignment, replication, divergence, scheduling, and failover |
-| Player experience | Orders, projections, late join, feedback, and graceful degradation |
-| Verification/operations | Tests, benchmarks, diagnostics, migrations, and release evidence |
+## Milestone 1: make the campaign application usable
 
-## Phase 0 - freeze and harden the control baseline
+Deliver the local product shell around the existing service and monitor.
 
-### Objective
+### Player flow
 
-Retain a boring, reliable diagnostic channel before adding game mutation.
+- Create, name, load, start, pause, resume, save, and restore a campaign.
+- Start new and restored campaigns paused.
+- Show campaign time, status, coalition, ruleset, scenario version, and save
+  compatibility.
+- Present a coalition-filtered world map and friendly force hierarchy.
+- Distinguish known contacts from enemy true state.
+- Show connection, degraded, recovering, and incompatible-version states.
 
-### Existing deliverables
+### Service work
 
-- `SeaPower.RuntimeBridge`, the generically named thin in-game adapter; Crimean
-  Tom naming begins at the contracts, companion, campaign, and networking layers.
-- `CrimeanTom.Contracts` local envelope/payload project.
-- `CrimeanTom.Companion` named-pipe broker and localhost control API.
-- Thin plugin reconnect loop and Unity-main-thread command queue.
-- Read-only ping, capability, and scene-state commands.
-- Build/deploy/Steam launch automation and DLL hash verification.
-- Live plugin and pipe smoke commands.
+- Separate player, operator, companion, and experimental worker capabilities.
+- Close the HTTP content-type authorization bypass.
+- Give hosted browser writes an authenticated path.
+- Persist player coalition, preferences, and last campaign cursor.
+- Keep operator true-state diagnostics separate from the player projection.
 
-### Implemented hardening slice
+### Acceptance gate
 
-- The generic command-type HTTP passthrough is removed. Only explicit read-only
-  ping, capabilities, and scene endpoints are exposed, all behind a per-run
-  current-user control token.
-- The named pipe uses current-user-only access, an explicit accepted/rejected
-  handshake, and a newly issued session ID that fences commands and responses.
-- Newline JSON is replaced by strict UTF-8, length-prefixed frames capped at
-  256 KiB. Game inbound/outbound queues and companion pending commands are
-  bounded; queue saturation fails closed.
-- Commands carry deadlines and priority metadata. Expired commands fail before
-  touching game state. Caller cancellation and timeouts transmit a correlated,
-  session-fenced cancel frame that removes work still queued for Unity.
-- Both the Unity command queue and game response queue use a bounded weighted
-  schedule across negotiated Bulk (`-100`), Normal (`0`), and Control (`100`)
-  lanes. Control bypasses bulk load while the schedule still guarantees normal
-  and bulk opportunities under sustained control traffic.
-- Internal exceptions are logged locally under an error ID. Only structured,
-  sanitized errors cross the pipe.
-- Ping and scene responses report both the initialized Unity main-thread ID and
-  the actual executing thread ID, plus an explicit equality result.
-- Capabilities include a canonical SHA-256 runtime fingerprint over the game
-  executable, plugin, required managed simulation assemblies, and currently
-  loaded simulation-affecting options. File hashing runs off Unity's main
-  thread and reports `pending`, `ready`, or sanitized `failed` state.
-- Process, scene, timing, catalog/mod slots, and the deterministic-hook manifest
-  are explicit capability fields. Missing catalog/mod fingerprints,
-  unverified hooks, unavailable options, pending file identity, and disabled
-  mutation each make authority eligibility fail closed with named blockers.
-- Protocol tests cover every v1 envelope/payload plus normal, oversized,
-  truncated, invalid-UTF-8, and malformed-JSON inputs.
-- Companion health exposes an explicit connection state, monotonically
-  increasing session generation, and transition timestamp. When a session
-  ends, the plugin purges commands and responses still queued for that session
-  so reconnect cannot execute stale authorized work.
-- Real named-pipe adversarial tests cover rejected handshakes, oversized
-  handshake frames, wrong-session responses, three consecutive disconnect and
-  reconnect generations, pending-command saturation, caller cancellation,
-  absolute deadline cancellation, pending-slot release, and graceful companion
-  shutdown. Direct middleware tests reject missing and invalid control tokens
-  without invoking an endpoint. A real Kestrel host repeats missing, invalid,
-  and valid token probes on a temporary loopback port.
-- Token creation applies its current-user-only ACL atomically and rejects an
-  existing token not owned by the current Windows user. Companion lifecycle
-  integration covers a recycled unrelated PID, stale token/log cleanup, safe
-  startup, and clean stop.
-- A one-shot runtime self-test invokes the actual dispatcher from a managed
-  worker thread and requires `wrong-execution-thread`; pending or sanitized
-  failed results remain authority blockers and fail the live control smoke.
-- A live game negotiated the hardened session, completed ping/capability/scene
-  commands on the captured Unity main thread, and reconnected with a new session
-  ID through three consecutive companion-only restart/control cycles. A fresh
-  deployed launch on game build
-  `0.8.2-23444+s358` also returned ready executable/plugin/eight-assembly file
-  identity, a stable 64-character capability fingerprint, live settings/timing,
-  and the expected fail-closed authority blockers. The same companion then
-  survived two consecutive full game-process restarts with fenced generations
-  and stable fingerprints. Abrupt validated companion and game termination each
-  recovered through a fresh session and passed the full smoke.
-- The actual broker rejects a Windows anonymous security token at the kernel
-  ACL before handshake and remains available to the current user. A named-
-  second-user proof still requires credentials or a pre-authorized helper
-  unavailable to the current medium-integrity session.
+A clean local install can create the 4,096-entity scenario, inspect it without
+time advancing, explicitly start it, save it, restart the application, and
+restore the same campaign head.
 
-### Remaining hardening work
+## Milestone 2: make the war respond to the player
 
-- Populate the currently empty catalog/mod fingerprints and replace the
-  `not-installed` logical-time, RNG, and stable-order hook entries with verified
-  method fingerprints as those P1 systems are built.
-- Do not introduce a durable spool until it has an explicit size and eviction
-  policy. Add deadline and deeper fault-injection coverage beyond the current
-  weighted queue, saturation, malformed-frame, reconnect, and cancellation
-  tests.
-- Extend fault injection to deterministic interruption during an active write
-  or command execution when a safe suspension hook exists.
-- Complete the named-second-user pipe ACL proof when a disposable credential or
-  pre-authorized helper is available; anonymous-token kernel rejection is
-  covered.
-- Pin the bridge's compiler/SDK and trial C# 13 with only source-level compiler
-  metadata shims. Run compile, IL/API compatibility, clean-load, and command
-  smoke tests; any feature requiring a newer runtime API remains prohibited.
-- Document the BepInEx/AnchorChain prerequisite only in their edge-case guides.
+Add canonical coalition-scoped commands and one understandable campaign
+ruleset.
 
-### Exit gate P0
+### Commands
 
-- One command cannot crash or stall Unity's frame loop.
-- Unsupported, malformed, oversized, timed-out, and disconnected requests return
-  deterministic errors.
-- No generic command-type route, stack trace, unbounded frame, or unbounded queue
-  remains reachable before mutation is enabled.
-- Pipe ACL/token tests reject another user/session and an unauthenticated local
-  caller; the main-thread test fails when deliberately executed off-thread.
-- Restarting either side reconnects without duplicate responses or orphan tasks.
-- The deployed directory contains only the plugin DLL and PDB.
-- CI/local tests pass without Sea Power; the live smoke passes on the pinned game
-  build.
+- Move, patrol, hold, escort or support, engage, withdraw, and cancel.
+- Create and edit task-force membership.
+- Set readiness, EMCON, and ROE policy where the platform supports it.
+- Return accepted, conflicted, unauthorized, unsupported, or superseded.
+- Use durable idempotency keys and expected revisions.
 
-## Phase 1 - inventory, identity, and observation
+### Campaign rules
 
-### Objective
+- Add durable objectives, progress, victory, failure, and campaign-ended state.
+- Connect losses, control, logistics, readiness, and time to visible results.
+- Explain AI objectives and current operational packages at a useful level.
+- Keep both coalitions acting from their own intelligence.
+- Prevent strategic AI from moving fixed defenses or taking player-owned units
+  outside the selected control policy.
 
-Build an evidence-backed read model before attempting to create or mutate units.
+### Acceptance gate
 
-### 1A. Catalog pipeline
+The player can redirect one campaign-owned force, observe the accepted order and
+its effects over time, cancel or replace it, and reach a durable objective state
+without operator endpoints or scripts.
 
-- Define normalized IDs for countries, platforms, variants, loadouts, weapons,
-  sensors, magazines, aircraft, facilities, and relevant doctrines.
-- Extract from the game's winning virtual-file view where possible. Do not limit
-  extraction to the `original` directory.
-- Record source path/mod provenance for each normalized record.
-- Normalize units, dates, enum values, aliases, and missing/default fields.
-- Produce canonical ordering and a SHA-256 catalog/mod fingerprint.
-- Generate a human-readable validation report for duplicates, dangling IDs,
-  unsupported types, and conflicting overrides.
-- Keep generated catalog output git-ignored; keep schemas and small synthetic
-  fixtures tracked.
+## Milestone 3: enter a campaign-owned battle
 
-### 1B. Stable live identity
+Replace the authored placeholder force with campaign membership and make the
+map/proxy system usable.
 
-- Enumerate task forces and supported live object types on Unity's main thread.
-- Define stable-ID attachment for Crimean-Tom-owned entities using the least
-  invasive supported metadata seam.
-- Define read-only surrogate identity for pre-existing scenario entities.
-- Rebuild the stable-ID/live-object index on scene/load transitions.
-- Detect duplicate, missing, destroyed, replaced, and stale mappings.
-- Never use Unity instance ID or list position as durable identity.
+### Tactical preparation
 
-### 1C. Canonical read model
+- Build the Sea Power task force from the campaign save.
+- Materialize every supported available member as a real simulated object.
+- Include required hosted aircraft, helicopters, boats, and child assets when
+  their portable-state contract is supported.
+- Report unsupported members before activation.
+- Compute and fence the full interaction island under one epoch.
+- Validate terrain and initial placement before showing land objects.
 
-- Extract scene/time/pause/time-scale state.
-- Extract entity kind/type/variant/loadout, coalition, group and parent links.
-- Extract position, orientation, course, speed, altitude/depth, and lifecycle.
-- Extract damage/system status, fuel, magazines/stores, hosted aircraft, readiness.
-- Extract current orders/waypoints and only the sensor/contact state appropriate
-  to the requested information scope. Schema 7 now uses the player plotting
-  table and deliberately omits true target references and coordinates.
-- Define quantization, null/unknown semantics, and provenance per field.
-- Split canonical state into subsystem hashes so divergence can be localized.
+### Tactical map
 
-### 1D. Instrumentation experiments
+- Show all authorized friendlies and coalition-known hostile tracks.
+- Use native Sea Power domain, posture, heading, color, label, and selection
+  behavior for local and non-local records.
+- Make every visible record clickable without a local `ObjectBase`.
+- Resolve overlapping symbols through deterministic selection or a choice list.
+- Show uncertainty, confidence, age, and stale state for contacts.
+- Stream a terrain-safe friendly visual proxy after selection without granting
+  it simulation authority.
 
-- Measure which fields can be read safely in Update versus FixedUpdate.
-- Measure object counts, extraction time, allocation, and frame impact.
-- Observe pause, time compression, mission load/unload, save/load, destruction,
-  weapon-in-flight, flight-deck, and hosted-aircraft transitions.
-- Establish initial checkpoint cadence and maximum read budget from evidence.
-- Measure tactical event rate, checkpoint growth, pipe/remote backlog, and
-  synchronous materialization stalls for representative surface, air, submarine,
-  and weapon-heavy scenarios.
-- Measure floating-origin relocation and the usable single-process tactical
-  bubble with distant terrain, sensors, weapons, effects, and physics.
-- Test native save/load with a missile, torpedo, and bomb in flight, including
-  guidance/target links and final outcome.
-- Blind-fire representatives for all three weapon families now survive the
-  pinned native round trip and resume their native lifecycle. A targeted RIM-66G
-  also restored its target link, resumed guidance, and destroyed that target.
-  Torpedo/bomb target equivalence remains open, and an unrelated submarine
-  magazine-count change prevents treating the native save as authoritative
-  full-state persistence.
-- Record unsupported or lossy fields rather than inventing mappings.
+### First supported island
 
-### 1E. Bridge-driven UI automation
+Prove one mixed naval island with:
 
-- Prefer Sea Power view-model commands, navigation services, and supported game
-  methods executed on Unity's main thread over coordinate-based desktop input.
-- Add narrowly typed, allow-listed actions only when a normal feature or live
-  integration scenario encounters that screen; do not stop campaign work to
-  build a complete menu-button catalog.
-- Give every action explicit scene/UI preconditions, a bounded deadline, and a
-  machine-readable postcondition so the caller can tell whether navigation
-  actually completed.
-- Expose discovered actions through a dedicated local automation capability.
-  Do not add a generic reflection call, arbitrary element lookup, coordinate
-  click, or unrestricted command passthrough to the bridge.
-- Keep local test/navigation automation separate from campaign simulation
-  authority. It requires the authenticated local control channel and is never
-  accepted from a remote player or campaign worker.
-- Fingerprint the underlying game methods/view models. Disable an action when
-  the pinned seam changes instead of guessing against a new game build.
-- Let the live integration path progressively replace desktop clicks: scenario
-  selection and briefing progression first, then only the dialogs and panels
-  needed by later campaign-facing tests.
-- Retain desktop Computer Use as the discovery and visual-verification fallback,
-  capturing fresh state before each remaining input.
+- a player surface task force;
+- one submarine;
+- fixed-wing and rotary-wing assets;
+- a detected campaign-owned enemy; and
+- nearby terrain-backed radar, low-end GBAD, or installation targets where the
+  scenario supports them.
 
-### 1F. Deterministic tactical runtime adapter
+Broader catalog coverage continues after this vertical slice. The 4,096-entity
+campaign remains loaded and advancing around the bounded island.
 
-- Complete the time/RNG/update/coroutine/job/order call-site inventory in
-  [Deterministic tactical runtime adapter](../architecture/deterministic-runtime-adapter.md).
-- Measure default repeat-run and two-process divergence before changing behavior.
-- Build isolated multi-instance pipe, port, log, save/profile, and game-instance
-  state before treating simultaneous two-process results as valid evidence.
-- Prototype coordinator-issued ticks and a fixed logical step independent of FPS.
-- Inventory and seed every known RNG source; normalize materialization and update
-  ordering, then repeat the divergence suite.
-- Progress to keyed RNG and controlled scheduling only for call sites the first
-  prototype shows are consequential.
-- Record hook/method fingerprints and refuse controlled mode on mismatch.
-- Determine whether `GameTime.time` can be controlled and safely rebased across
-  absolute timers during long-running sessions.
-- Keep all behavior-changing hooks in `ControlledExperimental` mode during P1;
-  they cannot receive campaign authority.
+### Acceptance gate
 
-### 1G. Port-operations maintenance projection
+From the campaign application, the player selects a task force, enters Sea
+Power, sees the correct campaign-owned members, selects local units, non-local
+friendlies, and hostile contacts with the same interaction model, and observes
+no placeholder X symbols or underground objects.
 
-- Keep `crimean-tom-port-operations` as a disposable Task Force Mode UI shell,
-  never as the authoritative campaign or a battle-resolution path.
-- Extend the typed campaign read to extract the complete maintenance draft:
-  stable unit identity, selected variant/loadout, points, repair state, rearm
-  state, hosted-air assignment, and reinforcement availability.
-- Add typed add/remove/refit/repair/rearm/confirm actions only when the vertical
-  port flow reaches each stable public seam. Every action retains explicit
-  preconditions and postconditions; there is no generic reflection or button
-  passthrough.
-- Define a versioned projection file and generator that converts an external
-  port-state revision into the repository-owned campaign roster/session inputs.
-- Treat Sea Power restart/reload as an expected materialization boundary when
-  authored campaign data changes. Keep external theater time and durable entity
-  identity independent of that process lifecycle.
-- Import the edited native draft without committing it, validate it in the
-  companion/service against expected campaign revision, budget, availability,
-  port capacity, and idempotency, then commit one external transaction.
-- Fence only conflicting administration for that force. Unrelated theater
-  movement, logistics, and combat continue in the external simulation.
-- Replace the temporary built-in mission context with an intentionally empty or
-  non-resolving maintenance container once the UI dependencies are known. Until
-  then, block Play/completion results from entering the campaign event stream.
-- Prove the slice with one broad scenario: dock a fleet, generate the projection,
-  restart/reload, refit and add a reinforcement, import/validate/commit, reload,
-  and verify the new force while unrelated theater entities advance.
+## Milestone 4: return the battle to the campaign
 
-### 1H. Iteration load acceleration
+Close the authority and state loop.
 
-- Keep load acceleration in an optional, reusable library; a cache failure must
-  fall back to native/full work and must never prevent Sea Power from starting.
-- Version every cache and bind reusable entries to source-file identity metadata
-  plus the resulting executable, assembly, catalog, and mod-set fingerprints.
-- Instrument cache hits, misses, entry count, and load/save state in runtime
-  capabilities without including volatile cache counters in compatibility hashes.
-- Provide disable/refresh modes for full-verification runs.
-- Profile native load-screen stages before patching or replacing a Sea Power
-  loader. Enable deeper acceleration only behind a pinned method fingerprint and
-  prove identical realized catalogs/state with the optimization on and off.
+### Portable state
 
-### Exit gate P1
-
-- A representative surface ship, aircraft, submarine, facility, task force, and
-  weapon can be enumerated with stable session identity.
-- Repeated extraction at the same quiescent state produces the same canonical
-  serialization and hashes.
-- Scene reload invalidates/rebuilds mappings without stale-object access.
-- Live scenarios use bridge-driven UI actions for every previously discovered
-  stable navigation seam; remaining coordinate inputs are documented discovery
-  gaps rather than silently becoming permanent automation.
-- The catalog report resolves every type used in test scenarios and fingerprints
-  the active game/mod view.
-- Extraction stays within the measured per-frame budget.
-- Every portable field is classified as exact, quantized, derived, unknown, or
+- Define extraction and application for identity, pose, motion, damage, fuel,
+  stores, ammunition, sensors, formations, hosted assets, launched weapons, and
+  destruction.
+- Classify every field as portable, reconstructable, presentation-only, or
   unsupported.
-- Default nondeterminism has a published baseline, and the controlled adapter has
-  published tick/time/RNG/order results on the pinned build.
-- Every simulation-critical time/RNG/update call site is classified; unknown
-  promotion-critical paths block hot-replica validation.
-- The native active-weapon save/load, tactical-bubble, `GameTime.time` rebase,
-  event-rate, and multi-instance-isolation experiments publish their evidence and
-  explicit blockers for later phases.
-- The port-operations shell can expose a populated external fixture and return a
-  typed, uncommitted maintenance draft without creating a competing campaign
-  outcome or treating a native save as authoritative.
-
-## Phase 2 - bounded mutation and materialization
-
-### Objective
-
-Prove reversible ownership-scoped mutation for one narrow entity family.
-
-Current implementation status (20 August 2026): the Knox vertical slice now
-materializes, checkpoints, applies fenced updates, suspends outside the active
-world, restores a retained object, and reconstructs from the checkpoint after
-scene reload. The lifecycle claim is explicitly narrowed to retained native
-suspension because the pinned runtime exposes no safe memory-releasing quiet
-teardown. Eleven live fault-injection boundaries, scheduler resource accounting,
-and fenced detached-recovery cleanup complete exit gate P2 for this narrow
-family.
-
-### 2A. Mutation safety framework
-
-- Add an allow-listed mutating capability disabled by default.
-- Require session, assignment, authority epoch, expected revision, and idempotency
-  key on every mutation.
-- Validate payloads in companion and plugin before touching game state.
-- Execute mutations only on Unity's main thread. Admission and multi-step work use
-  bounded budgets, but synchronous game constructors are measured as blocking
-  operations rather than falsely described as yieldable per-frame work.
-- Track every created object by assignment and stable ID.
-- Add dry-run validation and structured partial-failure reports.
-- Define rollback/cleanup that cannot delete non-Crimean-Tom objects.
-
-### 2B. First surface-unit materialization
-
-- Select one well-understood surface platform and loadout fixture.
-- Spawn through the game's supported construction path.
-- Attach stable identity and task-force membership.
-- Apply position/course/speed and supported readiness/stores/damage state.
-- Read the object back through the canonical extractor.
-- Compare requested versus realized state field by field and hash supported state.
-- Publish a per-field tolerance artifact with unit, quantization, rationale,
-  observed distribution, and whether the field is promotion-critical.
-- Benchmark synchronous creation by platform/type and island size, including
-  frame stall, lease/control responsiveness, allocation, and rollback time.
-
-### 2C. Lifecycle operations
-
-- Apply a bounded movement/order update.
-- Apply a bounded state correction at a safe tick.
-- Capture a portable checkpoint.
-- Test native `ObjectBase.Disable/Enable` first: no destruction/loss event,
-  formation/task-force/contact and hosted-child behavior defined, subsequent
-  save/load valid, and CPU/memory relief measured.
-- If reclaiming the retained GameObject/systems is required, run a separate
-  memory-releasing quiet-removal spike before claiming full dematerialization.
-  Otherwise describe the supported lifecycle as suspension, not removal.
-- Rematerialize from the checkpoint and compare canonical state.
-- Repeat after scene reload and companion reconnect.
-
-### 2D. Expand supported types incrementally
-
-After the surface fixture passes, repeat separate gates for:
-
-- formation/task-force relationships;
-- aircraft and hosted-aircraft/flight-deck state;
-- submarine depth and relevant sensor state;
-- land facility/base state;
-- active weapon/guidance state, only if portable reconstruction is feasible.
-
-In-flight weapons block a handoff only for state families whose native/portable
-round-trip experiment is incomplete or failed. A successful validated native
-save transfer may permit whole-island handoff without field-level reconstruction.
-
-### Exit gate P2
-
-- A supported entity completes materialize -> inspect -> checkpoint -> remove ->
-  rematerialize with stable identity and all supported fields within tolerance.
-- Duplicate create/update/delete commands are idempotent.
-- Stale revision/epoch commands and unsupported catalog IDs fail closed.
-- Injected failure at every operation step leaves either the source state or one
-  recoverable owned Unity object, never an ambiguous canonical owner.
-- Cleanup cannot affect scenario/user objects.
-- Unsupported field loss is explicit and prevents promotion/handoff where unsafe.
-- Native suspension and any deeper quiet removal each pass their safety/resource
-  conditions independently of ordinary destruction, or the architecture
-  explicitly narrows its lifecycle claim.
-- Synchronous materialization cost and per-field tolerances are published and
-  used by scheduler capacity rather than hidden behind a per-frame budget claim.
-
-## Phase 3 - deterministic campaign kernel
-
-### Objective
-
-Run a persistent campaign outside Sea Power with exact replay.
-
-### 3A. Domain and contracts
-
-**Status: complete (20 August 2026).** The game-independent contracts, immutable
-canonical domain, in-memory command/event reducer, strict versioned JSON wire
-format, fixed-point units, canonical state hash, and structurally filtered
-coalition projection are implemented. See the
-[Phase 3A evidence](../evidence/phase-3a-kernel-evidence-2026-08-20.md).
-
-- Create campaign domain, engine, contracts, and test projects without game
-  assembly references.
-- Define typed IDs, campaign time, revisions, commands, events, entity lifecycle,
-  location, group/base relationships, orders, resources, intelligence, weather,
-  assignments, and fidelity state.
-- Define fixed/quantized units and serialization formats.
-- Separate canonical state from caches and projections.
-
-### 3B. Event journal and snapshots
-
-**Status: storage primitives complete; operational recovery lifecycle open.**
-The SQLite WAL schema, compare-and-swap writer
-lease/epoch, transactional command/event append, durable subject revisions,
-content hashes, strict idempotency behavior, ordered reads, and origin-to-head
-replay are implemented. Canonical snapshots now decode strictly, validate all
-domain invariants, and recover by replaying the journal tail. Adjacent
-content-addressed checkpoint/catalog blobs and cross-store integrity diagnostics
-are implemented. Staged atomic database-plus-blob backup and restore are also
-implemented. Controlled faults and abruptly terminated helper processes cover
-all fourteen declared persistence boundaries, including lost acknowledgements,
-and an independent lease-holder process proves successor fencing. See the
-[Phase 3B journal evidence](../evidence/phase-3b-journal-evidence-2026-08-20.md).
-ServiceHost now creates a canonical snapshot every 100 commits but does not
-cache a recovered head, so each append still repeats recovery inside the
-transaction from the latest snapshot plus its journal tail. No save-contract
-upgrader or qualified long-journal envelope exists. Those are prerequisites for
-a long-running or cross-build campaign claim, not deferred P8 tuning.
-
-- Acquire a compare-and-swap writer epoch before the first durable mutation;
-  require the current writer epoch in every append/lease transaction so a stale
-  coordinator cannot write even in the initial SQLite deployment.
-- Implement transactional append with campaign commit position and expected
-  entity revisions.
-- Implement idempotency keys and duplicate command/event behavior.
-- Add SQLite WAL storage, migrations, snapshot creation, validation, replay,
-  integrity checks, and transactional backup/export.
-- Content-hash checkpoint blobs and detect corruption.
-- Store checkpoint/catalog blobs in an adjacent content-addressed local directory
-  and make database-plus-blob backup/restore atomic at a recorded commit position.
-- Add crash injection between validation, append, snapshot, and acknowledgement.
-
-### 3C. Core simulation
-
-**Status: complete.** A typed simulation command/event now advances a durable
-scheduled queue through region movement, sustainment, repair, attrition, AI
-patrol intent, and coalition intelligence. Keyed randomness and stable sorted
-merge produce identical event/state bytes with one or many workers. See the
-[Phase 3C evidence](../evidence/phase-3c-simulation-evidence-2026-08-21.md).
-
-- Campaign clock and scheduled event queue.
-- Graph/region movement and cross-region transfer.
-- Basic fuel/stores consumption, replenishment, readiness, repair, and attrition.
-- Orders and AI intent sufficient for an unattended theater slice.
-- Keyed RNG and stable deterministic merge of parallel work.
-- Basic coalition intelligence estimates distinct from true state.
-
-### 3D. Replay and invariants
-
-**Status: deterministic verification slice complete; upgrade/default-duration
-qualification open.** The broad theater proves snapshot/journal
-replay to a pinned golden hash, strict schema/algorithm pins, conservation and
-state invariants, scheduling-independent event/state bytes, and fog-of-war
-sentinel exclusion. See the
-[Phase 3D gate evidence](../evidence/phase-3d-gate-evidence-2026-08-21.md).
-It does not prove recovery after a schema/algorithm bump or bounded performance
-as the journal grows under the shipping unattended defaults.
-
-- Golden replay fixtures.
-- Broad long-horizon integration checks for conservation, non-negative resources,
-  valid lifecycle, reachability, idempotency, and one canonical owner/revision.
-- Single-thread versus parallel-worker hash comparison.
-- Schema and algorithm version pinning.
-
-### Exit gate P3
-
-- A multi-region synthetic theater advances without Sea Power.
-- Snapshot plus journal replay produces an identical canonical hash.
-- Killing the process at every persistence boundary recovers to one valid durable
-  head without duplicate effects.
-- Two coordinator processes cannot both acquire or use a valid writer epoch.
-- Same inputs produce the same result under different worker scheduling.
-- Fog-of-war projections never include synthetic true-state sentinel fields.
-
-## Phase 4 - continuous single-client vertical slice
-
-**Status: transport/control slice complete; playable P4 exit gate open
-(23 August 2026).** Phase 3 provides the authoritative journaled theater;
-generated authenticated duplex gRPC, durable reconnect/spooling, separate
-content-addressed checkpoint HTTP, canonical assignment ownership, frozen
-tactical authority, ordered movement commit, checkpointed quiesce/release, and
-service-restart replay, and deterministic 120-quanta checkpoint fallback now
-work in the broad integration story. Checkpointed fuel/store/damage and terminal
-destruction capture are canonical, same-revision initial/final checkpoints have
-distinct durable identities, and catalog mismatch fails before materialization.
-Game crashes before the initial checkpoint and after an unproposed local
-mutation now recover within the fixed bound without admitting local-only state.
-The live evidence proves materialization, launch mechanics, checkpoint/return
-plumbing, and typed normal exit for the supported owned-surface path. It does
-not prove a human-length assignment under the default unattended clock or the
-fate of a campaign-owned hostile becoming a committed campaign outcome. The
-service exposes the measured display-first/provisional policy, journal durability
-boundary, and fixed rollback rule at authenticated `GET /durability-policy`.
-See the
-[Phase 4 transport evidence](../evidence/phase-4-transport-evidence-2026-08-21.md).
-
-### Objective
-
-Move one real entity between the external campaign and a running Sea Power
-client without creating a separate campaign timeline.
-
-### Work
-
-- Add typed bidirectional ASP.NET Core gRPC/Protobuf service-to-companion
-  transport for one trusted local client. Generate both client and service C#
-  types from versioned `.proto` contracts.
-- Restart interrupted streams from an explicit campaign commit cursor and treat
-  the durable journal as authoritative; transport reconnection is not durability.
-- Keep checkpoints/catalogs on authenticated content-addressed HTTP endpoints so
-  bulk transfer cannot monopolize the gRPC session stream.
-- Implement assignment and portable checkpoint contracts.
-- Fence the interaction island at a deterministic handoff tick. A short
-  transactional safe point may pause mutation while ownership changes, but the
-  tactical session must not globally pause unrelated campaign simulation.
-- Bind one tactical geography center/bubble, fixed step, global target tempo, and
-  pause state to the client synchronization session rather than to individual
-  assignments.
-- Materialize a small interaction island and activate one primary lease.
-- Route ordered player commands through the service rather than committing local
-  intent directly.
-- Capture typed tactical events and periodic canonical checkpoints.
-- Instrument when launch, impact, damage, destruction, UI, audio, and visual
-  effects become visible relative to event proposal and durable commitment.
-  Choose and document a feasible write-ahead/acceptance and bounded-rollback
-  policy. Do not assume that "commit before display" has no cost.
-- Dematerialize back to the operational engine using the quiesce protocol.
-- Continue unrelated external entities during tactical simulation.
-- Keep campaign objectives/triggers canonical in the external engine, or prove an
-  intentionally empty tactical mission container whose local triggers cannot
-  create a competing campaign outcome.
-- Define a maximum `Suspended` interval and a deterministic restore,
-  Operational-resolution, or force-resolution rule when no tactical worker
-  returns.
-- Expose a minimal theater/assignment diagnostic view.
-
-### Mandatory scenarios
-
-- Surface movement with waypoint changes.
-- Fuel/store expenditure without combat.
-- Weapon launch and target damage/destruction.
-- Player exits Sea Power normally.
-- Game crashes before and after a checkpoint.
-- Companion disconnects and reconnects.
-- Catalog mismatch blocks the handoff.
-
-### Exit gate P4
-
-- Theater time and unrelated entities continue while the island is tactical.
-- Stable IDs, revisions, time, supported damage, fuel, and stores survive a full
-  round trip.
-- Replaying committed commands/events produces the same external result.
-- No local-only tactical event becomes durable after an unacknowledged crash.
-- The measured player-visible outcome timeline has an explicit durability and
-  rollback contract rather than an assumed display delay.
-- Operational fallback resumes from the last committed checkpoint with a clear
-  bounded-loss report.
-- A suspended island reaches restore, Operational resolution, or explicit
-  force-resolution within its policy bound; it cannot remain suspended forever.
-
-This is the first architecture proof and the first candidate for a very small
-single-player prototype.
-
-## Phase 5 - operational simulation and dynamic fidelity
-
-**Status: infrastructure and in-process analogue implemented; P5 exit gate
-open (23 August 2026).** Per-worker health/eligibility, unattended in-process
-simulation, operational combat/ordnance, collider-assisted terminal silhouettes,
-and the calibration envelope exist. A complete player loop, broader calibration,
-out-of-process execution, and authenticated live two-container Sea Power
-migration remain unproven.
-
-### Current implementation slice
-
-- Schema v6 records each entity's simulation domain, maximum fidelity, selected
-  catalog loadout and operational weapon capabilities, plus contact uncertainty
-  and recent operational outcomes. It also persists assignment-to-worker
-  affinity. Concurrent companion/container sessions now coexist, committed
-  events fan out to each campaign worker, assignment and fence delivery is
-  owner-specific, and non-owner tactical returns are rejected. The broad
-  protocol story proves that a second worker can connect and disconnect without
-  replacing the live game companion. Scheduler load and unsafe coupling now
-  aggregate across all connected campaign workers. Each complete island keeps
-  one owner and selects a compatible least-loaded destination using planned as
-  well as reported occupancy, the campaign-global safe capacity, and stable
-  client identity. Workers now advertise their own capacity and reserve on
-  hello and heartbeat. Admission uses the smaller of campaign-safe capacity and
-  destination `capacity - reserve`, counting both materialized objects and live
-  assignments. Diagnostics separately expose ordinary promotion headroom and
-  the still-protected reserve available for a future migration overlap. The
-  coordinator can now reserve a non-publishing `Shadow` destination for a
-  complete currently-active, quiescing, or quiesced island: it selects a distinct
-  connected compatible worker, admits the whole island only against that
-  worker's migration-overlap reserve, commits higher-epoch `Shadow`/`Preparing`
-  assignments with exact affinity and consistent batch identity, and queues them
-  only to that destination. The companion reconstructs and suspends each native
-  object before the coordinator commits `Prepared` from its readiness report.
-  Source `Primary` ownership is unchanged. Repeated calls reuse the live Shadows
-  instead of creating duplicates. Automatic scheduler promotion still uses
-  ordinary headroom. The coordinator's authenticated
-  `migrate-tactical-island` operation now stages source final checkpoints to the
-  destination only, requires matching staged readiness for the complete island,
-  issues the existing atomic domain command, and queues post-commit activation
-  grants. Staged-hash matching is process-local only before commit; companions
-  durably resend staging frames if the coordinator restarts in that window.
-  After the durable migration event, grants reconstruct from that event's
-  exact commit position and source checkpoint blobs.
-  Bounded migration orchestration admission and durable campaign-scoped cooldown are
-  now enforced around the authenticated migrate path; companions declare per-worker
-  health and eligibility on hello/heartbeat, and only Healthy+Eligible workers
-  receive new Primary or Shadow work. Live two-container verification remains open. Named worker
-  launch scripts (`scripts/sea-power-worker.ps1`, `pnpm worker:start|stop|status`)
-  isolate control ports, pipes, run directories, Unity logs, and companion state
-  per worker ID. They launch Sea Power directly with per-process environment
-  variables and do not disturb the default `pnpm dev` process. Worker game starts
-  also set per-process `SteamAppId` and `SteamGameId` (default `1286220`) without
-  writing `steam_appid.txt` or mutating install/global environment. Start waits
-  validate the recorded game PID/metadata during plugin load, not only during pipe
-  connection, and classify Steamworks `RestartAppIfNecessary` log lines when present.
-  Stop validates executable path, PID, and start metadata before terminating only the recorded
-  worker game process. `scripts/sea-power-worker-live-proof.ps1` (`pnpm worker:live-proof`)
-  admits coexistence only when two workers publish distinct real campaign sessions
-  and non-synthetic fingerprints; it rejects synthetic gRPC test probes. Local
-  second-instance Sea Power is experimental: Steam may forbid duplicate processes,
-  shared native profile paths remain, and no two-container migration claim is
-  valid until live proof passes on the host. The
-  campaign kernel itself accepts one atomic
-  `migrate-tactical-island` command that promotes a prepared `Shadow`
-  destination over a quiesced `Primary` source for a complete island; this is
-  a durable domain fence plus destination-runtime preparation and staged
-  activation framing, not a completed mixed-combat live migration.
-- The kernel rejects promotions above that ceiling, and tactical handoff fails
-  closed for entities that cannot be represented by Sea Power.
-- The deterministic Fulda Gap Gone Hot: Global War proving campaign supplies
-  the large representative theater used while implementing the remaining Phase
-  5 engine, scheduler, monitor, and live-game flows. Its 55 regions, 81 bases,
-  4,096 opening entities and 919 groups cover both US coasts, Cuba and the
-  Caribbean, the Central Front, Atlantic, South Atlantic, Middle East, Indian
-  Ocean and Asia-Pacific. Thirty-eight airbase defense complexes and additional
-  theater radar, GBAD, shore-defense, supply, commerce, and civilian packages
-  make 4,006 catalog-backed entities eligible for eventual tactical streaming.
-  Ninety campaign-scale land formations remain Operational abstractions;
-  each exposes two armor and one low-end SHORAD physical targets. Strategic
-  SAM/radar and ballistic systems are resident Tactical candidates and never
-  demote below the Operational analogue. Rotary-wing, ground, and installation
-  behavior now exists in that analogue; their live materialization adapters
-  remain to be built. The seed now instantiates all usable base definitions in
-  the pinned catalog: 241 vessels, 111 aircraft, and 187 land units/sites. It
-  exercises Chinese and Japanese ground, air, IADS, coastal, and infrastructure
-  families as well as the broader European, Middle Eastern, Asian, and civilian
-  catalog. Catalog-backed forces cover the major shipped national fleets, while
-  Argentina's requested Soviet support is a
-  clearly labelled alternate-history logistics substitution because the game
-  has no Argentine nation prefix. Historical anchors, source links, and authored
-  extrapolations are tracked in the WW3++ scenario research ledger.
-- The monitor is part of the Phase 5 exit artifact, not a separate authority. It
-  now exposes the campaign graph, bases, units, task forces, domains, fidelity,
-  damage, recent interactions, health, journal head, scheduler health and
-  eligibility, island coupling, transition reasons, and target tempo from the
-  authenticated diagnostic projection. Its dominant Babylon theater surface is
-  a Natural Earth world wire map with geographic campaign overlays and
-  wireframe unit/domain glyphs, bounded by square monochrome operator registers
-  and limited semantic color highlights. `GET /campaigns` drives a switchable
-  campaign channel with stable deep links, while the semantic order of battle is
-  organized coalition -> formation -> unit rather than as a flat track list.
-  Singleton formations are flattened to avoid redundant hierarchy rows.
-- The unattended resolver now handles region-level detection, uncertainty
-  degradation, damage, destruction, and whole-task-force withdrawal in a
-  deterministic way. The actor's ammunition target class and native range
-  snapshot limit weapon employment. Both values come from the Sea Power
-  loadout. Missing catalog data blocks the action. Coalition projections use
-  opaque track IDs instead of hostile entity IDs. Campaign diagnostics enforce
-  three documented limits. The catalog range ratio stays at or below 1.000.
-  Tactical compression stays at or below 10 times the healthy rate of 30 ticks
-  per wall-clock second. The scheduler cannot demote a fenced coupling island.
-  The campaign view reports any disagreement.
-- The first non-resolving tactical worker container now loads live with one
-  process-local anchor, no hostile force, and no campaign objective or victory
-  trigger. Typed bridge automation selects it and reports a paused mission,
-  valid player task force, one session-surrogate object and zero campaign-owned
-  objects. It is the clean shell for future fenced island materialization, not
-  a scenario that can independently settle an engagement.
-- The first dynamic-fidelity vertical slice treats each task force as a minimum
-  island, merges opposing groups involved in recent region combat, applies
-  player observation/control and simulation-domain ceilings, fences active
-  authority and active interactions, and journals lower-fidelity island changes.
-  A requested Tactical promotion remains desired-only until a companion reports
-  successful materialization and an initial checkpoint; that response atomically
-  activates authority and promotes the canonical entity. Rejected or interrupted
-  preparation releases without creating phantom Tactical state.
-  Health, simulation-source eligibility, tactical capacity, retained runtime
-  resources, reserve capacity, and transport backlog drive load shedding;
-  suitable quiet whole islands demote before the global target tempo falls.
-  Active, suspended-retained, recovery-required and total materialized resource
-  counts are projected from the tactical worker. The scheduler input and
-  stable-sample count are journaled
-  and snapshot-recoverable. Active quiet islands require two matching healthy
-  interest-loss samples before quiescing, while load shedding remains immediate.
-  Process-local diagnostics now measure recovery, advancement, and scheduling
-  latency/work throughput plus service memory without feeding wall time into
-  simulation semantics. The fixed step remains 33,333 microseconds.
-- The live Sea Power vertical gate now promotes a Fulda campaign entity through
-  the scheduler, materializes and checkpoints it, drains it after the durable
-  two-sample hysteresis, and re-promotes the retained object under a higher
-  authority epoch. Active weapon/guidance and physical collision-avoidance
-  coupling now cross the live bridge, heartbeat, service island graph,
-  scheduler fence, and monitor. A paused campaign-owned Knox with an active
-  RGM-84C remained Tactical while three otherwise identical islands drained to
-  Operational; two independent campaign Knox groups joined one unsafe Tactical
-  island while Sea Power actively avoided their collision. The schema-v2 bridge
-  also captures sensor, host, formation, temporary-refueling, and stable
-  plotting relationships. Reserve-aware whole-island load shedding now includes
-  retained and recovery-required runtime objects. Operational shot range is
-  scored against a documented envelope (catalog ratio <= 1.000, tactical
-  compression <= 10x), and fenced mixed-island coupling cannot be demoted. The external-kernel
-  large-theater sub-gate now has a reproducible 300-entity pass at 35.9 quanta/s;
-  600 entities measures 18.5/s and is explicitly an overloaded envelope. The
-  first live independent-surface burst reaches four Active Knox assignments in
-  4.02 seconds, drains them in 2.01 seconds, and re-promotes retained objects in
-  1.32 seconds. The first exact active-combat sample launches a native RUR-5
-  ASROC against a Victor III and sustains 59.5-59.8 controlled ticks per wall
-  second (1.98-1.99x real time) across 30- and 60-second batches; this is a
-  single-weapon observation, not a mixed-island ceiling or outcome calibration.
-- Campaign heartbeats now refresh the worker's live game session, compatibility
-  fingerprints, player task force, and exact materialization profiles. Typed
-  debrief-to-mission transitions were verified under one unchanged companion
-  session, eliminating the development-only companion restart that was formerly
-  needed after loading a scenario.
-- The coupling heartbeat retains a hard relationship for one missed sample,
-  unions campaign endpoints into the interaction graph, and prevents interest
-  loss or load shedding from splitting/demoting active weapon, sensor, host,
-  plotting, formation, or physical-dependency islands. Plotting records are
-  deduplicated by stable source/target/sensor-kind keys. The monitor labels the
-  selected island `FENCED` and displays the causal edge.
-
-### Objective
-
-Advance unattended engagements credibly and promote/demote fidelity based on
-player interest and coupling.
-
-### Work
-
-- Implement operational detection, contact uncertainty, maneuver, engagement,
-  weapon expenditure, damage, withdrawal, and outcome events.
-- Calibrate against batches of Sea Power observations without copying transient
-  implementation details. Use the game's unmodified tactical model only within
-  its measured valid compression range (initially no claim above 10x); separately
-  validate any faster controlled-adapter execution.
-- Implement scheduler inputs: proximity, player observation/control, active
-  interactions, strategic importance, client capacity, and health.
-- Build the interaction coupling graph with merge/split hysteresis.
-- Measure whether task force is the practical minimum assignment unit and where
-  sensor, weapon, host, plotting, and physics coupling force larger islands.
-- Implement safe island merge/split protocols and cross-boundary deferral.
-- Implement the health states, simulation-source eligibility, reserve budgets,
-  load-shedding ladder, migration protocol, and global tempo controller in
-  [Load management](../architecture/load-management.md).
-- Add fidelity budgets and operational fallback policies. Native active-weapon
-  transfer is allowed only if its P1/P2 round-trip gate passed; otherwise the
-  affected boundary remains temporarily fenced.
-- Add transition metrics and a campaign UI explanation for why fidelity changed.
-
-### Exit gate P5
-
-- A large synthetic theater meets its target wall-time budget without Unity.
-- Relevant player approach/observation promotes an island to tactical fidelity.
-- Leaving the area demotes it without state/time loss.
-- Active weapon/guidance and physical relationships cannot be split unsafely.
-- Operational outcomes fall within documented calibration envelopes for test
-  cases; disagreement is visible, not hidden.
-- Scheduler load shedding never silently drops committed entities or events.
-- CPU/GPU/network/backlog stress drains or disables clients, migrates whole
-  islands with reserve, and only then slows global tempo without changing the
-  fixed step.
-- Migration concurrency, destination headroom, affinity, hysteresis, and cooldown
-  prevent oscillation or cascade failure in the stress suite.
-
-## Phase 6 - redundant replicas and failover
-
-**Status: cold fencing/checkpoint primitives implemented; P6 exit gate open
-(23 August 2026).** Replica checkpoint hash disagreement refuses majority;
-RenderProxy cannot receive simulation authority; Observer cannot activate
-without complete hidden state. Live two-process recovery, measured recovery
-objectives, and hot-shadow convergence are unsupported.
-
-### Objective
-
-Allow multiple clients to simulate the same unit/island and replace an unhealthy
-primary without split-brain outcomes.
-
-Hot Shadow and promotable full-Observer work is conditional on the deterministic
-runtime adapter passing its D0-D5 acceptance criteria. If it fails, this phase
-retains leases, epochs, fencing, health, cold checkpoint reconstruction, and
-operational fallback but makes no hot-failover claim.
-
-### 6A. Assignment/lease service
-
-- Implement Primary, Shadow, Observer, and Proxy roles.
-- Store leases and epochs transactionally with event commitment.
-- Add service-time lease expiry, heartbeats, readiness, lag, and capacity.
-- Require compatibility and complete-state proof for promotion eligibility.
-- Keep client load state separate from replica convergence state; implement
-  `Eligible`, `DrainOnly`, `Disabled`, and `Quarantined` simulation-source
-  eligibility without disconnecting the player session.
-
-### 6B. Replication and divergence
-
-- Broadcast the same committed checkpoint and ordered inputs to full replicas.
-- Require the same validated runtime-adapter and simulation-manifest versions.
-- Grant identical logical tick ranges rather than allowing FPS-driven progress.
-- Collect canonical and subsystem hashes at defined ticks.
-- Classify exact match, tolerated quantized drift, correctable drift, and unsafe
-  divergence.
-- Implement event catch-up, correction delta, checkpoint reload, and demotion.
-- Keep render projections and hidden promotion state logically separated.
-
-### 6C. Promotion
-
-- Fence the old epoch before selecting the new primary.
-- Rank eligible replicas by compatibility, completeness, cursor/tick freshness,
-  hash agreement, health, capacity, and locality.
-- Activate at an explicit effective tick.
-- Reject every late old-epoch event and rebase a returning primary.
-- Fall back to the operational engine if no full replica is eligible.
-
-### 6D. Load-driven reassignment and minimum validation
-
-- Exercise prepare-at-source, quiesce tick, final checkpoint, atomic epoch fence,
-  destination activation, and post-commit native suspension. Remove quiet islands
-  from memory only after separate validation.
-- Preserve reserve capacity for failover and reject destinations that are already
-  pressured or cannot afford temporary overlap.
-- Apply basic kinematic, detection-range, weapon/store, and event-causality
-  plausibility checks before accepting multiplayer tactical outcomes. Deeper
-  hostile-client adjudication remains a later release gate.
-
-### Adversarial failure matrix
-
-Test primary process kill, companion kill, pipe break, remote partition,
-asymmetric packet loss, stalled Unity frame loop, paused game, slow disk,
-corrupt checkpoint, stale shadow, incompatible catalog, duplicate messages,
-reordered messages, delayed old-primary events, and coordinator restart during
-promotion. Also test CPU/GPU throttling, queue/checkpoint bursts, destination
-failure during migration, every destination pressured, repeated overload, false
-capacity reports, and migration storms.
-
-### Exit gate P6
-
-- Two clients visibly simulate the same selected unit under explicit roles.
-- If the runtime adapter is validated, a warm shadow takes authority within the
-  measured recovery objective without duplicate command, weapon, damage, or
-  destruction events.
-- If the adapter is not validated, the documented cold-checkpoint/operational
-  path meets its measured recovery objective and the product makes no hot-shadow
-  claim.
-- The old primary can never commit after its epoch is fenced.
-- A full observer may be promoted only with authorized complete hidden state.
-- A proxy can never be promoted.
-- Two-replica hash disagreement triggers diagnosis/resync rather than claiming a
-  majority.
-- Loss of every tactical replica affects only islands unsafe for operational
-  fallback; the rest of the theater continues.
-- A disabled simulation source remains connected for authorized commands and
-  filtered presentation but receives no Primary, Shadow, or full Observer role.
-- Load-driven migration preserves one publisher, one cursor, fixed-step
-  semantics, and the same ordered global tempo transition on every replica.
-- Impossible basic outcomes are rejected before the trusted co-op alpha claim.
-
-## Phase 7 - realtime multiplayer experience
-
-**Status, 23 August 2026.** HTTP projection and reconnectable player sessions
-exist, but the P7 exit gate remains open. The service produces coalition-filtered
-snapshots and bounded presentation messages. It does not have a SignalR hub, a
-complete player client, or a canonical player-order path. Accepted presentation
-messages do not commit campaign commands or outcomes.
-
-### Objective
-
-Turn the federated simulation into a coherent multi-player command and
-observation experience.
-
-### 7A. Identity and sessions
-
-- Authenticated player, coalition, operator, and worker identities.
-- Reconnect tokens, session replacement, rate limits, and audit log.
-- Per-player control rights and delegation over units/groups.
-- Exercise gRPC stream restart, Protobuf compatibility, cursor catch-up, and
-  session fencing for companions/workers over loopback, LAN, and internet-like
-  fault profiles.
-- Use SignalR with MessagePack for player-facing browser/native UI projections,
-  notifications, groups, and reconnect. SignalR messages never commit canonical
-  campaign outcomes directly.
-
-### 7B. Information projections
-
-- True-state store isolated from player-visible contact/intelligence state.
-- Visibility-filtered snapshots, events, late join, and reconnect.
-- Contact identity/confidence/provenance rules.
-- Tests with sentinel secret fields at every serialization boundary.
-- State the deployment trust model in product metadata and UI. A player process
-  holding full opposing truth is trusted even if the visible projection is not.
-- Prototype a Crimean-Tom-owned filtered proxy object containing authorized track
-  presentation only, with no sensors, weapons, AI, targetability, or hidden true
-  state; prove the Sea Power pipeline does not promote it into a real contact.
-
-### 7C. Commands and prediction
-
-- Client command capture with prediction IDs.
-- Service validation, ordering, effective tick, and rejection feedback.
-- Local interpolation/prediction for responsive UI.
-- State-aware correction without unsafe teleport/guidance corruption.
-- AI/default behavior for disconnected commanders.
-
-### 7D. Player-facing lifecycle
-
-- Join a running campaign and receive a coherent local tactical view.
-- Observe units using proxy or observer replicas.
-- Transfer control without transferring canonical authority accidentally.
-- Explain degraded fidelity, resync, promotion, and unavailable commands.
-- Preserve campaign play when a host/player leaves.
-
-### Exit gate P7
-
-- Multiple players can join, command authorized units, observe filtered contacts,
-  disconnect, and rejoin without stopping campaign time.
-- Unauthorized state never crosses projection boundaries in automated tests.
-- A playable engagement uses either trusted/neutral full-state execution or a
-  proxy path that has passed the hidden-state and game-interaction spike; assigning
-  only a player's coalition is not presented as a complete solution.
-- Conflicting commands have deterministic service ordering and clear feedback.
-- A player/client leaving does not end the campaign or destroy its units.
-- Prediction errors reconcile without changing committed history.
-
-This phase targets trusted/private multiplayer. Untrusted public play remains
-outside the release claim until Phase 9 security evidence exists.
-
-## Phase 8 - scale, persistence, and service availability
-
-**Status: SQLite durability/operator slice implemented; P8 exit gate open
-(23 August 2026).** Online backup/side-directory restore, integrity verification,
-operator pause, and drain are HTTP controls. Packaging, clean-machine install,
-campaign import/export, retention/compaction, soak, and measured scale/recovery
-objectives are not claimed.
-
-### Objective
-
-Move from a working trusted campaign to a long-running, recoverable deployment.
-
-### Work
-
-- Benchmark and tune the supported SQLite WAL journal, snapshots, indexes,
-  compaction, backups, and content-addressed local blob store at the intended
-  single-player/private-co-op scale.
-- Keep a complete packaged local deployment as a release-tested profile with no
-  Docker, external database, broker, cache, or object store.
-- Add PostgreSQL and external object-storage adapters only if measured scale or
-  coordinator-availability goals exceed the SQLite/local-file profile. They may
-  not become requirements for ordinary players.
-- Make coordinator instances stateless above storage only for the optional
-  horizontally available deployment profile.
-- Add leader/fencing mechanism for lease/epoch allocation before running more
-  than one active coordinator writer.
-- Add operational worker registration, shard assignment, and rebalancing.
-- Run load tests for theater entities, commands, events, players, replicas,
-  checkpoint throughput, reconnect storms, and island merge spikes.
-- Add backups, restore drills, retention, compaction, and campaign export/import.
-- Add operator dashboards and safe campaign pause/drain/upgrade workflows.
-
-### Exit gate P8
-
-- A production-sized benchmark meets explicit tick-lag, latency, bandwidth,
-  storage, and recovery objectives documented from test results.
-- Database/service restart and failover preserve one ordered durable head.
-- Backup restoration passes event/hash verification.
-- Rolling companion/service compatibility follows negotiated versions.
-- Load shedding preserves authority/control traffic ahead of bulk/projection data.
-- The packaged SQLite/local-file profile passes install, host, backup, restore,
-  LAN join, and long-running campaign tests on a clean machine.
-
-## Phase 9 - hardening and release qualification
-
-**Status: claims and threat model documented; P9 exit gate open (23 August
-2026).** See
-[supported claims](supported-claims.md) and [threat model](threat-model.md).
-Soak, hostile-client adjudication, and a full clean-machine runbook remain
-unsupported.
-
-### Objective
-
-Make supported claims explicit and prove them against failure, update, and abuse.
-
-### Work
-
-- Threat model client, companion, local pipe, remote transport, operator API,
-  storage, logs, and update supply chain.
-- Fuzz envelopes, contracts, checkpoint readers, and catalog input.
-- Add resource exhaustion and malformed-client tests.
-- Extend the P6 basic plausibility layer with hostile-client threat modeling,
-  independent adjudication, timing/size side-channel mitigation, and exploit
-  resistance.
-- Test game/mod/catalog updates and migration or fail-closed behavior.
-- Run long-duration soak campaigns and repeated materialization/failover cycles.
-- Document supported game build, deployment modes, scale envelope, known lossy
-  fields, recovery point, and recovery time.
-- Package diagnostics and privacy-safe bug reports.
-
-### Exit gate P9
-
-- No unresolved critical threat or data-corruption path in the supported trust
-  model.
-- A full clean-machine install, update, campaign creation, play, crash recovery,
-  and export/restore runbook passes.
-- Compatibility failures preserve campaign data and explain recovery steps.
-- Soak tests meet the declared stability and bounded-loss objectives.
-- Documentation matches observed behavior and current commands.
-
-## Campaign feature coverage
-
-The infrastructure phases do not by themselves make a compelling campaign.
-Each campaign system progresses from a deterministic skeleton in P3, through a
-playable calibrated model in P5/P7, to supported content and balance in P9.
-
-| System | P3 deterministic skeleton | P5/P7 playable capability | P9 qualification |
-| --- | --- | --- | --- |
-| Geography/environment | Regions, typed routes, base locations, scheduled weather | Route constraints, sea/air conditions, time-dependent effects | Theater/content validation and migration |
-| Force lifecycle | Stable instances, groups, base/host links, availability | Formation, detach/merge, transit, deployment, withdrawal | Long-run conservation and edge-case coverage |
-| Logistics | Fuel/stores/readiness counters and transfer events | Supply routes, capacity, replenishment, repair, replacements | Balance, bottleneck, exploit, and recovery tests |
-| Air operations | Squadron/host inventory and abstract sorties | Readiness, loadouts, tasking, launch/recovery continuity | Carrier/base stress and loss/replacement campaigns |
-| Orders/operations | Move, patrol, hold, escort, engage intent | Mission planning, ROE, priorities, contingencies, cancellation | Conflicting/late command UX and AI coverage |
-| Intelligence | True state plus estimated contact projection | Detection, uncertainty, classification, decay, sharing | Fog-of-war leakage and deception testing |
-| Combat | Typed expenditure/damage/loss events | Calibrated operational resolver and tactical promotion | Cross-fidelity outcome envelopes and exploit review |
-| AI command | Deterministic basic order selection | Theater objectives, force allocation, logistics-aware planning | Long soak, difficulty, pathological strategy review |
-| Objectives/progression | Not implemented | Durable predicates, victory/failure state, consequences, narrative/event hooks | Content authoring, localization, save compatibility |
-| Player economy/administration | Versioned policy/resources | Reinforcement, repair, allocation, optional points/budgets | Ruleset locking, migration, and abuse testing |
-
-The first playable slice need not implement every row deeply, but no omitted
-system may be represented as working. Unsupported mechanics remain explicit in
-campaign metadata and UI.
-
-## Product increments
-
-| Increment | Phases | User-visible claim |
-| --- | --- | --- |
-| Diagnostic foundation | P0 | Companion can inspect a running supported game safely |
-| Integration laboratory | P1-P2 | Supported test entities can round-trip under controlled tooling |
-| Continuous prototype | P3-P4 | One campaign advances outside Unity and hands one island live to Sea Power |
-| Single-player alpha | P5 | Dynamic fidelity and operational fallback support a small playable theater |
-| Trusted co-op alpha | P6-P7 | Several clients share units, observers, failover, and ordered commands |
-| Durable beta | P8 | Long-running dedicated campaigns have measured scale and recovery |
-| Qualified release | P9 | Supported trust, compatibility, stability, and limitations are documented |
-
-These labels prevent multiplayer plumbing from being mistaken for campaign
-feature completeness, and prevent a broad campaign model from being mistaken
-for safe distributed authority.
-
-## Critical path
-
-The shortest path to a valid architecture proof is:
-
-```text
-P0 control hardening
- -> P1 stable identity + canonical extraction + deterministic-adapter proof
- -> P2 one reversible materialized unit
- -> P3 deterministic journaled campaign kernel
- -> P4 continuous single-client round trip
- -> P5 dynamic fidelity
- -> P6 redundant failover
- -> P7 multiplayer
-```
-
-That historical phase path describes how the current prototype was assembled.
-The current recovery path to an honest playable slice is dependency-ordered as:
-
-```text
-close loopback auth bypass + separate principals/browser writes
- -> bound journal recovery + prove a long head
- -> save-contract evolution across one schema/algorithm change
- -> human tactical clock + renewable assignment lease
- -> canonical coalition-scoped player orders
- -> one small durable objective/victory ruleset and UI
- -> commit a campaign-owned hostile tactical outcome
-```
-
-Out-of-process Operational ticks, SignalR, hot replicas, broad entity-family
-coverage, and packaging follow this vertical slice; they do not precede it.
-
-Work that can proceed in parallel once contracts stabilize:
-
-- catalog extraction and synthetic campaign domain fixtures;
-- storage adapter and replay test harness;
-- operator diagnostics UI and structured telemetry;
-- operational model research/calibration;
-- threat model and protocol fuzz harness.
-
-Game mutation must not outrun identity/extraction. Multiplayer must not outrun
-fencing/persistence. Scale work must not hide correctness failures.
-
-## Deferred decisions and their mandatory gates
-
-These are deliberately uncommitted constants or mechanisms, not missing plan:
-
-| Decision | Evidence required | Latest decision point |
-| --- | --- | --- |
-| Campaign contract evolution | Open, replay, and append an existing campaign across one schema and one algorithm change, or prove a supported side-by-side/export-only alternative | Before the first objectives/ruleset schema change |
-| Service snapshot/cache policy | 10,000-commit recovery/append benchmark with integrity and crash-boundary checks; rate at commit 10,000 remains within 20% of commit 500 | Before player-loop implementation |
-| Tactical/campaign clock coupling and assignment renewal | One human-played 15-minute engagement in which the assignment remains valid, the theater follows the declared time policy, and checkpoint return succeeds | Before claiming a playable P4 slice |
-| Local principal and hosted-browser write model | Separate companion, worker, operator, and player authorization tests; unauthenticated content-type spoof cannot reach control endpoints | Before canonical browser orders |
-| Campaign time quantum | Sea Power timing instrumentation and engine benchmark | Before P3 clock contract freezes |
-| Checkpoint cadence/size | Extraction cost, drift, bandwidth, recovery objective | Before P4 tactical events |
-| Exact portable damage/store fields | Read/write round trips per platform class. A non-null fuel fraction has a guarded `_currentFuelMass` write/readback path, but the pinned `Variant43` Knox captures null native fuel capacity; fuel, damage, magazines, sensors, formations, and hosted aircraft remain fenced. | Each P2 type gate |
-| Suspension/dematerialization support | Native Disable/Enable, then optional deeper removal, with no loss event, dangling relationship, child loss, save corruption, or unmeasured retained cost | Before P2 lifecycle exit |
-| Active-weapon handoff support | Native mid-flight save/load plus portable extraction/reconstruction experiment | Before P5 island split/migration |
-| Tactical session bubble | Floating-origin relocation and distant-island sensor/physics/terrain benchmark. Native radii (67 km rebase, instantiated-set kinematics, ~500 nmi campaign pull-in) are recorded in [tactical-bubble.md](../research/tactical-bubble.md). `get-world-snapshot` now reports geodetic maxima and objects/weapons whose tiles are not loaded; a qualified combat/terrain radius is still unmeasured. | Before P4 session contract freezes |
-| Outcome commitment/display semantics | Instrumented launch/impact/damage/destruction durability timeline | P4 exit gate |
-| Island coupling thresholds | Sensor/weapon interaction traces and churn benchmark | P5 scheduler tuning |
-| Load thresholds and tempo bounds | Stress throughput, queue, migration, recovery, and player-experience benchmarks | P5 load-controller defaults |
-| Hot Unity replica viability | D0-D5 controlled clock/RNG/order/checkpoint suite. [E1a sampler](../evidence/e1a-divergence-sampler-2026-08-22.md) can record same-machine canonical/kinematics/GameTime divergence first; it does not validate the adapter. | Before P6B begins |
-| Default replica count | Failure probability, adapter cost, and recovery benchmark | P6 policy gate |
-| Failover time objectives | Validated hot-shadow or cold-restore measurements under injected failures | P6 exit gate |
-| Scale/player claims | End-to-end load and soak evidence | P8 exit gate |
-| Filtered proxy viability | Proxy-object interaction and hidden-state sentinel spike | Before P7 information topology freezes |
-| Public/untrusted trust model | Threat model and independent validation cost | P9 release scope |
-| Need for PostgreSQL/external object storage | SQLite WAL and local blob benchmarks plus coordinator availability objective | P8 scale profile |
-| Need for raw WebSockets, extra streams/connections, or QUIC/UDP | gRPC/Protobuf and UI SignalR latency, allocation, loss, reconnect, and control-starvation benchmarks | P7/P8 network tuning |
-| Campaign-owned standalone sim worker | Track A spawn/assign is implemented; Track B unattended Unity farm is not. Plan: [standalone-sim-worker.md](../architecture/standalone-sim-worker.md). Sea Power is not headless. | Before unattended Tactical islands leave the in-process kernel |
-
-Every item has a phase deadline; none may silently become a hard-coded default
-before its evidence exists.
-
-## Test portfolio
-
-### Pure deterministic tests
-
-- reducers and command validation;
-- keyed RNG vectors;
-- event ordering/idempotency/revision conflicts;
-- snapshot/journal replay and migrations;
-- interaction graph/island merge-split state machines;
-- leases, epochs, fencing, promotion ranking, and expiry;
-- visibility projections and secret-state sentinels;
-- single-thread/parallel equivalence and long seeded runs;
-- save upgrade across at least one schema and one algorithm revision;
-- long-head recovery/append performance with the production snapshot/cache policy.
-
-### Protocol tests
-
-- serialization compatibility and golden messages;
-- generated gRPC client/service parity, Protobuf compatibility, bidirectional
-  stream restart, durable cursor catch-up, and restart beyond transient buffers;
-- strongly typed SignalR server callbacks, UI MessagePack round trips, WebSocket
-  negotiation, and UI reconnect behavior;
-- unknown optional versus required fields;
-- fragmentation, chunk hash, reconnect cursor, and cancellation;
-- malformed, oversized, truncated, duplicated, delayed, and reordered
-  length-prefixed messages;
-- backpressure and priority under bulk checkpoint transfer;
-- authentication expiry/revocation and session replacement;
-- one broad story under shipping defaults, including unattended advancement,
-  tactical assignment renewal/expiry, hosted monitor authorization, and
-  content-type spoof rejection.
-
-### Game integration tests
-
-- plugin load and main-thread dispatch;
-- scene/load transition and stable-ID remapping;
-- each supported object type's read/write matrix;
-- materialize/dematerialize/rollback;
-- damage, stores, hosted aircraft, weapons, and task-force relationships;
-- fixed step, global target tempo, pause, and tactical clock mapping;
-- baseline versus controlled-runtime divergence across frame rates and machines;
-- seeded/keyed RNG vectors and stable materialization/update order in live Unity;
-- coordinator-granted tick ranges, lead/lag boundaries, and deterministic input
-  application;
-- repeated reconnect, game restart, and game-update compatibility.
-
-### Distributed fault tests
-
-- kill/freeze/partition every component at every handoff step;
-- split-brain and delayed old-primary messages;
-- stale/corrupt/missing checkpoint;
-- divergent replicas and correction escalation;
-- coordinator/store restart during append, snapshot, assignment, and promotion;
-- reconnect storms and capacity exhaustion;
-- total tactical loss with operational fallback;
-- CPU/GPU throttling, frame collapse, event/checkpoint bursts, pipe/network
-  backlog, and all-destinations-pressured behavior;
-- destination failure at each migration stage, repeated overload, false metrics,
-  and migration-storm suppression;
-- global tempo changes at ordered ticks without fixed-step/hash changes.
-
-### Human/UI tests
-
-- continuous theater state is understandable before entering tactical view;
-- assignment/fidelity changes do not masquerade as unit destruction;
-- command acceptance/rejection and prediction correction are legible;
-- observers do not learn hidden state from UI, logs, map artifacts, or timing;
-- player disconnect/rejoin and controller transfer are understandable;
-- operator diagnostics explain authority and recovery decisions.
-
-## Evidence package for every phase
-
-Each phase review should contain:
-
-- pinned commit/worktree description, game build, plugin/companion version,
-  protocol/schema/simulation versions, catalog/mod fingerprint;
-- requirements-to-test matrix for that phase's exit gate;
-- automated test and live integration results;
-- canonical input/output fixtures and hashes where redistributable;
-- performance/allocation/network/storage measurements;
-- injected failure results and bounded-loss statement;
-- new unsupported fields and known limitations;
-- threat/privacy impact;
-- rollback/recovery procedure;
-- explicit approval or rejection of proceeding to the next phase.
-
-## Adversarial review checklist
-
-The planned review should attempt to falsify, not confirm, the design.
-
-### Authority and split brain
-
-- Can two primaries obtain overlapping valid leases?
-- Can an event validate before an epoch changes and commit afterward?
-- Can delayed, duplicated, or replayed old-primary messages mutate state?
-- Can coordinator/database failover allocate the same epoch twice?
-- Is promotion safe if the shadow agrees on hash but lacks hidden transient state?
-
-### Determinism and divergence
-
-- Which field or algorithm still depends on wall clock, frame rate, thread order,
-  unordered iteration, locale, platform floating point, or a sequential RNG?
-- Does canonical quantization hide a tactically meaningful divergence?
-- Can a correction create impossible physics, guidance, or duplicate damage?
-- With two replicas disagreeing, is any code incorrectly treating one as truth?
-
-### Materialization and identity
-
-- Can a partial spawn leave duplicate live objects or consume stores twice?
-- Can a scene transition reuse a stale Unity reference or ID?
-- Can dematerialization delete a user/scenario object?
-- Which state cannot round-trip, and does that make promotion unsafe?
-- What happens to in-flight weapons, hosted aircraft, sensor tracks, and damage
-  over time at each handoff boundary?
-
-### Time and causality
-
-- Can a client run too far ahead and reveal or act on an uncommitted future?
-- Can a late order be applied before an already observed outcome?
-- What does pause mean with one, several, or zero tactical clients?
-- Can any overload path enlarge/skip a step or let one assignment choose a local
-  time scale instead of applying the global ordered tempo?
-- Can island merge/split reorder causal sensor, weapon, or damage events?
-- Does recovery rewind information already exposed to players?
-
-### Security and fog of war
-
-- Can observer/shadow state, logs, hashes, errors, timing, or checkpoint sizes
-  reveal hidden enemy truth?
-- Can a client request a role or entity outside its authorization?
-- Can arbitrary payloads reach reflection, file paths, or unrestricted game APIs?
-- Can a malicious client fabricate plausible outcomes or exhaust queues/storage?
-- Are tokens or opposing-force state present in saves, crash dumps, or logs?
-
-### Availability and degradation
-
-- Which failures stop the whole campaign rather than one island?
-- Can lease/control traffic be starved behind checkpoint or projection traffic?
-- Is operational fallback valid for every currently tactical entity state?
-- What is lost when all full replicas disappear just before a checkpoint?
-- Can repeated unhealthy-client promotion cause oscillation or cascade failure?
-- Can a player stay connected after its game is disabled as a simulation source?
-- Does every migration destination retain measured reserve after temporary
-  source/target overlap, and are concurrent migrations bounded?
-- Can false load reports shed strategically inconvenient work or leak hidden
-  force composition through migration timing/checkpoint size?
-
-### Compatibility and operations
-
-- Does a game/mod update change a field without changing the fingerprint?
-- Can a mixed-version client receive a command it only partially understands?
-- Are backups self-consistent with checkpoint blobs and event positions?
-- Can operators diagnose and safely recover without editing database rows?
-- Does every claimed scale/recovery number have a reproducible benchmark?
-
-Any failed question becomes either a design change, a phase exit blocker, or an
-explicitly bounded product limitation. It must not be dismissed as an edge case
-without a recorded impact and fallback.
-
-## Definition of plan completion
-
-This planning phase is complete when:
-
-- the system architecture has one canonical owner for every state category;
-- continuous materialization, command/event flow, time, interaction islands,
-  redundancy, promotion, load shedding, simulation-source disabling, global
-  tempo, persistence, security, and failure behavior are defined;
-- every implementation phase has prerequisites, concrete deliverables, mandatory
-  scenarios, and an exit gate;
-- unknown constants have evidence requirements and decision deadlines;
-- adversarial review questions map to a phase or release blocker;
-- repository documents no longer present generated isolated missions as the
-  normal Crimean Tom architecture.
+- Reject activation when required state cannot be represented safely.
+- Keep checkpoints bounded and versioned.
+
+### Result commit
+
+- Quiesce new tactical actions for normal exit.
+- Capture a final checkpoint and typed outcomes.
+- Validate epoch, expected revisions, causality, and content fingerprints.
+- Commit hostile fate, player state, expenditure, and objective effects once.
+- Show the player the result and every rejected or unsupported field.
+
+### Recovery
+
+- Qualify clean tactical exit, forced game termination, game relaunch, companion
+  restart, and campaign-service restart.
+- Measure detection and recovery latency.
+- Prove that stale objects are hidden or removed and cannot publish.
+- Prove no duplicate object and no second timeline appears.
+
+### Acceptance gate
+
+A campaign-owned hostile is damaged or destroyed in Sea Power. Its fate and the
+player force's supported state commit once. Normal exit and a separate forced
+restart both return to one durable campaign timeline.
+
+## Milestone 5: qualify parity and the 4K design
+
+Compare the external campaign model with Sea Power and enforce explicit budgets.
+
+### Parity portfolio
+
+Use small matched scenarios to compare:
+
+- movement and fuel use;
+- detection, classification, and track aging;
+- weapon launch, flight, interception, hit, and damage;
+- aircraft, helicopter, submarine, ship, ground-unit, and installation behavior;
+- fixed timestep and internal time dilation; and
+- player-visible controls and map interactions.
+
+Record systematic differences as versioned calibration rules or explicit
+limitations. Aggregate FPS alone is not parity.
+
+### Performance portfolio
+
+- Keep the 500-entity all-native scenario as the safe vanilla baseline.
+- Compare it with the 500-entity dynamic scenario using the same capture method.
+- Exercise 500, 1,000, 2,000, and 4,096 dynamic campaign sizes.
+- Report campaign throughput, frame time, fixed timestep, time dilation, working
+  set, tactical-entry latency, proxy latency, checkpoint size, and commit
+  latency.
+- Report native objects, map records, proxies, Operational entities, tracks,
+  weapons, and terrain-backed objects separately.
+
+### Durability portfolio
+
+- Run at least 10,000 commits with snapshots, cold restart, backup, restore, and
+  bounded storage growth.
+- Prove one schema and one algorithm upgrade without rewriting the source save.
+- Test malformed checkpoints, catalog mismatches, interrupted writes, and disk
+  pressure.
+
+### Acceptance gate
+
+The 4,096-entity campaign meets declared simulation, memory, UI, entry, and
+recovery budgets with a bounded Sea Power object set. Known parity differences
+are visible and versioned.
+
+## Milestone 6: broaden campaign content
+
+Expand only through the same entry, play, return, and recovery contract.
+
+- Aircraft and helicopter sortie generation, basing, turnaround, loadouts, and
+  recovery.
+- Subsurface tasking and contact behavior.
+- Airbase defense with radar, high- and low-end GBAD, dispersal, and logistics.
+- Strategic air-defense and ballistic-missile systems with persistent-residency
+  policy where supported.
+- Representative tanks, artillery, logistics, and low-end GBAD for abstract
+  ground formations.
+- Ports, supply sites, shore defenses, civilian traffic, and regional logistics.
+- Versioned platform and scenario catalogs with compatibility diagnostics.
+
+Each family needs map representation, proxy behavior, Tactical portability where
+required, Operational behavior, AI use, terrain safety, and return semantics.
+
+## Milestone 7: add private multiplayer
+
+Multiplayer stays in the active roadmap but does not block the local proof.
+
+- Add durable users, invitations, revocation, coalition roles, and control
+  rights.
+- Serve coalition-filtered projection snapshots and realtime deltas.
+- Resume from durable campaign cursors after reconnect.
+- Define shared task-force ownership and order-conflict policy.
+- Add TLS, rate limits, audit records, and secret rotation for LAN or private
+  internet hosting.
+- Prove that clients cannot read opposing true state through APIs, errors,
+  timing, logs, or presentation proxies.
+
+The first multiplayer milestone can use one campaign service and one Sea Power
+tactical process. Public adversarial multiplayer needs a separate threat model
+and independently trusted adjudication.
+
+## Work that must not block these milestones
+
+Do not make the local player loop depend on:
+
+- out-of-process Operational execution;
+- hot Unity replicas or deterministic shadow convergence;
+- automatic island migration;
+- more than one live Sea Power process;
+- PostgreSQL, Redis, a broker, containers, or cloud hosting; or
+- exhaustive support for every installed platform before one complete mixed
+  island works.
+
+Existing experiments may stay in the repository. Maintain them only when an
+active change would otherwise break the build or corrupt shared contracts.
+
+## Review questions
+
+Use these questions at every milestone gate:
+
+- Can a player complete the promised flow without operator tools?
+- Does one component own each mutation at every moment?
+- Can retries, reconnects, or stale epochs create a second effect?
+- Does any projection or proxy reveal unauthorized enemy truth?
+- Does every missing family or field fail visibly before authority transfer?
+- Can terrain loading produce a visible underground or water-mismatched object?
+- Can the player recover the same campaign after each process fails?
+- Are performance results split by native objects, proxies, map records, and
+  external entities?
+- Does a test exercise the real product boundary, or only its scaffolding?

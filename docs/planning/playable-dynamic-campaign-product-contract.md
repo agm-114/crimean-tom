@@ -95,10 +95,10 @@ Crimean Tom has two complementary views:
    campaign-backed map overlay that preserves friendly and detected-hostile
    continuity beyond the locally simulated set.
 
-The campaign view may initially be hosted locally outside Sea Power, but the
-Sea Power tactical display must still satisfy the map and selection contract
-below. A diagnostic true-state operator monitor is not a player campaign view
-and must not be reused as the fog-of-war boundary.
+The first release hosts the campaign view in a local Crimean Tom application.
+Sea Power remains the battle and tactical-map surface. A diagnostic true-state
+operator monitor is not a player campaign view and must not be reused as the
+fog-of-war boundary.
 
 ## Map and symbology contract
 
@@ -165,7 +165,7 @@ a first-class selectable object.
   live sensor, weapon, formation, support, targeting, or collision relationships.
 - High-end resident systems such as strategic air-defense complexes, critical
   radar nodes, and ballistic-missile launchers request persistent Tactical
-  residency when compatible worker capacity exists. Their campaign map presence
+  residency when compatible local capacity exists. Their campaign map presence
   remains unconditional even when they fall back to Operational fidelity.
 - Ground formations may stay abstract for ground-versus-ground resolution while
   exposing representative tanks, low-end GBAD, artillery, logistics, and other
@@ -204,8 +204,8 @@ campaign record
 ## Time, leases, and concurrent simulation
 
 - Campaign time uses a fixed logical step and a declared target tempo.
-- Sea Power may retain its supported native fixed timestep inside a tactical
-  worker, but the UI must explain the relationship between tactical time,
+- Sea Power may retain its supported native fixed timestep inside the tactical
+  process, but the UI must explain the relationship between tactical time,
   campaign time, and time compression.
 - While a tactical session is healthy, heartbeats renew the assignment lease.
   The owned interaction island is fenced from external advancement, while all
@@ -268,7 +268,7 @@ campaign record
 
 1. Normal exit, explicit disengagement, or policy demotion quiesces new tactical
    actions.
-2. The worker captures a final checkpoint and typed outcomes.
+2. The tactical process captures a final checkpoint and typed outcomes.
 3. The service validates identity, epoch, revisions, causality, and supported
    state before committing once.
 4. The campaign resumes the island from the accepted state while the Sea Power
@@ -284,14 +284,15 @@ campaign record
 | Sea Power/plugin unavailable | Campaign continues Operationally where safe; tactical entry is disabled with a compatibility reason |
 | Terrain not ready | Symbol remains selectable; physical realization reports loading and retries without underground placement |
 | Unsupported platform/state | Map visibility remains; tactical control/materialization is blocked or degraded with the exact unsupported contract |
-| Tactical worker lost | Lease enters grace/recovery, stale epoch is fenced, and last accepted checkpoint/fallback is reported |
+| Tactical process lost | Lease enters grace/recovery, stale epoch is fenced, and last accepted checkpoint/fallback is reported |
 | Capacity exhausted | Map and orders remain available; lower-priority entities stay Operational and the UI explains the queue/degradation |
 | Catalog/game mismatch | No mutation occurs; campaign data remains intact and the required compatible version is shown |
 
 ## Minimum playable proof of concept
 
 The POC is playable only when one clean run demonstrates all of the following
-against the full dynamic campaign dataset:
+while the full dynamic campaign dataset is loaded and advancing around a bounded
+tactical island:
 
 1. A fresh 4,096-entity campaign can be created, loaded paused, explicitly
    started, saved, and restored.
@@ -306,8 +307,11 @@ against the full dynamic campaign dataset:
 5. Selecting a non-local friendly produces a terrain-safe visual proxy within a
    declared latency bound. Selecting a hostile produces only a filtered contact
    representation. Neither proxy simulates.
-6. At least one surface, subsurface, fixed-wing, rotary-wing, ground, and
-   installation path is exercised. Unsupported families are clearly reported.
+6. The first supported island contains a surface task force, a submarine,
+   fixed-wing and rotary-wing support, one campaign-owned enemy, and at least
+   one terrain-backed target where the scenario permits it. A family that is
+   not yet portable remains visible on the map and is reported before tactical
+   activation.
 7. A player-controlled tactical session remains authoritative through a
    15-minute unpaused engagement while unrelated campaign entities and both
    strategic AIs continue advancing.
@@ -329,14 +333,16 @@ a playable POC.
 
 ## First playable release boundary
 
-The first playable release is local single-player. It includes one authorable
+The first playable release is local single-player. The local campaign
+application owns strategy, orders, saves, time controls, and tactical entry.
+Sea Power owns the battle and tactical map. The release includes one authorable
 ruleset, a coalition-filtered campaign view, persistent player task forces,
-strategic/operational AI, objectives, orders, tactical entry/return, recovery,
-and explicit unsupported-state feedback.
+strategic and operational AI, objectives, orders, tactical entry and return,
+recovery, and explicit unsupported-state feedback.
 
 It does not require:
 
-- public or hostile-client multiplayer;
+- private or public multiplayer;
 - promotable hot Unity replicas;
 - several simultaneous Sea Power processes;
 - detailed ground-versus-ground tactical simulation across the whole theater;
@@ -344,8 +350,10 @@ It does not require:
 - a cloud service, container stack, external database, or message broker; or
 - fully automated balance or human-equivalent strategic AI.
 
-Those features may follow only after they preserve this contract rather than
-replacing it with infrastructure that the player cannot use.
+Private multiplayer remains on the active roadmap immediately after the local
+loop. Public hostile-client play, distributed simulation, hot replicas, and
+live tactical migration require later qualification. Those features may follow
+only when they preserve this contract.
 
 ## Change control
 
@@ -354,6 +362,8 @@ Changes to this contract require updating:
 1. the affected normative architecture contract;
 2. [current-status.md](current-status.md), including implementation gaps;
 3. [implementation-plan.md](implementation-plan.md), including acceptance gates;
-4. [supported-claims.md](supported-claims.md) when a behavior becomes proven; and
-5. a dated evidence record for any newly claimed live behavior.
+4. [supported-claims.md](supported-claims.md) when a behavior becomes proven;
+   and
+5. the repeatable test procedure and retained run artifacts for any new live
+   claim.
 
