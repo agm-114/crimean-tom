@@ -201,3 +201,31 @@ public sealed record CampaignPlayerOrderResult(
     string Status,
     string OrderId,
     CampaignPlayerView Campaign);
+
+public sealed record CampaignPlayerTacticalEntryView(
+    string CampaignId,
+    string GroupId,
+    string GroupName,
+    long GroupRevision,
+    string State,
+    string Message,
+    bool WorkerConnected,
+    bool CanEnter,
+    int RequiredMemberCount,
+    int SupportedMemberCount,
+    int AvailableTacticalCapacity,
+    string? WorkerClientInstanceId,
+    string? PlayerTaskforceId,
+    IReadOnlyList<CampaignPlayerTacticalMemberView> Members);
+
+public sealed record CampaignPlayerTacticalMemberView(
+    string EntityId,
+    string Name,
+    string CatalogUnitId,
+    string Status,
+    string Message);
+
+public sealed record CampaignPlayerTacticalEntryResult(
+    string Status,
+    string BatchId,
+    CampaignPlayerTacticalEntryView Entry);

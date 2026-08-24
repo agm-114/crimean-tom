@@ -96,6 +96,33 @@ type PlayerCampaign = {
 
 type PlayerOrderResult = { status: string; orderId: string; campaign: PlayerCampaign };
 
+type TacticalEntryMember = {
+  entityId: string;
+  name: string;
+  catalogUnitId: string;
+  status: string;
+  message: string;
+};
+
+type TacticalEntry = {
+  campaignId: string;
+  groupId: string;
+  groupName: string;
+  groupRevision: number;
+  state: string;
+  message: string;
+  workerConnected: boolean;
+  canEnter: boolean;
+  requiredMemberCount: number;
+  supportedMemberCount: number;
+  availableTacticalCapacity: number;
+  workerClientInstanceId: string | null;
+  playerTaskforceId: string | null;
+  members: TacticalEntryMember[];
+};
+
+type TacticalEntryResult = { status: string; batchId: string; entry: TacticalEntry };
+
 type PlayerCampaignSummary = {
   campaignId: string;
   name: string;
@@ -163,6 +190,8 @@ app.innerHTML = `
       <div id="selection"><div class="px-2 py-3 text-[10px] text-[#626262]">SELECT A FRIENDLY, BASE, OR KNOWN CONTACT</div></div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>PLAYER ORDER</span><span id="order-state">NO GROUP</span></div>
       <div id="order-panel" class="p-2 text-[9px] text-[#626262]">SELECT A FRIENDLY GROUP</div>
+      <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>TACTICAL ENTRY</span><span id="tactical-state">NO GROUP</span></div>
+      <div id="tactical-panel" class="p-2 text-[9px] text-[#626262]">SELECT A FRIENDLY GROUP</div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>OBJECTIVES</span><span id="objective-count">0</span></div>
       <div id="objective-list" class="max-h-44 overflow-y-auto"></div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>CAMPAIGN STATUS</span><span id="scenario-id">WW3++</span></div>
@@ -219,6 +248,9 @@ let selection: Selection | null = null;
 let orderGroupId = "";
 let destinationRegionId = "";
 let orderMessage = "SELECT A GROUP AND DESTINATION";
+let tacticalEntry: TacticalEntry | null = null;
+let tacticalLoading = false;
+let tacticalMessage = "SELECT A GROUP TO CHECK SEA POWER";
 let pollHandle: number | undefined;
 
 function worldPosition(longitude: number, latitude: number, y = 0): Vector3 {
@@ -303,7 +335,11 @@ function renderCampaign(data: PlayerCampaign): void {
   renderMap(data);
   renderObjectives(data);
   if (selection) select(selection);
-  else renderOrderPanel();
+  else {
+    renderOrderPanel();
+    renderTacticalPanel();
+  }
+  void refreshTacticalEntry().catch(showTacticalError);
 }
 
 function renderForceHierarchy(data: PlayerCampaign): void {
@@ -364,6 +400,8 @@ function select(next: Selection): void {
     bindDestinationButton(base.regionId, base.name);
   }
   renderOrderPanel();
+  renderTacticalPanel();
+  void refreshTacticalEntry().catch(showTacticalError);
 }
 
 function destinationButton(regionId: string, label: string): string {
@@ -423,6 +461,89 @@ function renderOrderPanel(): void {
   byId<HTMLButtonElement>("cancel-order").addEventListener("click", () => void submitOrder(true).catch(showError));
 }
 
+function renderTacticalPanel(): void {
+  if (!campaign) return;
+  const group = campaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  if (!group) {
+    byId("tactical-state").textContent = "NO GROUP";
+    byId("tactical-panel").innerHTML = "SELECT A FRIENDLY GROUP";
+    return;
+  }
+
+  const entry = tacticalEntry?.campaignId === campaign.campaignId && tacticalEntry.groupId === group.groupId
+    ? tacticalEntry
+    : null;
+  const currentEntry = entry?.groupRevision === group.revision ? entry : null;
+  byId("tactical-state").textContent = tacticalLoading ? "CHECKING" : (entry?.state ?? "UNCHECKED").toUpperCase();
+  const message = entry?.message ?? tacticalMessage;
+  const members = entry?.members.map(member => `
+    <div class="detail-row"><span class="truncate" title="${escapeHtml(member.catalogUnitId)}">${escapeHtml(member.name.toUpperCase())}</span><strong title="${escapeHtml(member.message)}">${escapeHtml(member.status.toUpperCase())}</strong></div>`).join("") ?? "";
+  const capacity = entry ? `${entry.supportedMemberCount}/${entry.requiredMemberCount} SUPPORTED // ${entry.availableTacticalCapacity} SLOTS` : "NOT CHECKED";
+  byId("tactical-panel").innerHTML = `
+    <div class="detail-row"><span>GROUP</span><strong>${escapeHtml(group.name.toUpperCase())}</strong></div>
+    <div class="detail-row"><span>SEA POWER</span><strong>${entry?.workerConnected ? "CONNECTED" : "NOT CONNECTED"}</strong></div>
+    <div class="detail-row"><span>READINESS</span><strong>${escapeHtml(capacity)}</strong></div>
+    <div class="mt-1 border-t border-[#252525] pt-1">${members || `<div class="py-1 text-[#626262]">MEMBER SUPPORT HAS NOT BEEN CHECKED</div>`}</div>
+    <div class="mt-2 grid grid-cols-2 gap-1">
+      <button id="refresh-tactical-entry" class="command-cell" ${tacticalLoading ? "disabled" : ""}>CHECK SEA POWER</button>
+      <button id="enter-tactical-session" class="command-cell command-cell-primary" ${!currentEntry?.canEnter || tacticalLoading ? "disabled" : ""}>ENTER SEA POWER</button>
+    </div>
+    <div class="mt-2 text-[8px] text-[#626262]">${escapeHtml(message.toUpperCase())}</div>`;
+  byId<HTMLButtonElement>("refresh-tactical-entry").addEventListener("click", () => void refreshTacticalEntry().catch(showTacticalError));
+  byId<HTMLButtonElement>("enter-tactical-session").addEventListener("click", () => void submitTacticalEntry().catch(showTacticalError));
+}
+
+async function refreshTacticalEntry(): Promise<void> {
+  if (!campaign || tacticalLoading) return;
+  const activeCampaign = campaign;
+  const group = activeCampaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  if (!group) return;
+  tacticalLoading = true;
+  tacticalMessage = "CHECKING SEA POWER READINESS";
+  renderTacticalPanel();
+  try {
+    const entry = await request<TacticalEntry>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`);
+    if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
+    tacticalEntry = entry;
+    tacticalMessage = entry.message;
+  } finally {
+    tacticalLoading = false;
+    renderTacticalPanel();
+  }
+}
+
+async function submitTacticalEntry(): Promise<void> {
+  if (!campaign) return;
+  const activeCampaign = campaign;
+  const group = activeCampaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  const entry = tacticalEntry?.campaignId === activeCampaign.campaignId && tacticalEntry.groupId === group?.groupId
+    ? tacticalEntry
+    : null;
+  if (!group || !entry?.canEnter || entry.groupRevision !== group.revision) return;
+  tacticalLoading = true;
+  tacticalMessage = "PREPARING SELECTED GROUP";
+  renderTacticalPanel();
+  try {
+    const result = await request<TacticalEntryResult>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedGroupRevision: entry.groupRevision, idempotencyKey: crypto.randomUUID() }),
+    });
+    if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
+    tacticalEntry = result.entry;
+    tacticalMessage = `${result.status.toUpperCase()} // BATCH ${result.batchId.slice(0, 8).toUpperCase()}`;
+  } finally {
+    tacticalLoading = false;
+    renderTacticalPanel();
+  }
+}
+
+function showTacticalError(error: unknown): void {
+  tacticalLoading = false;
+  tacticalMessage = error instanceof Error ? error.message : String(error);
+  renderTacticalPanel();
+}
+
 async function submitOrder(cancel: boolean): Promise<void> {
   if (!campaign) return;
   const group = campaign.friendlyGroups.find(item => item.groupId === orderGroupId);
@@ -475,6 +596,8 @@ async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").valu
     orderGroupId = "";
     destinationRegionId = "";
     orderMessage = "SELECT A GROUP AND DESTINATION";
+    tacticalEntry = null;
+    tacticalMessage = "SELECT A GROUP TO CHECK SEA POWER";
   }
   renderCampaign(data);
   byId("health-dot").className = "status-mark friendly";

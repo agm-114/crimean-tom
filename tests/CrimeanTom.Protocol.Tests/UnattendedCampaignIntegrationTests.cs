@@ -5,6 +5,10 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 
+using CrimeanTom.Campaign.Transport.V1;
+using Grpc.Core;
+using Grpc.Net.Client;
+
 namespace CrimeanTom.Protocol.Tests;
 
 public sealed class UnattendedCampaignIntegrationTests
@@ -94,6 +98,7 @@ public sealed class UnattendedCampaignIntegrationTests
                 await created.Content.ReadAsStringAsync(testTimeout.Token));
             var root = createdBody.RootElement;
             var campaignId = root.GetProperty("campaignId").GetString()!;
+            var playerCoalitionId = root.GetProperty("coalitionId").GetString()!;
             var initialTime = root.GetProperty("timeQuanta").GetInt64();
             Assert.Equal(4_096, root.GetProperty("scenarioEntityCount").GetInt32());
             Assert.True(root.GetProperty("paused").GetBoolean());
@@ -102,6 +107,42 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.False(root.TryGetProperty("entities", out _));
             Assert.False(root.TryGetProperty("workers", out _));
             Assert.False(root.TryGetProperty("canonicalHash", out _));
+
+            var tacticalAnchorEntityId = root.GetProperty("friendlyEntities").EnumerateArray()
+                .Single(item => item.GetProperty("name").GetString() == "USS Pharris")
+                .GetProperty("entityId").GetString()!;
+            var tacticalAnchorGroup = root.GetProperty("friendlyGroups").EnumerateArray()
+                .Single(item => item.GetProperty("memberEntityIds").EnumerateArray()
+                    .Any(member => member.GetString() == tacticalAnchorEntityId));
+            var tacticalAnchorGroupId = tacticalAnchorGroup.GetProperty("groupId").GetString()!;
+            using (var offlineEntry = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                testTimeout.Token))
+            {
+                offlineEntry.EnsureSuccessStatusCode();
+                using var offlineEntryBody = JsonDocument.Parse(
+                    await offlineEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("waiting-for-sea-power", offlineEntryBody.RootElement.GetProperty("state").GetString());
+                Assert.False(offlineEntryBody.RootElement.GetProperty("workerConnected").GetBoolean());
+                Assert.False(offlineEntryBody.RootElement.GetProperty("canEnter").GetBoolean());
+                Assert.Equal(1, offlineEntryBody.RootElement.GetProperty("requiredMemberCount").GetInt32());
+                Assert.Equal("waiting-for-sea-power", offlineEntryBody.RootElement
+                    .GetProperty("members")[0].GetProperty("status").GetString());
+            }
+            using (var rejectedOfflineEntry = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                new
+                {
+                    expectedGroupRevision = tacticalAnchorGroup.GetProperty("revision").GetInt64(),
+                    idempotencyKey = "player-entry-offline-0001",
+                },
+                testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Conflict, rejectedOfflineEntry.StatusCode);
+                using var rejectedBody = JsonDocument.Parse(
+                    await rejectedOfflineEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("tactical-entry-not-ready", rejectedBody.RootElement.GetProperty("error").GetString());
+            }
 
             await Task.Delay(TimeSpan.FromMilliseconds(500), testTimeout.Token);
             using (var stillPaused = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token))
@@ -212,7 +253,6 @@ public sealed class UnattendedCampaignIntegrationTests
                 diagnostic.EnsureSuccessStatusCode();
                 using var diagnosticBody = JsonDocument.Parse(
                     await diagnostic.Content.ReadAsStringAsync(testTimeout.Token));
-                var playerCoalitionId = pausedView.RootElement.GetProperty("coalitionId").GetString();
                 var enemyGroup = diagnosticBody.RootElement.GetProperty("groups").EnumerateArray()
                     .First(item => item.GetProperty("coalitionId").GetString() != playerCoalitionId);
                 using var forbidden = await playerClient.PostAsJsonAsync(
@@ -225,6 +265,146 @@ public sealed class UnattendedCampaignIntegrationTests
                     },
                     testTimeout.Token);
                 Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+                using var forbiddenEntry = await playerClient.GetAsync(
+                    $"/player/campaigns/{campaignId}/groups/{enemyGroup.GetProperty("groupId").GetString()}/tactical-entry",
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Forbidden, forbiddenEntry.StatusCode);
+            }
+
+            using var tacticalChannel = GrpcChannel.ForAddress(campaignGrpcUrl, new GrpcChannelOptions
+            {
+                HttpHandler = new SocketsHttpHandler { UseProxy = false },
+            });
+            var transport = new CampaignCompanionTransport.CampaignCompanionTransportClient(tacticalChannel);
+            using var tacticalCall = transport.Connect(
+                new Metadata { { "authorization", $"Bearer {campaignToken}" } },
+                cancellationToken: testTimeout.Token);
+            await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+            {
+                Sequence = 1,
+                Hello = new CompanionHello
+                {
+                    ProtocolVersion = 1,
+                    ClientInstanceId = "40000000000000000000000000000004",
+                    GameSessionId = "player-tactical-entry-proof",
+                    CampaignId = campaignId,
+                    ReconnectCommitPosition = 0,
+                    RuntimeFingerprintSha256 = new string('4', 64),
+                    CatalogFingerprintSha256 = new string('5', 64),
+                    PlayerTaskforceId = "taskforce:Blue",
+                    PlayerCoalitionId = playerCoalitionId,
+                    TacticalEntityCapacity = 4,
+                    TacticalReserveCapacity = 1,
+                    MaterializationProfiles =
+                    {
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_ff_knox_84",
+                            VariantId = "Variant43",
+                            LoadoutId = "Default",
+                        },
+                    },
+                },
+            });
+            Assert.True(await tacticalCall.ResponseStream.MoveNext(testTimeout.Token));
+            Assert.Equal(ServiceFrame.PayloadOneofCase.Welcome, tacticalCall.ResponseStream.Current.PayloadCase);
+
+            long tacticalEntryGroupRevision;
+            using (var readyEntry = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                testTimeout.Token))
+            {
+                readyEntry.EnsureSuccessStatusCode();
+                using var readyBody = JsonDocument.Parse(
+                    await readyEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("ready", readyBody.RootElement.GetProperty("state").GetString());
+                Assert.True(readyBody.RootElement.GetProperty("workerConnected").GetBoolean());
+                Assert.True(readyBody.RootElement.GetProperty("canEnter").GetBoolean());
+                tacticalEntryGroupRevision = readyBody.RootElement.GetProperty("groupRevision").GetInt64();
+                Assert.Equal(1, readyBody.RootElement.GetProperty("supportedMemberCount").GetInt32());
+                Assert.Equal(3, readyBody.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal("supported", readyBody.RootElement
+                    .GetProperty("members")[0].GetProperty("status").GetString());
+            }
+
+            const string tacticalEntryKey = "player-entry-connected-0002";
+            using var requestedEntry = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                new
+                {
+                    expectedGroupRevision = tacticalEntryGroupRevision,
+                    idempotencyKey = tacticalEntryKey,
+                },
+                testTimeout.Token);
+            if (requestedEntry.StatusCode != HttpStatusCode.Accepted)
+            {
+                throw new InvalidOperationException(
+                    $"Player tactical entry returned {(int)requestedEntry.StatusCode}: "
+                    + await requestedEntry.Content.ReadAsStringAsync(testTimeout.Token));
+            }
+            using var requestedEntryBody = JsonDocument.Parse(
+                await requestedEntry.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal("preparing", requestedEntryBody.RootElement.GetProperty("status").GetString());
+            Assert.StartsWith("player-entry:", requestedEntryBody.RootElement.GetProperty("batchId").GetString());
+
+            TacticalAssignment? queuedEntry = null;
+            while (await tacticalCall.ResponseStream.MoveNext(testTimeout.Token))
+            {
+                if (tacticalCall.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
+                    && tacticalCall.ResponseStream.Current.Assignment.CanonicalEntityId == tacticalAnchorEntityId)
+                {
+                    queuedEntry = tacticalCall.ResponseStream.Current.Assignment;
+                    break;
+                }
+            }
+            Assert.NotNull(queuedEntry);
+            Assert.Equal("usn_ff_knox_84", queuedEntry.UnitTypeId);
+            Assert.Equal("taskforce:Blue", queuedEntry.TaskforceId);
+            Assert.True(queuedEntry.FocusAfterActivation);
+            await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+            {
+                Sequence = 2,
+                AssignmentPrepared = new AssignmentPrepared
+                {
+                    AssignmentId = queuedEntry.AssignmentId,
+                    EntityId = queuedEntry.EntityId,
+                    AuthorityEpoch = queuedEntry.AuthorityEpoch,
+                    RealizedRevision = 1,
+                    CanonicalStateSha256 = new string('6', 64),
+                    Ready = true,
+                },
+            });
+            await WaitUntilAsync(async () =>
+            {
+                using var entry = await playerClient.GetAsync(
+                    $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                    testTimeout.Token);
+                entry.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(await entry.Content.ReadAsStringAsync(testTimeout.Token));
+                return body.RootElement.GetProperty("state").GetString() == "active";
+            }, testTimeout.Token);
+            using (var activePlayerView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token))
+            {
+                var tacticalEntity = activePlayerView.RootElement.GetProperty("friendlyEntities").EnumerateArray()
+                    .Single(item => item.GetProperty("entityId").GetString() == tacticalAnchorEntityId);
+                var tacticalGroup = activePlayerView.RootElement.GetProperty("friendlyGroups").EnumerateArray()
+                    .Single(item => item.GetProperty("groupId").GetString() == tacticalAnchorGroupId);
+                Assert.Equal("Tactical", tacticalEntity.GetProperty("fidelity").GetString());
+                Assert.False(tacticalGroup.GetProperty("canMove").GetBoolean());
+            }
+            using (var duplicateEntry = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
+                new
+                {
+                    expectedGroupRevision = tacticalEntryGroupRevision,
+                    idempotencyKey = tacticalEntryKey,
+                },
+                testTimeout.Token))
+            {
+                duplicateEntry.EnsureSuccessStatusCode();
+                using var duplicateBody = JsonDocument.Parse(
+                    await duplicateEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("duplicate", duplicateBody.RootElement.GetProperty("status").GetString());
             }
 
             using (var resumedMove = await playerClient.PostAsync(

@@ -1538,6 +1538,424 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public async Task<CampaignPlayerTacticalEntryView> InspectPlayerTacticalEntryAsync(
+        CampaignId campaignId,
+        string groupIdValue,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var group = RequirePlayerGroup(state, profile, groupIdValue);
+            return BuildPlayerTacticalEntryPlan(state, profile, group).View;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CampaignPlayerTacticalEntryResult> RequestPlayerTacticalEntryAsync(
+        CampaignId campaignId,
+        string groupIdValue,
+        long expectedGroupRevision,
+        string idempotencyKeyValue,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            if (state.Metadata.AlgorithmVersion != CampaignSchema.AlgorithmVersion)
+            {
+                throw new CampaignStoreConflict(
+                    "campaign-algorithm-incompatible",
+                    $"Tactical entry requires algorithm {CampaignSchema.AlgorithmVersion}; this save uses {state.Metadata.AlgorithmVersion}.");
+            }
+            var group = RequirePlayerGroup(state, profile, groupIdValue);
+            if (expectedGroupRevision < 1 || group.Revision.Value != expectedGroupRevision)
+            {
+                throw new CampaignStoreConflict(
+                    "group-revision-conflict",
+                    $"Expected group revision {expectedGroupRevision}, current revision {group.Revision.Value}.");
+            }
+            var idempotencyKey = NormalizePlayerIdempotencyKey(idempotencyKeyValue);
+            var batchGuid = KeyedGuid(
+                campaignId.Value,
+                $"player-entry-batch:{profile.PlayerId}:{group.GroupId}:{idempotencyKey}");
+            var batchId = $"player-entry:{batchGuid:N}";
+            var expectedMembers = group.Members
+                .Where(id => state.Entities[id].Lifecycle != EntityLifecycle.Destroyed)
+                .OrderBy(id => id)
+                .ToArray();
+            var expectedAssignmentIds = expectedMembers
+                .Select(entityId => new AssignmentId(KeyedGuid(
+                    campaignId.Value,
+                    $"player-entry-assignment:{profile.PlayerId}:{group.GroupId}:{idempotencyKey}:{entityId}")))
+                .ToHashSet();
+            var priorAssignments = state.Assignments.Values
+                .Where(item => expectedAssignmentIds.Contains(item.AssignmentId))
+                .OrderBy(item => item.EntityId)
+                .ToArray();
+            if (priorAssignments.Length > 0)
+            {
+                if (!priorAssignments.Select(item => item.EntityId).OrderBy(id => id).SequenceEqual(expectedMembers))
+                {
+                    throw new CampaignStoreConflict(
+                        "idempotency-key-reused",
+                        "The idempotency key already belongs to a different tactical-entry request.");
+                }
+                return new CampaignPlayerTacticalEntryResult(
+                    "duplicate",
+                    batchId,
+                    BuildPlayerTacticalEntryPlan(state, profile, group).View);
+            }
+
+            var plan = BuildPlayerTacticalEntryPlan(state, profile, group);
+            if (!plan.View.CanEnter || plan.Worker is null)
+            {
+                throw new CampaignStoreConflict("tactical-entry-not-ready", plan.View.Message);
+            }
+
+            var preparedAssignments = new List<(AssignmentId Id, TacticalAssignment Outbound)>();
+            try
+            {
+                for (var index = 0; index < plan.Members.Count; index++)
+                {
+                    var entity = plan.Members[index];
+                    var profileForEntity = plan.Profiles[entity.EntityId];
+                    var assignmentGuid = KeyedGuid(
+                        campaignId.Value,
+                        $"player-entry-assignment:{profile.PlayerId}:{group.GroupId}:{idempotencyKey}:{entity.EntityId}");
+                    var assignmentId = new AssignmentId(assignmentGuid);
+                    var authorityEpoch = state.Assignments.Values
+                        .Where(item => item.EntityId == entity.EntityId)
+                        .Select(item => item.AuthorityEpoch.Value)
+                        .DefaultIfEmpty(0)
+                        .Max() + 1;
+                    var handoff = new CampaignHandoffRequest(
+                        campaignId.ToString(),
+                        entity.EntityId.ToString(),
+                        $"unit:crimean-tom:{entity.EntityId}",
+                        $"assignment:{assignmentGuid:N}",
+                        authorityEpoch,
+                        $"player-entry-{idempotencyKey}-{index + 1}",
+                        plan.Worker.RuntimeFingerprintSha256,
+                        plan.Worker.CatalogFingerprintSha256,
+                        profileForEntity.UnitTypeId,
+                        profileForEntity.VariantId,
+                        profileForEntity.LoadoutId,
+                        plan.Worker.PlayerTaskforceId,
+                        plan.Members.Count > 1 ? batchId : string.Empty,
+                        plan.Members.Count,
+                        plan.Worker.ClientInstanceId,
+                        FocusAfterActivation: index == 0);
+                    var prepared = await PrepareHandoffCoreAsync(state, handoff, cancellationToken);
+                    state = prepared.State;
+                    preparedAssignments.Add((assignmentId, prepared.Assignment));
+                }
+
+                foreach (var prepared in preparedAssignments)
+                {
+                    if (!sessions.TryQueueForClient(
+                        campaignId.ToString(),
+                        plan.Worker.ClientInstanceId,
+                        new ServiceFrame { Assignment = prepared.Outbound }))
+                    {
+                        throw new CampaignStoreConflict(
+                            "companion-session-unavailable-or-backpressured",
+                            "Sea Power disconnected before the selected task force could be queued.");
+                    }
+                }
+            }
+            catch
+            {
+                state = await ReleasePreparingAssignmentsAsync(
+                    state,
+                    preparedAssignments.Select(item => item.Id),
+                    "player-entry-queue-failed",
+                    cancellationToken);
+                throw;
+            }
+
+            return new CampaignPlayerTacticalEntryResult(
+                "preparing",
+                batchId,
+                BuildPlayerTacticalEntryPlan(state, profile, group).View);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private CampaignPlayerTacticalEntryPlan BuildPlayerTacticalEntryPlan(
+        CampaignState state,
+        CampaignPlayerProfile profile,
+        GroupState group)
+    {
+        var members = group.Members.Select(id => state.Entities[id]).OrderBy(item => item.EntityId).ToArray();
+        var availableMembers = members
+            .Where(item => item.Lifecycle != EntityLifecycle.Destroyed)
+            .ToArray();
+        var activeAssignments = state.Assignments.Values
+            .Where(item => availableMembers.Any(member => member.EntityId == item.EntityId)
+                && item.Lifecycle != AssignmentLifecycle.Released)
+            .OrderBy(item => item.EntityId)
+            .ToArray();
+        if (activeAssignments.Length > 0)
+        {
+            var assignedWorkerIds = activeAssignments
+                .Select(item => item.WorkerClientInstanceId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var assignedWorker = assignedWorkerIds.Length == 1
+                ? sessions.SnapshotForClient(state.Metadata.CampaignId.ToString(), assignedWorkerIds[0])
+                : null;
+            var completeBatch = activeAssignments.Length == availableMembers.Length
+                && activeAssignments.Select(item => item.BatchId).Distinct(StringComparer.Ordinal).Count() == 1;
+            var stateName = completeBatch && activeAssignments.All(item => item.Lifecycle == AssignmentLifecycle.Active)
+                ? assignedWorker is null ? "recovering" : "active"
+                : completeBatch ? "preparing" : "blocked";
+            var activeMessage = stateName == "active"
+                ? "This campaign group is active in Sea Power."
+                : stateName == "recovering"
+                    ? "This group still has tactical authority, but its Sea Power session is disconnected."
+                : stateName == "preparing"
+                    ? "Sea Power is loading every supported member before activation."
+                    : "Some group members already belong to another tactical assignment.";
+            return new CampaignPlayerTacticalEntryPlan(
+                new CampaignPlayerTacticalEntryView(
+                    state.Metadata.CampaignId.ToString(),
+                    group.GroupId.ToString(),
+                    group.Name,
+                    group.Revision.Value,
+                    stateName,
+                    activeMessage,
+                    WorkerConnected: assignedWorker is not null,
+                    CanEnter: false,
+                    availableMembers.Length,
+                    activeAssignments.Length,
+                    AvailableTacticalCapacity: 0,
+                    activeAssignments.Select(item => item.WorkerClientInstanceId).FirstOrDefault(),
+                    assignedWorker?.PlayerTaskforceId,
+                    members.Select(member => new CampaignPlayerTacticalMemberView(
+                        member.EntityId.ToString(),
+                        member.Name,
+                        member.CatalogUnitId,
+                        member.Lifecycle == EntityLifecycle.Destroyed
+                            ? "destroyed"
+                            : activeAssignments.FirstOrDefault(item => item.EntityId == member.EntityId)?.Lifecycle.ToString().ToLowerInvariant()
+                                ?? "not-assigned",
+                        member.Lifecycle == EntityLifecycle.Destroyed
+                            ? "Destroyed campaign units do not enter Sea Power."
+                            : activeAssignments.Any(item => item.EntityId == member.EntityId)
+                                ? "Sea Power owns this member under a tactical lease."
+                                : "This member is not part of the active tactical batch."))
+                        .ToArray()),
+                Worker: null,
+                Members: availableMembers,
+                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>());
+        }
+
+        var campaignWorkers = sessions.Snapshots(state.Metadata.CampaignId.ToString())
+            .Where(item => item.PlayerSessionBound)
+            .OrderBy(item => item.ClientInstanceId, StringComparer.Ordinal)
+            .ToArray();
+        var worker = campaignWorkers
+            .Where(item => string.Equals(item.PlayerCoalitionId, profile.CoalitionId, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(item.GameSessionId)
+                && !string.IsNullOrWhiteSpace(item.PlayerTaskforceId)
+                && !string.IsNullOrWhiteSpace(item.RuntimeFingerprintSha256)
+                && !string.IsNullOrWhiteSpace(item.CatalogFingerprintSha256)
+                && CampaignWorkerHealth.CanReceiveNewAssignments(item))
+            .OrderBy(item => item.OwnedMaterializedEntityCount)
+            .ThenBy(item => item.ClientInstanceId, StringComparer.Ordinal)
+            .FirstOrDefault();
+        var workerMessage = campaignWorkers.Length == 0
+            ? "Start Sea Power with this campaign, then load and continue a tactical mission."
+            : campaignWorkers.All(item => !string.Equals(item.PlayerCoalitionId, profile.CoalitionId, StringComparison.Ordinal))
+                ? "The connected Sea Power session belongs to another coalition."
+                : campaignWorkers.All(item => string.IsNullOrWhiteSpace(item.PlayerTaskforceId))
+                    ? "Sea Power is connected, but no playable tactical mission is running."
+                    : "The connected Sea Power session is not healthy and ready for new assignments.";
+        if (worker is null)
+        {
+            return new CampaignPlayerTacticalEntryPlan(
+                new CampaignPlayerTacticalEntryView(
+                    state.Metadata.CampaignId.ToString(),
+                    group.GroupId.ToString(),
+                    group.Name,
+                    group.Revision.Value,
+                    "waiting-for-sea-power",
+                    workerMessage,
+                    WorkerConnected: campaignWorkers.Length > 0,
+                    CanEnter: false,
+                    availableMembers.Length,
+                    SupportedMemberCount: 0,
+                    AvailableTacticalCapacity: 0,
+                    WorkerClientInstanceId: campaignWorkers.FirstOrDefault()?.ClientInstanceId,
+                    PlayerTaskforceId: campaignWorkers.FirstOrDefault()?.PlayerTaskforceId,
+                    members.Select(member => new CampaignPlayerTacticalMemberView(
+                        member.EntityId.ToString(),
+                        member.Name,
+                        member.CatalogUnitId,
+                        member.Lifecycle == EntityLifecycle.Destroyed ? "destroyed" : "waiting-for-sea-power",
+                        member.Lifecycle == EntityLifecycle.Destroyed
+                            ? "Destroyed campaign units do not enter Sea Power."
+                            : "Runtime support is checked against the connected Sea Power session."))
+                        .ToArray()),
+                Worker: null,
+                Members: availableMembers,
+                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>());
+        }
+
+        var profilesByCatalog = worker.MaterializationProfiles
+            .GroupBy(item => item.UnitTypeId, StringComparer.Ordinal)
+            .ToDictionary(item => item.Key, item => item.First(), StringComparer.Ordinal);
+        var profiles = new Dictionary<EntityId, CampaignMaterializationProfile>();
+        foreach (var member in availableMembers)
+        {
+            if (member.MaximumFidelity == FidelityState.Tactical
+                && profilesByCatalog.TryGetValue(member.CatalogUnitId, out var materializationProfile))
+            {
+                profiles[member.EntityId] = materializationProfile;
+            }
+        }
+        var occupied = Math.Max(
+            worker.OwnedMaterializedEntityCount,
+            state.Assignments.Values
+                .Where(item => item.Lifecycle != AssignmentLifecycle.Released
+                    && string.Equals(item.WorkerClientInstanceId, worker.ClientInstanceId, StringComparison.Ordinal))
+                .Select(item => item.EntityId)
+                .Distinct()
+                .Count());
+        var availableCapacity = Math.Max(
+            0,
+            worker.TacticalEntityCapacity - worker.TacticalReserveCapacity - occupied);
+        var everyMemberSupported = availableMembers.Length > 0 && profiles.Count == availableMembers.Length;
+        var canEnter = everyMemberSupported && availableCapacity >= availableMembers.Length;
+        var supportMessage = availableMembers.Length == 0
+            ? "No surviving group members are available for tactical entry."
+            : !everyMemberSupported
+                ? "Sea Power cannot represent every surviving member in this group. Choose another group or add the missing runtime profiles."
+                : availableCapacity < availableMembers.Length
+                    ? $"Sea Power has room for {availableCapacity} of {availableMembers.Length} required members."
+                    : "Every surviving member has a verified runtime profile and can enter Sea Power.";
+        return new CampaignPlayerTacticalEntryPlan(
+            new CampaignPlayerTacticalEntryView(
+                state.Metadata.CampaignId.ToString(),
+                group.GroupId.ToString(),
+                group.Name,
+                group.Revision.Value,
+                canEnter ? "ready" : "unsupported",
+                supportMessage,
+                WorkerConnected: true,
+                canEnter,
+                availableMembers.Length,
+                profiles.Count,
+                availableCapacity,
+                worker.ClientInstanceId,
+                worker.PlayerTaskforceId,
+                members.Select(member =>
+                {
+                    if (member.Lifecycle == EntityLifecycle.Destroyed)
+                    {
+                        return new CampaignPlayerTacticalMemberView(
+                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "destroyed",
+                            "Destroyed campaign units do not enter Sea Power.");
+                    }
+                    if (member.MaximumFidelity != FidelityState.Tactical)
+                    {
+                        return new CampaignPlayerTacticalMemberView(
+                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "operational-only",
+                            "This campaign entity has no Tactical fidelity state.");
+                    }
+                    return profiles.ContainsKey(member.EntityId)
+                        ? new CampaignPlayerTacticalMemberView(
+                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "supported",
+                            "The connected runtime advertises an exact materialization profile.")
+                        : new CampaignPlayerTacticalMemberView(
+                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "unsupported-profile",
+                            "The connected runtime does not advertise this catalog unit.");
+                }).ToArray()),
+            worker,
+            availableMembers,
+            profiles);
+    }
+
+    private static GroupState RequirePlayerGroup(
+        CampaignState state,
+        CampaignPlayerProfile profile,
+        string groupIdValue)
+    {
+        if (string.IsNullOrWhiteSpace(profile.CoalitionId))
+        {
+            throw new CampaignStoreConflict("player-coalition-unassigned", "The local player has no coalition assignment.");
+        }
+        var coalitionId = ParseId(profile.CoalitionId, value => new CoalitionId(value));
+        var groupId = ParseId(groupIdValue, value => new GroupId(value));
+        if (!state.Groups.TryGetValue(groupId, out var group))
+        {
+            throw new CampaignStoreConflict("player-group-missing", "The selected friendly group no longer exists.");
+        }
+        if (group.CoalitionId != coalitionId)
+        {
+            throw new CampaignStoreConflict("player-group-forbidden", "The player cannot activate another coalition's group.");
+        }
+        return group;
+    }
+
+    private static string NormalizePlayerIdempotencyKey(string value)
+    {
+        var idempotencyKey = value.Trim();
+        if (idempotencyKey.Length is < 8 or > 96
+            || idempotencyKey.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not ':'))
+        {
+            throw new CampaignStoreConflict(
+                "invalid-idempotency-key",
+                "The idempotency key must contain 8 to 96 letters, digits, dashes, underscores, or colons.");
+        }
+        return idempotencyKey;
+    }
+
+    private async Task<CampaignState> ReleasePreparingAssignmentsAsync(
+        CampaignState state,
+        IEnumerable<AssignmentId> assignmentIds,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        foreach (var assignmentId in assignmentIds)
+        {
+            if (!state.Assignments.TryGetValue(assignmentId, out var assignment)
+                || assignment.Lifecycle == AssignmentLifecycle.Released)
+            {
+                continue;
+            }
+            state = await CommitAsync(state, Command(
+                state,
+                CampaignSubject.Assignment(assignmentId),
+                assignment.Revision,
+                new SetAssignmentLifecycleCommand(
+                    assignmentId,
+                    assignment.AuthorityEpoch,
+                    AssignmentLifecycle.Released,
+                    state.Time),
+                $"release-{assignmentId}-{reason}"), cancellationToken);
+        }
+        return state;
+    }
+
+    private sealed record CampaignPlayerTacticalEntryPlan(
+        CampaignPlayerTacticalEntryView View,
+        CampaignSessionSnapshot? Worker,
+        IReadOnlyList<EntityState> Members,
+        IReadOnlyDictionary<EntityId, CampaignMaterializationProfile> Profiles);
+
     private async Task<bool> IsPausedCoreAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken) =>

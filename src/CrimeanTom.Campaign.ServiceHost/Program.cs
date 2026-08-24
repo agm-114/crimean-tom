@@ -269,6 +269,28 @@ app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/orders/cancel", asy
         holdPosition: true,
         coordinator,
         cancellationToken));
+app.MapGet("/player/campaigns/{campaignId}/groups/{groupId}/tactical-entry", async (
+    string campaignId,
+    string groupId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await InspectPlayerTacticalEntryAsync(
+        campaignId,
+        groupId,
+        coordinator,
+        cancellationToken));
+app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/tactical-entry", async (
+    string campaignId,
+    string groupId,
+    PlayerTacticalEntryRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await RequestPlayerTacticalEntryAsync(
+        campaignId,
+        groupId,
+        request,
+        coordinator,
+        cancellationToken));
 app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
 {
     status = "ok",
@@ -850,6 +872,69 @@ static async Task<IResult> IssuePlayerOrderAsync(
     }
 }
 
+static async Task<IResult> InspectPlayerTacticalEntryAsync(
+    string campaignId,
+    string groupId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.InspectPlayerTacticalEntryAsync(
+            new CampaignId(parsed),
+            groupId,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return PlayerConflictResult(exception);
+    }
+}
+
+static async Task<IResult> RequestPlayerTacticalEntryAsync(
+    string campaignId,
+    string groupId,
+    PlayerTacticalEntryRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Accepted(value: await coordinator.RequestPlayerTacticalEntryAsync(
+            new CampaignId(parsed),
+            groupId,
+            request.ExpectedGroupRevision,
+            request.IdempotencyKey,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return PlayerConflictResult(exception);
+    }
+}
+
+static IResult PlayerConflictResult(CampaignStoreConflict exception)
+{
+    var statusCode = exception.Code == "player-group-forbidden"
+        ? StatusCodes.Status403Forbidden
+        : exception.Code == "player-group-missing"
+            ? StatusCodes.Status404NotFound
+            : exception.Code.StartsWith("invalid-", StringComparison.Ordinal)
+                ? StatusCodes.Status400BadRequest
+                : StatusCodes.Status409Conflict;
+    return Results.Json(
+        new { error = exception.Code, message = exception.Message },
+        statusCode: statusCode);
+}
+
 static string? FindRepositoryRoot(string startPath)
 {
     for (var directory = new DirectoryInfo(startPath); directory is not null; directory = directory.Parent)
@@ -886,5 +971,9 @@ public sealed record PlayerMoveOrderRequest(
     string IdempotencyKey);
 
 public sealed record PlayerCancelOrderRequest(
+    long ExpectedGroupRevision,
+    string IdempotencyKey);
+
+public sealed record PlayerTacticalEntryRequest(
     long ExpectedGroupRevision,
     string IdempotencyKey);
