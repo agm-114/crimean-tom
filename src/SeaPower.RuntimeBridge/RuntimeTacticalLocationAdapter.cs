@@ -55,7 +55,13 @@ internal static class RuntimeTacticalLocationAdapter
             Longitude = request.Longitude,
         });
         var previousCenter = Globals._currentCenterTile;
-        if (beforeProbe.PlacementReady)
+        var targetTile = Utils.longLatToTile(new GeoPosition(
+            request.Latitude,
+            request.Longitude,
+            0d));
+        var targetInsideActiveTerrainWindow = Math.Abs(targetTile.x - previousCenter.x) <= 1f
+            && Math.Abs(targetTile.y - previousCenter.y) <= 1f;
+        if (beforeProbe.PlacementReady && targetInsideActiveTerrainWindow)
         {
             return MutationAdapterResult<PrepareTacticalLocationResultPayload>.Success(new()
             {

@@ -116,7 +116,9 @@ internal static class GameCommandDispatcher
                         RuntimeColliderCatalog.Capture(command.PayloadJson)),
                     GameCommandTypes.GetColliderCatalog => Success(
                         RuntimeColliderCatalog.Get(command.PayloadJson)),
-                    GameCommandTypes.FocusCameraOnUnit => FocusCameraOnUnit(command.PayloadJson),
+                    GameCommandTypes.FocusCameraOnUnit => FocusCameraOnUnit(
+                        command.PayloadJson,
+                        command.SessionId),
                     GameCommandTypes.SetTacticalHudPanel => SetTacticalHudPanel(
                         command.PayloadJson),
                     GameCommandTypes.DismissTopModal => DismissTopModal(),
@@ -2455,7 +2457,9 @@ internal static class GameCommandDispatcher
         }
     }
 
-    private static CommandResponsePayload FocusCameraOnUnit(string payloadJson)
+    private static CommandResponsePayload FocusCameraOnUnit(
+        string payloadJson,
+        string commandSessionId)
     {
         if (!RuntimeUiAutomationSeamFingerprintProvider.IsCommandVerified(
             GameCommandTypes.FocusCameraOnUnit))
@@ -2518,50 +2522,93 @@ internal static class GameCommandDispatcher
         }
 
         var target = matches[0];
-        var nativeRenderPosition = Singleton<RenderPosition>.Instance;
-        nativeRenderPosition.switchToObject(
-            target,
-            performSmoothMove: false,
-            checkAirLeader: false);
-        var selected = nativeRenderPosition.getSelectedObject();
-        var selectedId = selected is not null && selected.isUnit()
-            ? StableUnitId(selected)
-            : string.Empty;
-        if (!string.Equals(selectedId, StableUnitId(target), StringComparison.Ordinal))
+        var preparedLandTerrain = false;
+        var resumeAfterLandFocus = target is LandUnit && !GameTime.IsPaused();
+        if (resumeAfterLandFocus)
         {
-            return Failure(
-                ProtocolErrorCodes.AutomationPostconditionFailed,
-                "Camera switch ran without selecting the requested unit.");
+            GameTime.Pause();
         }
-
-        // A map click can select and attach a unit without reframing the 3D camera.
-        // RenderPosition.switchToObject deliberately returns early in that state, so
-        // make camera focus idempotent by also restoring the native follow framing.
-        var cameraManager = Singleton<CameraManager>.Instance;
-        cameraManager.setCurrentMode(
-            CameraManager.Mode.Follow,
-            followObjectAlreadySelected: true,
-            forceSwitch: true);
-        nativeRenderPosition.setGlobalPosition(target.getGeoPosition());
-        cameraManager.setDistanceToPivot(target.getDefaultCameraDistanceToTarget());
-        if (target is LandUnit)
+        try
         {
-            const float landViewPitchDegrees = 30f;
-            var currentPitch = nativeRenderPosition.getRotation().eulerAngles.x;
-            if (currentPitch > 180f)
+            if (target is LandUnit)
             {
-                currentPitch -= 360f;
+                var position = target.getGeoPosition();
+                var preparation = RuntimeTacticalLocationAdapter.Prepare(new()
+                {
+                    SessionId = commandSessionId,
+                    Latitude = position._latitude,
+                    Longitude = position._longitude,
+                }, commandSessionId);
+                if (!preparation.Succeeded)
+                {
+                    return Failure(
+                        preparation.ErrorCode,
+                        $"Land camera focus could not prepare the target terrain window: {preparation.ErrorMessage}",
+                        preparation.ErrorId);
+                }
+                if (preparation.Payload?.Terrain.PlacementReady != true)
+                {
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPreconditionFailed,
+                        "Land camera focus relocated the tactical window, but target terrain is still streaming; retry focus after terrain finalizes.");
+                }
+                preparedLandTerrain = true;
             }
-            cameraManager.getCurrentCamera().rotateXY(
-                landViewPitchDegrees - currentPitch,
-                0f);
+
+            var nativeRenderPosition = Singleton<RenderPosition>.Instance;
+            nativeRenderPosition.switchToObject(
+                target,
+                performSmoothMove: false,
+                checkAirLeader: false);
+            var selected = nativeRenderPosition.getSelectedObject();
+            var selectedId = selected is not null && selected.isUnit()
+                ? StableUnitId(selected)
+                : string.Empty;
+            if (!string.Equals(selectedId, StableUnitId(target), StringComparison.Ordinal))
+            {
+                return Failure(
+                    ProtocolErrorCodes.AutomationPostconditionFailed,
+                    "Camera switch ran without selecting the requested unit.");
+            }
+
+            // A map click can select and attach a unit without reframing the 3D camera.
+            // RenderPosition.switchToObject deliberately returns early in that state, so
+            // make camera focus idempotent by also restoring the native follow framing.
+            var cameraManager = Singleton<CameraManager>.Instance;
+            cameraManager.setCurrentMode(
+                CameraManager.Mode.Follow,
+                followObjectAlreadySelected: true,
+                forceSwitch: true);
+            nativeRenderPosition.setGlobalPosition(target.getGeoPosition());
+            cameraManager.setDistanceToPivot(target.getDefaultCameraDistanceToTarget());
+            if (target is LandUnit)
+            {
+                const float landViewPitchDegrees = 30f;
+                var currentPitch = nativeRenderPosition.getRotation().eulerAngles.x;
+                if (currentPitch > 180f)
+                {
+                    currentPitch -= 360f;
+                }
+                cameraManager.getCurrentCamera().rotateXY(
+                    landViewPitchDegrees - currentPitch,
+                    0f);
+            }
+        }
+        finally
+        {
+            if (resumeAfterLandFocus && GameTime.IsPaused())
+            {
+                GameTime.UnPause();
+            }
         }
 
         return Success(new UiAutomationActionResultPayload
         {
             Action = GameCommandTypes.FocusCameraOnUnit,
             Outcome = "completed",
-            Postcondition = "camera-focused-on-unit",
+            Postcondition = preparedLandTerrain
+                ? "camera-focused-on-land-unit-with-terrain-window-prepared"
+                : "camera-focused-on-unit",
             Scenario = GetScenarioAutomationState(),
         });
     }
