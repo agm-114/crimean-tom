@@ -13,6 +13,7 @@ public sealed class SqliteCampaignJournal
 {
     private const int DatabaseSchemaVersion = 3;
     private const int MaximumBatchAppendCount = 10_000;
+    private const int MaximumRetainedSnapshotsPerCampaign = 8;
     private readonly string _databasePath;
     private readonly string _connectionString;
     private readonly ContentAddressedBlobStore _blobStore;
@@ -591,10 +592,15 @@ public sealed class SqliteCampaignJournal
             snapshot.Parameters.AddWithValue("$campaign_id", lease.CampaignId.ToString());
             snapshot.Parameters.AddWithValue("$position", state.Head.Value);
             snapshot.Parameters.AddWithValue("$hash", stateHash);
-            snapshot.Parameters.AddWithValue("$json", snapshotJson);
+            snapshot.Parameters.AddWithValue("$json", CampaignJournalPayloadCodec.Encode(snapshotJson));
             await snapshot.ExecuteNonQueryAsync(cancellationToken);
         }
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
+        await PruneOldSnapshotsAsync(
+            connection,
+            transaction,
+            lease.CampaignId,
+            cancellationToken);
 
         await AdvanceHeadAsync(
             connection,
@@ -662,7 +668,7 @@ public sealed class SqliteCampaignJournal
         insert.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
         insert.Parameters.AddWithValue("$position", state.Head.Value);
         insert.Parameters.AddWithValue("$hash", stateHash);
-        insert.Parameters.AddWithValue("$json", snapshotJson);
+        insert.Parameters.AddWithValue("$json", CampaignJournalPayloadCodec.Encode(snapshotJson));
         var inserted = await insert.ExecuteNonQueryAsync(cancellationToken) == 1;
 
         if (!inserted)
@@ -678,13 +684,18 @@ public sealed class SqliteCampaignJournal
             await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken)
                 || reader.GetString(0) != stateHash
-                || !((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
+                || !CampaignJournalPayloadCodec.Decode((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
             {
                 throw Conflict("snapshot-idempotency-conflict", "The snapshot position already contains different state.");
             }
         }
 
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
+        await PruneOldSnapshotsAsync(
+            connection,
+            transaction,
+            state.Metadata.CampaignId,
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
         return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
@@ -725,7 +736,7 @@ public sealed class SqliteCampaignJournal
         insert.Parameters.AddWithValue("$campaign_id", state.Metadata.CampaignId.ToString());
         insert.Parameters.AddWithValue("$position", state.Head.Value);
         insert.Parameters.AddWithValue("$hash", stateHash);
-        insert.Parameters.AddWithValue("$json", snapshotJson);
+        insert.Parameters.AddWithValue("$json", CampaignJournalPayloadCodec.Encode(snapshotJson));
         var inserted = await insert.ExecuteNonQueryAsync(cancellationToken) == 1;
 
         if (!inserted)
@@ -741,13 +752,18 @@ public sealed class SqliteCampaignJournal
             await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken)
                 || reader.GetString(0) != stateHash
-                || !((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
+                || !CampaignJournalPayloadCodec.Decode((byte[])reader[1]).AsSpan().SequenceEqual(snapshotJson))
             {
                 throw Conflict("snapshot-idempotency-conflict", "The snapshot position already contains different state.");
             }
         }
 
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterInsert);
+        await PruneOldSnapshotsAsync(
+            connection,
+            transaction,
+            state.Metadata.CampaignId,
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         _faultInjector.Reach(CampaignPersistenceBoundary.SnapshotAfterCommitBeforeAcknowledgement);
         return new CampaignSnapshotInfo(state.Metadata.CampaignId, state.Head, stateHash, Duplicate: !inserted);
@@ -1011,7 +1027,7 @@ public sealed class SqliteCampaignJournal
                 var campaignId = reader.GetString(0);
                 var position = reader.GetInt64(1);
                 var hash = reader.GetString(2);
-                var json = (byte[])reader[3];
+                var json = CampaignJournalPayloadCodec.Decode((byte[])reader[3]);
                 VerifyHash(json, hash, "snapshot-corrupt");
                 var state = CampaignCanonicalSerializer.Deserialize(json);
                 if (state.Metadata.CampaignId.ToString() != campaignId || state.Head.Value != position
@@ -1176,7 +1192,7 @@ public sealed class SqliteCampaignJournal
             {
                 snapshotPosition = new CommitPosition(reader.GetInt64(0));
                 snapshotHash = reader.GetString(1);
-                snapshotJson = (byte[])reader[2];
+                snapshotJson = CampaignJournalPayloadCodec.Decode((byte[])reader[2]);
             }
         }
 
@@ -1705,6 +1721,30 @@ public sealed class SqliteCampaignJournal
         command.Transaction = transaction;
         command.CommandText = sql;
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private static async Task PruneOldSnapshotsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM snapshots
+            WHERE campaign_id = $campaign_id
+              AND commit_position NOT IN (
+                  SELECT commit_position
+                  FROM snapshots
+                  WHERE campaign_id = $campaign_id
+                  ORDER BY commit_position DESC
+                  LIMIT $retain
+              );
+            """;
+        command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+        command.Parameters.AddWithValue("$retain", MaximumRetainedSnapshotsPerCampaign);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();

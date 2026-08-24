@@ -1255,6 +1255,39 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             var integrity = await journal.VerifyIntegrityAsync();
             Assert.Equal(entries.Length + 1, integrity.EventCount);
             Assert.Equal(2, integrity.SnapshotCount);
+
+            var rollingState = preparedState;
+            for (var index = 0; index < 8; index++)
+            {
+                var rollingTime = new CampaignTime(rollingState.Time.Quanta + 1);
+                var rollingCommand = Command(
+                    1_000 + index,
+                    CampaignSubject.Campaign(Ids.Campaign),
+                    rollingState.CampaignRevision,
+                    new AdvanceClockCommand(rollingTime),
+                    rollingTime);
+                var rollingEvent = CampaignKernel.Decide(
+                    rollingState,
+                    rollingCommand,
+                    rollingState.Head.Next());
+                var rollingAppend = await journal.AppendPreparedAsync(
+                    lease,
+                    rollingState,
+                    rollingCommand,
+                    rollingEvent,
+                    now);
+                rollingState = CampaignKernel.Apply(rollingState, rollingAppend.CampaignEvent);
+                _ = await journal.SavePreparedSnapshotAsync(lease, rollingState, now);
+            }
+
+            var compactedIntegrity = await journal.VerifyIntegrityAsync();
+            Assert.Equal(entries.Length + 9, compactedIntegrity.EventCount);
+            Assert.Equal(8, compactedIntegrity.SnapshotCount);
+            var compactedRecovery = await journal.RecoverAsync(Ids.Campaign);
+            Assert.Equal(rollingState.Head, compactedRecovery.SnapshotPosition);
+            Assert.Equal(
+                CampaignCanonicalSerializer.ComputeHash(rollingState),
+                compactedRecovery.CanonicalHash);
         }
         finally
         {
