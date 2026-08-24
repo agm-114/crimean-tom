@@ -1,4 +1,4 @@
-# Full-catalog WW3++ expansion evidence — 2026-08-23
+# Full-catalog WW3++ expansion evidence, 2026-08-23
 
 This is a current implementation checkpoint for the enlarged September 1989
 campaign seed. It records deterministic seed coverage and local headless
@@ -68,10 +68,10 @@ A final clean component profile on the same machine measured:
 | --- | ---: | ---: |
 | Atomic 5,892-record bootstrap | 8.203 s | 161.0 MiB |
 | Operational advance from quanta 0 to 30 | 2.065 s | 230.2 MiB |
-| First in-process 4,096-entity diagnostic view | 0.329 s | — |
-| Repeated cached diagnostic view | 0.172 s | — |
+| First in-process 4,096-entity diagnostic view | 0.329 s | n/a |
+| Repeated cached diagnostic view | 0.172 s | n/a |
 | Cold post-restart recovery plus diagnostic view | 1.189 s | 174.6 MiB |
-| Warm post-restart diagnostic view | 0.350 s | — |
+| Warm post-restart diagnostic view | 0.350 s | n/a |
 
 The post-advance database occupied 44.3 MiB, the diagnostic view payload was
 5.07 MiB, and restart recovery reproduced commit 5,893, campaign time 30, and

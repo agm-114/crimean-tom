@@ -147,7 +147,7 @@ radius. A zero count is not proof that such combat is impossible.
 
 ## Related notes
 
-- [Runtime architecture](runtime-architecture.md) — origin, time, disable/destroy.
-- [Tactical simulation](tactical-simulation.md) — sensors, AI, weapons, damage.
-- [Campaign systems](campaign-systems.md) — linear, task-force, and map campaign.
-- [Source map](source-map.md) — types to re-open after a game update.
+- [Runtime architecture](runtime-architecture.md): origin, time, disable/destroy.
+- [Tactical simulation](tactical-simulation.md): sensors, AI, weapons, damage.
+- [Campaign systems](campaign-systems.md): linear, task-force, and map campaign.
+- [Source map](source-map.md): types to re-open after a game update.

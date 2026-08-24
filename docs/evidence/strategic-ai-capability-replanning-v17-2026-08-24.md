@@ -1,4 +1,4 @@
-# Strategic AI capability allocation and replanning — algorithm v17
+# Strategic AI capability allocation and replanning, algorithm v17
 
 ## Scope
 

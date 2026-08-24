@@ -2,8 +2,8 @@
 
 Observations are against Sea Power `0.8.2-23444+s358` (Steam app `1286220`,
 depot buildid `24297410`, Unity `6000.0.67f1`). Paths are relative to
-`decompiled/game/Seapower-Scripts/`, which is git-ignored — regenerate with
-`pnpm decompile`. Line references drift between builds; the type and member names
+`decompiled/game/Seapower-Scripts/`, which Git ignores. Regenerate it with
+`pnpm decompile`. Line references drift between builds. The type and member names
 are the stable part. ILSpy `--list` namespaces are `SeaPower.*`; the checked-in
 path convention below follows the `--project` folder names.
 
@@ -56,7 +56,7 @@ reads or mutates tactical state must gate on completed scene loading and
 `_initialized`, not merely on the singletons existing.
 
 Initialization relies heavily on global singletons and static `Globals` state.
-That makes the tactical runtime easy to reach from a plugin, but difficult to
+That gives a plugin direct access to the tactical runtime, but makes it difficult to
 instantiate safely in a headless process.
 
 ## Update phases
@@ -69,7 +69,7 @@ code evidence from `GameMain`, `GameFixedUpdater`, `GameUpdater`, and
 
 `GameMain.PerformFixedUpdate()`:
 
-1. `JobPerformer.CompleteFixedUpdateJobs()` — completes the object-calculation
+1. `JobPerformer.CompleteFixedUpdateJobs()`: completes the object-calculation
    and collision-avoidance jobs scheduled at the end of the previous step.
 2. `GameFixedUpdater.fixedUpdate()`, which runs in this order:
    `ProjectileManager.OnFixedUpdate` → `GameTime.OnFixedUpdate` →
@@ -81,7 +81,7 @@ code evidence from `GameMain`, `GameFixedUpdater`, `GameUpdater`, and
    `GameMain._objects`, removing null entries as it goes. Off-camera and
    off-map units that are still registered keep running; there is no view-frustum
    or distance cull on this loop. See [Tactical bubble](tactical-bubble.md).
-4. `JobPerformer.StartFixedUpdateJobs()` — schedules the next
+4. `JobPerformer.StartFixedUpdateJobs()`: schedules the next
    `ObjectCalculationsJobScheduler` and `CollisionAvoidanceJobScheduler` batch,
    each only if its previous job has completed.
 
@@ -109,7 +109,7 @@ main game view model → debug draw → `VoiceMessage` → `MouseControlState` �
 Then, iterating **backwards** over `GameMain._objects` and skipping `Disabled`
 objects, it calls `OnUpdateEveryFrame()` followed by `OnLazyUpdate()` on each.
 
-Two details matter and are easy to get wrong from the names:
+The names obscure two details:
 
 - `GameUpdater.lazyUpdate` has an empty body. The global lazy-update tier does
   not exist in this build.
@@ -160,7 +160,7 @@ can invalidate comparisons between otherwise similar runs.
 
 ### Weapons are objects; gun rounds are not
 
-This distinction is easy to miss and the two systems behave differently:
+The two systems behave differently:
 
 | Concept | Type | Where it lives | Updated by |
 | --- | --- | --- | --- |
@@ -306,8 +306,8 @@ It is set by `RenderPosition.setGlobalCurrentTilePos(geoPos)`, called from:
 
 `RenderPosition.checkAndPerformRelocation()` compares the camera's horizontal
 local position against `Globals._rebaseToOriginSq`. `Globals._rebaseToOrigin` is
-read from the options INI (`WORLD_SETTINGS`, `RebaseToOrigin`, default `1000`)
-— that is **1000 Unity units ≈ 67 km**. When the camera exceeds it, the game
+read from the options INI (`WORLD_SETTINGS`, `RebaseToOrigin`, default `1000`).
+That value makes **1000 Unity units approximately 67 km**. When the camera exceeds it, the game
 re-centres on the camera's current geo position and calls
 `RelocationHandler.relocate(delta)`.
 
@@ -363,9 +363,9 @@ Note that this per-object catch-up itself only applies to objects that are
 
 `ObjectBase._teleportProtection` suppresses one fixed update's worth of
 centre-tile correction (`if (_teleportProtection) { _teleportProtection = false; }`
-runs *instead of* the reposition branch). It is set when an object is
-deliberately moved — `WeaponSystemHardpoint` sets it on a weapon at release — and
-is also consulted in the surface/altitude correction path together with
+runs *instead of* the reposition branch). The game sets it when code moves an
+object. `WeaponSystemHardpoint` sets it on a weapon at release. The
+surface and altitude correction path also reads it together with
 `_correctAltitudeOnSpawn` and a `GameTime.TimeCompression > 80f` check. Any code
 that repositions an object directly should expect to interact with this flag.
 
@@ -392,8 +392,8 @@ Three properties follow directly:
   advances differently on different hardware or under different load.
 - **`time` is a `float` accumulator with a private setter and is never reset.**
   `GameTime.OnStart()` resets the compression index, not the clock.
-  `SceneCreator._missionStartTime = GameTime.time` captures a per-mission offset,
-  and `CurrentMissionSessionTime` subtracts it — so `time` keeps growing across
+  `SceneCreator._missionStartTime = GameTime.time` captures a per-mission offset.
+  `CurrentMissionSessionTime` subtracts the offset, so `time` keeps growing across
   missions for the whole process lifetime. Float precision degrades as it grows,
   and a great deal of guidance, sensor, and AI logic compares against absolute
   `GameTime.time` values.
@@ -466,9 +466,8 @@ global target ticks per wall second. See the
 `GameTime.Pause()` optionally mutes per-object and environment audio, forces a
 `DynamicSky` update, calls `GameMain.EnforceFixedUpdate()` so queued state is
 made consistent, sets `TimeCompression = 0`, and sets
-`InputHandler.IsInPauseMode`. `GameTime.IsPaused()` is
-`Time.timeScale < 0.05f` — a threshold test on the global Unity time scale, not a
-separate flag.
+`InputHandler.IsInPauseMode`. `GameTime.IsPaused()` tests whether
+`Time.timeScale < 0.05f`. It does not read a separate flag.
 
 Pause and compression are therefore **process-global**. There is no per-unit,
 per-task-force, or per-region time scale, and there is no way to advance one part
@@ -496,7 +495,7 @@ clock. Within a cycle:
 4. Otherwise call `updateIncremental(along)` with the remaining fraction.
 5. Finally call each task force's own `OnUpdate()`.
 
-This means the player does not simply read the ground-truth `ObjectBase` list.
+The player does not read the ground-truth `ObjectBase` list directly.
 The user-facing picture is a task-force-relative plotting table synthesized from
 sensor tracks and shared information, republished on an interval, and that
 interval is measured in capped scaled time.
@@ -509,12 +508,12 @@ streams, none of which is keyed per entity or per event:
 | Stream | Declaration | Used by |
 | --- | --- | --- |
 | `Globals._unityRandom` | `new Unity.Mathematics.Random(12u)` | Missile INS drift and motor performance, biologic behaviour, TMA solution variance |
-| `Globals._rnd` | `new System.Random()` — no seed | Pilot ejection rolls, automatic waypoint pattern generation |
-| `AI._aiRandom` | `private static System.Random` — no seed | Per-unit AI preset-attack selection |
+| `Globals._rnd` | `new System.Random()` with no seed | Pilot ejection rolls, automatic waypoint pattern generation |
+| `AI._aiRandom` | `private static System.Random` with no seed | Per-unit AI preset-attack selection |
 
 `Globals._unityRandom` has a fixed seed but is a single sequential stream, so the
 value any given draw receives depends on how many draws every other subsystem has
-made first — which depends on object count and update order. The two `System.Random`
+made first. That count depends on object count and update order. The two `System.Random`
 instances are default-constructed and therefore differ on every process launch.
 
 The practical consequence is that exact replay is not guaranteed and two
@@ -558,8 +557,8 @@ Recording them prevents wasted investigation:
 | `GameMain` lazy-update fraction | Computed from `Time.realtimeSinceStartup` then discarded. |
 
 Real detection and track handling are distributed across `SensorSystem`
-subclasses, `UnitInternalContact`, `PlottingTable`, and the ECS sensor systems —
-see [Tactical simulation](tactical-simulation.md).
+subclasses, `UnitInternalContact`, `PlottingTable`, and the ECS sensor systems.
+See [Tactical simulation](tactical-simulation.md).
 
 ## Saves and mission lifecycle
 

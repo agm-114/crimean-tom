@@ -1,10 +1,15 @@
-# Phase 5 migration activation recovery — 21 August 2026
+# Phase 5 migration activation recovery, 21 August 2026
 
 ## Disposition
 
 Cross-worker island migration **committed successfully** on campaign `08eed6175b1a4e1abf50004d4e5808c8` at commit **252**, but **destination activation did not converge** after a runtime DLL deploy emptied both worker resource surfaces and restarted game pipe sessions.
 
-This is an honest partial live result: campaign authority moved, worker-a retained a suspended source record, worker-b durable companion state still has assignment, staged checkpoint hash, committed migration, and activation grant — but replay failed before registry convergence because owned mutations were not armed for the new session and the destination runtime no longer retained the staged owned record.
+This is a partial live result. Campaign authority moved, and worker-a retained a
+suspended source record. Worker-b's durable companion state still has the
+assignment, staged checkpoint hash, committed migration, and activation grant.
+Replay failed before registry convergence because owned mutations were not armed
+for the new session and the destination runtime no longer held the staged owned
+record.
 
 ## Live evidence (commit 252)
 

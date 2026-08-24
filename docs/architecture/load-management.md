@@ -187,7 +187,7 @@ fail closed to `Quarantined`. Empty values from older workers default to
 `Healthy`/`Eligible`. Only `Healthy`+`Eligible` workers receive new Primary
 assignments or Shadow overlap; `Pressured` workers keep existing work but receive
 no speculative load; `Overloaded`, `Draining`, `Quarantined`, `Offline`, or
-non-`Eligible` owners evacuate quiet islands. Live two-container
+non-`Eligible` owners move quiet islands to another worker. Live two-container
 Sea Power verification remains open. The campaign kernel now has one atomic
 command/event that can migrate a complete singleton or multi-entity island:
 source assignments must be live `Primary`/`Quiesced`, destinations must be

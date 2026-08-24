@@ -26,7 +26,7 @@ interpreting any Unity transform.
 | `GeoPosition` | `Seapower/GeoPosition.cs` | Double-precision lat/long/height synchronized with local transforms and used to reconstruct position across relocation/load. |
 | `Utils` | `Seapower/Utils.cs` | `longLatToTile`, `longLatToLocal(V3)`, `worldPositionFromUnityToLongLat`, and the unit conversions that pin the scale (1 Unity unit = 67.2 m). |
 | `Globals` | `Seapower/Globals.cs` | `_currentCenterTile`, `_rebaseToOrigin`, `_useAssetBundles`, shared sensor-echo pools, and the three global RNG streams. |
-| `RenderPosition` | `Seapower/RenderPosition.cs` | Camera geo position, `setGlobalCurrentTilePos`, and `checkAndPerformRelocation` — the floating-origin trigger. |
+| `RenderPosition` | `Seapower/RenderPosition.cs` | Camera geo position, `setGlobalCurrentTilePos`, and `checkAndPerformRelocation`, which triggers the floating origin. |
 | `RelocationHandler` | `Seapower/RelocationHandler.cs` | The world-shift itself: objects, projectiles, trails, terrain, clouds, autogen, subscribers. |
 | `SceneCreator` | `Seapower/SceneCreator.cs` | Mission map centre, initial centre tile, `_missionStartTime`, `GenerateUid` / `_UID`, background land, and initial unit placement. |
 | `OptionsManager` | `Seapower/OptionsManager.cs` | Where `RebaseToOrigin`, `UseAssetBundles`, and other world/general settings are read. |

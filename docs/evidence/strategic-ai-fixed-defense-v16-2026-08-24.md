@@ -1,4 +1,4 @@
-# Strategic AI fixed-defense qualification — algorithm v16
+# Strategic AI fixed-defense qualification, algorithm v16
 
 ## Defect found
 

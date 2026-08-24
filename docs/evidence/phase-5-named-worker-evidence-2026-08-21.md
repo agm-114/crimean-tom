@@ -1,4 +1,4 @@
-# Phase 5 named tactical worker evidence — 21 August 2026
+# Phase 5 named tactical worker evidence, 21 August 2026
 
 ## Scope
 
@@ -15,7 +15,7 @@ not simultaneous two-container island migration.
 | Steamworks.NET | Shut down: `RestartAppIfNecessary returned true` |
 | Default `pnpm dev` game | Remained healthy (PID 31208) |
 | Transactional rollback | Stopped worker companion, removed worker game/metadata/companion PID files |
-| Plugin wait | Full 120s timeout — did not detect early game exit |
+| Plugin wait | Full 120s timeout. The harness did not detect the early game exit. |
 | Two-container claim | **Not valid** from this attempt |
 
 Isolated worker log excerpt (classification target):
@@ -27,7 +27,8 @@ Isolated worker log excerpt (classification target):
 ## Harness hardening (post first attempt)
 
 1. Per-process `SteamAppId` / `SteamGameId` (default `1286220`, `-SteamAppId` override)
-   on worker game `ProcessStartInfo` only — no `steam_appid.txt`, no install/global env mutation.
+   only on the worker game's `ProcessStartInfo`. It does not write `steam_appid.txt`
+   or change the install or global environment.
 2. `Wait-ForPluginMarker` validates the recorded game PID/metadata each poll and fails
    immediately with a concise log tail.
 3. Failure messages classify `RestartAppIfNecessary` when present in the worker log.
@@ -63,7 +64,7 @@ pnpm worker:live-proof -- `
 Result: `LIVE_PROOF_SUCCEEDED: two distinct real campaign workers coexist.`
 
 **Coexistence of two real runtime+companion workers is proven** on this host.
-**Cross-worker tactical-island migration remains unproven** — do not claim
+**Cross-worker tactical-island migration remains unproven**. Do not claim
 two-container migration or automatic rebalance until `pnpm worker:migration-proof -Execute`
 succeeds on the live host.
 

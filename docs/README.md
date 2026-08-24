@@ -40,34 +40,34 @@ delivery order: implementation plan
 
 ## Architecture
 
-- [Dynamic campaign design](architecture/dynamic-campaign-design.md) — concise
+- [Dynamic campaign design](architecture/dynamic-campaign-design.md): concise
   system overview and the 4,096-entity proving campaign.
-- [System architecture](architecture/system-architecture.md) — complete
+- [System architecture](architecture/system-architecture.md): complete
   normative specification.
-- [Implemented architecture map](architecture/implementation-map.md) — current
+- [Implemented architecture map](architecture/implementation-map.md): current
   code/process boundaries and deliberate gaps.
-- [Transport stack](architecture/transport-stack.md) — local-first HTTP/gRPC
+- [Transport stack](architecture/transport-stack.md): local-first HTTP/gRPC
   boundaries and the future player realtime channel.
 - [Deterministic runtime adapter](architecture/deterministic-runtime-adapter.md)
-  — requirements before a Unity process can be a promotable hot replica.
-- [Federated simulation](architecture/federated-simulation.md) — assignment,
+  lists the requirements for a Unity process to become a promotable hot replica.
+- [Federated simulation](architecture/federated-simulation.md): assignment,
   lease, replica, reconciliation, and failover semantics.
-- [Load management](architecture/load-management.md) — capacity, interaction
+- [Load management](architecture/load-management.md): capacity, interaction
   islands, migration, degradation, and global tempo.
-- [Standalone simulation worker](architecture/standalone-sim-worker.md) — the
+- [Standalone simulation worker](architecture/standalone-sim-worker.md): the
   current Operational worker boundary and its explicit non-parity with Sea Power.
 
 ## Planning and operations
 
-- [Current status](planning/current-status.md) — living implementation and gap
+- [Current status](planning/current-status.md): living implementation and gap
   ledger.
-- [Implementation plan](planning/implementation-plan.md) — gated delivery plan
+- [Implementation plan](planning/implementation-plan.md): gated delivery plan
   and adversarial review checklist.
-- [Threat model](planning/threat-model.md) — local pipe, service, player,
+- [Threat model](planning/threat-model.md): local pipe, service, player,
   storage, projection, and update boundaries.
-- [Packaged SQLite profile](planning/packaged-sqlite-profile.md) — supported
+- [Packaged SQLite profile](planning/packaged-sqlite-profile.md): supported
   local deployment baseline.
-- [Testing and observation](operations/testing.md) — repeatable build, launch,
+- [Testing and observation](operations/testing.md): repeatable build, launch,
   campaign, performance, and live-game verification procedures.
 
 ## Sea Power research

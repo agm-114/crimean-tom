@@ -9,7 +9,7 @@ state families.
 
 | P2 exit condition | Working evidence | Disposition |
 | --- | --- | --- |
-| Materialize → inspect → checkpoint → remove from active simulation → rematerialize with stable identity and supported fields within tolerance | Live create/readback, exact checkpoint restore, native suspension, scene-reload reconstruction, and [surface tolerances](phase-2-surface-field-tolerances.md) | pass; “remove” is explicitly retained native suspension, not memory reclamation |
+| Materialize → inspect → checkpoint → remove from active simulation → rematerialize with stable identity and supported fields within tolerance | Live create/readback, exact checkpoint restore, native suspension, scene-reload reconstruction, and [surface tolerances](phase-2-surface-field-tolerances.md) | Pass. "Remove" means retained native suspension, not memory reclamation. |
 | Duplicate create/update/delete commands are idempotent | Create, update, suspend, enable, restore, and detached-recovery release all returned exact replay results without duplicate objects | pass |
 | Stale revision/epoch and unsupported catalog fail closed | HTTP 422 `stale-revision`, HTTP 422 `stale-authority-epoch`, companion rejection of a Ticonderoga tuple, and plugin rejection of an unowned scoped ID | pass |
 | Injected failure leaves source state or one recoverable owned Unity object | Eleven live injection boundaries: materialize 3, update 3, suspension 2, restore 3. Update/suspension/restore retained their source revision and exact canonical hash; materialize failures produced one tagged suspended recovery object each | pass |

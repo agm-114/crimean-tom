@@ -233,7 +233,7 @@ with per-process Steam app context, two named workers coexist on the live host:
 `pnpm worker:live-proof` with `-WorkersRunRoot` against the main `.run\workers`
 root returned `LIVE_PROOF_SUCCEEDED`. **Coexistence of two real runtime+companion
 workers is proven** on this host. **Cross-worker tactical-island migration remains
-unproven** — do not claim two-container migration or automatic rebalance until
+unproven**. Do not claim two-container migration or automatic rebalance until
 `pnpm worker:live-migrate -Execute` (or `pnpm worker:migration-proof -Execute`)
 succeeds with destination Primary Active and source Primary Released.
 
@@ -513,7 +513,7 @@ At minimum verify:
   and reports populated ship, submarine, and air roster groups;
 - returning to the main menu does not mutate or create a campaign save.
 
-When campaign features exist, use a disposable named campaign/save. Never
+When campaign features exist, use a disposable named campaign or save. Never
 overwrite the user's real campaign state as part of a smoke test.
 
 The eventual port-operations integration scenario should cover the whole

@@ -1,4 +1,4 @@
-# Full dynamic campaign sync and performance proof — 23 August 2026
+# Full dynamic campaign sync and performance proof, 23 August 2026
 
 ## Scope
 

@@ -1,4 +1,4 @@
-# Player-selected streaming and bounded-sync evidence — 24 August 2026
+# Player-selected streaming and bounded-sync evidence, 24 August 2026
 
 ## Scope and disposition
 

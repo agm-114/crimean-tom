@@ -2,7 +2,7 @@
 
 ## Purpose and method
 
-This file records the external evidence behind **Fulda Gap Gone Hot — Global
+This file records the external evidence behind **Fulda Gap Gone Hot: Global
 War**, the deliberately oversized Crimean Tom validation campaign. It is not an
 exact 11 September 1989 order of battle. It is an alternate-history general-war
 mobilization constrained by late-Cold-War force totals, known bases and
@@ -11,11 +11,11 @@ shipping scale.
 
 Every translation below is labelled as one of:
 
-- **historical anchor** — directly supported by a linked government or
+- **historical anchor.** Directly supported by a linked government or
   intergovernmental source;
-- **representative abstraction** — one campaign entity stands for a ship,
+- **representative abstraction.** One campaign entity stands for a ship,
   formation, mission package, installation component, or traffic sample;
-- **authored extrapolation** — a plausible WW3++ wartime disposition that is
+- **authored extrapolation.** A plausible WW3++ wartime disposition that is
   not asserted as the real location of a named unit on a particular day.
 
 Sources were accessed on 23 August 2026. Wherever possible, the register uses
@@ -92,7 +92,7 @@ necessary. These are **historical anchors** for the dense Central Front,
 POMCUS/logistics sites, reinforcement airfields, and Atlantic convoy traffic.
 Sources:
 [NATO–Warsaw Pact force comparison, 1987](https://archives.nato.int/force-comparison-1987-nato-and-warsaw-pact),
-[Conventional forces in Europe — the facts](https://archives.nato.int/uploads/r/null/1/4/141514/CONVENTIONAL_FORCES_IN_EUROPE_-_THE_FACTS_ENG.pdf),
+[Conventional forces in Europe: the facts](https://archives.nato.int/uploads/r/null/1/4/141514/CONVENTIONAL_FORCES_IN_EUROPE_-_THE_FACTS_ENG.pdf),
 and [The Army Command Post and Defense Reshaping](https://history.army.mil/portals/143/Images/Publications/catalog/40-4-1.pdf).
 
 The campaign represents individual air-defense, airfield, radar, depot, and

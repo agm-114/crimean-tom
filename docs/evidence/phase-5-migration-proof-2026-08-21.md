@@ -1,4 +1,4 @@
-# Phase 5 cross-worker migration proof — 21 August 2026
+# Phase 5 cross-worker migration proof, 21 August 2026
 
 ## Scope
 
@@ -27,12 +27,29 @@ The migration driver reuses the coexistence proof, then fail-closes on:
 
 Optional repair is split and off by default:
 
-- `-AllowGhostRelease` — advance campaign time and `resolve-expired` to release a disconnected legacy Primary only. After success the driver recomputes blockers (typically `source-preparation-required` when the island demotes to Operational) and exits `0` as a resumable repair step; it does not retain stale pre-repair blockers or exit `1`.
-- `-AllowSourcePreparation` — coordinator `prepare-source` with pinned `preferredWorkerClientInstanceId` for the requested `-SourceWorkerId`; locates the singleton interaction island even when the entity is Operational with no live Primary; waits for Active Primary and exact native materialization on that worker (assignment id, game entity id, `lifecycleState=active`, `authorityEpoch`, and `revision` in `/game/mutations/surface/resources`). Migration preflight still requires Tactical fidelity plus Active exact source materialization.
-- `-AllowSchedulerPromotion` — legacy scheduler `schedule` promotion attempt; **nondeterministic** because the API cannot pin a worker. Prefer `-AllowSourcePreparation`. Must be passed explicitly; never implied by `-AllowRepair`.
-- `-AllowRepair` — convenience alias for `-AllowGhostRelease` plus `-AllowSourcePreparation` only (deterministic repair sequence).
+- `-AllowGhostRelease`: advance campaign time and run `resolve-expired` to release
+  only a disconnected legacy Primary. After success, the driver recomputes the
+  blockers and exits `0` as a resumable repair step. The usual blocker is
+  `source-preparation-required` after the island demotes to Operational. The
+  driver does not retain stale blockers or exit `1`.
+- `-AllowSourcePreparation`: run coordinator `prepare-source` with
+  `preferredWorkerClientInstanceId` pinned to the requested `-SourceWorkerId`.
+  The command finds the singleton interaction island even if it is Operational
+  and has no live Primary. It waits for an Active Primary and exact native
+  materialization on that worker. The materialization must match the assignment
+  ID, game entity ID, `lifecycleState=active`, `authorityEpoch`, and `revision`
+  in `/game/mutations/surface/resources`. Migration preflight still requires
+  Tactical fidelity and exact Active source materialization.
+- `-AllowSchedulerPromotion`: ask the legacy scheduler to run `schedule`. The
+  result is **nondeterministic** because the API cannot pin a worker. Prefer
+  `-AllowSourcePreparation`. Pass this flag explicitly. `-AllowRepair` does not
+  imply it.
+- `-AllowRepair`: convenience alias for `-AllowGhostRelease` plus `-AllowSourcePreparation` only (deterministic repair sequence).
 
-Execution requires `-Execute`. Without it the driver stops after preflight and returns exit code `0` when ready, `0` when a requested ghost-release-only repair step completed (resumable; further repair may still be required), or `2` when blocked for migration.
+Execution requires `-Execute`. Without it, the driver stops after preflight.
+Exit code `0` means that migration is ready or that a requested ghost-release
+step completed. A completed ghost-release step may still require more repair.
+Exit code `2` means that migration is blocked.
 
 Evidence JSON omits secrets and may be written with `-EvidencePath`.
 
@@ -51,7 +68,9 @@ pnpm worker:migration-proof -- `
   -EvidencePath C:\Users\Varun\repos\crimean-tom\.run\evidence\migration-preflight-2026-08-21.json
 ```
 
-Coexistence phase: **passed** — `worker-a` and `worker-b` are live with distinct game sessions, client instance IDs, and campaign sessions (same outcome as `pnpm worker:live-proof`).
+Coexistence phase: **passed**. `worker-a` and `worker-b` have distinct game
+sessions, client instance IDs, and campaign sessions. `pnpm worker:live-proof`
+produced the same result.
 
 Migration preflight: **blocked** (exit `2`).
 
@@ -62,7 +81,7 @@ Migration preflight: **blocked** (exit `2`).
 
 Neither named worker reports owned campaign objects (`activeObjectCount = 0`). The tactical island exists in campaign state but is not bound to the named worker containers.
 
-Recommended repair before `-Execute` (deliberate mutation — not run during this implementation pass):
+Recommended repair before `-Execute`. This deliberate mutation did not run during this implementation pass:
 
 ```powershell
 # Step 1: bounded ghost release only (releases disconnected legacy Primary assignments; exit 0 when complete, with `source-preparation-required` if the island demoted to Operational)
@@ -92,4 +111,6 @@ Do not claim two-container island migration until `pnpm worker:migration-proof -
 ## Related evidence
 
 - Coexistence only: `docs/evidence/phase-5-named-worker-evidence-2026-08-21.md`
-- Protocol-level migration (synthetic second gRPC worker): `docs/evidence/phase-5-live-evidence-2026-08-21.md` — Migration orchestration admission and cooldown section
+- Protocol-level migration with a synthetic second gRPC worker: see
+  [Phase 5 live evidence](phase-5-live-evidence-2026-08-21.md), in the migration
+  orchestration admission and cooldown section.

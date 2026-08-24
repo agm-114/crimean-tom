@@ -1,4 +1,4 @@
-# WW3++ 801-entity headless campaign evidence — 23 August 2026
+# WW3++ 801-entity headless campaign evidence, 23 August 2026
 
 > Historical measurement: the current full-catalog seed contains 4,096 entities.
 > These timings qualify the earlier 801-entity revision and must not be reused as

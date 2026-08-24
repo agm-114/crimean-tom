@@ -1,4 +1,4 @@
-# Combined-arms Operational emulator evidence — 23 August 2026
+# Combined-arms Operational emulator evidence, 23 August 2026
 
 > Historical snapshot: this proof qualifies the earlier 905-entity seed. The
 > current full-catalog seed contains 4,096 entities; its inventory and checks

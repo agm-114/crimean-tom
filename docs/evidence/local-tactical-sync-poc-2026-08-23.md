@@ -1,4 +1,4 @@
-# Local tactical sync POC evidence — 23 August 2026
+# Local tactical sync POC evidence, 23 August 2026
 
 ## Scope
 
@@ -39,8 +39,8 @@ record with the matching assignment and authority epoch. The service reported
 the assignment `Active` and `LeaseLive: true`.
 
 The assignment became active near campaign quanta 320. During unpaused tactical
-play it remained active beyond quanta 1,220—well past the former 120-quanta
-deadline—while an unrelated entity reached revision 130. Sea Power reached
+play it remained active beyond quanta 1,220, well past the former 120-quanta
+deadline. During that period, an unrelated entity reached revision 130. Sea Power reached
 67.69 simulation seconds and remained unpaused.
 
 An ordered movement update committed at canonical revision 5. The next periodic

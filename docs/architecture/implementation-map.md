@@ -98,7 +98,7 @@ defense, damage, and withdrawal. The service process still executes all ticks,
 including islands placed on Track A Operational workers.
 
 Optional collider-assisted terminal resolution loads schema-v2, root-oriented
-meter geometry from `ColliderGeometryCache` and raycasts primitive/bounds
+meter geometry from `ColliderGeometryCache` and raycasts shape and bounds
 silhouettes with BepuPhysics. It is an analogue hit silhouette, not Unity PhysX,
 Blastzone armor, or penetration simulation. Without an enabled valid catalog,
 the existing deterministic probabilistic path remains authoritative.

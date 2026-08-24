@@ -256,7 +256,7 @@ while canonical state changes at a deterministic boundary.
 ## Distribution and load balancing
 
 The scheduler assigns work based on interaction, locality, fidelity, health,
-and spare capacity—not simply one ship per client. It may:
+and spare capacity. It does not assign one ship to each client. It may:
 
 - give a player's client primary authority for nearby friendly units;
 - add another client's full shadow for important or heavily observed units;

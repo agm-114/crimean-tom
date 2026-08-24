@@ -143,7 +143,7 @@ can change a city's side after capture.
 running tactical scene. `SetupGroupsForTacticalMission` clears
 `MissionEditorModel.Groups`, adds the central group, then copies every other
 `GroupOfUnits` whose `Location.GetDistance(...) / 1000.0` is under
-`925.9999990463257` — **~926 km, 500 nmi** with 1852 m/nmi — writes
+`925.9999990463257`, or **about 926 km and 500 nmi** with 1852 m/nmi. It writes
 `GeoPosition` from each group's station offsets, and calls
 `MissionEditorModel.SetupMission`. That is a generated-mission snapshot, not
 Crimean Tom live streaming, and it is not a measured weapons/terrain bubble.

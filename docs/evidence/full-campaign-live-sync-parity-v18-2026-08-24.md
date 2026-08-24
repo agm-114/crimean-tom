@@ -1,4 +1,4 @@
-# Full-campaign live sync, parity, and distant-land focus — 24 August 2026
+# Full-campaign live sync, parity, and distant-land focus, 24 August 2026
 
 ## Scope
 

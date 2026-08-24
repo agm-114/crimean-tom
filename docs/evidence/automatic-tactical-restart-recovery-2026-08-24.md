@@ -1,4 +1,4 @@
-# Automatic tactical restart recovery — 24 August 2026
+# Automatic tactical restart recovery, 24 August 2026
 
 ## Scope
 

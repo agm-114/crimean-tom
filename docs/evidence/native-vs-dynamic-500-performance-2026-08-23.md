@@ -1,4 +1,4 @@
-# Native versus dynamic 500-entity performance — 23 August 2026
+# Native versus dynamic 500-entity performance, 23 August 2026
 
 ## Result
 

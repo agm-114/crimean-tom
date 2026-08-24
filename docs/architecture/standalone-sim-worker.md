@@ -45,7 +45,7 @@ weapons, and AI run. Track A does not replace that.
 
 ## Two tracks (do not mix)
 
-### Track A — Sea-Power-free Operational worker (implemented)
+### Track A: Sea-Power-free Operational worker (implemented)
 
 A .NET 8 process, same stack as the campaign service, reusing the existing
 ordered gRPC stream and heartbeat conventions. Its control-plane placement is a
@@ -57,7 +57,7 @@ service remains the executor as well as the journal writer.
 **Must not own:** lease/epoch allocation, canonical campaign-clock allocation,
 journal writer identity, player commands, Sea Power materialization.
 
-### Track B — Unattended Sea Power farm (not implemented)
+### Track B: Unattended Sea Power farm (not implemented)
 
 Coordinator-launched `Sea Power.exe` + companion with **no player session**.
 Still a Unity window. Forbidden as the default spawn. Do not describe it as
@@ -75,11 +75,11 @@ Requested -> Spawning -> Hello -> Eligible -> Assigned
 
 Control surface:
 
-- `POST /control/campaigns/{id}/sim-workers` — kind `operational` only. Capacity
+- `POST /control/campaigns/{id}/sim-workers`: kind `operational` only. Capacity
   and reserve are the assigned-island budget. Overlapping spawn for the same
   worker id is rejected.
-- `GET /control/campaigns/{id}/sim-workers` — recorded children and liveness.
-- `DELETE /control/campaigns/{id}/sim-workers/{workerId}` — PID/start/executable-
+- `GET /control/campaigns/{id}/sim-workers`: recorded children and liveness.
+- `DELETE /control/campaigns/{id}/sim-workers/{workerId}`: PID/start/executable-
   fenced kill and immediate session removal, then release the control-plane
   placements. A3 must replace this with bounded work-result drain before kill.
 - Hello advertises `workerKind=operational` and `playerSessionBound=false`, plus
@@ -181,10 +181,10 @@ Operational result eligible for Tactical activation.
 
 ## Related
 
-- [System architecture](system-architecture.md) — Operational worker component.
-- [Load management](load-management.md) — health, eligibility, island movement.
-- [Federated simulation](federated-simulation.md) — roles, leases, no proxy
+- [System architecture](system-architecture.md): Operational worker component.
+- [Load management](load-management.md): health, eligibility, island movement.
+- [Federated simulation](federated-simulation.md): roles, leases, no proxy
   promotion.
-- [Dynamic campaign architecture](dynamic-campaign-design.md) — service vs
+- [Dynamic campaign architecture](dynamic-campaign-design.md): service vs
   Sea Power boundary.
 - Named worker operations: [testing.md](../operations/testing.md).

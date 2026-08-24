@@ -18,9 +18,9 @@ UnityExplorer is not proof the player has detected it.
 ### Reproducibility
 
 Exact reproduction is not guaranteed in this layer stack. Three process-global
-RNG streams feed simulation decisions — `Globals._unityRandom` (fixed seed but a
-single shared sequence), `Globals._rnd`, and `AI._aiRandom` (both unseeded) —
-and per-object update order is reverse insertion order over a plain list. See
+RNG streams feed simulation decisions. `Globals._unityRandom` has a fixed seed
+but uses one shared sequence. `Globals._rnd` and `AI._aiRandom` are unseeded.
+Per-object update order is reverse insertion order over a plain list. See
 [Runtime architecture](runtime-architecture.md) for the details.
 
 Treat tactical results statistically until the controlled runtime is validated.
@@ -72,7 +72,7 @@ phased.
 
 The cadence is set by `TaskforceManager.OnUpdate`. `_dataLinkUpdateRate` comes
 from INI (`General/DataLinkUpdateRate`, default one second) and the elapsed
-measure is `Time.time` — Unity's *scaled* clock, which the physics cap holds at
+measure is `Time.time`, Unity's *scaled* clock. The physics cap holds it at
 10×. Within a cycle every task force receives incremental updates carrying the
 fraction of the interval elapsed; at the boundary the ECS
 `PlottingTableSystemGroup` is updated explicitly and
@@ -194,21 +194,21 @@ in-flight gun round is not.
 A missile in flight carries a large amount of state that exists only in memory
 and only for that flight. Representative fields on `Missile` and its seeker:
 
-- `_flightStage` (launch, drop-from-aircraft, to-bearing, cruise, terminal, …);
+- `_flightStage` (launch, drop-from-aircraft, to-bearing, cruise, terminal, and other stages).
 - `_seeker._guidanceType`, `_seeker._activationTime`, `_terminalStartTime`,
-  `_lostGuidanceTime`;
-- `CurrentIntendedTargetObject`, `CurrentTarget`, `CurrentStrongestTargetEcho` —
-  live references to other objects and to shared echo entries;
-- `ConnectionLost` / `ConnectionLostForever` reactive properties, and
-  `_requiresExternalGuidance` for semi-active and command-guided rounds;
+  and `_lostGuidanceTime`.
+- `CurrentIntendedTargetObject`, `CurrentTarget`, and `CurrentStrongestTargetEcho`:
+  live references to other objects and shared echo entries.
+- `ConnectionLost` and `ConnectionLostForever` reactive properties, and
+  `_requiresExternalGuidance` for semi-active and command-guided rounds.
 - `_insDriftValue` and `_motorPerformance`, both drawn once at spawn from
   `Globals._unityRandom`, so they are per-round samples from a shared global
-  stream;
+  stream.
 - `_targetLost`, `_wasInMissileGroup`, and preset attack bookkeeping.
 
 Two properties make this state hard to treat as portable. It is full of
 references to other live objects rather than identifiers, and a lot of the
-guidance logic compares against **absolute** `GameTime.time` — for example
+guidance logic compares against **absolute** `GameTime.time`. For example,
 `GameTime.time - _seeker._activationTime > 180f` and
 `GameTime.time - _lostGuidanceTime > 10f`. Reproducing it elsewhere requires
 reproducing the clock origin as well as the fields.

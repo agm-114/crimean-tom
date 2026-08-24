@@ -1,4 +1,4 @@
-# E1a two-process divergence sampler — 22 August 2026
+# E1a two-process divergence sampler, 22 August 2026
 
 ## Scope
 

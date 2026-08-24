@@ -190,8 +190,8 @@ Build an evidence-backed read model before attempting to create or mutate units.
 
 - Define normalized IDs for countries, platforms, variants, loadouts, weapons,
   sensors, magazines, aircraft, facilities, and relevant doctrines.
-- Extract from the game's winning virtual-file view where possible, not just the
-  `original` directory.
+- Extract from the game's winning virtual-file view where possible. Do not limit
+  extraction to the `original` directory.
 - Record source path/mod provenance for each normalized record.
 - Normalize units, dates, enum values, aliases, and missing/default fields.
 - Produce canonical ordering and a SHA-256 catalog/mod fingerprint.
@@ -585,7 +585,7 @@ client without creating a separate campaign timeline.
 - Instrument when launch, impact, damage, destruction, UI, audio, and visual
   effects become visible relative to event proposal and durable commitment.
   Choose and document a feasible write-ahead/acceptance and bounded-rollback
-  policy; do not assume “commit before display” is free.
+  policy. Do not assume that "commit before display" has no cost.
 - Dematerialize back to the operational engine using the quiesce protocol.
 - Continue unrelated external entities during tactical simulation.
 - Keep campaign objectives/triggers canonical in the external engine, or prove an
@@ -693,7 +693,7 @@ migration remain unproven.
   activation framing, not a completed mixed-combat live migration.
 - The kernel rejects promotions above that ceiling, and tactical handoff fails
   closed for entities that cannot be represented by Sea Power.
-- The deterministic Fulda Gap Gone Hot — Global War proving campaign supplies
+- The deterministic Fulda Gap Gone Hot: Global War proving campaign supplies
   the large representative theater used while implementing the remaining Phase
   5 engine, scheduler, monitor, and live-game flows. Its 55 regions, 81 bases,
   4,096 opening entities and 919 groups cover both US coasts, Cuba and the
@@ -726,16 +726,16 @@ migration remain unproven.
   campaign channel with stable deep links, while the semantic order of battle is
   organized coalition -> formation -> unit rather than as a flat track list.
   Singleton formations are flattened to avoid redundant hierarchy rows.
-- The unattended resolver now performs deterministic region-level detection,
-uncertainty degradation, damage, destruction, and whole-task-force
-withdrawal. Weapon employment is additionally fenced by the actor's exact
-loadout-derived Sea Power ammunition target class and native range snapshot;
-missing catalog data fails closed. Coalition projections receive opaque track
-IDs instead of hostile canonical entity IDs. Campaign diagnostics now score
-those outcomes against a documented calibration envelope: catalog range ratio
-must stay at or below 1.000, tactical compression remains capped at 10x of the
-healthy 30 ticks/wall-second step, and fenced coupling islands cannot be
-demoted. Disagreement is visible on the campaign view rather than hidden.
+- The unattended resolver now handles region-level detection, uncertainty
+  degradation, damage, destruction, and whole-task-force withdrawal in a
+  deterministic way. The actor's ammunition target class and native range
+  snapshot limit weapon employment. Both values come from the Sea Power
+  loadout. Missing catalog data blocks the action. Coalition projections use
+  opaque track IDs instead of hostile entity IDs. Campaign diagnostics enforce
+  three documented limits. The catalog range ratio stays at or below 1.000.
+  Tactical compression stays at or below 10 times the healthy rate of 30 ticks
+  per wall-clock second. The scheduler cannot demote a fenced coupling island.
+  The campaign view reports any disagreement.
 - The first non-resolving tactical worker container now loads live with one
   process-local anchor, no hostile force, and no campaign objective or victory
   trigger. Typed bridge automation selects it and reports a paused mission,
@@ -888,8 +888,8 @@ operational fallback but makes no hot-failover claim.
 ### 6D. Load-driven reassignment and minimum validation
 
 - Exercise prepare-at-source, quiesce tick, final checkpoint, atomic epoch fence,
-  destination activation, post-commit native suspension, and—only if separately
-  validated—memory-releasing quiet removal for whole islands.
+  destination activation, and post-commit native suspension. Remove quiet islands
+  from memory only after separate validation.
 - Preserve reserve capacity for failover and reject destinations that are already
   pressured or cannot afford temporary overlap.
 - Apply basic kinematic, detection-range, weapon/store, and event-causality
@@ -930,11 +930,11 @@ capacity reports, and migration storms.
 
 ## Phase 7 - realtime multiplayer experience
 
-**Status: HTTP projection/session scaffolding implemented; P7 exit gate open
-(23 August 2026).** Coalition-filtered snapshots, reconnectable player sessions,
-and bounded presentation envelopes exist. There is no SignalR hub, complete
-player client, or canonical player order path; accepted envelopes do not commit
-campaign commands or outcomes.
+**Status, 23 August 2026.** HTTP projection and reconnectable player sessions
+exist, but the P7 exit gate remains open. The service produces coalition-filtered
+snapshots and bounded presentation messages. It does not have a SignalR hub, a
+complete player client, or a canonical player-order path. Accepted presentation
+messages do not commit campaign commands or outcomes.
 
 ### Objective
 

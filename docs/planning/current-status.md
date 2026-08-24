@@ -98,7 +98,7 @@ These are prerequisites, not release-polish tasks:
 
 ## Missing product features
 
-### P0 — complete a player-visible campaign loop
+### P0: complete a player-visible campaign loop
 
 1. **Explicit campaign lifecycle.** New and restored campaigns need a
    player-visible paused/running state, explicit start/resume behavior, save
@@ -150,7 +150,7 @@ These are prerequisites, not release-polish tasks:
    protection coalition because the engine treats every other coalition as
    hostile.
 
-### P1 — move prototype execution across its intended boundaries
+### P1: move prototype execution across its intended boundaries
 
 1. **Out-of-process Operational work.** Implement immutable island work leases,
    deterministic worker execution, result hashes/events, validation, timeout,
@@ -169,7 +169,7 @@ These are prerequisites, not release-polish tasks:
    and engagement outcomes against batches of Sea Power observations and expose
    a versioned ruleset/calibration profile.
 
-### P2 — qualify deployment, trust, and scale
+### P2: qualify deployment, trust, and scale
 
 1. **Packaged application lifecycle.** Installer/portable bundle, configuration,
    clean-machine startup, update/rollback, campaign import/export, retention and

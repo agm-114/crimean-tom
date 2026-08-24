@@ -1,4 +1,4 @@
-# Map-first campaign proxy POC — 24 August 2026
+# Map-first campaign proxy POC, 24 August 2026
 
 This is local runtime evidence against Sea Power `0.8.2-23444+s358` and campaign
 `20260824000000000000000000000002`. The campaign was advancing unattended, so

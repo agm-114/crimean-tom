@@ -1,4 +1,4 @@
-# Phase 5 operational-load evidence — 21 August 2026
+# Phase 5 operational-load evidence, 21 August 2026
 
 ## Scope
 

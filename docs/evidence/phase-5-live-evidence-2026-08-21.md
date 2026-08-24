@@ -1,4 +1,4 @@
-# Phase 5 live scheduler evidence — 21 August 2026
+# Phase 5 live scheduler evidence, 21 August 2026
 
 ## Disposition
 

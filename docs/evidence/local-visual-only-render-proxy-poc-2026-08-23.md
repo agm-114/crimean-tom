@@ -1,4 +1,4 @@
-# Local visual-only render-proxy POC — 23 August 2026
+# Local visual-only render-proxy POC, 23 August 2026
 
 ## Scope
 

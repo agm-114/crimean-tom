@@ -1,4 +1,4 @@
-# Local friendly render-proxy POC — 2026-08-23
+# Local friendly render-proxy POC, 2026-08-23
 
 ## Scope
 

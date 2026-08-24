@@ -81,7 +81,7 @@ The companion durably receives the grant and sends it through the local pipe.
 The plugin advances the session locally, applies inputs only at their named tick,
 and reports the last completed tick plus canonical subsystem hashes.
 
-Wall time determines how quickly a machine consumes granted steps, not what a
+Wall time determines the rate at which a machine consumes granted steps, not what a
 step means. A fast client may wait at the lead boundary. A slow client consumes
 catch-up batches without changing the logical timestep. Rendering can drop or
 interpolate frames, but simulation ticks cannot be skipped or stretched.
@@ -229,7 +229,7 @@ cryptographically deterministic across hardware. Replicas therefore report:
 
 Hash equality confirms equality only for fields represented by the canonical
 schema. A matching top-level hash does not prove omitted hidden state is safe.
-Promotion eligibility additionally requires full-state coverage for every
+Promotion eligibility also requires full-state coverage for every
 subsystem relevant to the assignment.
 
 Corrections are applied only at defined boundaries. Active guidance, collision,

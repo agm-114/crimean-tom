@@ -53,7 +53,7 @@ and most validation belong in the companion or service.
 
 ## Fulda Gap proving campaign
 
-The representative validation campaign is **Fulda Gap Gone Hot — Global War**, a
+The representative validation campaign is **Fulda Gap Gone Hot: Global War**, a
 deterministic alternate-1989 conflict anchored on the Central Front but fought
 across the global maritime, air, and littoral battlespace. It is intentionally
 one continuous campaign rather than a sequence of generated scenarios. The
@@ -364,11 +364,11 @@ draft; only that player's conflicting maintenance transaction is fenced.
 Fidelity is selected per entity or interaction island and may change while the
 campaign continues:
 
-1. **Strategic** — the service advances routes, logistics, readiness, broad
+1. **Strategic.** The service advances routes, logistics, readiness, broad
    detection, weather, and scheduled operations without a game client.
-2. **Operational** — a deterministic resolver advances unattended combat at a
+2. **Operational.** A deterministic resolver advances unattended combat at a
    richer level but still without Unity.
-3. **Tactical** — a live Sea Power client simulates the same unit at full Sea
+3. **Tactical.** A live Sea Power client simulates the same unit at full Sea
    Power fidelity. The kernel does **not** freeze a unit merely because it is
    labelled Tactical or has a preparing assignment. Only an **Active** or
    **Quiescing** Sea Power assignment takes the unit out of the in-process
@@ -405,8 +405,8 @@ It can dematerialize the entity after producing a committed checkpoint and
 return it to a cheaper fidelity level. The theater clock and identity never
 restart during that transition.
 
-Dense interactions should be assigned as an **interaction island**—usually a
-task force, aircraft package, missile engagement, or sensor/weapon bubble.
+Assign dense interactions as an **interaction island**. An island is usually a
+task force, aircraft package, missile engagement, or sensor and weapon bubble.
 Partitioning ships that exchange tightly coupled sensor and weapon state across
 different authorities would create more synchronization cost than it saves.
 
@@ -495,7 +495,7 @@ classification, age, and uncertainty radius.
 
 Opposing operational entities in one region can expend munitions and inflict
 readiness, damage, disablement, or destruction outcomes. A heavily damaged
-member causes its complete task force—not an individual ship—to receive a
+member causes its complete task force, rather than one ship, to receive a
 withdrawal order toward a home or safe adjacent region. The aggregate state and
 typed operational outcomes are committed in the same simulation event, making
 expenditure and losses replayable and visible to the operator monitor. These
@@ -546,7 +546,7 @@ when their game is disabled as a simulation source.
 If placement and fidelity changes cannot preserve required tactical work, the
 coordinator reduces one global `TargetTicksPerWallSecond` through an ordered
 event. Every client continues using the same `FixedStepDuration`; the campaign
-simply advances more slowly relative to wall time. See
+advances more slowly relative to wall time. See
 [Load management and simulation-source control](load-management.md).
 
 ## Catalog adapter

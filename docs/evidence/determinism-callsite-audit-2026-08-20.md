@@ -1,4 +1,4 @@
-# Determinism call-site audit — 2026-08-20
+# Determinism call-site audit, 2026-08-20
 
 Pinned game build: `0.8.2-23444+s358`.
 

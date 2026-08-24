@@ -1,4 +1,4 @@
-# Live two-container migrate driver — 22 August 2026
+# Live two-container migrate driver, 22 August 2026
 
 ## Scope
 
@@ -67,7 +67,7 @@ unsupported.** This layer ships the closed-loop operator path. Treat
 `MIGRATION_PROOF_SUCCEEDED` plus destination Active / source Released as the
 only evidence that may later lift that non-claim.
 
-## Review verification — 23 August 2026
+## Review verification, 23 August 2026
 
 - `pnpm worker:live-proof` passed with two live Sea Power processes, two game
   sessions, two client IDs, and two campaign sessions on campaign

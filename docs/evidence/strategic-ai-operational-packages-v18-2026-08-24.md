@@ -1,4 +1,4 @@
-# Strategic AI operational packages — algorithm v18
+# Strategic AI operational packages, algorithm v18
 
 ## Scope
 

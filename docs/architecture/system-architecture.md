@@ -35,7 +35,7 @@ Crimean Tom must:
 - let players observe and command a shared real-time world;
 - distribute high-fidelity work among several clients;
 - allow redundant simulation of important or observed units;
-- recover quickly when a primary client becomes unhealthy;
+- recover within the declared timeout when a primary client becomes unhealthy;
 - continue unrelated theater regions when a client or interaction island fails;
 - preserve correctness under load by draining, reassigning, degrading, or
   globally slowing work without changing the fixed logical step;
@@ -437,7 +437,7 @@ The implemented diagnostic protocol uses strict UTF-8 JSON in bounded,
 length-prefixed frames over a current-user-only Windows named pipe. It retains a
 versioned envelope, unique and correlation IDs, a negotiated session ID, message
 type, deadline, priority metadata, and JSON payload. It remains local-only and
-easy to inspect while game integration is unstable.
+uses readable JSON while game integration is unstable.
 
 Implemented baseline:
 
@@ -719,7 +719,7 @@ or deployment configuration and never enter campaign snapshots.
 
 ## Architecture acceptance criteria
 
-The architecture is implemented—not merely documented—when all of these hold:
+The architecture is implemented when all of these conditions hold:
 
 - a campaign advances without Sea Power running;
 - an entity can materialize into Sea Power and return without identity,

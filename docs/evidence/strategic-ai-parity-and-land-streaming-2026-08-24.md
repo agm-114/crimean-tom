@@ -1,4 +1,4 @@
-# Strategic AI, parity calibration, and land-streaming evidence — 24 August 2026
+# Strategic AI, parity calibration, and land-streaming evidence, 24 August 2026
 
 ## Scope
 
@@ -11,11 +11,11 @@ not a claim of complete Sea Power combat parity or a finished campaign UI.
 
 The implementation checkpoints are:
 
-- `193560f` — persisted strategic direction for both coalitions;
-- `171346b` — compact field-level/compressed simulation journal events;
-- `5c9ebd8` — completed strategic-order retirement;
-- `bc37065` — algorithm-v15 physical movement/resource calibration;
-- `d342b19` — idempotent native camera reframing, including land framing.
+- `193560f`: persisted strategic direction for both coalitions.
+- `171346b`: compact field-level and compressed simulation journal events.
+- `5c9ebd8`: completed strategic-order retirement.
+- `bc37065`: algorithm-v15 physical movement and resource calibration.
+- `d342b19`: idempotent native camera reframing, including land framing.
 
 ## Strategic and operational AI
 
