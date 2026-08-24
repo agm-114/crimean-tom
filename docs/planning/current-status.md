@@ -120,9 +120,8 @@ The architecture targets 4,096 campaign entities, not 4,096 Sea Power objects.
 The full campaign should keep most entities in the Operational model while Sea
 Power holds a bounded interaction island, map records, and selected proxies.
 
-The 500-entity all-native scenario is the safe vanilla comparison. Dynamic
-campaign tests exist at 500, 1,000, 2,000, and 4,096 entities. Future results
-must report native objects, map records, proxies, external entities, fixed
+Dynamic campaign subsets exist at 500, 1,000, 2,000, and 4,096 entities. Future
+results must report native objects, map records, proxies, external entities, fixed
 timestep, internal time dilation, frame time, memory, and campaign throughput
 separately.
 

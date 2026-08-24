@@ -130,22 +130,10 @@ For map and visual proxies:
   checkpoint, or publication path; and
 - confirm promotion hides the proxy before the real object becomes visible.
 
-## Native and dynamic scale scenarios
+## Dynamic scale scenarios
 
-The repository includes manual all-native Sea Power missions:
-
-- `Crimean Tom - Native Campaign Benchmark - 0500 Units`
-- `Crimean Tom - Native Campaign Benchmark - 1000 Units`
-- `Crimean Tom - Native Campaign Benchmark - 2000 Units`
-- `Crimean Tom - Native Campaign Benchmark - 4096 Campaign - 4004 Native Units`
-
-Only the 500-unit all-native mission is considered safe for routine vanilla
-benchmarking. The larger missions are manual stress fixtures and may exhaust
-memory or stall the game.
-
-The dynamic campaign uses the same full seed with bounded subsets of 500,
-1,000, 2,000, or 4,096 campaign entities. A dynamic count is not a native-object
-count.
+The dynamic campaign uses the full seed with bounded subsets of 500, 1,000,
+2,000, or 4,096 campaign entities. A dynamic count is not a native-object count.
 
 ## Performance comparison
 
@@ -175,9 +163,9 @@ pairing, warm-up, duration, and time controls. Record:
 - tactical-entry and selected-proxy latency; and
 - checkpoint size and result-commit latency.
 
-Compare the 500-unit all-native mission with the 500-entity dynamic campaign.
-Use the 1,000, 2,000, and 4,096 dynamic campaigns to validate scaling. Do not
-claim that the unsafe large all-native fixtures are production baselines.
+Use the 500, 1,000, 2,000, and 4,096 dynamic campaigns to validate scaling.
+Create small, purpose-built Sea Power scenarios when a native comparison is
+needed. Do not commit generated mass-native missions.
 
 ## Parity portfolio
 

@@ -14,7 +14,6 @@
     "campaign:server": "pnpm monitor:build && dotnet run --project src/CrimeanTom.Campaign.ServiceHost/CrimeanTom.Campaign.ServiceHost.csproj --configuration Debug",
     "campaign:dev": "concurrently --kill-others-on-fail --names SERVICE,MONITOR --prefix-colors cyan,green \"pnpm campaign:watch\" \"pnpm monitor:dev\"",
     "campaign:stress": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/campaign-stress.ps1",
-    "campaign:export-native-benchmark": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export-campaign-native-mission.ps1",
     "performance:capture": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-performance-compare.ps1 capture",
     "performance:compare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power-performance-compare.ps1 compare",
     "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sea-power.ps1 deploy",

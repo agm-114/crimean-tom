@@ -192,8 +192,7 @@ limitations. Aggregate FPS alone is not parity.
 
 ### Performance portfolio
 
-- Keep the 500-entity all-native scenario as the safe vanilla baseline.
-- Compare it with the 500-entity dynamic scenario using the same capture method.
+- Compare small purpose-built native scenarios with matching dynamic cases.
 - Exercise 500, 1,000, 2,000, and 4,096 dynamic campaign sizes.
 - Report campaign throughput, frame time, fixed timestep, time dilation, working
   set, tactical-entry latency, proxy latency, checkpoint size, and commit
