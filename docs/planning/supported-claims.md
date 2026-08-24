@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 11.
+Authenticated `GET /supported-claims` mirrors this document at schema version 12.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -53,9 +53,13 @@ or complete Sea Power parity.
   play state.
 - A `RenderProxy` cannot receive simulation authority or publish campaign
   outcomes.
-- Live qualification on the pinned build loaded the selected one-member USS
-  Pharris group as one campaign-owned Knox in the native player task force. The
-  campaign advanced unrelated state while the assignment lease stayed live.
+- Live qualification on the pinned build atomically loaded the selected
+  two-member NATO North Sea surface action group as campaign-owned USS Yorktown
+  and USS Spruance objects in the native player task force. Both exact profiles
+  prepared before either assignment became tactical. Sea Power preserved their
+  campaign names, stable tags, and North Sea positions with no duplicate stable
+  IDs. The earlier Knox run also showed unrelated campaign state advancing
+  while its assignment lease stayed live.
 
 This is a narrow surface contract. It does not cover complete magazines,
 sensors, formations, hosted aircraft, helicopters, submarines, or every ground
@@ -82,7 +86,7 @@ and installation family.
 
 Generic visual loading has only narrow live qualification. Direct mouse
 selection parity, overlapping symbols, uncertainty glyphs, full catalog
-coverage, mixed campaign-owned task-force entry, and replacement of authored
+coverage, combined-arms campaign-owned entry, and replacement of authored
 mission membership are not supported claims.
 
 ## Security and projections

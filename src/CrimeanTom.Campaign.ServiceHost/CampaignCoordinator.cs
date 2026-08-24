@@ -4765,6 +4765,7 @@ public sealed class CampaignCoordinator(
         AssignmentId = request.AssignmentId,
         EntityId = request.GameEntityId,
         CanonicalEntityId = entity.EntityId.ToString(),
+        DisplayName = entity.Name,
         AuthorityEpoch = request.AuthorityEpoch,
         Role = ToTransportRole(request.Role),
         HandoffCommitPosition = head.Value,

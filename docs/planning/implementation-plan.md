@@ -124,12 +124,11 @@ campaign-to-battle loop before widening the order surface.
 application checks the selected friendly group against the connected runtime,
 shows per-member support and available capacity, rejects foreign, stale, or
 incomplete requests, and activates the supported group through the existing
-fenced handoff path. The broad 4,096-entity service story covers offline state,
-authorization, readiness, preparation, activation, duplicate retry, and
-continued campaign movement. A rendered browser run and live Sea Power run
-loaded the one-member USS Pharris group as one real Knox object. The milestone
-remains open for mixed task-force entry, removal of authored placeholder
-membership, tactical-map interaction parity, broader profiles, and hostile
+fenced handoff path. The broad 4,096-entity service story now proves atomic
+two-member preparation. Live Sea Power qualification loaded USS Yorktown and
+USS Spruance together with campaign names, stable tags, and positions intact.
+The milestone remains open for submarines and hosted assets, removal of authored
+placeholder membership, tactical-map interaction parity, and hostile
 participation.
 
 Replace the authored placeholder force with campaign membership and make the
@@ -139,7 +138,8 @@ map/proxy system usable.
 
 - Implemented for a selected group: derive membership from the campaign save,
   require the whole surviving group to be supported, and prepare it atomically.
-- Remaining: replace authored player membership and qualify a mixed task force.
+- Implemented: qualify a two-member mixed surface-class task force.
+- Remaining: replace authored player membership and add submarines and hosted assets.
 - Materialize every supported available member as a real simulated object.
 - Include required hosted aircraft, helicopters, boats, and child assets when
   their portable-state contract is supported.

@@ -35,7 +35,7 @@ player projection.
 | `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
 | `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
 | `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
-| `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, objective assignment, Transit/Hold orders, time, save controls, and selected-group tactical entry | Mixed-force entry, broader orders, objective progress, packaging, and detailed recovery UX remain |
+| `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, objective assignment, Transit/Hold orders, time, save controls, and selected-group tactical entry | Combined-arms entry, broader orders, objective progress, packaging, and detailed recovery UX remain |
 | Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
 ## Implemented campaign path
@@ -112,9 +112,11 @@ player coalition. Its read model reports the current group revision, connected
 Sea Power session, usable capacity, and exact support for each surviving
 member. The write requires that reviewed revision and an idempotency key. It
 uses the existing fenced handoff path and activates multi-member groups only
-after the complete batch is prepared. A one-member USS Pharris entry passed the
-full 4,096-entity service story, rendered browser flow, and a live Sea Power
-run. Mixed task forces and authored-force replacement remain open.
+after the complete batch is prepared. The full 4,096-entity service story and a
+live Sea Power run now pass for the two-member USS Yorktown and USS Spruance
+group. Their campaign identities cross the service, companion, and Runtime
+Bridge boundary into native Formation Manager labels. Submarines, hosted assets,
+combined-arms entry, and authored-force replacement remain open.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -134,7 +136,7 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | One supported campaign group can enter; the authored mission still supplies the rest of the placeholder local force |
+| Campaign-owned task force | One two-ship surface group can enter atomically; the authored mission still supplies the rest of the placeholder local force |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
 | Portable state | Aircraft, helicopters, submarines, magazines, hosted assets, sensors, and formations are incomplete |

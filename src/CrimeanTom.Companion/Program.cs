@@ -864,6 +864,7 @@ static IResult? ValidateSurfaceMutationRequest(
         || string.IsNullOrWhiteSpace(request.EntityId)
         || request.EntityId.Length > 128
         || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
+        || request.DisplayName.Length > 128
         || string.IsNullOrWhiteSpace(request.UnitTypeId)
         || request.UnitTypeId.Length > 128
         || string.IsNullOrWhiteSpace(request.VariantId)

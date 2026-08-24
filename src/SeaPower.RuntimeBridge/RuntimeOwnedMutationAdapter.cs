@@ -417,6 +417,7 @@ internal static class RuntimeOwnedMutationAdapter
             // Attach external ownership before any later operation can fail. Cleanup paths may
             // only touch objects bearing this exact tag and present in OwnedEntities.
             created._campaignTag = request.EntityId;
+            ApplyDisplayName(created, request.DisplayName);
             InjectFailure(request.FaultInjectionStep, "after-owned-tag");
             if (sourceUnit is null)
             {
@@ -464,6 +465,7 @@ internal static class RuntimeOwnedMutationAdapter
                 request.Context.AuthorityEpoch,
                 revision,
                 request.TaskforceId,
+                request.DisplayName,
                 created,
                 initialStoresQuantity);
             ownedRecord.Checkpoint = sourceCheckpoint;
@@ -486,6 +488,7 @@ internal static class RuntimeOwnedMutationAdapter
                     request.Context.AuthorityEpoch,
                     request.Context.ExpectedRevision,
                     request.TaskforceId,
+                    request.DisplayName,
                     created,
                     StoreQuantity(created),
                     recoveryRequired: true);
@@ -589,6 +592,7 @@ internal static class RuntimeOwnedMutationAdapter
                 IsDisabled = false,
                 IsDestroyed = false,
             };
+            ApplyDisplayName(vessel, request.DisplayName);
             ApplyPortableState(vessel, requestedState);
             if (vessel.Disabled)
             {
@@ -1094,6 +1098,7 @@ internal static class RuntimeOwnedMutationAdapter
                         "Sea Power's supported ship constructor returned no vessel during rematerialization.");
                 }
                 vessel._campaignTag = request.EntityId;
+                ApplyDisplayName(vessel, record.DisplayName);
                 record.Vessel = vessel;
             }
 
@@ -1646,6 +1651,10 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return Invalid("idempotencyKey must contain 1 to 128 characters.");
         }
+        if (request.DisplayName.Length > 128)
+        {
+            return Invalid("displayName must contain at most 128 characters.");
+        }
         if (!Supports(request.UnitTypeId, request.VariantId, request.LoadoutId))
         {
             return Invalid(
@@ -1718,6 +1727,14 @@ internal static class RuntimeOwnedMutationAdapter
         VariantId = profile.VariantId,
         LoadoutId = profile.LoadoutId,
     };
+
+    private static void ApplyDisplayName(Vessel vessel, string displayName)
+    {
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            vessel.setName(displayName);
+        }
+    }
 
     private static Taskforce? ResolveTaskforce(string requestedId)
     {
@@ -1975,6 +1992,7 @@ internal static class RuntimeOwnedMutationAdapter
         long authorityEpoch,
         long revision,
         string taskforceId,
+        string displayName,
         Vessel vessel,
         long initialStoresQuantity,
         bool recoveryRequired = false)
@@ -1983,6 +2001,7 @@ internal static class RuntimeOwnedMutationAdapter
         public long AuthorityEpoch { get; set; } = authorityEpoch;
         public long Revision { get; set; } = revision;
         public string TaskforceId { get; set; } = taskforceId;
+        public string DisplayName { get; } = displayName;
         public long InitialStoresQuantity { get; } = initialStoresQuantity;
         public Vessel? Vessel { get; set; } = vessel;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }

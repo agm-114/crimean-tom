@@ -261,6 +261,7 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
 {
     public OwnedMutationContextPayload Context { get; set; } = new();
     public string EntityId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = "Default";

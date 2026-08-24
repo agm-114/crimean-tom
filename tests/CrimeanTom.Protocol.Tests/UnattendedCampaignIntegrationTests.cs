@@ -382,6 +382,9 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.Equal(
                 new[] { "usn_cg_ticonderoga", "usn_dd_spruance" },
                 queuedEntries.Values.Select(entry => entry.UnitTypeId).Order(StringComparer.Ordinal));
+            Assert.Equal(
+                new[] { "USS Spruance", "USS Yorktown" },
+                queuedEntries.Values.Select(entry => entry.DisplayName).Order(StringComparer.Ordinal));
             Assert.All(queuedEntries.Values, entry => Assert.Equal("taskforce:Blue", entry.TaskforceId));
             Assert.Single(queuedEntries.Values, entry => entry.FocusAfterActivation);
 

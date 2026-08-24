@@ -167,6 +167,7 @@ message TacticalAssignment {
   int64 initial_stores_milliunits = 25;
   int64 initial_damage_milliunits = 26;
   bool focus_after_activation = 27;
+  string display_name = 28;
 }
 
 // Control-plane placement for a Sea-Power-free worker. This is deliberately

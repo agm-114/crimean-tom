@@ -1110,6 +1110,7 @@ public sealed class CampaignCompanionClient(
                     Context = Context(assignment.AssignmentId, assignment.AuthorityEpoch,
                         assignment.ExpectedEntityRevision, assignment.IdempotencyKey),
                     EntityId = assignment.EntityId,
+                    DisplayName = assignment.DisplayName,
                     UnitTypeId = assignment.UnitTypeId,
                     VariantId = assignment.VariantId,
                     LoadoutId = assignment.LoadoutId,
