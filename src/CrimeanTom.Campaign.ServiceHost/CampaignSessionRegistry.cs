@@ -74,6 +74,19 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public CampaignSessionSnapshot? SnapshotForClient(
+        string campaignId,
+        string clientInstanceId)
+    {
+        lock (_gate)
+        {
+            return _activeByClient.TryGetValue(clientInstanceId, out var session)
+                && string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal)
+                    ? session.Snapshot()
+                    : null;
+        }
+    }
+
     public bool HasLiveTacticalLease(string campaignId, string clientInstanceId)
     {
         if (string.IsNullOrWhiteSpace(campaignId) || string.IsNullOrWhiteSpace(clientInstanceId))
@@ -211,6 +224,7 @@ public sealed class CampaignCompanionSession
     private string _runtimeFingerprintSha256;
     private string _catalogFingerprintSha256;
     private string _playerTaskforceId;
+    private string _playerCoalitionId;
     private TacticalMaterializationProfile[] _materializationProfiles;
     private int _ownedMaterializedEntityCount;
     private int _ownedActiveEntityCount;
@@ -241,6 +255,7 @@ public sealed class CampaignCompanionSession
         _runtimeFingerprintSha256 = hello.RuntimeFingerprintSha256;
         _catalogFingerprintSha256 = hello.CatalogFingerprintSha256;
         _playerTaskforceId = hello.PlayerTaskforceId;
+        _playerCoalitionId = hello.PlayerCoalitionId;
         _materializationProfiles = hello.MaterializationProfiles.Select(item => item.Clone()).ToArray();
         if (CampaignWorkerKind.IsOperational(_workerKind))
         {
@@ -301,6 +316,12 @@ public sealed class CampaignCompanionSession
                     return;
                 }
                 if (operationalHeartbeat
+                    && !string.IsNullOrWhiteSpace(frame.Heartbeat.PlayerCoalitionId))
+                {
+                    ObserveHealth(CampaignWorkerHealth.Quarantined, CampaignWorkerHealth.Quarantined);
+                    return;
+                }
+                if (operationalHeartbeat
                     || (!string.IsNullOrWhiteSpace(frame.Heartbeat.GameSessionId)
                         && !string.IsNullOrWhiteSpace(frame.Heartbeat.RuntimeFingerprintSha256)
                         && !string.IsNullOrWhiteSpace(frame.Heartbeat.CatalogFingerprintSha256)))
@@ -315,9 +336,24 @@ public sealed class CampaignCompanionSession
 
                     if (!operationalHeartbeat)
                     {
+                        if (!string.IsNullOrWhiteSpace(frame.Heartbeat.PlayerCoalitionId)
+                            && (!Guid.TryParseExact(frame.Heartbeat.PlayerCoalitionId, "N", out _)
+                                || (!string.IsNullOrWhiteSpace(_playerCoalitionId)
+                                    && !string.Equals(
+                                        frame.Heartbeat.PlayerCoalitionId,
+                                        _playerCoalitionId,
+                                        StringComparison.Ordinal))))
+                        {
+                            ObserveHealth(CampaignWorkerHealth.Quarantined, CampaignWorkerHealth.Quarantined);
+                            return;
+                        }
                         _gameSessionId = frame.Heartbeat.GameSessionId;
                         _runtimeFingerprintSha256 = frame.Heartbeat.RuntimeFingerprintSha256;
                         _playerTaskforceId = frame.Heartbeat.PlayerTaskforceId;
+                        if (!string.IsNullOrWhiteSpace(frame.Heartbeat.PlayerCoalitionId))
+                        {
+                            _playerCoalitionId = frame.Heartbeat.PlayerCoalitionId;
+                        }
                         _materializationProfiles = frame.Heartbeat.MaterializationProfiles
                             .Select(item => item.Clone()).ToArray();
                         ObserveCouplingRelationships(frame.Heartbeat.CouplingRelationships);
@@ -390,6 +426,7 @@ public sealed class CampaignCompanionSession
                 _runtimeFingerprintSha256,
                 _catalogFingerprintSha256,
                 _playerTaskforceId,
+                _playerCoalitionId,
                 _materializationProfiles.Select(profile => new CampaignMaterializationProfile(
                     profile.UnitTypeId,
                     profile.VariantId,
@@ -526,6 +563,7 @@ public sealed record CampaignSessionSnapshot(
     string RuntimeFingerprintSha256,
     string CatalogFingerprintSha256,
     string PlayerTaskforceId,
+    string PlayerCoalitionId,
     IReadOnlyList<CampaignMaterializationProfile> MaterializationProfiles,
     int OwnedMaterializedEntityCount,
     int OwnedActiveEntityCount,

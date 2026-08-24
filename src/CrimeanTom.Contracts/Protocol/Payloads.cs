@@ -757,6 +757,65 @@ public sealed class WorldSnapshotPayload
     public ControlledTickExperimentPayload ControlledTickExperiment { get; set; } = new();
 }
 
+public sealed class RuntimeMemoryStatePayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public long CapturedAtUnixMilliseconds { get; set; }
+
+    public long ProcessWorkingSetBytes { get; set; }
+
+    public long ProcessPrivateBytes { get; set; }
+
+    public long ProcessVirtualBytes { get; set; }
+
+    public int ProcessHandleCount { get; set; }
+
+    public int ProcessThreadCount { get; set; }
+
+    public long ManagedHeapBytes { get; set; }
+
+    public long UnityAllocatedBytes { get; set; }
+
+    public long UnityReservedBytes { get; set; }
+
+    public long UnityUnusedReservedBytes { get; set; }
+
+    public long UnityMonoHeapBytes { get; set; }
+
+    public long UnityMonoUsedBytes { get; set; }
+
+    public int LoadedAssetBundleCount { get; set; }
+
+    public int CrimeanTomProxyRootCount { get; set; }
+
+    public int ActiveCrimeanTomProxyRootCount { get; set; }
+
+    public RuntimeMemoryAssetSummaryPayload[] Assets { get; set; }
+        = Array.Empty<RuntimeMemoryAssetSummaryPayload>();
+
+    public RuntimeMemoryLargeAssetPayload[] LargestAssets { get; set; }
+        = Array.Empty<RuntimeMemoryLargeAssetPayload>();
+}
+
+public sealed class RuntimeMemoryAssetSummaryPayload
+{
+    public string Kind { get; set; } = string.Empty;
+
+    public int Count { get; set; }
+
+    public long EstimatedRuntimeBytes { get; set; }
+}
+
+public sealed class RuntimeMemoryLargeAssetPayload
+{
+    public string Kind { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public long EstimatedRuntimeBytes { get; set; }
+}
+
 public sealed class TacticalCouplingStatePayload
 {
     public int SchemaVersion { get; set; } = 2;

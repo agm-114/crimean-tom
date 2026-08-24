@@ -1259,6 +1259,7 @@ public sealed class CampaignCoordinator(
     public async Task<CampaignTacticalWorkerProjectionView> ProjectTacticalWorkerAsync(
         CampaignId campaignId,
         string clientInstanceId,
+        string? advertisedCoalitionId,
         CancellationToken cancellationToken)
     {
         // The coordinator cache contains immutable states and is replaced only
@@ -1268,11 +1269,17 @@ public sealed class CampaignCoordinator(
         // progress. A cold process still performs normal durable recovery.
         if (_stateCache.TryGetValue(campaignId, out var cached))
         {
-            return CampaignTacticalWorkerProjectionHttp.From(cached.State, clientInstanceId);
+            return CampaignTacticalWorkerProjectionHttp.From(
+                cached.State,
+                clientInstanceId,
+                advertisedCoalitionId);
         }
 
         var state = await RecoverStateAsync(campaignId, cancellationToken);
-        return CampaignTacticalWorkerProjectionHttp.From(state, clientInstanceId);
+        return CampaignTacticalWorkerProjectionHttp.From(
+            state,
+            clientInstanceId,
+            advertisedCoalitionId);
     }
 
     public async Task<CampaignPauseView> PauseAsync(
@@ -3075,6 +3082,7 @@ public sealed class CampaignCoordinator(
             worker.RuntimeFingerprintSha256,
             worker.CatalogFingerprintSha256,
             worker.PlayerTaskforceId,
+            worker.PlayerCoalitionId,
             worker.OwnedMaterializedEntityCount,
             worker.OwnedActiveEntityCount,
             worker.OwnedRetainedSuspendedEntityCount,
@@ -4068,6 +4076,7 @@ public sealed record CampaignWorkerView(
     string RuntimeFingerprintSha256,
     string CatalogFingerprintSha256,
     string PlayerTaskforceId,
+    string PlayerCoalitionId,
     int OwnedMaterializedEntityCount,
     int OwnedActiveEntityCount,
     int OwnedRetainedSuspendedEntityCount,

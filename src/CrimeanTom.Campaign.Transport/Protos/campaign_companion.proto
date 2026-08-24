@@ -62,6 +62,9 @@ message CompanionHello {
   string operational_spawn_credential = 17;
   int32 operational_entity_capacity = 18;
   int32 operational_reserve_capacity = 19;
+  // Explicit campaign-side identity for a player Sea Power session. This is
+  // intentionally independent of Sea Power's task-force display identity.
+  string player_coalition_id = 20;
 }
 
 message TacticalMaterializationProfile {
@@ -115,6 +118,7 @@ message CompanionHeartbeat {
   int32 operational_entity_capacity = 18;
   int32 operational_reserve_capacity = 19;
   int32 owned_operational_entity_count = 20;
+  string player_coalition_id = 21;
 }
 
 message ServiceHeartbeat {

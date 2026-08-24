@@ -53,6 +53,7 @@ public sealed class CampaignCompanionGrpcService(
         {
             if (!string.IsNullOrWhiteSpace(hello.RuntimeFingerprintSha256)
                 || !string.IsNullOrWhiteSpace(hello.PlayerTaskforceId)
+                || !string.IsNullOrWhiteSpace(hello.PlayerCoalitionId)
                 || !string.IsNullOrWhiteSpace(hello.GameSessionId)
                 || hello.MaterializationProfiles.Count > 0)
             {
@@ -77,14 +78,16 @@ public sealed class CampaignCompanionGrpcService(
                     "The Operational worker hello does not match a live supervisor spawn."));
             }
         }
-        else if (!string.IsNullOrWhiteSpace(hello.OperationalSpawnId)
+        else if ((!string.IsNullOrWhiteSpace(hello.PlayerCoalitionId)
+                && !Guid.TryParseExact(hello.PlayerCoalitionId, "N", out _))
+            || !string.IsNullOrWhiteSpace(hello.OperationalSpawnId)
             || !string.IsNullOrWhiteSpace(hello.OperationalSpawnCredential)
             || hello.OperationalEntityCapacity != 0
             || hello.OperationalReserveCapacity != 0)
         {
             throw new RpcException(new Status(
                 StatusCode.FailedPrecondition,
-                "Sea Power companions must not advertise Operational spawn identity."));
+                "Sea Power companion coalition or Operational spawn identity is invalid."));
         }
 
         var currentHead = await journal.ReadHeadAsync(campaignId, context.CancellationToken);

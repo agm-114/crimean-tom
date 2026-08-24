@@ -379,6 +379,22 @@ qualifying runs in a dated evidence document.
 The current qualified pair and the associated replay/memory investigation are
 recorded in
 [Full dynamic campaign sync and performance proof](../evidence/full-dynamic-campaign-sync-performance-2026-08-23.md).
+The fresh-process native-baseline isolation and clean 4K session proof are in
+[Full-campaign runtime memory and fresh-session sync proof](../evidence/full-campaign-runtime-memory-and-fresh-session-sync-2026-08-24.md).
+
+For a new player session with no assignment history, configure the canonical
+32-character coalition ID before starting the companion:
+
+```powershell
+$env:CRIMEAN_TOM_PLAYER_COALITION_ID = '<32-char-guid>'
+```
+
+The value is authenticated as part of the companion session and repeated in
+heartbeats. The service rejects malformed IDs, changes during the session, and
+any player-coalition value in the Operational-worker namespace. Inspect Unity's
+current memory/assets through authenticated `GET /game/memory`; compare process
+private and working-set memory externally because those operating-system counters
+are not reliable inside every Unity/Mono build.
 
 For a matched entity-count fixture without expanding the full force multiplier,
 create the campaign metadata normally and then call:

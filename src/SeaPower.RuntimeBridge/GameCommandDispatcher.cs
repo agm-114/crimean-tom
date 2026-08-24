@@ -88,6 +88,8 @@ internal static class GameCommandDispatcher
                         initializedMainThreadId,
                         executingThreadId)),
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
+                    GameCommandTypes.GetRuntimeMemoryState => Success(
+                        RuntimeMemoryDiagnostics.Capture()),
                     GameCommandTypes.ProbeTerrainPlacement => Success(ProbeTerrainPlacement(
                         command.PayloadJson)),
                     GameCommandTypes.PrepareTacticalLocation =>

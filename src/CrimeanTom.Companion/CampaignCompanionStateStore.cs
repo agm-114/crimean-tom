@@ -12,6 +12,7 @@ namespace CrimeanTom.Companion;
 
 public sealed class CampaignCompanionStateStore
 {
+    private const int AtomicReplaceAttempts = 25;
     private static ReadOnlySpan<byte> TacticalIslandMigratedDiscriminator =>
         "\"eventType\":\"tactical-island-migrated/v1\""u8;
 
@@ -470,13 +471,38 @@ public sealed class CampaignCompanionStateStore
                 await stream.FlushAsync(cancellationToken);
                 stream.Flush(flushToDisk: true);
             }
-            File.Move(temporary, destination, overwrite: true);
+            await MoveIntoPlaceAsync(temporary, destination, cancellationToken);
         }
         finally
         {
             if (File.Exists(temporary))
             {
                 File.Delete(temporary);
+            }
+        }
+    }
+
+    private static async Task MoveIntoPlaceAsync(
+        string temporary,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, destination, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException
+                && attempt < AtomicReplaceAttempts)
+            {
+                // Windows indexers and malware scanners can briefly open the tiny cursor
+                // file without delete sharing while a large catch-up stream replaces it
+                // thousands of times. Keep the already-flushed temporary file and retry
+                // the atomic rename; never acknowledge an event from an in-memory cursor.
+                await Task.Delay(Math.Min(100, attempt * 5), cancellationToken);
             }
         }
     }

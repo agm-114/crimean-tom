@@ -317,6 +317,17 @@ from Unity; every game read or mutation is marshalled onto Unity's main thread.
 The companion exposes a versioned local API today and can later connect to the
 remote campaign transport.
 
+A Sea Power companion also authenticates its player-view identity when it opens
+the campaign stream. The current single-player contract carries one canonical
+player coalition in both hello and heartbeat frames, so a new session can obtain
+its filtered friendly projection before it has ever owned a tactical assignment.
+The service binds that identity for the session and quarantines malformed values,
+identity changes, or player fields sent by an Operational worker. Assignment
+history remains evidence for conflict detection, not the source of player
+identity. A future multi-player principal model must replace this locally
+configured coalition with a scoped credential; it must not infer authorization
+from whichever unit a client happened to materialize first.
+
 ## Native maintenance UI as a projection
 
 Crimean Tom may reuse Sea Power's Task Force Mode screens for bounded port

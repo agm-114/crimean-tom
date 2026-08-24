@@ -100,6 +100,7 @@ public sealed class CampaignCompanionClient(
                 CatalogFingerprintSha256 = capabilities.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
                 Capabilities = { capabilities.SupportedMutationCommands },
                 PlayerTaskforceId = capabilities.PlayerTaskforceId,
+                PlayerCoalitionId = options.PlayerCoalitionId,
                 TacticalEntityCapacity = options.TacticalEntityCapacity,
                 TacticalReserveCapacity = options.TacticalReserveCapacity,
                 Health = helloHealth.Health,
@@ -308,6 +309,7 @@ public sealed class CampaignCompanionClient(
                         RuntimeFingerprintSha256 = current.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
                         CatalogFingerprintSha256 = current.RuntimeFingerprint.CatalogSha256 ?? string.Empty,
                         PlayerTaskforceId = current.PlayerTaskforceId,
+                        PlayerCoalitionId = options.PlayerCoalitionId,
                         MaterializationProfiles =
                         {
                             current.OwnedSurfaceMaterializationProfiles.Select(profile =>

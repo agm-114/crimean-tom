@@ -217,6 +217,16 @@ public sealed class CompanionControlIntegrationTests
             var batchLeadEntityId = bootstrap.RootElement.GetProperty("batchLeadEntityId").GetString()!;
             var batchWingEntityId = bootstrap.RootElement.GetProperty("batchWingEntityId").GetString()!;
             var unrelatedEntityId = bootstrap.RootElement.GetProperty("unrelatedEntityId").GetString()!;
+            using var bootstrapCampaignViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            bootstrapCampaignViewResponse.EnsureSuccessStatusCode();
+            using var bootstrapCampaignView = JsonDocument.Parse(
+                await bootstrapCampaignViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var playerCoalitionId = Assert.Single(
+                bootstrapCampaignView.RootElement.GetProperty("entities").EnumerateArray(),
+                item => item.GetProperty("entityId").GetString() == primaryEntityId)
+                .GetProperty("coalitionId").GetString()!;
             var fuldaCampaignId = Guid.Parse("10000000-0000-0000-0000-000000000005").ToString("N");
             using var createdFuldaCampaign = await campaignClient.PostAsJsonAsync(
                 "/control/campaigns",
@@ -854,6 +864,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_PLAYER_COALITION_ID"] = playerCoalitionId,
                     ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(start.ExitCode == 0, start.FormatFailure("start"));
@@ -896,6 +907,25 @@ public sealed class CompanionControlIntegrationTests
                 tacticalCheckpointState);
             await WaitForConnectedGameAsync(client, token, testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
+            using var initialCampaignView = await WaitForCampaignViewAsync(
+                campaignClient,
+                campaignId,
+                root => root.GetProperty("workers").GetArrayLength() == 1,
+                testTimeout.Token);
+            var projectionClientId = initialCampaignView.RootElement.GetProperty("workers")[0]
+                .GetProperty("clientInstanceId").GetString()!;
+            using var initialWorkerProjectionResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}/tactical-workers/{projectionClientId}/projection",
+                testTimeout.Token);
+            initialWorkerProjectionResponse.EnsureSuccessStatusCode();
+            using var initialWorkerProjection = JsonDocument.Parse(
+                await initialWorkerProjectionResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(
+                playerCoalitionId,
+                initialWorkerProjection.RootElement.GetProperty("coalitionId").GetString());
+            Assert.Equal(
+                7,
+                initialWorkerProjection.RootElement.GetProperty("friendlyEntities").GetArrayLength());
             using var activeCampaignResponse = await campaignClient.GetAsync(
                 "/active-campaign",
                 testTimeout.Token);
@@ -1307,7 +1337,11 @@ public sealed class CompanionControlIntegrationTests
                 $"/control/campaigns/{campaignId}/schedule",
                 new
                 {
-                    observedEntityIds = new[] { batchLeadEntityId },
+                    // Selecting only one safe, uncoupled group member is intentionally
+                    // allowed to stream as a singleton. Select the whole administrative
+                    // group here because this part of the story proves atomic batch
+                    // activation and later hard-coupling retention.
+                    observedEntityIds = new[] { batchLeadEntityId, batchWingEntityId },
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
@@ -2462,6 +2496,7 @@ public sealed class CompanionControlIntegrationTests
                     ["CRIMEAN_TOM_CAMPAIGN_ID"] = campaignId,
                     ["CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE"] = Path.Combine(campaignServiceRunDirectory, "service.token"),
                     ["CRIMEAN_TOM_CAMPAIGN_STATE_DIRECTORY"] = Path.Combine(runDirectory, "campaign-companion"),
+                    ["CRIMEAN_TOM_PLAYER_COALITION_ID"] = playerCoalitionId,
                     ["CRIMEAN_TOM_COLLIDER_CACHE_DIR"] = colliderCacheDir,
                 });
             Assert.True(restartedCompanion.ExitCode == 0, restartedCompanion.FormatFailure("start-after-fallback"));

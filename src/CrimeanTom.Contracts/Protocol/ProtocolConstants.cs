@@ -80,6 +80,7 @@ public static class GameCommandTypes
     public const string GetCapabilities = "get-capabilities";
     public const string GetSceneState = "get-scene-state";
     public const string GetWorldSnapshot = "get-world-snapshot";
+    public const string GetRuntimeMemoryState = "get-runtime-memory-state";
     public const string ProbeTerrainPlacement = "probe-terrain-placement";
     public const string PrepareTacticalLocation = "prepare-tactical-location";
     public const string MaterializeOwnedLandUnit = "materialize-owned-land-unit";
@@ -125,6 +126,7 @@ public static class GameCommandTypes
         GetCapabilities,
         GetSceneState,
         GetWorldSnapshot,
+        GetRuntimeMemoryState,
         ProbeTerrainPlacement,
         GetTacticalCouplingState,
         GetOwnedSurfaceResourceState,
@@ -185,6 +187,7 @@ public static class GameCommandTypes
         GetCapabilities,
         GetSceneState,
         GetWorldSnapshot,
+        GetRuntimeMemoryState,
         ProbeTerrainPlacement,
         PrepareTacticalLocation,
         GetTacticalCouplingState,

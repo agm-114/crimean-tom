@@ -53,6 +53,15 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-companion"));
     Directory.CreateDirectory(campaignStateDirectory);
     var clientInstanceId = LoadOrCreateClientInstanceId(Path.Combine(campaignStateDirectory, "client-instance-id"));
+    var playerCoalitionId = builder.Configuration["PlayerCoalitionId"]
+        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_PLAYER_COALITION_ID")
+        ?? string.Empty;
+    if (!string.IsNullOrWhiteSpace(playerCoalitionId)
+        && !Guid.TryParseExact(playerCoalitionId, "N", out _))
+    {
+        throw new InvalidOperationException(
+            "PlayerCoalitionId must be empty or use canonical 32-character GUID form.");
+    }
     var tacticalEntityCapacity = ReadBoundedInteger(
         builder.Configuration["TacticalEntityCapacity"]
             ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_TACTICAL_ENTITY_CAPACITY"),
@@ -76,6 +85,7 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
             ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE")
             ?? Path.Combine(Directory.GetCurrentDirectory(), ".run", "campaign-service", "service.token")),
         campaignStateDirectory,
+        playerCoalitionId,
         tacticalEntityCapacity,
         tacticalReserveCapacity);
     builder.Services.AddSingleton(options);
@@ -126,6 +136,13 @@ app.MapGet("/game/world", (GamePipeBroker broker, CancellationToken cancellation
     SendCommandAsync(
         broker,
         GameCommandTypes.GetWorldSnapshot,
+        CommandPriorities.Bulk,
+        cancellationToken));
+
+app.MapGet("/game/memory", (GamePipeBroker broker, CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetRuntimeMemoryState,
         CommandPriorities.Bulk,
         cancellationToken));
 

@@ -257,6 +257,7 @@ app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projecti
     string campaignId,
     string clientInstanceId,
     CampaignCoordinator coordinator,
+    CampaignSessionRegistry sessions,
     CancellationToken cancellationToken) =>
 {
     if (!Guid.TryParseExact(campaignId, "N", out var parsedCampaign)
@@ -269,6 +270,7 @@ app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projecti
         return Results.Ok(await coordinator.ProjectTacticalWorkerAsync(
             new CampaignId(parsedCampaign),
             parsedClient.ToString("N"),
+            sessions.SnapshotForClient(campaignId, parsedClient.ToString("N"))?.PlayerCoalitionId,
             cancellationToken));
     }
     catch (CampaignStoreConflict exception)

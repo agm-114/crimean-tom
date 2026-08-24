@@ -8,7 +8,8 @@ internal static class CampaignTacticalWorkerProjectionHttp
 {
     public static CampaignTacticalWorkerProjectionView From(
         CampaignState state,
-        string clientInstanceId)
+        string clientInstanceId,
+        string? advertisedCoalitionId)
     {
         var workerAssignments = state.Assignments.Values
             .Where(item => string.Equals(
@@ -24,22 +25,47 @@ internal static class CampaignTacticalWorkerProjectionHttp
         // Keep the player's coalition-scoped visual theater stable between
         // tactical assignments. Released assignment history is durable and a
         // worker is forbidden from crossing coalition boundaries below.
-        var coalitions = workerAssignments
+        var assignmentCoalitions = workerAssignments
             .Select(item => state.Entities[item.EntityId].CoalitionId)
             .Distinct()
             .OrderBy(item => item)
             .ToArray();
-        if (coalitions.Length > 1)
+        if (assignmentCoalitions.Length > 1)
         {
             throw new CampaignStoreConflict(
                 "worker-multiple-coalitions",
                 "One tactical worker cannot hold live assignments for multiple coalitions.");
         }
 
-        var friendly = coalitions.Length == 0
+        CoalitionId? advertised = null;
+        if (!string.IsNullOrWhiteSpace(advertisedCoalitionId))
+        {
+            if (!Guid.TryParseExact(advertisedCoalitionId, "N", out var parsed)
+                || !state.Entities.Values.Any(item => item.CoalitionId.Value == parsed)
+                    && !state.Bases.Values.Any(item => item.CoalitionId.Value == parsed))
+            {
+                throw new CampaignStoreConflict(
+                    "worker-coalition-missing",
+                    "The tactical worker advertised a coalition that is absent from the campaign.");
+            }
+            advertised = new CoalitionId(parsed);
+        }
+        if (advertised is { } claimed
+            && assignmentCoalitions.Length == 1
+            && assignmentCoalitions[0] != claimed)
+        {
+            throw new CampaignStoreConflict(
+                "worker-coalition-conflict",
+                "The tactical worker cannot cross its advertised coalition boundary.");
+        }
+        var coalition = assignmentCoalitions.Length == 1
+            ? assignmentCoalitions[0]
+            : advertised;
+
+        var friendly = coalition is null
             ? []
             : state.Entities.Values
-                .Where(item => item.CoalitionId == coalitions[0])
+                .Where(item => item.CoalitionId == coalition.Value)
                 .OrderBy(item => item.EntityId)
                 .Select(item => new CampaignTacticalFriendlyEntityView(
                     item.EntityId.ToString(),
@@ -57,7 +83,7 @@ internal static class CampaignTacticalWorkerProjectionHttp
         return new CampaignTacticalWorkerProjectionView(
             state.Metadata.CampaignId.ToString(),
             clientInstanceId,
-            coalitions.Length == 0 ? null : coalitions[0].ToString(),
+            coalition?.ToString(),
             state.Time.Quanta,
             state.Head.Value,
             assignments.Select(item => new CampaignTacticalAssignmentView(
