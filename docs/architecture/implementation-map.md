@@ -7,6 +7,9 @@ It complements [System architecture](system-architecture.md), which describes
 the normative target. A target component or transport must not be inferred to
 exist merely because it appears in a design diagram.
 
+Player-visible gaps are evaluated against the
+[playable dynamic campaign product contract](../planning/playable-dynamic-campaign-product-contract.md).
+
 The canonical durable boundary is the campaign journal. Sea Power, the
 companion, the operator monitor, and Operational workers are clients of that
 boundary; none may allocate campaign time, authority epochs, or committed
@@ -137,15 +140,18 @@ unsupported.
 The local POC now projects the authenticated coalition's complete non-destroyed
 friendly set plus coalition-filtered hostile intelligence tracks into Sea Power's
 drawing layer. It does not gate map presence on a native-materialization profile.
-The tactical map uses selectable subclasses of Sea Power's authored unit-symbol
-item rather than the generic drawing-marker X. Its native domain/posture template
+The tactical map uses subclasses of Sea Power's authored unit-symbol item rather
+than the generic drawing-marker X. Its native domain/posture template
 renders air, rotary-wing, surface, submarine, land, airbase, installation, SAM,
 radar, port, and logistics records; unclassified tracks use Sea Power's authored
-unit-symbol fallback. Heading, selection state, and the selected label are carried
-by the same native map item. Relationship color remains blue for friendly and red
-for coalition-detected hostile tracks.
-Selection centers the tactical display on that campaign record before requesting
-its local presentation proxy.
+unit-symbol fallback. Heading, selection state, and the selected label are
+carried by the same native map item. Relationship color remains blue for
+friendly and red for coalition-detected hostile tracks. Typed selection centers
+the tactical display on that campaign record before requesting its local
+presentation proxy. The authored-symbol renderer is decorative in Sea Power's
+normal tactical interaction path, so direct mouse hit routing is implemented in
+the runtime adapter but remains under live requalification; do not treat visual
+hover highlighting alone as a successful selection callback.
 Friendly records are map-only until selected; selection relocates the tactical
 terrain window and lazily asks Sea Power's base-object loader for a presentation
 hierarchy from the vessel, aircraft, or land folders. Contact records carry

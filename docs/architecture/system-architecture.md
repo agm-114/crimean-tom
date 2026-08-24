@@ -7,6 +7,12 @@ continuous campaign whose detailed tactical work can be distributed across Sea
 Power clients. It supersedes any earlier assumption that the campaign normally
 stops to generate an isolated Sea Power mission.
 
+The
+[playable dynamic campaign product contract](../planning/playable-dynamic-campaign-product-contract.md)
+defines the required player-visible behavior. This document defines the system
+invariants that must preserve that behavior; it is not a substitute for the
+player loop or minimum playable acceptance story.
+
 The repository now implements the local control boundary, deterministic
 campaign kernel, SQLite journal, HTTP/gRPC service, operator monitor,
 owned-surface materialization, Operational analogue, and Track A worker
@@ -16,10 +22,6 @@ and [Current code and product status](../planning/current-status.md). Statements
 marked **decision** are architectural commitments. Statements marked
 **validation gate** require measurement against the installed game before their
 constants or field mappings become contractual.
-
-The findings from the 2026-08-20 adversarial working review are preserved in its
-[disposition record](../planning/adversarial-review-disposition-2026-08-20.md),
-not as a normative replacement for this document.
 
 ## Product goals
 

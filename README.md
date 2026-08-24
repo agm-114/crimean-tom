@@ -102,7 +102,10 @@ projection use HTTP.
 Single-player, LAN/private co-op, and a basic dedicated campaign will not require
 PostgreSQL, Redis, Docker, or an external object store.
 
-The concise design is in
+The player-facing source of truth is
+[`docs/planning/playable-dynamic-campaign-product-contract.md`](docs/planning/playable-dynamic-campaign-product-contract.md).
+It defines the map, task-force, streaming, tactical-entry/return, campaign-time,
+orders, recovery, and minimum-playable behavior. The concise technical design is in
 [`docs/architecture/dynamic-campaign-design.md`](docs/architecture/dynamic-campaign-design.md); the
 normative ownership, time, materialization, protocol, persistence, and failure
 contracts are in [`docs/architecture/system-architecture.md`](docs/architecture/system-architecture.md).

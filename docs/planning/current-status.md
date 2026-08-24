@@ -8,7 +8,10 @@ qualification on 24 August 2026 and against
 the installed Sea Power build
 `0.8.2-23444+s358`. This is the living status ledger. Dated files in
 `docs/evidence/` remain the proof record; the phase plan remains the target and
-gate definition.
+gate definition. The
+[playable dynamic campaign product contract](playable-dynamic-campaign-product-contract.md)
+is the source of truth for the intended player experience and minimum playable
+acceptance story.
 
 The repository is an advanced campaign-runtime prototype with a local
 tactical-sync, land-target, and friendly-render-proxy POC, not yet a complete playable
@@ -30,7 +33,7 @@ principal-separated browser writes remain open before an alpha.
 | Persistence | SQLite WAL, writer fencing, bounded atomic seed import with a final snapshot, durable-head-checked recovered-state cache, compressed stored journal payloads, completed-order retirement, prepared coordinator appends, bounded periodic snapshots, CAS blobs, integrity checks, online backup and side-directory restore; companion catch-up now retains only tactical-migration proofs instead of every full event | Algorithm-v18 4,096-entity journal recovery at time 400 restored all 63 packages and matched its hash in 3.41 seconds (4.48 seconds through the HTTP view); the live companion spool stopped growing across 11 further commits after an obsolete 1.716 GB full-event cache exposed the defect, but campaign-event deltas and a 10,000-commit retention/compaction envelope remain unqualified |
 | Operational simulation | Unattended physical-distance movement toward graph-leg anchors, domain-scaled fuel/stores, sustainment, intelligence, doctrine, sensors, ordnance, countermeasures, damage, withdrawal, and operational sub-AI across maritime, fixed-wing, rotary-wing, ground, installation, logistics, and abstract-land domains | Deterministic analogue, not full Sea Power parity; movement no longer teleports one region or creates damage merely by travelling; detailed ground-ground combat remains deliberately absent |
 | Fidelity/authority | Interaction-island scheduling, capacity/reserve accounting, resident strategic-system policy, Primary/Shadow fencing, cold reconstruction, migration protocol | Strategic SAM/radar/ballistic islands stay Operational without a compatible worker and request constant Tactical presence with one; live two-container completion remains unproven |
-| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface state; terrain-gated ground/installation materialization, retained-object rebind, and lifecycle; game-session-aware detection of missing owned objects with automatic stale-epoch release, checkpoint-backed same-worker rescheduling, and safe superseded-migration replay; coalition-map projection of every non-destroyed friendly plus coalition-filtered hostile contact tracks; selectable map records with lazy presentation-only model loading; explicit authenticated player-coalition binding for fresh sessions; automatic focus, terrain-window relocation, pause/restore, and stale-authority containment | The live 4,096-entity campaign first reconciled 1,761 records (1,235 friendlies and 526 contacts). A later continuously advancing sample reconciled 869 records (311 surviving friendlies and 558 contacts); selecting an Atlantic Los Angeles-class record produced exactly one non-simulating model after terrain relocation, held 60 FPS at a 16.667 ms fixed step and dilation 1, and added about 0.24 GiB working set. The authored GIUK mission still supplies an unbound static Pharris/Honolulu player task force, and Sea Power's local tactical-display viewport is not yet the intended player strategic map. Automatic process-restart recovery passes the real-host/companion protocol story but still needs a live kill/relaunch latency and duplicate-object qualification. |
+| Local tactical sync | Heartbeat-renewed assignment lease; two-second changed-state readback for owned surface state; terrain-gated ground/installation materialization, retained-object rebind, and lifecycle; game-session-aware detection of missing owned objects with automatic stale-epoch release, checkpoint-backed same-worker rescheduling, and safe superseded-migration replay; coalition-map projection of every non-destroyed friendly plus coalition-filtered hostile contact tracks; native-symbol map records with lazy presentation-only model loading; explicit authenticated player-coalition binding for fresh sessions; automatic focus, terrain-window relocation, pause/restore, and stale-authority containment | The live 4,096-entity campaign first reconciled 1,761 records (1,235 friendlies and 526 contacts). A later continuously advancing sample reconciled 869 records (311 surviving friendlies and 558 contacts); selecting an Atlantic Los Angeles-class record through the typed bridge path produced exactly one non-simulating model after terrain relocation, held 60 FPS at a 16.667 ms fixed step and dilation 1, and added about 0.24 GiB working set. The authored GIUK mission still supplies an unbound static Pharris/Honolulu player task force, Sea Power's local tactical-display viewport is not yet the intended player strategic map, and direct mouse-selection parity for the newer authored-symbol renderer remains under live requalification. Automatic process-restart recovery passes the real-host/companion protocol story but still needs a live kill/relaunch latency and duplicate-object qualification. |
 | WW3++ scenario content | 4,096 deterministic opening entities: full usable installed catalog coverage (241 vessels, 111 aircraft, 187 land units/sites), two-ocean US and Soviet global fleets, China/Japan and regional participation, Soviet-aligned Cuba, 38 defended airbase complexes, 149 helicopters, 984 physical ground targets, theater IADS/coastal batteries, ports, industry, depots, sealift, and civilian traffic | Research provenance and authored what-if premises are tracked; opening sorties exist and six ground/installation profiles can materialize, but recurring air tasking, neutral diplomacy/multi-coalition relations, rotary-wing materialization, and general catalog coverage remain open |
 | Operational workers | Spawn, identity, health, drain/stop, assignment placement | Work still executes in ServiceHost |
 | Player data boundary | Coalition-filtered HTTP projection, reconnectable in-memory session, bounded ordered envelopes | Trusted private model; sessions do not survive restart and envelopes do not issue canonical orders |
@@ -97,7 +100,13 @@ These are prerequisites, not release-polish tasks:
 
 ### P0 — complete a player-visible campaign loop
 
-1. **Canonical player orders and UI.** Convert coalition-scoped authenticated
+1. **Explicit campaign lifecycle.** New and restored campaigns need a
+   player-visible paused/running state, explicit start/resume behavior, save
+   selection, and time controls. The current unattended host advances every
+   non-paused campaign and a long-lived development campaign can therefore open
+   days into an attritional war with few surviving friendlies; that is valid
+   simulation state but not an acceptable implicit new-game experience.
+2. **Canonical player orders and UI.** Convert coalition-scoped authenticated
    player intent into
    authorized, journaled `IssueOrderCommand`/policy commands with deterministic
    conflict handling and clear rejection feedback. Do not turn the privileged
@@ -105,16 +114,16 @@ These are prerequisites, not release-polish tasks:
    distinct player surface or an explicit coalition-filtered mode. Operator
    tooling still needs order creation/cancellation, ROE/doctrine,
    destination/tasking, pause/resume, and ruleset configuration.
-2. **Objectives and campaign progression.** Add durable objectives, victory and
+3. **Objectives and campaign progression.** Add durable objectives, victory and
    failure predicates, scenario/campaign end state, political/narrative events,
    reinforcement/replacement policy, and an authorable ruleset. The current
    Fulda campaign is hard-coded proving content.
-3. **Playable tactical round trip.** Replace the now-proven script-guided local
+4. **Playable tactical round trip.** Replace the now-proven script-guided local
    POC with an operator/player flow that moves a selected interaction island
    into Sea Power, exposes assignment/preparation and lease progress, starts
    play, and returns cleanly to the campaign. Prove the fate of a
    campaign-owned hostile, not only owned-vessel kinematics/resources/damage.
-4. **Broaden portable state and entity families.** Qualify or add aircraft,
+5. **Broaden portable state and entity families.** Qualify or add aircraft,
    rotary-wing, subsurface, general base/land, formation, and hosted-aircraft materialization. Apply
    or explicitly model damage, fuel, magazines, sensors, formations, and hosted
    children instead of leaving them fenced as unsupported fields. The local
@@ -126,16 +135,16 @@ These are prerequisites, not release-polish tasks:
    catalog qualification, and the player still needs a strategic map, explicit
    campaign task-force membership, zoom/framing, uncertainty symbology, labels,
    and lifecycle/error feedback.
-5. **Campaign management UI.** Expose backup/restore, pause/drain, worker
+6. **Campaign management UI.** Expose backup/restore, pause/drain, worker
    lifecycle, diagnostics, integrity status, and failure recovery through a
    safe operator workflow rather than HTTP/scripts alone.
-6. **Airbase operations and integrated defense.** Turn seeded opening sorties
+7. **Airbase operations and integrated defense.** Turn seeded opening sorties
    into durable aircraft inventories and air-tasking cycles: mission creation,
    launch/recovery, turnaround, fuel and magazine draw, runway damage/repair,
    dispersal, radar-network degradation, GBAD command relationships, and SEAD.
    The current airbase complexes provide the objects and opening orders, not
    this lifecycle.
-7. **Diplomacy and noncombatants.** Add relationship-aware hostility, neutral
+8. **Diplomacy and noncombatants.** Add relationship-aware hostility, neutral
    traffic, protected/noncombatant status, identification, ROE, diversion, and
    unintended-effects consequences. Current civilian traffic is assigned to a
    protection coalition because the engine treats every other coalition as

@@ -14,8 +14,11 @@ mission for every important engagement. Importing or generating a conventional
 scenario remains useful as a compatibility and recovery path, not the normal
 runtime boundary.
 
-This is the concise target design. The implemented subset and product gaps are
-tracked in [Implemented architecture map](implementation-map.md) and
+This is the concise technical target design. Player-visible behavior and the
+minimum coherent release are defined by the
+[Playable dynamic campaign product contract](../planning/playable-dynamic-campaign-product-contract.md).
+The implemented subset and product gaps are tracked in
+[Implemented architecture map](implementation-map.md) and
 [Current code and product status](../planning/current-status.md).
 
 ## System boundary

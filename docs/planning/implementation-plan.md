@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This plan converts [System architecture](../architecture/system-architecture.md) into ordered,
-reviewable work. It intentionally stops at gates. A later phase must not build
-on an unproven game mapping, state contract, or failure assumption.
-
-The [adversarial review disposition](adversarial-review-disposition-2026-08-20.md)
-records which findings changed this plan, which source claims were corrected,
-and which disagreements remain mandatory experiments.
+This plan converts the
+[Playable dynamic campaign product contract](playable-dynamic-campaign-product-contract.md)
+and [System architecture](../architecture/system-architecture.md) into ordered,
+reviewable work. The product contract defines what the player must experience;
+this plan defines the implementation dependencies and proof gates. It
+intentionally stops at gates. A later phase must not build on an unproven game
+mapping, state contract, or failure assumption.
 
 The [current code and product status](current-status.md) records the implemented
 state, open product gaps, and recommended next slices. Phase headings below are
@@ -572,7 +572,9 @@ client without creating a separate campaign timeline.
 - Keep checkpoints/catalogs on authenticated content-addressed HTTP endpoints so
   bulk transfer cannot monopolize the gRPC session stream.
 - Implement assignment and portable checkpoint contracts.
-- Start with globally paused campaign handoff at a deterministic tick.
+- Fence the interaction island at a deterministic handoff tick. A short
+  transactional safe point may pause mutation while ownership changes, but the
+  tactical session must not globally pause unrelated campaign simulation.
 - Bind one tactical geography center/bubble, fixed step, global target tempo, and
   pause state to the client synchronization session rather than to individual
   assignments.

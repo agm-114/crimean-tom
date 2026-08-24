@@ -54,15 +54,16 @@ The scheduler does not yet enforce a campaign-global build fingerprint.
   coalition-filtered hostile intelligence track into Sea Power drawing records
   before assignment history exists. Those records use relationship-colored,
   native authored-unit domain/posture symbols instead of Sea Power's generic
-  drawing-marker X. Friendly selection lazily loads one
+  drawing-marker X. Typed friendly selection lazily loads one
   presentation hierarchy from installed vessel/aircraft/land catalog content
   after relocating the local tactical terrain window. Selecting a contact creates
   only a generic red uncertainty proxy at the coalition track estimate; it never
   loads the hostile model or discloses exact hostile true state. These records have no game unique
   ID, simulation authority, sensors, collisions, velocity, or owned-resource
   registration. Generic visual loading is proven live for one Los Angeles-class
-  submarine, not qualified across the full installed catalog. The player strategic
-  map and campaign-bound default task force remain open.
+  submarine, not qualified across the full installed catalog. Direct mouse
+  selection parity for the authored-symbol renderer is not yet requalified. The
+  player strategic map and campaign-bound default task force remain open.
 - Campaign-owned Track A Operational workers can be spawned, checked with an
   additive per-spawn identity, and used for non-player island placement/fencing.
   They also receive the shared service bearer token; health and capacity are
