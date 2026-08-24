@@ -5,6 +5,7 @@ using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
 using CrimeanTom.Campaign.Service;
 using CrimeanTom.Campaign.ServiceHost;
+using CrimeanTom.Campaign.Transport;
 using CrimeanTom.Campaign.Transport.V1;
 
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -53,7 +54,15 @@ var journal = new SqliteCampaignJournal(
     Path.Combine(runDirectory, "blobs"));
 await journal.InitializeAsync();
 
-builder.Services.AddGrpc(options => options.MaxReceiveMessageSize = 256 * 1024);
+builder.Services.AddGrpc(options =>
+{
+    options.MaxReceiveMessageSize = 256 * 1024;
+    // Campaign snapshots and simulation deltas can exceed gRPC's 4 MiB default
+    // while a 4K campaign worker is catching up. The clients already enforce the
+    // shared 64 MiB service-frame ceiling, so make the server use the same bound
+    // instead of terminating and reconnecting once per oversized event.
+    options.MaxSendMessageSize = CampaignTransportLimits.MaximumServiceFrameBytes;
+});
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(token);
@@ -237,6 +246,29 @@ app.MapGet("/campaigns/{campaignId}/projections/{coalitionId}", async (
         return Results.Ok(await coordinator.ProjectCoalitionAsync(
             new CampaignId(parsedCampaign),
             new CoalitionId(parsedCoalition),
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projection", async (
+    string campaignId,
+    string clientInstanceId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsedCampaign)
+        || !Guid.TryParseExact(clientInstanceId, "N", out var parsedClient))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-or-client-instance-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.ProjectTacticalWorkerAsync(
+            new CampaignId(parsedCampaign),
+            parsedClient.ToString("N"),
             cancellationToken));
     }
     catch (CampaignStoreConflict exception)

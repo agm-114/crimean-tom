@@ -576,6 +576,21 @@ async function requestTacticalView(entityId: string): Promise<void> {
   if (!entity || !isNato(campaign, entity.coalitionId)) {
     throw new Error("The current local player view can request only NATO-aligned units.");
   }
+  const advertisedTacticalCapacity = campaign.workers.reduce(
+    (total, worker) => total + worker.tacticalEntityCapacity,
+    0,
+  );
+  const advertisedTacticalReserve = campaign.workers.reduce(
+    (total, worker) => total + worker.tacticalReserveCapacity,
+    0,
+  );
+  const tacticalEntityCapacity = advertisedTacticalCapacity > 0
+    ? advertisedTacticalCapacity
+    : 4;
+  const tacticalReserveCapacity = Math.min(
+    tacticalEntityCapacity,
+    advertisedTacticalCapacity > 0 ? advertisedTacticalReserve : 1,
+  );
   selectionActionMessage = "REQUESTING PLAYER-CONTROLLED TACTICAL AUTHORITY…";
   selectEntity(entityId, false);
   const result = await request<{ islands: InteractionIsland[] }>(
@@ -588,8 +603,8 @@ async function requestTacticalView(entityId: string): Promise<void> {
         controlledEntityIds: [entityId],
         health: "Healthy",
         eligibility: "Eligible",
-        tacticalEntityCapacity: 4,
-        tacticalReserveCapacity: 1,
+        tacticalEntityCapacity,
+        tacticalReserveCapacity,
         backlogDepth: 0,
       }),
     },

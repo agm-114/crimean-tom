@@ -27,11 +27,17 @@ public sealed class CampaignCompanionClient(
     private static readonly TimeSpan TerrainStreamingTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan PlayerFocusQuietPeriod = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan PlayerFocusRetryInterval = TimeSpan.FromMilliseconds(200);
+    private const int PlayerFocusAttempts = 4;
 
     private string? _armedMutationSessionId;
     private long _armedMutationExpiresAtUnixMilliseconds;
     private readonly ConcurrentDictionary<string, string> _lastPublishedTacticalState =
         new(StringComparer.Ordinal);
+    private readonly object _playerFocusGate = new();
+    private TacticalAssignment? _pendingPlayerFocus;
+    private long _playerFocusGeneration;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -166,6 +172,10 @@ public sealed class CampaignCompanionClient(
                             await SendAsync(
                                 new CompanionFrame { AssignmentPrepared = prepared },
                                 $"assignment-{prepared.AssignmentId}-{prepared.AuthorityEpoch}");
+                            ObserveAssignmentPreparationForPlayerFocus(
+                                frame.Assignment,
+                                prepared.Ready,
+                                cancellationToken);
                             break;
                         }
                     case ServiceFrame.PayloadOneofCase.Command:
@@ -417,7 +427,7 @@ public sealed class CampaignCompanionClient(
         using var client = CreateCampaignHttpClient(serviceToken);
         client.Timeout = TimeSpan.FromSeconds(5);
         using var response = await client.GetAsync(
-            $"/campaigns/{options.CampaignId}",
+            $"/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/projection",
             cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -434,17 +444,12 @@ public sealed class CampaignCompanionClient(
         }
 
         var locallyTacticalEntities = new HashSet<string>(StringComparer.Ordinal);
-        var localCoalitionAnchorEntities = new HashSet<string>(StringComparer.Ordinal);
         var activeLocalAssignmentIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var assignment in root.GetProperty("assignments").EnumerateArray())
         {
             var lifecycle = assignment.GetProperty("lifecycle").GetString() ?? string.Empty;
             var role = assignment.GetProperty("role").GetString() ?? string.Empty;
-            if (string.Equals(
-                    assignment.GetProperty("workerClientInstanceId").GetString(),
-                    options.ClientInstanceId,
-                    StringComparison.Ordinal)
-                && role is "Primary" or "Shadow")
+            if (role is "Primary" or "Shadow")
             {
                 var assignmentId = assignment.GetProperty("assignmentId").GetString() ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(assignmentId)
@@ -453,7 +458,6 @@ public sealed class CampaignCompanionClient(
                     assignmentId = $"assignment:{assignmentId}";
                 }
                 var entityId = assignment.GetProperty("entityId").GetString() ?? string.Empty;
-                localCoalitionAnchorEntities.Add(entityId);
                 if (lifecycle is not ("Released" or "Failed" or "Fenced"))
                 {
                     activeLocalAssignmentIds.Add(assignmentId);
@@ -465,7 +469,6 @@ public sealed class CampaignCompanionClient(
         {
             if (BareCampaignEntityId(resource.EntityId) is { } entityId)
             {
-                localCoalitionAnchorEntities.Add(entityId);
                 if (activeLocalAssignmentIds.Contains(resource.AssignmentId))
                 {
                     locallyTacticalEntities.Add(entityId);
@@ -477,31 +480,19 @@ public sealed class CampaignCompanionClient(
             activeLocalAssignmentIds,
             capabilities,
             cancellationToken);
+        RecoverPendingPlayerFocus(
+            resources,
+            activeLocalAssignmentIds,
+            cancellationToken);
         locallyTacticalEntities.Remove(string.Empty);
-        localCoalitionAnchorEntities.Remove(string.Empty);
 
-        var entities = root.GetProperty("entities").EnumerateArray().ToArray();
-        var localCoalitions = entities
-            .Where(entity => localCoalitionAnchorEntities.Contains(
-                entity.GetProperty("entityId").GetString() ?? string.Empty))
-            .Select(entity => entity.GetProperty("coalitionId").GetString() ?? string.Empty)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (localCoalitions.Length > 1)
-        {
-            throw new InvalidDataException(
-                "One Sea Power instance cannot render authoritative friendly truth for multiple coalitions.");
-        }
+        var entities = root.GetProperty("friendlyEntities").EnumerateArray().ToArray();
 
-        SurfaceRenderProxySpecPayload[] proxies = localCoalitions.Length == 0
+        SurfaceRenderProxySpecPayload[] proxies = string.IsNullOrWhiteSpace(
+                root.GetProperty("coalitionId").GetString())
             ? Array.Empty<SurfaceRenderProxySpecPayload>()
             : entities
                 .Where(entity => string.Equals(
-                        entity.GetProperty("coalitionId").GetString(),
-                        localCoalitions[0],
-                        StringComparison.Ordinal)
-                    && string.Equals(
                         entity.GetProperty("simulationDomain").GetString(),
                         "Maritime",
                         StringComparison.Ordinal)
@@ -1676,26 +1667,138 @@ public sealed class CampaignCompanionClient(
         TacticalAssignment assignment,
         CancellationToken cancellationToken)
     {
-        if (!assignment.FocusAfterActivation)
+        if (!assignment.FocusAfterActivation
+            || stateStore.HasCompletedPlayerFocus(
+                assignment.AssignmentId,
+                assignment.AuthorityEpoch))
         {
             return;
         }
 
-        var result = await game.SendCommandAsync(
-            GameCommandTypes.FocusCameraOnUnit,
-            JsonSerializer.Serialize(new FocusCameraOnUnitRequestPayload
+        string? errorCode = null;
+        string? errorMessage = null;
+        for (var attempt = 1; attempt <= PlayerFocusAttempts; attempt++)
+        {
+            var result = await game.SendCommandAsync(
+                GameCommandTypes.FocusCameraOnUnit,
+                JsonSerializer.Serialize(new FocusCameraOnUnitRequestPayload
+                {
+                    UnitId = $"campaign-unit:{assignment.EntityId}",
+                }, JsonOptions),
+                CommandPriorities.Control,
+                cancellationToken);
+            if (result.Success)
             {
-                UnitId = $"campaign-unit:{assignment.EntityId}",
-            }, JsonOptions),
-            CommandPriorities.Control,
-            cancellationToken);
-        if (!result.Success)
+                await stateStore.SaveCompletedPlayerFocusAsync(
+                    assignment.AssignmentId,
+                    assignment.AuthorityEpoch,
+                    cancellationToken);
+                logger.LogInformation(
+                    "Focused the player camera on activated campaign entity {EntityId} after {AttemptCount} attempt(s).",
+                    assignment.EntityId,
+                    attempt);
+                return;
+            }
+
+            errorCode = result.ErrorCode;
+            errorMessage = result.ErrorMessage;
+            if (attempt < PlayerFocusAttempts)
+            {
+                await Task.Delay(PlayerFocusRetryInterval, cancellationToken);
+            }
+        }
+
+        logger.LogWarning(
+            "Player-requested camera focus failed after activating {EntityId}: {ErrorCode}: {ErrorMessage}",
+            assignment.EntityId,
+            errorCode,
+            errorMessage);
+    }
+
+    private void ObserveAssignmentPreparationForPlayerFocus(
+        TacticalAssignment assignment,
+        bool prepared,
+        CancellationToken cancellationToken)
+    {
+        long generation;
+        lock (_playerFocusGate)
+        {
+            if (prepared && assignment.FocusAfterActivation)
+            {
+                _pendingPlayerFocus = assignment.Clone();
+            }
+            if (_pendingPlayerFocus is null)
+            {
+                return;
+            }
+            generation = ++_playerFocusGeneration;
+        }
+
+        _ = FocusAfterAssignmentBatchSettlesAsync(generation, cancellationToken);
+    }
+
+    private void RecoverPendingPlayerFocus(
+        OwnedSurfaceResourceStatePayload resources,
+        IReadOnlySet<string> activeLocalAssignmentIds,
+        CancellationToken cancellationToken)
+    {
+        var activeResources = resources.Entities
+            .Where(resource => string.Equals(
+                    resource.LifecycleState,
+                    "active",
+                    StringComparison.OrdinalIgnoreCase)
+                && activeLocalAssignmentIds.Contains(resource.AssignmentId))
+            .ToArray();
+        foreach (var assignment in stateStore.ReadAssignments()
+            .Where(item => item.FocusAfterActivation
+                && !stateStore.HasCompletedPlayerFocus(item.AssignmentId, item.AuthorityEpoch)))
+        {
+            if (!activeResources.Any(resource =>
+                    string.Equals(resource.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+                    && string.Equals(resource.EntityId, assignment.EntityId, StringComparison.Ordinal)
+                    && resource.AuthorityEpoch == assignment.AuthorityEpoch))
+            {
+                continue;
+            }
+            ObserveAssignmentPreparationForPlayerFocus(
+                assignment,
+                prepared: true,
+                cancellationToken);
+        }
+    }
+
+    private async Task FocusAfterAssignmentBatchSettlesAsync(
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(PlayerFocusQuietPeriod, cancellationToken);
+            TacticalAssignment? assignment;
+            lock (_playerFocusGate)
+            {
+                if (generation != _playerFocusGeneration || _pendingPlayerFocus is null)
+                {
+                    return;
+                }
+                assignment = _pendingPlayerFocus;
+                _pendingPlayerFocus = null;
+            }
+
+            // Initial Primary handoffs become authoritative when the service accepts
+            // AssignmentPrepared; unlike migrations, they do not receive an
+            // ActivationGrant callback. Wait for the preparation batch to go quiet,
+            // then focus the requested unit without blocking later assignment frames.
+            await FocusAfterActivationAsync(assignment, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
         {
             logger.LogWarning(
-                "Player-requested camera focus failed after activating {EntityId}: {ErrorCode}: {ErrorMessage}",
-                assignment.EntityId,
-                result.ErrorCode,
-                result.ErrorMessage);
+                exception,
+                "Player-requested camera focus failed after the assignment batch settled.");
         }
     }
 

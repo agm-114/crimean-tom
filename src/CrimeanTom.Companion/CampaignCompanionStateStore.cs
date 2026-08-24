@@ -12,6 +12,9 @@ namespace CrimeanTom.Companion;
 
 public sealed class CampaignCompanionStateStore
 {
+    private static ReadOnlySpan<byte> TacticalIslandMigratedDiscriminator =>
+        "\"eventType\":\"tactical-island-migrated/v1\""u8;
+
     private readonly string _root;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -40,12 +43,27 @@ public sealed class CampaignCompanionStateStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var events = Path.Combine(_root, "committed-events");
-            Directory.CreateDirectory(events);
-            await WriteAtomicallyAsync(
-                Path.Combine(events, $"{campaignEvent.CommitPosition:D20}-{campaignEvent.EventId}.json"),
-                content,
-                cancellationToken);
+            if (content.AsSpan().IndexOf(TacticalIslandMigratedDiscriminator) >= 0)
+            {
+                var committed = CampaignContractJson.DeserializeEvent(content);
+                if (committed.CommitPosition.Value != campaignEvent.CommitPosition
+                    || committed.Data is not TacticalIslandMigratedEvent migrated)
+                {
+                    throw new InvalidDataException("A committed tactical migration proof is malformed.");
+                }
+
+                foreach (var member in migrated.Migration.Members)
+                {
+                    await WriteAtomicallyAsync(
+                        CommittedMigrationPath(
+                            campaignEvent.CommitPosition,
+                            member.DestinationAssignmentId,
+                            member.DestinationAuthorityEpoch.Value),
+                        "committed"u8.ToArray(),
+                        cancellationToken);
+                }
+            }
+
             await WriteAtomicallyAsync(
                 Path.Combine(_root, "cursor"),
                 Encoding.UTF8.GetBytes(campaignEvent.CommitPosition.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -134,6 +152,41 @@ public sealed class CampaignCompanionStateStore
         return File.Exists(path)
             ? TacticalAssignment.Parser.ParseFrom(File.ReadAllBytes(path))
             : throw new InvalidDataException("The durable tactical assignment baseline is missing.");
+    }
+
+    public IReadOnlyList<TacticalAssignment> ReadAssignments()
+    {
+        var directory = Path.Combine(_root, "assignments");
+        if (!Directory.Exists(directory))
+        {
+            return [];
+        }
+        return Directory.EnumerateFiles(directory, "*.assignment")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Select(path => TacticalAssignment.Parser.ParseFrom(File.ReadAllBytes(path)))
+            .ToArray();
+    }
+
+    public bool HasCompletedPlayerFocus(string assignmentId, long authorityEpoch) =>
+        File.Exists(PlayerFocusCompletedPath(assignmentId, authorityEpoch));
+
+    public async Task SaveCompletedPlayerFocusAsync(
+        string assignmentId,
+        long authorityEpoch,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteAtomicallyAsync(
+                PlayerFocusCompletedPath(assignmentId, authorityEpoch),
+                "completed"u8.ToArray(),
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task SaveGameRevisionAsync(
@@ -318,6 +371,18 @@ public sealed class CampaignCompanionStateStore
 
     public bool HasCommittedMigration(long commitPosition, string assignmentId, long authorityEpoch)
     {
+        if (!TryParseAssignmentId(assignmentId, out var destinationAssignmentId))
+        {
+            return false;
+        }
+
+        if (File.Exists(CommittedMigrationPath(commitPosition, destinationAssignmentId, authorityEpoch)))
+        {
+            return true;
+        }
+
+        // Compatibility for state written before committed events were reduced to
+        // bounded migration proofs. New state never writes these full JSON files.
         var events = Path.Combine(_root, "committed-events");
         if (!Directory.Exists(events))
         {
@@ -334,8 +399,7 @@ public sealed class CampaignCompanionStateStore
 
         var committed = CampaignContractJson.DeserializeEvent(File.ReadAllBytes(match));
         if (committed.CommitPosition.Value != commitPosition
-            || committed.Data is not TacticalIslandMigratedEvent migrated
-            || !TryParseAssignmentId(assignmentId, out var destinationAssignmentId))
+            || committed.Data is not TacticalIslandMigratedEvent migrated)
         {
             return false;
         }
@@ -372,6 +436,18 @@ public sealed class CampaignCompanionStateStore
 
     private string SupersededActivationGrantPath(string assignmentId, long authorityEpoch) =>
         Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.activation-grant-superseded");
+
+    private string PlayerFocusCompletedPath(string assignmentId, long authorityEpoch) =>
+        Path.Combine(_root, "assignments", $"{SafeKey(assignmentId)}.{authorityEpoch}.player-focus-completed");
+
+    private string CommittedMigrationPath(
+        long commitPosition,
+        AssignmentId assignmentId,
+        long authorityEpoch) =>
+        Path.Combine(
+            _root,
+            "committed-migrations",
+            $"{commitPosition:D20}-{assignmentId.Value:N}.{authorityEpoch}.migration");
 
     private static async Task WriteAtomicallyAsync(
         string destination,

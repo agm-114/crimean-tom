@@ -1256,6 +1256,15 @@ public sealed class CampaignCoordinator(
         return CampaignCoalitionProjectionHttp.From(state, coalitionId);
     }
 
+    public async Task<CampaignTacticalWorkerProjectionView> ProjectTacticalWorkerAsync(
+        CampaignId campaignId,
+        string clientInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
+        return CampaignTacticalWorkerProjectionHttp.From(state, clientInstanceId);
+    }
+
     public async Task<CampaignPauseView> PauseAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken)

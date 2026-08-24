@@ -114,6 +114,10 @@ The folders separate evidence from design commitments:
     records algorithm-v15 full-scale strategic/operational execution, physical
     movement calibration, cold recovery, terrain-safe installation spawning,
     and Computer Use player-camera verification.
+36. [Player-selected streaming and bounded-sync evidence](evidence/player-selected-streaming-and-bounded-sync-2026-08-24.md)
+    records full-seed automatic player focus, retained installation re-entry,
+    bounded worker projection, catch-up continuity, and the companion disk-spool
+    correction.
 
 ## Evidence labels
 

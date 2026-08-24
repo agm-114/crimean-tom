@@ -5319,6 +5319,16 @@ public sealed class CompanionControlIntegrationTests
         AssertOwnedMutationRecoveryContracts();
         var originalCommitPosition = grant.ActivationGrant.MigrationCommitPosition;
         var originalHash = grant.ActivationGrant.StagedCheckpointSha256;
+        await WaitForCommittedMigrationMarkerAsync(
+            Path.Combine(runDirectory, "campaign-companion"),
+            originalCommitPosition,
+            queued.Assignment.AssignmentId,
+            queued.Assignment.AuthorityEpoch,
+            cancellationToken);
+        Assert.False(Directory.Exists(Path.Combine(
+            runDirectory,
+            "campaign-companion",
+            "committed-events")));
 
         await call.RequestStream.CompleteAsync();
         call.Dispose();
@@ -6075,15 +6085,15 @@ public sealed class CompanionControlIntegrationTests
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Path.Combine(destinationCompanionStateDirectory, "assignments"));
-        var sourceEventsDirectory = Path.Combine(sourceCompanionStateDirectory, "committed-events");
-        var destinationEventsDirectory = Path.Combine(destinationCompanionStateDirectory, "committed-events");
-        if (Directory.Exists(sourceEventsDirectory))
+        var sourceMigrationDirectory = Path.Combine(sourceCompanionStateDirectory, "committed-migrations");
+        var destinationMigrationDirectory = Path.Combine(destinationCompanionStateDirectory, "committed-migrations");
+        if (Directory.Exists(sourceMigrationDirectory))
         {
-            Directory.CreateDirectory(destinationEventsDirectory);
-            foreach (var eventPath in Directory.EnumerateFiles(sourceEventsDirectory, "*.json"))
+            Directory.CreateDirectory(destinationMigrationDirectory);
+            foreach (var migrationPath in Directory.EnumerateFiles(sourceMigrationDirectory, "*.migration"))
             {
-                var destinationPath = Path.Combine(destinationEventsDirectory, Path.GetFileName(eventPath));
-                File.Copy(eventPath, destinationPath, overwrite: true);
+                var destinationPath = Path.Combine(destinationMigrationDirectory, Path.GetFileName(migrationPath));
+                File.Copy(migrationPath, destinationPath, overwrite: true);
             }
         }
 
@@ -6191,6 +6201,26 @@ public sealed class CompanionControlIntegrationTests
                 return;
             }
 
+            await Task.Delay(25, cancellationToken);
+        }
+    }
+
+    private static async Task WaitForCommittedMigrationMarkerAsync(
+        string companionStateDirectory,
+        long commitPosition,
+        string assignmentId,
+        long authorityEpoch,
+        CancellationToken cancellationToken)
+    {
+        var normalizedAssignmentId = assignmentId.StartsWith("assignment:", StringComparison.Ordinal)
+            ? assignmentId["assignment:".Length..]
+            : assignmentId;
+        var marker = Path.Combine(
+            companionStateDirectory,
+            "committed-migrations",
+            $"{commitPosition:D20}-{normalizedAssignmentId}.{authorityEpoch}.migration");
+        while (!File.Exists(marker))
+        {
             await Task.Delay(25, cancellationToken);
         }
     }

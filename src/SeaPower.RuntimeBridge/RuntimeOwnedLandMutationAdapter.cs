@@ -220,8 +220,17 @@ internal static class RuntimeOwnedLandMutationAdapter
             return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Success(replay);
         }
 
-        if (OwnedEntities.ContainsKey(request.EntityId)
-            || RuntimeOwnedMutationAdapter.HasOwnedEntity(request.EntityId)
+        if (OwnedEntities.TryGetValue(request.EntityId, out var retained))
+        {
+            return RematerializeRetained(
+                request,
+                commandSessionId,
+                requestJson,
+                idempotencyKey,
+                retained);
+        }
+
+        if (RuntimeOwnedMutationAdapter.HasOwnedEntity(request.EntityId)
             || Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
                 candidate is not null
                 && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal)))
@@ -357,6 +366,134 @@ internal static class RuntimeOwnedLandMutationAdapter
         finally
         {
             stopwatch.Stop();
+        }
+    }
+
+    private static MutationAdapterResult<MaterializeOwnedLandUnitResultPayload> RematerializeRetained(
+        MaterializeOwnedLandUnitRequestPayload request,
+        string commandSessionId,
+        string requestJson,
+        string idempotencyKey,
+        OwnedLandRecord record)
+    {
+        var landUnit = record.LandUnit;
+        var checkpoint = record.Checkpoint;
+        if (record.RecoveryRequired
+            || landUnit is null
+            || !landUnit.Disabled
+            || checkpoint?.Unit is null
+            || checkpoint.Unit.IsDisabled
+            || checkpoint.Unit.IsDestroyed
+            || request.Context.ExpectedRevision != 0
+            || request.Context.AuthorityEpoch <= record.AuthorityEpoch
+            || string.Equals(request.Context.AssignmentId, record.AssignmentId, StringComparison.Ordinal)
+            || !string.Equals(landUnit._campaignTag, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.Unit.EntityId, request.EntityId, StringComparison.Ordinal)
+            || !string.Equals(record.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
+            || !string.Equals(record.VariantId, request.VariantId, StringComparison.Ordinal)
+            || !string.Equals(record.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
+            || !string.Equals(record.TaskforceId, request.TaskforceId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                "The retained owned land object is not a checkpointed suspended predecessor of this higher-epoch assignment.");
+        }
+
+        var terrain = RuntimeTerrainPlacementAdapter.Probe(new()
+        {
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+        });
+        if (!terrain.PlacementReady || terrain.TerrainHeightUnity is null)
+        {
+            return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"Retained land rematerialization requires finalized land terrain; probe={terrain.Postcondition}.");
+        }
+        var predicted = CapturePredicted(request, terrain);
+        if (request.Context.DryRun)
+        {
+            return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Success(new()
+            {
+                Outcome = "validated-retained-rematerialization",
+                Postcondition = "retained-owned-land-unit-rematerialization-valid",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = request.Context.ExpectedRevision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                DryRun = true,
+                RealizedUnit = predicted,
+                Terrain = terrain,
+                RecoverableOwnedObject = true,
+                UnsupportedFields = UnsupportedFields(),
+            });
+        }
+
+        var original = CapturePortable(request.EntityId, record);
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            ApplyPlacement(
+                landUnit,
+                request.Latitude,
+                request.Longitude,
+                request.HeadingDegrees,
+                request.Telegraph,
+                terrain);
+            landUnit.Enable();
+            var realized = Capture(landUnit, request, terrain);
+            AssertReadback(request, realized);
+
+            var revision = request.Context.ExpectedRevision + 1;
+            record.AssignmentId = request.Context.AssignmentId;
+            record.AuthorityEpoch = request.Context.AuthorityEpoch;
+            record.Revision = revision;
+            record.TaskforceId = request.TaskforceId;
+            record.RecoveryRequired = false;
+            timer.Stop();
+            var result = new MaterializeOwnedLandUnitResultPayload
+            {
+                Outcome = "rematerialized-retained",
+                Postcondition = "retained-owned-land-unit-rebound-enabled-above-terrain-and-read-back",
+                AssignmentId = request.Context.AssignmentId,
+                AuthorityEpoch = request.Context.AuthorityEpoch,
+                Revision = revision,
+                IdempotencyKey = request.Context.IdempotencyKey,
+                RecoverableOwnedObject = true,
+                SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
+                RealizedUnit = realized,
+                Terrain = terrain,
+                UnsupportedFields = UnsupportedFields(),
+            };
+            IdempotencyRecords.Add(
+                idempotencyKey,
+                new(commandSessionId, requestJson, Clone(result)));
+            return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            var recovery = "source-suspension-restored";
+            try
+            {
+                ApplyPortableState(landUnit, original);
+            }
+            catch
+            {
+                recovery = "recoverable-suspended-owned-object";
+                record.RecoveryRequired = true;
+                if (!landUnit.Disabled)
+                {
+                    landUnit.Disable();
+                }
+            }
+            return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                $"operation=rematerialize-retained-land; recovery={recovery}; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
         }
     }
 
