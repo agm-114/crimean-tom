@@ -148,14 +148,7 @@ internal static class RuntimeCapabilityCollector
                 ? GameCommandTypes.MutationCommands
                 : [],
             OwnedSurfaceMaterializationProfiles =
-            [
-                new OwnedSurfaceMaterializationProfilePayload
-                {
-                    UnitTypeId = RuntimeOwnedMutationAdapter.SupportedUnitType,
-                    VariantId = RuntimeOwnedMutationAdapter.SupportedVariant,
-                    LoadoutId = RuntimeOwnedMutationAdapter.SupportedLoadout,
-                },
-            ],
+                RuntimeOwnedMutationAdapter.SupportedProfiles(),
             OwnedLandMaterializationProfiles =
                 RuntimeOwnedLandMutationAdapter.SupportedProfiles(),
             PlayerTaskforceId = RuntimeOwnedMutationAdapter.GetPlayerTaskforceId(),

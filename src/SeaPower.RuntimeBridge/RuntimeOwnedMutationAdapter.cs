@@ -14,9 +14,21 @@ internal static class RuntimeOwnedMutationAdapter
     public const string Confirmation = "enable-owned-mutations";
     public const string FaultInjectionConfirmation = "inject-owned-mutation-failure";
 
-    internal const string SupportedUnitType = "usn_ff_knox_84";
-    internal const string SupportedVariant = "Variant43";
-    internal const string SupportedLoadout = "Default";
+    private static readonly OwnedSurfaceMaterializationProfilePayload[] Profiles =
+    [
+        Profile("usn_ff_knox_84", "Variant43"),
+        Profile("usn_cg_ticonderoga", "Default"),
+        Profile("usn_dd_spruance", "Default"),
+    ];
+
+    internal static OwnedSurfaceMaterializationProfilePayload[] SupportedProfiles() =>
+        Profiles.Select(CloneProfile).ToArray();
+
+    internal static bool Supports(string unitTypeId, string variantId, string loadoutId) =>
+        Profiles.Any(profile =>
+            string.Equals(profile.UnitTypeId, unitTypeId, StringComparison.Ordinal)
+            && string.Equals(profile.VariantId, variantId, StringComparison.Ordinal)
+            && string.Equals(profile.LoadoutId, loadoutId, StringComparison.Ordinal));
 
     internal static string GetPlayerTaskforceId()
     {
@@ -1007,9 +1019,10 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "Only an active, non-destroyed portable checkpoint can be rematerialized.");
         }
-        if (!string.Equals(checkpoint.Unit.UnitTypeId, SupportedUnitType, StringComparison.Ordinal)
-            || !string.Equals(checkpoint.Unit.VariantId, SupportedVariant, StringComparison.Ordinal)
-            || !string.Equals(checkpoint.Unit.LoadoutId, SupportedLoadout, StringComparison.Ordinal)
+        if (!Supports(
+                checkpoint.Unit.UnitTypeId,
+                checkpoint.Unit.VariantId,
+                checkpoint.Unit.LoadoutId)
             || checkpoint.Unit.Latitude is not double checkpointLatitude
             || checkpoint.Unit.Longitude is not double checkpointLongitude
             || checkpoint.Unit.HeadingDegrees is not double checkpointHeading
@@ -1020,7 +1033,7 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "The retained checkpoint does not contain a complete supported Knox state.");
+                "The retained checkpoint does not contain a complete supported surface state.");
         }
 
         var taskforce = ResolveTaskforce(checkpoint.Unit.TaskforceId);
@@ -1633,12 +1646,10 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return Invalid("idempotencyKey must contain 1 to 128 characters.");
         }
-        if (!string.Equals(request.UnitTypeId, SupportedUnitType, StringComparison.Ordinal)
-            || !string.Equals(request.VariantId, SupportedVariant, StringComparison.Ordinal)
-            || !string.Equals(request.LoadoutId, SupportedLoadout, StringComparison.Ordinal))
+        if (!Supports(request.UnitTypeId, request.VariantId, request.LoadoutId))
         {
             return Invalid(
-                $"Only {SupportedUnitType}/{SupportedVariant}/{SupportedLoadout} is allow-listed.");
+                "The requested surface materialization profile is not allow-listed.");
         }
         if (!double.IsFinite(request.Latitude)
             || !double.IsFinite(request.Longitude)
@@ -1690,6 +1701,23 @@ internal static class RuntimeOwnedMutationAdapter
         && value.StartsWith(prefix, StringComparison.Ordinal)
         && value.All(character => char.IsLetterOrDigit(character)
             || character is ':' or '-' or '_' or '.');
+
+    private static OwnedSurfaceMaterializationProfilePayload Profile(
+        string unitTypeId,
+        string variantId) => new()
+    {
+        UnitTypeId = unitTypeId,
+        VariantId = variantId,
+        LoadoutId = "Default",
+    };
+
+    private static OwnedSurfaceMaterializationProfilePayload CloneProfile(
+        OwnedSurfaceMaterializationProfilePayload profile) => new()
+    {
+        UnitTypeId = profile.UnitTypeId,
+        VariantId = profile.VariantId,
+        LoadoutId = profile.LoadoutId,
+    };
 
     private static Taskforce? ResolveTaskforce(string requestedId)
     {

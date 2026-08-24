@@ -188,18 +188,10 @@ internal static class RuntimeRenderProxyAdapter
                 || !ids.Add(spec.EntityId)
                 || string.IsNullOrWhiteSpace(spec.Name)
                 || spec.Name.Length > 128
-                || !string.Equals(
+                || !RuntimeOwnedMutationAdapter.Supports(
                     spec.UnitTypeId,
-                    RuntimeOwnedMutationAdapter.SupportedUnitType,
-                    StringComparison.Ordinal)
-                || !string.Equals(
                     spec.VariantId,
-                    RuntimeOwnedMutationAdapter.SupportedVariant,
-                    StringComparison.Ordinal)
-                || !string.Equals(
-                    spec.LoadoutId,
-                    RuntimeOwnedMutationAdapter.SupportedLoadout,
-                    StringComparison.Ordinal)
+                    spec.LoadoutId)
                 || !ValidPosition(spec.Latitude, spec.Longitude, spec.HeadingDegrees)
                 || spec.CampaignTelegraph is < -1 or > 5)
             {
