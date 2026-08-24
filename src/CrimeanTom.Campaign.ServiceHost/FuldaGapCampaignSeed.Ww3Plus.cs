@@ -98,13 +98,17 @@ internal static partial class FuldaGapCampaignSeed
             .SelectMany(package => Enumerable.Range(0, GroupCount(package)).Select(groupIndex =>
             {
                 var groupKey = PackageGroupKey(package, groupIndex);
-                return Order(
+                return groupIds.TryGetValue(groupKey, out var groupId)
+                    ? Order(
                     campaignId,
                     $"{groupKey}-{package.OrderKind.ToString().ToLowerInvariant()}",
-                    groupIds[groupKey],
+                    groupId,
                     regionIds[package.DestinationRegionKey!],
-                    package.OrderKind);
+                    package.OrderKind)
+                    : null;
             }))
+            .Where(order => order is not null)
+            .Cast<FuldaOrderSeed>()
             .ToArray();
 
     private static IReadOnlyList<FuldaEntitySeed> Ww3AirbaseComplexEntities(
@@ -409,20 +413,27 @@ internal static partial class FuldaGapCampaignSeed
             var catalogUnitId = package.CatalogUnitIds[index % package.CatalogUnitIds.Count];
             var latitudeOffset = ((index % 6) - 2) * 22_000;
             var longitudeOffset = (((index / 6) % 6) - 2) * 28_000;
+            var hostedByYorktown = string.Equals(
+                    package.Key,
+                    "blue-atlantic-rotary",
+                    StringComparison.Ordinal)
+                && index < 2;
             yield return Entity(
                 campaignId,
                 key,
                 $"{package.Name} {ordinal:D3}",
                 catalogUnitId,
                 package.CoalitionId,
-                package.RegionKey,
-                package.LatitudeMicrodegrees + latitudeOffset,
-                package.LongitudeMicrodegrees + longitudeOffset,
-                package.HomeBaseKey,
-                PackageGroupKey(package, index / package.GroupSize),
+                hostedByYorktown ? "nsea" : package.RegionKey,
+                hostedByYorktown ? 57_000_000 : package.LatitudeMicrodegrees + latitudeOffset,
+                hostedByYorktown ? 3_000_000 : package.LongitudeMicrodegrees + longitudeOffset,
+                hostedByYorktown ? "bremerhaven" : package.HomeBaseKey,
+                hostedByYorktown ? "blue-north-sea" : PackageGroupKey(package, index / package.GroupSize),
                 package.SimulationDomain,
                 package.MaximumFidelity,
-                operationalWeapons: package.OperationalWeapons);
+                catalogLoadoutId: hostedByYorktown ? "ASW" : "Default",
+                operationalWeapons: package.OperationalWeapons,
+                hostEntityKey: hostedByYorktown ? "yorktown" : null);
         }
     }
 

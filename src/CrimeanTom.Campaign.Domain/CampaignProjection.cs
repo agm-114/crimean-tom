@@ -23,7 +23,8 @@ public sealed record FriendlyEntityProjection(
     int Telegraph,
     int ReadinessMilliUnits,
     int DamageMilliUnits,
-    EntityRevision Revision);
+    EntityRevision Revision,
+    EntityId? HostEntityId = null);
 
 public sealed record ContactProjection(
     string TrackId,
@@ -73,7 +74,8 @@ public static class CampaignProjectionBuilder
                 entity.Telegraph,
                 entity.ReadinessMilliUnits,
                 entity.DamageMilliUnits,
-                entity.Revision))
+                entity.Revision,
+                entity.HostEntityId))
             .ToArray();
 
         var contacts = state.Intelligence.Values

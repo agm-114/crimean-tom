@@ -48,7 +48,8 @@ public sealed record EntityState(
     string ClassifiedTruthTag,
     ImmutableArray<OperationalWeaponCapability> OperationalWeapons,
     EntityRevision Revision,
-    AnalogueTacticalCondition Analogue);
+    AnalogueTacticalCondition Analogue,
+    EntityId? HostEntityId = null);
 
 public sealed record GroupState(
     GroupId GroupId,

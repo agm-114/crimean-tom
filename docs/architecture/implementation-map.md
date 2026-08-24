@@ -121,12 +121,13 @@ after the complete batch is prepared. The full 4,096-entity service story and a
 live Sea Power run now pass for the two-member USS Yorktown and USS Spruance
 group. A separate run passes for USS Honolulu as a native Los Angeles-class
 submarine while campaign time advances. A third run passes for an atomic
-two-member SH-2F/SH-3H group at about 500 feet while campaign time advances.
-Their campaign identities cross the
-service, companion, and Runtime Bridge boundary into native Formation Manager
-labels. Combined surface/submarine/helicopter entry, hosted assets, broader
-submarine families, combined-arms entry, and authored-force replacement remain
-open.
+two-member SH-2F/SH-3H group at about 500 feet while campaign time advances. A
+fourth run enters the canonical North Sea group as two native ships plus two
+helicopters in Yorktown's native flight-deck inventory. Their campaign
+identities cross the service, companion, and Runtime Bridge boundary into native
+Formation Manager and Flight Deck labels. Combined surface/submarine entry,
+broader submarine families, combined-arms entry, and authored-force replacement
+remain open.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -146,10 +147,10 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | One two-ship surface group, one separate submarine patrol, and one separate two-helicopter group can enter; hosted launch works only as a bridge primitive, and the authored mission still supplies the rest of the placeholder local force |
+| Campaign-owned task force | The canonical North Sea group enters as two native ships plus two native onboard helicopters; one separate submarine patrol and one separate airborne two-helicopter group also enter, while the authored mission still supplies the rest of the placeholder local force |
 | Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
-| Portable state | Fixed-wing aircraft, canonical ship-hosted assignment and recovery, broader submarine state, magazines, sensors, and formations are incomplete |
+| Portable state | Canonical ship-hosted assignment works for two helicopter profiles; fixed-wing aircraft, hosted recovery, broader submarine state, magazines, sensors, and formations are incomplete |
 | Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |
 | Save longevity | Schema and algorithm migration plus long-running compaction remain open |
 | Private multiplayer | Durable identity, authorization, realtime UI, and shared-control policy do not exist |

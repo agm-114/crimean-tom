@@ -128,7 +128,8 @@ internal static class CampaignPlayerHttp
                 item.Coordinate.LongitudeMicrodegrees,
                 item.Lifecycle.ToString(),
                 item.Fidelity.ToString(),
-                item.Revision.Value)).ToArray(),
+                item.Revision.Value,
+                item.HostEntityId?.ToString())).ToArray(),
             groups,
             bases,
             projection.Contacts.Select(item => new CampaignContactProjectionView(
@@ -223,7 +224,8 @@ public sealed record CampaignPlayerTacticalMemberView(
     string Name,
     string CatalogUnitId,
     string Status,
-    string Message);
+    string Message,
+    string? HostEntityId = null);
 
 public sealed record CampaignPlayerTacticalEntryResult(
     string Status,

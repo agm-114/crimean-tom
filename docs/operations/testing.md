@@ -90,7 +90,10 @@ Run this story against the full 4,096-entity campaign:
 3. Inspect the friendly order of battle and coalition-known contacts.
 4. Issue one player order, start time, and confirm its durable effect.
 5. Select a campaign-owned task force and request tactical entry.
-6. Confirm that every supported task-force member is a real Sea Power object.
+6. Confirm that every supported task-force member has a native representation.
+   Top-level members must be real Sea Power objects. Hosted aircraft must appear
+   in their host's flight-deck inventory and the owned-resource ledger without
+   consuming world-object capacity until launch.
 7. Maximize the tactical map and inspect local units, non-local friendlies, and
    hostile tracks.
 8. Select each kind through the player input path. Confirm native symbology,

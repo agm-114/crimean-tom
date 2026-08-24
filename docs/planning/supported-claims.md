@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 15.
+Authenticated `GET /supported-claims` mirrors this document at schema version 16.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -74,13 +74,19 @@ or complete Sea Power parity.
   capacity, created Sea Power's real launch task, and adopted the launched
   helicopter under the same campaign identity and host relation. The airborne
   object retained the requested `Squadron4 / ASW` profile and full native fuel.
+- A live full-campaign run entered the canonical NATO North Sea group as USS
+  Yorktown and USS Spruance plus Yorktown's hosted SH-2F and SH-3H. Sea Power
+  created two ship objects and registered the two helicopters in Yorktown's
+  native flight-deck inventory. All four assignments remained active while the
+  campaign advanced past T+3500. The worker reported two world objects and four
+  owned campaign resources, with no duplicate stable IDs. The game held about
+  60 FPS, a 16.667 ms fixed step, and internal time dilation 1.
 
 This is a narrow ship, single-profile submarine, two-profile airborne
-helicopter, and bridge-level SH-2F hosted-launch contract. It does not wire
-hosted children from canonical campaign assignments into player entry, and it
-does not cover hosted-aircraft recovery, complete magazines, sensors,
-formations, fixed-wing aircraft, submerged-state portability, broader
-submarine families, or every ground and installation family.
+helicopter, and two-profile hosted-helicopter entry contract. It does not cover
+hosted-aircraft recovery, complete magazines, sensors, formations, fixed-wing
+aircraft, submerged-state portability, broader submarine families, or every
+ground and installation family.
 
 ## Map and presentation
 

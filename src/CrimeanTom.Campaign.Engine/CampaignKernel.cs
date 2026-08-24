@@ -176,6 +176,26 @@ public static class CampaignKernel
         {
             throw Violation("invalid-home-base", "An entity's home base must exist in its coalition.");
         }
+        if (value.HostEntityId is { } hostEntityId)
+        {
+            if (hostEntityId == value.EntityId
+                || !state.Entities.TryGetValue(hostEntityId, out var host)
+                || host.CoalitionId != value.CoalitionId
+                || host.SimulationDomain != SimulationDomain.Maritime
+                || host.HostEntityId is not null
+                || value.SimulationDomain is not (SimulationDomain.Air or SimulationDomain.RotaryWing))
+            {
+                throw Violation(
+                    "invalid-host-entity",
+                    "A hosted aircraft requires an existing, top-level maritime host in the same coalition.");
+            }
+            if (state.Groups.Values.Any(group => group.Members.Contains(hostEntityId)))
+            {
+                throw Violation(
+                    "host-already-grouped",
+                    "Register hosted aircraft before forming its host's canonical group.");
+            }
+        }
         return Decision.Create(command.Subject, new EntityRegisteredEvent(value));
     }
 
@@ -201,6 +221,25 @@ public static class CampaignKernel
             if (state.Groups.Values.Any(group => group.Members.Contains(memberId)))
             {
                 throw Violation("member-already-grouped", "An entity can have only one canonical group owner.");
+            }
+        }
+
+        foreach (var memberId in value.Members)
+        {
+            var member = state.Entities[memberId];
+            if (member.HostEntityId is { } hostEntityId && !value.Members.Contains(hostEntityId))
+            {
+                throw Violation(
+                    "host-outside-group",
+                    "A hosted aircraft and its maritime host must share one canonical group.");
+            }
+            if (state.Entities.Values.Any(candidate =>
+                    candidate.HostEntityId == memberId
+                    && !value.Members.Contains(candidate.EntityId)))
+            {
+                throw Violation(
+                    "hosted-child-outside-group",
+                    "A maritime host and all of its hosted aircraft must share one canonical group.");
             }
         }
 
@@ -745,7 +784,8 @@ public static class CampaignKernel
                 .ThenBy(weapon => weapon.TargetClassification)
                 .ToImmutableArray(),
             item.NewSubjectRevision,
-            AnalogueTacticalCondition.Healthy);
+            AnalogueTacticalCondition.Healthy,
+            data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
 

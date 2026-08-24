@@ -330,7 +330,8 @@ public sealed record RegisterEntityCommand(
     SimulationDomain SimulationDomain = SimulationDomain.Maritime,
     FidelityState MaximumFidelity = FidelityState.Tactical,
     string CatalogLoadoutId = "Default",
-    IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons = null)
+    IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons = null,
+    EntityId? HostEntityId = null)
     : CampaignCommandData;
 
 public sealed record FormGroupCommand(GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members)

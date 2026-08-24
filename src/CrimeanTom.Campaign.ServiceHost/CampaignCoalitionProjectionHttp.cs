@@ -23,7 +23,8 @@ internal static class CampaignCoalitionProjectionHttp
                 item.Coordinate.LongitudeMicrodegrees,
                 item.Lifecycle.ToString(),
                 item.Fidelity.ToString(),
-                item.Revision.Value)).ToArray(),
+                item.Revision.Value,
+                item.HostEntityId?.ToString())).ToArray(),
             projection.Contacts.Select(item => new CampaignContactProjectionView(
                 item.TrackId,
                 item.EstimatedRegionId.ToString(),
@@ -55,7 +56,8 @@ public sealed record CampaignFriendlyProjectionView(
     int LongitudeMicrodegrees,
     string Lifecycle,
     string Fidelity,
-    long Revision);
+    long Revision,
+    string? HostEntityId);
 
 public sealed record CampaignContactProjectionView(
     string TrackId,

@@ -28,7 +28,8 @@ internal static class CampaignWorkerAdmissionPolicy
                 && string.Equals(
                     assignment.WorkerClientInstanceId,
                     worker.ClientInstanceId,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)
+                && state.Entities[assignment.EntityId].HostEntityId is null)
             .Select(assignment => assignment.EntityId)
             .Distinct()
             .Count();

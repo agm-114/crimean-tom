@@ -97,6 +97,18 @@ public static class CampaignStateValidator
             {
                 throw Invalid("entity-home-base", "An entity home base is missing or belongs to another coalition.");
             }
+            if (entity.HostEntityId is { } hostEntityId
+                && (hostEntityId == entity.EntityId
+                    || !state.Entities.TryGetValue(hostEntityId, out var host)
+                    || host.CoalitionId != entity.CoalitionId
+                    || host.SimulationDomain != SimulationDomain.Maritime
+                    || host.HostEntityId is not null
+                    || entity.SimulationDomain is not (SimulationDomain.Air or SimulationDomain.RotaryWing)))
+            {
+                throw Invalid(
+                    "entity-host",
+                    "A hosted aircraft requires a top-level maritime host in the same coalition.");
+            }
         }
 
         var groupedMembers = new HashSet<EntityId>();
@@ -121,6 +133,17 @@ public static class CampaignStateValidator
                 && (!state.Orders.TryGetValue(activeOrderId, out var activeOrder) || activeOrder.GroupId != group.GroupId))
             {
                 throw Invalid("group-order", "A group's active order does not belong to that group.");
+            }
+        }
+        foreach (var entity in state.Entities.Values.Where(item => item.HostEntityId is not null))
+        {
+            var childGroup = state.Groups.Values.FirstOrDefault(group => group.Members.Contains(entity.EntityId));
+            var hostGroup = state.Groups.Values.FirstOrDefault(group => group.Members.Contains(entity.HostEntityId!.Value));
+            if (childGroup?.GroupId != hostGroup?.GroupId)
+            {
+                throw Invalid(
+                    "entity-host-group",
+                    "A hosted aircraft and its maritime host must share one canonical group owner.");
             }
         }
 

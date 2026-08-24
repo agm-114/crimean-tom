@@ -24,6 +24,7 @@ type FriendlyEntity = {
   lifecycle: string;
   fidelity: string;
   revision: number;
+  hostEntityId: string | null;
 };
 
 type FriendlyGroup = {
@@ -102,6 +103,7 @@ type TacticalEntryMember = {
   catalogUnitId: string;
   status: string;
   message: string;
+  hostEntityId: string | null;
 };
 
 type TacticalEntry = {

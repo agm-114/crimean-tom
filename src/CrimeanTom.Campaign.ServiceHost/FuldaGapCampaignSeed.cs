@@ -268,6 +268,9 @@ internal static partial class FuldaGapCampaignSeed
         // even though their canonical IDs differ.
         var required = entities
             .Where(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)
+                || string.Equals(item.Key, "yorktown", StringComparison.Ordinal)
+                || string.Equals(item.Key, "spruance", StringComparison.Ordinal)
+                || string.Equals(item.HostEntityKey, "yorktown", StringComparison.Ordinal)
                 || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal))
             .OrderByDescending(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal))
             .ThenBy(item => item.Key, StringComparer.Ordinal)
@@ -300,14 +303,16 @@ internal static partial class FuldaGapCampaignSeed
         string regionKey, int latitude, int longitude, string? homeBaseKey, string groupKey,
         SimulationDomain simulationDomain, FidelityState maximumFidelity = FidelityState.Tactical,
         string catalogLoadoutId = "Default",
-        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null)
+        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null,
+        string? hostEntityKey = null)
     {
         var effectiveDomain = EffectiveSimulationDomain(catalogUnitId, simulationDomain);
         return new(key, new EntityId(Id(campaignId, $"entity-{key}")), name, catalogUnitId, catalogLoadoutId,
             coalitionId, regionKey,
             GeoCoordinate.FromMicrodegrees(latitude, longitude), homeBaseKey, groupKey,
             effectiveDomain, maximumFidelity,
-            operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, effectiveDomain));
+            operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, effectiveDomain),
+            hostEntityKey);
     }
 
     private static SimulationDomain EffectiveSimulationDomain(
@@ -387,6 +392,9 @@ internal static partial class FuldaGapCampaignSeed
                 template.Coordinate.LatitudeMicrodegrees + latitudeOffset,
                 template.Coordinate.LongitudeMicrodegrees + longitudeOffset),
             GroupKey = $"{template.GroupKey}-{suffix}",
+            HostEntityKey = template.HostEntityKey is null
+                ? null
+                : $"{template.HostEntityKey}-{suffix}",
         };
     }
 
@@ -473,6 +481,7 @@ internal sealed record FuldaEntitySeed(
     string GroupKey,
     SimulationDomain SimulationDomain,
     FidelityState MaximumFidelity,
-    IReadOnlyList<OperationalWeaponCapability> OperationalWeapons);
+    IReadOnlyList<OperationalWeaponCapability> OperationalWeapons,
+    string? HostEntityKey);
 internal sealed record FuldaGroupSeed(string Key, GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members);
 internal sealed record FuldaOrderSeed(OrderId OrderId, GroupId GroupId, OrderKind Kind, RegionId DestinationRegionId);

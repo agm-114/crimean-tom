@@ -221,7 +221,9 @@ public sealed class CampaignCoordinator(
                     $"fulda-base-{campaignBase.Key}"));
             }
 
-            foreach (var entity in seed.Entities)
+            foreach (var entity in seed.Entities
+                .OrderBy(item => item.HostEntityKey is null ? 0 : 1)
+                .ThenBy(item => item.EntityId))
             {
                 state = Stage(Command(
                     state,
@@ -242,7 +244,10 @@ public sealed class CampaignCoordinator(
                         entity.SimulationDomain,
                         entity.MaximumFidelity,
                         entity.CatalogLoadoutId,
-                        entity.OperationalWeapons),
+                        entity.OperationalWeapons,
+                        entity.HostEntityKey is null
+                            ? null
+                            : seed.EntityIds[entity.HostEntityKey]),
                     $"fulda-entity-{entity.Key}"));
             }
 
@@ -1170,7 +1175,8 @@ public sealed class CampaignCoordinator(
                 item.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
                 item.DamageMilliUnits,
                 item.Lifecycle.ToString(),
-                item.Revision.Value)).ToArray(),
+                item.Revision.Value,
+                item.HostEntityId?.ToString())).ToArray(),
             state.Groups.Values.Select(item => new CampaignGroupView(
                 item.GroupId.ToString(),
                 item.Name,
@@ -1697,7 +1703,11 @@ public sealed class CampaignCoordinator(
         CampaignPlayerProfile profile,
         GroupState group)
     {
-        var members = group.Members.Select(id => state.Entities[id]).OrderBy(item => item.EntityId).ToArray();
+        var members = group.Members
+            .Select(id => state.Entities[id])
+            .OrderBy(item => item.HostEntityId is null ? 0 : 1)
+            .ThenBy(item => item.EntityId)
+            .ToArray();
         var availableMembers = members
             .Where(item => item.Lifecycle != EntityLifecycle.Destroyed)
             .ToArray();
@@ -1754,7 +1764,8 @@ public sealed class CampaignCoordinator(
                             ? "Destroyed campaign units do not enter Sea Power."
                             : activeAssignments.Any(item => item.EntityId == member.EntityId)
                                 ? "Sea Power owns this member under a tactical lease."
-                                : "This member is not part of the active tactical batch."))
+                                : "This member is not part of the active tactical batch.",
+                        member.HostEntityId?.ToString()))
                         .ToArray()),
                 Worker: null,
                 Members: availableMembers,
@@ -1806,7 +1817,8 @@ public sealed class CampaignCoordinator(
                         member.Lifecycle == EntityLifecycle.Destroyed ? "destroyed" : "waiting-for-sea-power",
                         member.Lifecycle == EntityLifecycle.Destroyed
                             ? "Destroyed campaign units do not enter Sea Power."
-                            : "Runtime support is checked against the connected Sea Power session."))
+                            : "Runtime support is checked against the connected Sea Power session.",
+                        member.HostEntityId?.ToString()))
                         .ToArray()),
                 Worker: null,
                 Members: availableMembers,
@@ -1829,21 +1841,30 @@ public sealed class CampaignCoordinator(
             worker.OwnedMaterializedEntityCount,
             state.Assignments.Values
                 .Where(item => item.Lifecycle != AssignmentLifecycle.Released
-                    && string.Equals(item.WorkerClientInstanceId, worker.ClientInstanceId, StringComparison.Ordinal))
+                    && string.Equals(item.WorkerClientInstanceId, worker.ClientInstanceId, StringComparison.Ordinal)
+                    && state.Entities[item.EntityId].HostEntityId is null)
                 .Select(item => item.EntityId)
                 .Distinct()
                 .Count());
         var availableCapacity = Math.Max(
             0,
             worker.TacticalEntityCapacity - worker.TacticalReserveCapacity - occupied);
+        var requiredMaterializedCapacity = availableMembers.Count(item => item.HostEntityId is null);
         var everyMemberSupported = availableMembers.Length > 0 && profiles.Count == availableMembers.Length;
-        var canEnter = everyMemberSupported && availableCapacity >= availableMembers.Length;
+        var everyHostedMemberHasItsHost = availableMembers
+            .Where(item => item.HostEntityId is not null)
+            .All(item => availableMembers.Any(host => host.EntityId == item.HostEntityId));
+        var canEnter = everyMemberSupported
+            && everyHostedMemberHasItsHost
+            && availableCapacity >= requiredMaterializedCapacity;
         var supportMessage = availableMembers.Length == 0
             ? "No surviving group members are available for tactical entry."
             : !everyMemberSupported
                 ? "Sea Power cannot represent every surviving member in this group. Choose another group or add the missing runtime profiles."
-                : availableCapacity < availableMembers.Length
-                    ? $"Sea Power has room for {availableCapacity} of {availableMembers.Length} required members."
+                : !everyHostedMemberHasItsHost
+                    ? "A hosted aircraft cannot enter because its campaign host is unavailable."
+                : availableCapacity < requiredMaterializedCapacity
+                    ? $"Sea Power has room for {availableCapacity} of {requiredMaterializedCapacity} required world objects."
                     : "Every surviving member has a verified runtime profile and can enter Sea Power.";
         return new CampaignPlayerTacticalEntryPlan(
             new CampaignPlayerTacticalEntryView(
@@ -1866,21 +1887,28 @@ public sealed class CampaignCoordinator(
                     {
                         return new CampaignPlayerTacticalMemberView(
                             member.EntityId.ToString(), member.Name, member.CatalogUnitId, "destroyed",
-                            "Destroyed campaign units do not enter Sea Power.");
+                            "Destroyed campaign units do not enter Sea Power.",
+                            member.HostEntityId?.ToString());
                     }
                     if (member.MaximumFidelity != FidelityState.Tactical)
                     {
                         return new CampaignPlayerTacticalMemberView(
                             member.EntityId.ToString(), member.Name, member.CatalogUnitId, "operational-only",
-                            "This campaign entity has no Tactical fidelity state.");
+                            "This campaign entity has no Tactical fidelity state.",
+                            member.HostEntityId?.ToString());
                     }
                     return profiles.ContainsKey(member.EntityId)
                         ? new CampaignPlayerTacticalMemberView(
-                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "supported",
-                            "The connected runtime advertises an exact materialization profile.")
+                            member.EntityId.ToString(), member.Name, member.CatalogUnitId,
+                            member.HostEntityId is null ? "supported" : "supported-hosted",
+                            member.HostEntityId is null
+                                ? "The connected runtime advertises an exact materialization profile."
+                                : "This aircraft will enter the native flight-deck inventory of its campaign host.",
+                            member.HostEntityId?.ToString())
                         : new CampaignPlayerTacticalMemberView(
                             member.EntityId.ToString(), member.Name, member.CatalogUnitId, "unsupported-profile",
-                            "The connected runtime does not advertise this catalog unit.");
+                            "The connected runtime does not advertise this catalog unit.",
+                            member.HostEntityId?.ToString());
                 }).ToArray()),
             worker,
             availableMembers,
@@ -4797,6 +4825,9 @@ public sealed class CampaignCoordinator(
         InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
         InitialDamageMilliunits = entity.DamageMilliUnits,
         FocusAfterActivation = request.FocusAfterActivation,
+        HostEntityId = entity.HostEntityId is { } hostEntityId
+            ? $"unit:crimean-tom:{hostEntityId}"
+            : string.Empty,
     };
 
     private static CrimeanTom.Campaign.Transport.V1.AssignmentRole ToTransportRole(
@@ -5155,7 +5186,8 @@ public sealed record CampaignEntityView(
     long StoresMilliunits,
     int DamageMilliunits,
     string Lifecycle,
-    long Revision);
+    long Revision,
+    string? HostEntityId);
 
 public sealed record CampaignOperationalWeaponView(
     string AmmunitionId,

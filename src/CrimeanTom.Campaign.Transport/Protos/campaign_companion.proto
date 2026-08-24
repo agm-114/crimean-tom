@@ -169,6 +169,7 @@ message TacticalAssignment {
   bool focus_after_activation = 27;
   string display_name = 28;
   int32 altitude_feet = 29;
+  string host_entity_id = 30;
 }
 
 // Control-plane placement for a Sea-Power-free worker. This is deliberately

@@ -1099,6 +1099,66 @@ public sealed class CampaignCompanionClient(
                     DurationSeconds = 300,
                 }, JsonOptions),
                 cancellationToken);
+            if (!string.IsNullOrWhiteSpace(assignment.HostEntityId))
+            {
+                if (isShadow)
+                {
+                    throw new InvalidOperationException(
+                        "Hosted-aircraft shadow preparation is not supported until native recovery is portable.");
+                }
+                var hostResources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+                var host = hostResources.Entities.FirstOrDefault(item =>
+                    string.Equals(item.EntityId, assignment.HostEntityId, StringComparison.Ordinal)
+                    && string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase));
+                if (host is null)
+                {
+                    throw new InvalidOperationException(
+                        "The campaign aircraft's native host must be materialized before its onboard inventory is registered.");
+                }
+
+                var hostedResult = await RequireGameCommandAsync(
+                    GameCommandTypes.RegisterOwnedHostedAircraft,
+                    JsonSerializer.Serialize(new RegisterOwnedHostedAircraftRequestPayload
+                    {
+                        Context = Context(
+                            assignment.AssignmentId,
+                            assignment.AuthorityEpoch,
+                            assignment.ExpectedEntityRevision,
+                            assignment.IdempotencyKey),
+                        EntityId = assignment.EntityId,
+                        DisplayName = assignment.DisplayName,
+                        HostEntityId = assignment.HostEntityId,
+                        UnitTypeId = assignment.UnitTypeId,
+                        VariantId = assignment.VariantId,
+                        LoadoutId = assignment.LoadoutId,
+                    }, JsonOptions),
+                    cancellationToken);
+                var hosted = JsonSerializer.Deserialize<RegisterOwnedHostedAircraftResultPayload>(
+                    hostedResult.ResultJson,
+                    JsonOptions) ?? throw new InvalidDataException(
+                        "Hosted-aircraft registration result was empty.");
+                var hostedStateHash = Convert.ToHexString(SHA256.HashData(
+                    Encoding.UTF8.GetBytes(hostedResult.ResultJson))).ToLowerInvariant();
+                await stateStore.SaveGameRevisionAsync(
+                    assignment.AssignmentId,
+                    hosted.Revision,
+                    cancellationToken);
+                await stateStore.SaveMaterializedGameSessionAsync(
+                    assignment.AssignmentId,
+                    CurrentGameSessionId(),
+                    cancellationToken);
+                return new AssignmentPreparation(
+                    new AssignmentPrepared
+                    {
+                        AssignmentId = assignment.AssignmentId,
+                        EntityId = assignment.EntityId,
+                        AuthorityEpoch = assignment.AuthorityEpoch,
+                        RealizedRevision = hosted.Revision,
+                        CanonicalStateSha256 = hostedStateHash,
+                        Ready = true,
+                    },
+                    null);
+            }
             if (IsVerifiedLandProfile(assignment, capabilities))
             {
                 await EnsureLandTerrainReadyAsync(assignment, cancellationToken);
@@ -1306,7 +1366,7 @@ public sealed class CampaignCompanionClient(
             Kind = TacticalEventKind.Movement,
             LatitudeMicrodegrees = checked((int)Math.Round((update.Unit.Latitude ?? 0) * 1_000_000)),
             LongitudeMicrodegrees = checked((int)Math.Round((update.Unit.Longitude ?? 0) * 1_000_000)),
-            HeadingMillidegrees = checked((int)Math.Round((update.Unit.HeadingDegrees ?? 0) * 1_000)),
+            HeadingMillidegrees = QuantizeHeadingMilliDegrees(update.Unit.HeadingDegrees ?? 0),
             Telegraph = update.Unit.Telegraph,
             Destroyed = update.Unit.IsDestroyed,
         };
@@ -1405,7 +1465,7 @@ public sealed class CampaignCompanionClient(
                     Kind = TacticalEventKind.StateSync,
                     LatitudeMicrodegrees = checked((int)Math.Round(unit.Latitude.Value * 1_000_000)),
                     LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
-                    HeadingMillidegrees = checked((int)Math.Round(unit.HeadingDegrees.Value * 1_000)),
+                    HeadingMillidegrees = QuantizeHeadingMilliDegrees(unit.HeadingDegrees.Value),
                     Telegraph = unit.Telegraph,
                     FuelMilliunits = ScaleResource(
                         assignment.InitialFuelMilliunits,
@@ -1508,7 +1568,7 @@ public sealed class CampaignCompanionClient(
                 Kind = TacticalEventKind.Checkpoint,
                 LatitudeMicrodegrees = checked((int)Math.Round(unit.Latitude.Value * 1_000_000)),
                 LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
-                HeadingMillidegrees = checked((int)Math.Round(unit.HeadingDegrees.Value * 1_000)),
+                HeadingMillidegrees = QuantizeHeadingMilliDegrees(unit.HeadingDegrees.Value),
                 Telegraph = unit.Telegraph,
                 FuelMilliunits = ScaleResource(
                     assignment.InitialFuelMilliunits,
@@ -2524,6 +2584,22 @@ public sealed class CampaignCompanionClient(
 
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
+
+    private static int QuantizeHeadingMilliDegrees(double headingDegrees)
+    {
+        if (!double.IsFinite(headingDegrees))
+        {
+            throw new InvalidDataException("Sea Power returned a non-finite tactical heading.");
+        }
+
+        var normalized = headingDegrees % 360d;
+        if (normalized < 0)
+        {
+            normalized += 360d;
+        }
+        var quantized = checked((int)Math.Round(normalized * 1_000d));
+        return quantized == 360_000 ? 0 : quantized;
+    }
 
     private static long ApplyDamageBaseline(long baseline, long? observed, bool destroyed) =>
         destroyed

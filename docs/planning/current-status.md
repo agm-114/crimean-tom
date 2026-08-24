@@ -4,10 +4,10 @@
 
 Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
 2026. Crimean Tom has a durable local campaign lifecycle, player map, and its
-first campaign-owned surface, submarine, and airborne-helicopter tactical-entry
-paths. The Runtime Bridge can also register and launch a campaign-tagged
-helicopter from a bridge-owned ship's native flight deck. It is not yet a
-complete campaign-to-battle loop.
+first campaign-owned surface, submarine, airborne-helicopter, and native hosted
+helicopter tactical-entry paths. The Runtime Bridge can also launch a campaign-
+tagged helicopter from a native ship flight deck. It is not yet a complete
+campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
@@ -41,7 +41,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
 | Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Combined-arms entry, complete objective progress, packaging, and detailed recovery UX are absent |
-| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers the two-member USS Yorktown/USS Spruance surface group, USS Honolulu, and a separate two-helicopter SH-2F/SH-3H group; combined entry, fixed-wing aircraft, and hosted children remain open |
+| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and world-object capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers the canonical North Sea group as two ships plus two native onboard helicopters, USS Honolulu, and a separate airborne SH-2F/SH-3H group; combined surface/submarine entry, fixed-wing aircraft, and hosted recovery remain open |
 | Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
@@ -53,7 +53,7 @@ pause time, save, restart the service, renew the local browser session, and
 restore the same campaign head. It can redirect a movable friendly group to a
 visible region, cancel it into Hold, and see objective assignment. It can also
 connect Sea Power, inspect whether every surviving selected-group member can be
-materialized, and enter a fully supported group. The live proof loaded USS
+represented natively, and enter a fully supported group. The live proof loaded USS
 Pharris as one real Knox object in the native player task force while unrelated
 campaign time advanced and the lease remained live. A later full-campaign run
 atomically loaded USS Yorktown and USS Spruance as two native player objects,
@@ -65,6 +65,9 @@ while Operational time advanced. A separate bridge-level run registered an
 SH-2F in a campaign-owned Ticonderoga's native flight-deck inventory, enforced
 the two-aircraft capacity, scheduled Sea Power's real launch task, and preserved
 the helicopter's campaign identity and host relation after it became airborne.
+The canonical North Sea group now enters from the full campaign as USS Yorktown
+and USS Spruance plus one SH-2F and one SH-3H in Yorktown's native flight-deck
+inventory.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
@@ -72,13 +75,12 @@ It cannot yet provide a coherent war-to-battle play session because:
    editing, policy controls, objective progress, and campaign end state are absent;
 2. the proven Sea Power mission still includes an authored placeholder task
    force instead of loading campaign membership by default;
-3. entry has not been qualified for a combined surface, submarine, fixed-wing,
-   helicopter, ground, and installation island;
+3. entry has not been qualified for a combined surface/submarine, fixed-wing,
+   ground, and installation island;
 4. direct mouse interaction with non-local symbols and contacts is not fully
    qualified;
 5. proxy and tactical materialization support does not cover the required
-   fixed-wing, broader submarine, ground, and installation families, and the
-   player-entry path does not yet derive hosted children from campaign state;
+   fixed-wing, broader submarine, ground, and installation families;
 6. no qualified flow commits the fate and expenditure of a campaign-owned
    hostile after a real battle; and
 7. game and service restart recovery has not been proven as a complete live
@@ -103,12 +105,12 @@ than in the active tree.
 
 ### 1. Expand campaign-owned task-force entry
 
-The selected-group transaction, unsupported-member report, two-ship surface
-group, one-member submarine patrol, and two-member airborne helicopter group
-now work. Native ship inventory and SH-2F launch also work at the bridge level.
-Add canonical host-child assignments, include hosted children in player entry,
-qualify a combined naval group, and then remove the authored mission as the
-source of player membership.
+The selected-group transaction, unsupported-member report, one-member submarine
+patrol, and two-member airborne helicopter group work. The canonical North Sea
+group also enters as two native ships plus two helicopters in Yorktown's native
+flight-deck inventory. Qualify a combined surface/submarine group, implement
+hosted recovery and restart reconciliation, and then remove the authored mission
+as the source of player membership.
 
 ### 2. Map and proxy parity
 
@@ -227,13 +229,26 @@ internal time dilation 1. This proves the bridge primitive, not canonical
 campaign host-child assignment, player-application entry, recovery, restart
 reconciliation, or fixed-wing operations.
 
+A sixth run exercised canonical hosted-aircraft entry from the full 4,096-
+entity campaign. The service atomically prepared USS Yorktown, USS Spruance,
+one SH-2F, and one SH-3H from their shared North Sea group. Sea Power created
+only the two ships as world objects and registered both helicopters in
+Yorktown's native flight-deck inventory. Formation Manager and Flight Deck
+showed the campaign names and exact profiles. All four assignments remained
+active while campaign time advanced past T+3500; the worker retained two active
+world objects and four owned campaign resources without duplicate stable IDs.
+The game reported about 60 FPS, a 16.667 ms fixed step, and internal time
+dilation 1. This proves canonical host-child entry and correct capacity
+accounting. It does not prove launch from this player-entry batch, recovery,
+restart reconciliation, combat return, or fixed-wing operations.
+
 ## Next work
 
 The next vertical slice should:
 
-1. add canonical host-child assignments, wire the proven native hosted-aircraft
-   primitive into player entry, combine the surface, submarine, and helicopter
-   paths, then remove authored placeholder membership;
+1. combine the surface, submarine, and helicopter paths, qualify native launch
+   and recovery from a canonical player-entry batch, then remove authored
+   placeholder membership;
 2. make local units, non-local friendlies, and hostile tracks selectable with
    native interaction behavior;
 3. fight one campaign-owned hostile while the rest of the war advances;

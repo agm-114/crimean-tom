@@ -77,7 +77,8 @@ internal static class CampaignTacticalWorkerProjectionHttp
                     item.Coordinate.LatitudeMicrodegrees,
                     item.Coordinate.LongitudeMicrodegrees,
                     item.Heading.Value,
-                    item.Telegraph))
+                    item.Telegraph,
+                    item.HostEntityId?.ToString()))
                 .ToArray();
         var contacts = coalition is null
             ? []
@@ -138,7 +139,8 @@ public sealed record CampaignTacticalFriendlyEntityView(
     int LatitudeMicrodegrees,
     int LongitudeMicrodegrees,
     int HeadingMilliDegrees,
-    int Telegraph);
+    int Telegraph,
+    string? HostEntityId);
 
 public sealed record CampaignTacticalContactView(
     string TrackId,

@@ -67,7 +67,10 @@ public static class CampaignCanonicalSerializer
                     ParseEnum<ContactClassification>(weapon.TargetClassification),
                     DistanceMeters.FromMeters(weapon.MaximumRangeMeters))).ToImmutableArray(),
                 new EntityRevision(item.Revision),
-                ReadAnalogue(item)))
+                ReadAnalogue(item),
+                item.HostEntityId is null
+                    ? null
+                    : ParseId(item.HostEntityId, value => new EntityId(value))))
                 .ToImmutableSortedDictionary(item => item.EntityId, item => item),
             Groups = document.Groups.Select(item => new GroupState(
                 ParseId(item.Id, value => new GroupId(value)), item.Name,
@@ -291,6 +294,10 @@ public static class CampaignCanonicalSerializer
             else
             {
                 writer.WriteNull("homeBaseId");
+            }
+            if (item.HostEntityId is { } hostEntityId)
+            {
+                writer.WriteString("hostEntityId", hostEntityId.ToString());
             }
             writer.WriteNumber("lifecycle", (int)item.Lifecycle);
             writer.WriteNumber("fidelity", (int)item.Fidelity);
@@ -779,6 +786,7 @@ public static class CampaignCanonicalSerializer
         public required int LatitudeMicrodegrees { get; init; }
         public required int LongitudeMicrodegrees { get; init; }
         public string? HomeBaseId { get; init; }
+        public string? HostEntityId { get; init; }
         public required int Lifecycle { get; init; }
         public required int Fidelity { get; init; }
         public required int SimulationDomain { get; init; }
