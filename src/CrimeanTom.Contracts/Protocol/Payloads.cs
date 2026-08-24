@@ -268,6 +268,7 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public string TaskforceId { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+    public double? AltitudeFeet { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
     public OwnedSurfaceCheckpointPayload? SourceCheckpoint { get; set; }
@@ -286,6 +287,7 @@ public sealed class OwnedSurfaceUnitStatePayload
     public string TaskforceId { get; set; } = string.Empty;
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+    public double? AltitudeFeet { get; set; }
     public double? HeadingDegrees { get; set; }
     public double? SpeedKnots { get; set; }
     public int Telegraph { get; set; }
@@ -325,6 +327,7 @@ public sealed class UpdateOwnedSurfaceUnitRequestPayload
     public string EntityId { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+    public double? AltitudeFeet { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
     public string FaultInjectionStep { get; set; } = string.Empty;

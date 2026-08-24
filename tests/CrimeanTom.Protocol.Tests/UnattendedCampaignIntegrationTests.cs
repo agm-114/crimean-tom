@@ -131,6 +131,23 @@ public sealed class UnattendedCampaignIntegrationTests
                 .Single(item => item.GetProperty("memberEntityIds").EnumerateArray()
                     .Any(member => member.GetString() == submarineEntityId));
             var submarineGroupId = submarineGroup.GetProperty("groupId").GetString()!;
+            var helicopterEntityIds = root.GetProperty("friendlyEntities").EnumerateArray()
+                .Where(item => item.GetProperty("name").GetString()
+                    is "NATO maritime helicopter flight 001" or "NATO maritime helicopter flight 002")
+                .ToDictionary(
+                    item => item.GetProperty("name").GetString()!,
+                    item => item.GetProperty("entityId").GetString()!,
+                    StringComparer.Ordinal);
+            Assert.Equal(2, helicopterEntityIds.Count);
+            var helicopterGroup = root.GetProperty("friendlyGroups").EnumerateArray()
+                .Single(item => item.GetProperty("memberEntityIds").EnumerateArray()
+                    .Any(member => member.GetString() == helicopterEntityIds.Values.First()));
+            var helicopterGroupId = helicopterGroup.GetProperty("groupId").GetString()!;
+            Assert.Equal(
+                helicopterEntityIds.Values.Order(StringComparer.Ordinal),
+                helicopterGroup.GetProperty("memberEntityIds").EnumerateArray()
+                    .Select(member => member.GetString()!)
+                    .Order(StringComparer.Ordinal));
             using (var offlineEntry = await playerClient.GetAsync(
                 $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
                 testTimeout.Token))
@@ -311,7 +328,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     CatalogFingerprintSha256 = new string('5', 64),
                     PlayerTaskforceId = "taskforce:Blue",
                     PlayerCoalitionId = playerCoalitionId,
-                    TacticalEntityCapacity = 4,
+                    TacticalEntityCapacity = 8,
                     TacticalReserveCapacity = 1,
                     MaterializationProfiles =
                     {
@@ -333,6 +350,18 @@ public sealed class UnattendedCampaignIntegrationTests
                             VariantId = "Variant31",
                             LoadoutId = "Default",
                         },
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_sh-2f",
+                            VariantId = "Squadron4",
+                            LoadoutId = "ASW",
+                        },
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_sh-3h",
+                            VariantId = "Squadron1",
+                            LoadoutId = "ASW",
+                        },
                     },
                 },
             });
@@ -352,7 +381,7 @@ public sealed class UnattendedCampaignIntegrationTests
                 Assert.True(readyBody.RootElement.GetProperty("canEnter").GetBoolean());
                 tacticalEntryGroupRevision = readyBody.RootElement.GetProperty("groupRevision").GetInt64();
                 Assert.Equal(2, readyBody.RootElement.GetProperty("supportedMemberCount").GetInt32());
-                Assert.Equal(3, readyBody.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal(7, readyBody.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
                 Assert.All(
                     readyBody.RootElement.GetProperty("members").EnumerateArray(),
                     member => Assert.Equal("supported", member.GetProperty("status").GetString()));
@@ -476,7 +505,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     await readySubmarineEntry.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("ready", body.RootElement.GetProperty("state").GetString());
                 Assert.Equal(1, body.RootElement.GetProperty("requiredMemberCount").GetInt32());
-                Assert.Equal(1, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal(5, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
                 Assert.Equal("supported", body.RootElement.GetProperty("members")[0]
                     .GetProperty("status").GetString());
                 submarineGroupRevision = body.RootElement.GetProperty("groupRevision").GetInt64();
@@ -543,6 +572,128 @@ public sealed class UnattendedCampaignIntegrationTests
                     .EnumerateArray()
                     .Single(item => item.GetProperty("groupId").GetString() == submarineGroupId);
                 Assert.False(activeSubmarineGroup.GetProperty("canMove").GetBoolean());
+            }
+
+            long helicopterGroupRevision;
+            using (var readyHelicopterEntry = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{helicopterGroupId}/tactical-entry",
+                testTimeout.Token))
+            {
+                readyHelicopterEntry.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await readyHelicopterEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("ready", body.RootElement.GetProperty("state").GetString());
+                Assert.Equal(2, body.RootElement.GetProperty("requiredMemberCount").GetInt32());
+                Assert.Equal(4, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.All(
+                    body.RootElement.GetProperty("members").EnumerateArray(),
+                    member => Assert.Equal("supported", member.GetProperty("status").GetString()));
+                helicopterGroupRevision = body.RootElement.GetProperty("groupRevision").GetInt64();
+            }
+            using (var requestedHelicopterEntry = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{helicopterGroupId}/tactical-entry",
+                new
+                {
+                    expectedGroupRevision = helicopterGroupRevision,
+                    idempotencyKey = "player-helicopter-entry-0004",
+                },
+                testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Accepted, requestedHelicopterEntry.StatusCode);
+            }
+            var queuedHelicopters = new Dictionary<string, TacticalAssignment>(StringComparer.Ordinal);
+            while (queuedHelicopters.Count < 2
+                && await tacticalCall.ResponseStream.MoveNext(testTimeout.Token))
+            {
+                if (tacticalCall.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
+                    && helicopterEntityIds.Values.Contains(
+                        tacticalCall.ResponseStream.Current.Assignment.CanonicalEntityId,
+                        StringComparer.Ordinal))
+                {
+                    var assignment = tacticalCall.ResponseStream.Current.Assignment;
+                    queuedHelicopters[assignment.CanonicalEntityId] = assignment;
+                }
+            }
+            Assert.Equal(2, queuedHelicopters.Count);
+            Assert.Equal(
+                new[] { "usn_sh-2f", "usn_sh-3h" },
+                queuedHelicopters.Values.Select(entry => entry.UnitTypeId).Order(StringComparer.Ordinal));
+            Assert.Equal(
+                new[] { "ASW", "ASW" },
+                queuedHelicopters.Values.Select(entry => entry.LoadoutId).Order(StringComparer.Ordinal));
+            Assert.All(queuedHelicopters.Values, entry =>
+            {
+                Assert.Equal("taskforce:Blue", entry.TaskforceId);
+                Assert.Equal(500, entry.AltitudeFeet);
+            });
+            Assert.Single(queuedHelicopters.Values, entry => entry.FocusAfterActivation);
+
+            var orderedHelicopters = queuedHelicopters.Values
+                .OrderBy(entry => entry.CanonicalEntityId, StringComparer.Ordinal)
+                .ToArray();
+            await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+            {
+                Sequence = 5,
+                AssignmentPrepared = new AssignmentPrepared
+                {
+                    AssignmentId = orderedHelicopters[0].AssignmentId,
+                    EntityId = orderedHelicopters[0].EntityId,
+                    AuthorityEpoch = orderedHelicopters[0].AuthorityEpoch,
+                    RealizedRevision = 1,
+                    CanonicalStateSha256 = new string('9', 64),
+                    Ready = true,
+                },
+            });
+            using (var partiallyPrepared = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{helicopterGroupId}/tactical-entry",
+                testTimeout.Token))
+            {
+                partiallyPrepared.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await partiallyPrepared.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.NotEqual("active", body.RootElement.GetProperty("state").GetString());
+            }
+            await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+            {
+                Sequence = 6,
+                AssignmentPrepared = new AssignmentPrepared
+                {
+                    AssignmentId = orderedHelicopters[1].AssignmentId,
+                    EntityId = orderedHelicopters[1].EntityId,
+                    AuthorityEpoch = orderedHelicopters[1].AuthorityEpoch,
+                    RealizedRevision = 1,
+                    CanonicalStateSha256 = new string('a', 64),
+                    Ready = true,
+                },
+            });
+            await WaitUntilAsync(async () =>
+            {
+                using var entry = await playerClient.GetAsync(
+                    $"/player/campaigns/{campaignId}/groups/{helicopterGroupId}/tactical-entry",
+                    testTimeout.Token);
+                entry.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(await entry.Content.ReadAsStringAsync(testTimeout.Token));
+                return body.RootElement.GetProperty("state").GetString() == "active";
+            }, testTimeout.Token);
+            using (var activeHelicopterView = await GetPlayerCampaignAsync(
+                playerClient,
+                campaignId,
+                testTimeout.Token))
+            {
+                var activeHelicopters = activeHelicopterView.RootElement.GetProperty("friendlyEntities")
+                    .EnumerateArray()
+                    .Where(item => helicopterEntityIds.Values.Contains(
+                        item.GetProperty("entityId").GetString()!,
+                        StringComparer.Ordinal))
+                    .ToArray();
+                Assert.Equal(2, activeHelicopters.Length);
+                Assert.All(
+                    activeHelicopters,
+                    helicopter => Assert.Equal("Tactical", helicopter.GetProperty("fidelity").GetString()));
+                var activeHelicopterGroup = activeHelicopterView.RootElement.GetProperty("friendlyGroups")
+                    .EnumerateArray()
+                    .Single(item => item.GetProperty("groupId").GetString() == helicopterGroupId);
+                Assert.False(activeHelicopterGroup.GetProperty("canMove").GetBoolean());
             }
             using (var duplicateEntry = await playerClient.PostAsJsonAsync(
                 $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",

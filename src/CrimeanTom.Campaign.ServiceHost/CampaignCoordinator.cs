@@ -4784,6 +4784,12 @@ public sealed class CampaignCoordinator(
         TaskforceId = request.TaskforceId,
         LatitudeMicrodegrees = entity.Coordinate.LatitudeMicrodegrees,
         LongitudeMicrodegrees = entity.Coordinate.LongitudeMicrodegrees,
+        AltitudeFeet = entity.SimulationDomain switch
+        {
+            SimulationDomain.RotaryWing => 500,
+            SimulationDomain.Air => 10_000,
+            _ => 0,
+        },
         HeadingMillidegrees = entity.Heading.Value,
         Telegraph = entity.Telegraph,
         GloballyPaused = true,

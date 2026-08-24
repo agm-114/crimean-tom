@@ -1117,6 +1117,7 @@ public sealed class CampaignCompanionClient(
                     TaskforceId = assignment.TaskforceId,
                     Latitude = assignment.LatitudeMicrodegrees / 1_000_000d,
                     Longitude = assignment.LongitudeMicrodegrees / 1_000_000d,
+                    AltitudeFeet = assignment.AltitudeFeet,
                     HeadingDegrees = assignment.HeadingMillidegrees / 1_000d,
                     Telegraph = assignment.Telegraph,
                     SourceCheckpoint = sourceCheckpoint,

@@ -20,6 +20,8 @@ internal static class RuntimeOwnedMutationAdapter
         Profile("usn_cg_ticonderoga", "Default"),
         Profile("usn_dd_spruance", "Default"),
         Profile("usn_ssn_los_angeles", "Variant31"),
+        Profile("usn_sh-2f", "Squadron4", "ASW"),
+        Profile("usn_sh-3h", "Squadron1", "ASW"),
     ];
 
     private static readonly string[] SurfaceRenderProxyUnitTypeIds =
@@ -76,6 +78,7 @@ internal static class RuntimeOwnedMutationAdapter
     private const int MaximumArmDurationSeconds = 600;
     private const double PositionToleranceDegrees = 0.000000001d;
     private const double HeadingToleranceDegrees = 0.001d;
+    private const double AltitudeToleranceFeet = 2d;
     private const double SpeedToleranceKnots = 0.001d;
     private const long FuelFractionToleranceMilliunits = 2_000;
 
@@ -385,6 +388,7 @@ internal static class RuntimeOwnedMutationAdapter
             TaskforceId = request.TaskforceId,
             Latitude = sourceUnit?.Latitude ?? request.Latitude,
             Longitude = sourceUnit?.Longitude ?? request.Longitude,
+            AltitudeFeet = sourceUnit?.AltitudeFeet ?? request.AltitudeFeet ?? 0d,
             HeadingDegrees = sourceUnit?.HeadingDegrees ?? NormalizeHeading(request.HeadingDegrees),
             SpeedKnots = sourceUnit?.SpeedKnots,
             Telegraph = sourceUnit?.Telegraph ?? request.Telegraph,
@@ -409,7 +413,10 @@ internal static class RuntimeOwnedMutationAdapter
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var position = new GeoPosition(predicted.Latitude!.Value, predicted.Longitude!.Value, 0d);
+            var position = new GeoPosition(
+                predicted.Latitude!.Value,
+                predicted.Longitude!.Value,
+                FeetToMeters(predicted.AltitudeFeet ?? 0d));
             var heading = new Vector3(0f, (float)NormalizeHeading(predicted.HeadingDegrees!.Value), 0f);
             created = CreateOwnedUnit(
                 request.UnitTypeId,
@@ -721,11 +728,12 @@ internal static class RuntimeOwnedMutationAdapter
         string commandSessionId)
     {
         if (!ValidPosition(request.Latitude, request.Longitude, request.HeadingDegrees)
+            || !ValidAltitude(request.AltitudeFeet)
             || request.Telegraph is < -1 or > 5)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "The surface update position, heading, or telegraph is invalid.");
+                "The owned-unit update position, altitude, heading, or telegraph is invalid.");
         }
         var faultError = ValidateFaultInjection(
             request.FaultInjectionStep,
@@ -769,7 +777,11 @@ internal static class RuntimeOwnedMutationAdapter
         var timer = Stopwatch.StartNew();
         try
         {
-            var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
+            var altitudeFeet = request.AltitudeFeet ?? vessel.getHeightInFeet();
+            var position = new GeoPosition(
+                request.Latitude,
+                request.Longitude,
+                FeetToMeters(altitudeFeet));
             vessel.transform.position = Utils.longLatToLocalV3(
                 position,
                 Globals._currentCenterTile);
@@ -1043,6 +1055,7 @@ internal static class RuntimeOwnedMutationAdapter
             || checkpoint.Unit.Longitude is not double checkpointLongitude
             || checkpoint.Unit.HeadingDegrees is not double checkpointHeading
             || !ValidPosition(checkpointLatitude, checkpointLongitude, checkpointHeading)
+            || !ValidAltitude(checkpoint.Unit.AltitudeFeet)
             || checkpoint.Unit.SpeedKnots is not double checkpointSpeed
             || !double.IsFinite(checkpointSpeed)
             || checkpoint.Unit.Telegraph is < -1 or > 5)
@@ -1087,7 +1100,7 @@ internal static class RuntimeOwnedMutationAdapter
                 var position = new GeoPosition(
                     checkpointLatitude,
                     checkpointLongitude,
-                    0d);
+                    FeetToMeters(checkpoint.Unit.AltitudeFeet ?? 0d));
                 var heading = new Vector3(
                     0f,
                     (float)NormalizeHeading(checkpointHeading),
@@ -1473,7 +1486,10 @@ internal static class RuntimeOwnedMutationAdapter
         ObjectBase vessel,
         OwnedSurfaceUnitStatePayload state)
     {
-        var position = new GeoPosition(state.Latitude!.Value, state.Longitude!.Value, 0d);
+        var position = new GeoPosition(
+            state.Latitude!.Value,
+            state.Longitude!.Value,
+            FeetToMeters(state.AltitudeFeet ?? 0d));
         vessel.transform.position = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
         vessel.transform.eulerAngles = new Vector3(
             0f,
@@ -1564,6 +1580,7 @@ internal static class RuntimeOwnedMutationAdapter
             || unit.Longitude is not double longitude
             || unit.HeadingDegrees is not double heading
             || !ValidPosition(latitude, longitude, heading)
+            || !ValidAltitude(unit.AltitudeFeet)
             || unit.SpeedKnots is not double speed
             || !double.IsFinite(speed)
             || unit.Telegraph is < -1 or > 5
@@ -1594,7 +1611,9 @@ internal static class RuntimeOwnedMutationAdapter
         string assignmentId,
         long authorityEpoch,
         long revision,
-        OwnedSurfaceUnitStatePayload unit) => CapabilityFingerprint.ComputeSha256(new[]
+        OwnedSurfaceUnitStatePayload unit)
+    {
+        var fields = new List<KeyValuePair<string, string?>>
         {
             Field("schema-version", 1),
             Field("assignment-id", assignmentId),
@@ -1615,7 +1634,13 @@ internal static class RuntimeOwnedMutationAdapter
             Field("damage-fraction-milliunits", unit.DamageFractionMilliunits),
             Field("disabled", unit.IsDisabled),
             Field("destroyed", unit.IsDestroyed),
-        });
+        };
+        if (unit.AltitudeFeet is not null)
+        {
+            fields.Insert(11, Field("altitude-feet", unit.AltitudeFeet));
+        }
+        return CapabilityFingerprint.ComputeSha256(fields);
+    }
 
     private static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>? Validate(
         MaterializeOwnedSurfaceUnitRequestPayload request,
@@ -1669,13 +1694,20 @@ internal static class RuntimeOwnedMutationAdapter
             return Invalid(
                 "The requested surface materialization profile is not allow-listed.");
         }
+        if (IsHelicopterProfile(request.UnitTypeId)
+            && request.SourceCheckpoint is null
+            && request.AltitudeFeet is not (>= 10d and <= 20_000d))
+        {
+            return Invalid("Airborne helicopter materialization requires altitudeFeet from 10 to 20000.");
+        }
         if (!double.IsFinite(request.Latitude)
             || !double.IsFinite(request.Longitude)
             || !double.IsFinite(request.HeadingDegrees)
+            || !ValidAltitude(request.AltitudeFeet)
             || request.Latitude is < -90d or > 90d
             || request.Longitude is < -180d or > 180d)
         {
-            return Invalid("Latitude, longitude, and heading must be finite and geographically valid.");
+            return Invalid("Latitude, longitude, altitude, and heading must be finite and geographically valid.");
         }
         if (request.Telegraph is < -1 or > 5)
         {
@@ -1720,13 +1752,17 @@ internal static class RuntimeOwnedMutationAdapter
         && value.All(character => char.IsLetterOrDigit(character)
             || character is ':' or '-' or '_' or '.');
 
+    private static bool IsHelicopterProfile(string unitTypeId) =>
+        unitTypeId is "usn_sh-2f" or "usn_sh-3h";
+
     private static OwnedSurfaceMaterializationProfilePayload Profile(
         string unitTypeId,
-        string variantId) => new()
+        string variantId,
+        string loadoutId = "Default") => new()
     {
         UnitTypeId = unitTypeId,
         VariantId = variantId,
-        LoadoutId = "Default",
+        LoadoutId = loadoutId,
     };
 
     private static OwnedSurfaceMaterializationProfilePayload CloneProfile(
@@ -1763,6 +1799,21 @@ internal static class RuntimeOwnedMutationAdapter
                 taskforce,
                 loadAsync: false);
         }
+        if (unitTypeId is "usn_sh-2f" or "usn_sh-3h")
+        {
+            return objects.createHelicopter(
+                variantId,
+                loadoutId,
+                null,
+                null,
+                unitTypeId,
+                unitNumber,
+                center,
+                position,
+                heading,
+                taskforce,
+                loadAsync: false);
+        }
 
         return objects.createShip(
             variantId,
@@ -1786,6 +1837,10 @@ internal static class RuntimeOwnedMutationAdapter
         if (unit is Submarine submarine && submarine.SpeedCommand.HasValue)
         {
             return submarine.SpeedCommand.Value.GetDemandedSpeedInKnots(submarine);
+        }
+        if (unit is Helicopter helicopter && helicopter.SpeedCommand.HasValue)
+        {
+            return helicopter.SpeedCommand.Value.GetDemandedSpeedInKnots(helicopter);
         }
 
         throw new InvalidOperationException(
@@ -1851,6 +1906,7 @@ internal static class RuntimeOwnedMutationAdapter
         TaskforceId = taskforceId,
         Latitude = Finite(vessel._geoPosition._latitude),
         Longitude = Finite(vessel._geoPosition._longitude),
+        AltitudeFeet = Finite(vessel.getHeightInFeet()),
         HeadingDegrees = Finite(vessel.getHeading()),
         SpeedKnots = Finite(vessel.getVelocityInKnots()),
         Telegraph = vessel.getTelegraph(),
@@ -1881,6 +1937,8 @@ internal static class RuntimeOwnedMutationAdapter
             || !string.Equals(realized.TaskforceId, request.TaskforceId, StringComparison.Ordinal)
             || !Within(realized.Latitude, request.Latitude, PositionToleranceDegrees)
             || !Within(realized.Longitude, request.Longitude, PositionToleranceDegrees)
+            || request.AltitudeFeet is not null
+                && !Within(realized.AltitudeFeet, request.AltitudeFeet, AltitudeToleranceFeet)
             || !Within(
                 realized.HeadingDegrees,
                 NormalizeHeading(request.HeadingDegrees),
@@ -1900,6 +1958,8 @@ internal static class RuntimeOwnedMutationAdapter
         if (!string.Equals(realized.EntityId, request.EntityId, StringComparison.Ordinal)
             || !Within(realized.Latitude, request.Latitude, PositionToleranceDegrees)
             || !Within(realized.Longitude, request.Longitude, PositionToleranceDegrees)
+            || request.AltitudeFeet is not null
+                && !Within(realized.AltitudeFeet, request.AltitudeFeet, AltitudeToleranceFeet)
             || !Within(
                 realized.HeadingDegrees,
                 NormalizeHeading(request.HeadingDegrees),
@@ -1931,6 +1991,7 @@ internal static class RuntimeOwnedMutationAdapter
             || !string.Equals(realized.TaskforceId, expected.TaskforceId, StringComparison.Ordinal)
             || !Within(realized.Latitude, expected.Latitude, PositionToleranceDegrees)
             || !Within(realized.Longitude, expected.Longitude, PositionToleranceDegrees)
+            || !Within(realized.AltitudeFeet, expected.AltitudeFeet, AltitudeToleranceFeet)
             || !Within(realized.HeadingDegrees, expected.HeadingDegrees, HeadingToleranceDegrees)
             || !Within(realized.SpeedKnots, expected.SpeedKnots, SpeedToleranceKnots)
             || realized.Telegraph != expected.Telegraph
@@ -1999,6 +2060,13 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static double? Finite(double value) =>
         double.IsFinite(value) ? value : null;
+
+    private static double FeetToMeters(double value) => value / 3.280839895d;
+
+    private static bool ValidAltitude(double? altitudeFeet) =>
+        altitudeFeet is null
+        || double.IsFinite(altitudeFeet.Value)
+            && altitudeFeet.Value is >= -2_000d and <= 100_000d;
 
     private static bool ValidPosition(double latitude, double longitude, double heading) =>
         double.IsFinite(latitude)
