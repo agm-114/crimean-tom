@@ -158,7 +158,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(8, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(9, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -180,7 +180,11 @@ public sealed class CompanionControlIntegrationTests
                 item => item.GetString() == "durable-role-and-phase-coordinated-operational-packages");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
-                item => item.GetString() == "hosted-monitor-local-cookie-read-access-without-operator-identity");
+                item => item.GetString()
+                    == "process-lifetime-browser-cookie-scoped-to-player-api-without-operator-authority");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString() == "http-content-type-cannot-bypass-bearer-authentication");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
@@ -6645,8 +6649,23 @@ public sealed class CompanionControlIntegrationTests
         return File.Exists(path) ? path : null;
     }
 
-    private static string ActiveBuildConfiguration() =>
-        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
+    private static string ActiveBuildConfiguration()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        foreach (var candidate in new[] { directory.Name, directory.Parent?.Name })
+        {
+            if (string.Equals(candidate, "Release", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Release";
+            }
+            if (string.Equals(candidate, "Debug", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Debug";
+            }
+        }
+
+        return "Debug";
+    }
 
     private static string FindRepositoryRoot()
     {

@@ -47,6 +47,20 @@ public sealed class UnattendedCampaignIntegrationTests
             {
                 Assert.Equal(HttpStatusCode.Unauthorized, operatorRead.StatusCode);
             }
+            using (var grpcSpoofedOperatorWrite = new HttpRequestMessage(
+                HttpMethod.Post,
+                "/control/campaigns")
+            {
+                Content = new StringContent("{}"),
+            })
+            {
+                grpcSpoofedOperatorWrite.Content.Headers.ContentType =
+                    new MediaTypeHeaderValue("application/grpc");
+                using var response = await playerClient.SendAsync(
+                    grpcSpoofedOperatorWrite,
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            }
             using (var sameOriginOperatorWrite = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"/control/campaigns/{Guid.NewGuid():N}/schedule")
@@ -143,11 +157,15 @@ public sealed class UnattendedCampaignIntegrationTests
                 campaignGrpcUrl,
                 campaignHttpUrl);
             _ = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
-            using (var monitor = await playerClient.GetAsync(
-                $"/monitor/?campaign={campaignId}",
+            using (var expiredSession = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}",
                 testTimeout.Token))
             {
-                monitor.EnsureSuccessStatusCode();
+                Assert.Equal(HttpStatusCode.Unauthorized, expiredSession.StatusCode);
+            }
+            using (var renewedSession = await playerClient.GetAsync("/monitor/session", testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.NoContent, renewedSession.StatusCode);
             }
 
             using (var campaigns = await playerClient.GetAsync("/player/campaigns", testTimeout.Token))
@@ -366,7 +384,7 @@ public sealed class UnattendedCampaignIntegrationTests
         string grpcUrl,
         string httpUrl)
     {
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
+        var configuration = ActiveBuildConfiguration();
         var normalHostPath = Path.Combine(
             repositoryRoot,
             "src",
@@ -402,6 +420,24 @@ public sealed class UnattendedCampaignIntegrationTests
         var process = new Process { StartInfo = start };
         process.Start();
         return process;
+    }
+
+    private static string ActiveBuildConfiguration()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        foreach (var candidate in new[] { directory.Name, directory.Parent?.Name })
+        {
+            if (string.Equals(candidate, "Release", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Release";
+            }
+            if (string.Equals(candidate, "Debug", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Debug";
+            }
+        }
+
+        return "Debug";
     }
 
     private static async Task<string> WaitForCampaignServiceAsync(

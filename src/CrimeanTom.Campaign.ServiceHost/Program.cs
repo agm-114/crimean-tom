@@ -92,7 +92,7 @@ app.Use(async (context, next) =>
             {
                 HttpOnly = true,
                 IsEssential = true,
-                Path = "/",
+                Path = "/player",
                 SameSite = SameSiteMode.Strict,
                 Secure = false,
             });
@@ -108,7 +108,9 @@ app.Use(async (context, next) =>
         await next(context);
         return;
     }
-    if (context.Request.ContentType?.StartsWith("application/grpc", StringComparison.Ordinal) == true)
+    if (context.Connection.LocalPort == grpcUri.Port
+        && context.Request.Protocol.StartsWith("HTTP/2", StringComparison.Ordinal)
+        && context.Request.ContentType?.StartsWith("application/grpc", StringComparison.Ordinal) == true)
     {
         await next(context);
         return;
@@ -133,6 +135,7 @@ app.Use(async (context, next) =>
 });
 
 app.MapGrpcService<CampaignCompanionGrpcService>();
+app.MapGet("/monitor/session", () => Results.NoContent());
 app.MapGet("/player/status", () => Results.Ok(new
 {
     status = "ready",

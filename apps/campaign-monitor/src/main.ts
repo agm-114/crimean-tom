@@ -317,8 +317,12 @@ function detail(title: string, subtitle: string, rows: string[][]): string {
   return `<div class="p-2"><h2 class="text-[12px] text-[#e2e2e2]">${escapeHtml(title.toUpperCase())}</h2><div class="mb-3 text-[9px] text-[#626262]">${escapeHtml(subtitle.toUpperCase())}</div>${rows.map(([label, value]) => `<div class="detail-row"><span>${escapeHtml(label.toUpperCase())}</span><strong>${escapeHtml(value.toUpperCase())}</strong></div>`).join("")}</div>`;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
+  if (response.status === 401 && !retried) {
+    const renewed = await fetch("/monitor/session", { credentials: "same-origin" });
+    if (renewed.ok) return request<T>(path, init, true);
+  }
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
