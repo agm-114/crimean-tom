@@ -1510,7 +1510,10 @@ public sealed class CampaignCoordinator(
                             islandWorker.PlayerTaskforceId,
                             batchId,
                             batchSize,
-                            islandWorker.ClientInstanceId);
+                            islandWorker.ClientInstanceId,
+                            FocusAfterActivation: (request.ControlledEntityIds ?? []).Contains(
+                                entityId.ToString(),
+                                StringComparer.Ordinal));
                         var prepared = await PrepareHandoffCoreAsync(state, handoffRequest, cancellationToken);
                         state = prepared.State;
                         if (sessions.TryQueueForClient(
@@ -3811,6 +3814,7 @@ public sealed class CampaignCoordinator(
         InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
         InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
         InitialDamageMilliunits = entity.DamageMilliUnits,
+        FocusAfterActivation = request.FocusAfterActivation,
     };
 
     private static CrimeanTom.Campaign.Transport.V1.AssignmentRole ToTransportRole(
@@ -3905,7 +3909,8 @@ public sealed record CampaignHandoffRequest(
     string BatchId = "",
     int BatchSize = 1,
     string WorkerClientInstanceId = "",
-    CrimeanTom.Campaign.Contracts.AssignmentRole Role = CrimeanTom.Campaign.Contracts.AssignmentRole.Primary);
+    CrimeanTom.Campaign.Contracts.AssignmentRole Role = CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
+    bool FocusAfterActivation = false);
 
 public sealed record CampaignShadowPreparationRequest(
     string CampaignId,

@@ -55,5 +55,31 @@ public static class CampaignMonitorRouting
             && File.Exists(physical);
     }
 
+    public static bool IsSameOriginScheduleMutation(HttpRequest request, Uri serviceUri)
+    {
+        if (!HttpMethods.IsPost(request.Method)
+            || !request.Path.StartsWithSegments("/control/campaigns", out var remaining))
+        {
+            return false;
+        }
+
+        var segments = remaining.Value?
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            ?? [];
+        if (segments.Length != 2
+            || !Guid.TryParseExact(segments[0], "N", out _)
+            || !segments[1].Equals("schedule", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var expectedOrigin = serviceUri.GetLeftPart(UriPartial.Authority);
+        return request.Headers.Origin.Count == 1
+            && string.Equals(request.Headers.Origin[0], expectedOrigin, StringComparison.OrdinalIgnoreCase)
+            && request.Headers["Sec-Fetch-Site"].Count == 1
+            && string.Equals(request.Headers["Sec-Fetch-Site"][0], "same-origin", StringComparison.OrdinalIgnoreCase)
+            && request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     public static string MonitorLocation(string campaignId) => $"/monitor/?campaign={campaignId}";
 }

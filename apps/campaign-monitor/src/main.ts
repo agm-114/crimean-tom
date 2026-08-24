@@ -222,6 +222,7 @@ let alignedBorderMeshes: Mesh[] = [];
 let alignedBorderSignature = "";
 let pollHandle: number | undefined;
 let selectedEntityId: string | null = null;
+let selectionActionMessage = "";
 const expandedNodes = new Set<string>();
 let hierarchyInitialized = false;
 
@@ -514,19 +515,21 @@ function renderOrderOfBattle(data: Campaign): void {
     item.addEventListener("click", () => selectEntity(item.dataset.entity!)));
 }
 
-function selectEntity(entityId: string): void {
+function selectEntity(entityId: string, refreshMap = true): void {
   if (!campaign) return;
   const entity = campaign.entities.find(item => item.entityId === entityId);
   if (!entity) return;
+  if (selectedEntityId !== entityId) selectionActionMessage = "";
   selectedEntityId = entityId;
   document.querySelectorAll<HTMLElement>("[data-entity]").forEach(item =>
     item.classList.toggle("register-row-selected", item.dataset.entity === entityId));
-  window.requestAnimationFrame(() => campaign && renderMap(campaign));
+  if (refreshMap) window.requestAnimationFrame(() => campaign && renderMap(campaign));
   const group = campaign.groups.find(item => item.memberEntityIds.includes(entityId));
   const island = campaign.scheduler.islands.find(item => item.entityIds.includes(entityId));
   const assignment = [...campaign.assignments]
     .filter(item => item.entityId === entityId)
     .sort((left, right) => right.authorityEpoch - left.authorityEpoch)[0];
+  const playerAligned = isNato(campaign, entity.coalitionId);
   const damage = (entity.damageMilliunits / 10_000).toFixed(1);
   const operationalWeapons = entity.operationalWeapons ?? [];
   const weaponIds = [...new Set(operationalWeapons.map(item => item.ammunitionId))];
@@ -554,7 +557,48 @@ function selectEntity(entityId: string): void {
       <dt>Scheduler</dt><dd>${escapeHtml(island?.reason ?? "Not evaluated")}</dd>
       <dt>Coupling</dt><dd>${island?.couplingScoreMilliunits ?? 0} / 1000 ${island?.engaged ? "// ENGAGED" : "// QUIET"} ${island?.unsafeToSplit ? "// FENCED" : ""}</dd>
       <dt>Edges</dt><dd>${escapeHtml(island?.couplingReasons.join(" + ") || "NONE")}</dd>
-    </dl>`;
+    </dl>
+    <div class="grid gap-1 p-2">
+      <button id="request-tactical-view" class="command-cell command-cell-primary" ${assignment?.lifecycle === "Active" || !playerAligned ? "disabled" : ""}>
+        ${!playerAligned ? "HOSTILE VIEW NOT AUTHORIZED" : assignment?.lifecycle === "Active" ? "ACTIVE IN SEA POWER" : "REQUEST TACTICAL VIEW"}
+      </button>
+      <div id="selection-action-status" class="min-h-4 text-[8px] uppercase tracking-[0.06em] text-[#a8a8a8]">${escapeHtml(selectionActionMessage)}</div>
+    </div>`;
+  byId<HTMLButtonElement>("request-tactical-view").addEventListener("click", () =>
+    void requestTacticalView(entityId).catch(showError));
+}
+
+async function requestTacticalView(entityId: string): Promise<void> {
+  if (!campaign || campaign.campaignId !== byId<HTMLInputElement>("campaign-id").value.trim()) {
+    throw new Error("Open the selected campaign before requesting a tactical view.");
+  }
+  const entity = campaign.entities.find(item => item.entityId === entityId);
+  if (!entity || !isNato(campaign, entity.coalitionId)) {
+    throw new Error("The current local player view can request only NATO-aligned units.");
+  }
+  selectionActionMessage = "REQUESTING PLAYER-CONTROLLED TACTICAL AUTHORITY…";
+  selectEntity(entityId, false);
+  const result = await request<{ islands: InteractionIsland[] }>(
+    `/control/campaigns/${campaign.campaignId}/schedule`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observedEntityIds: [],
+        controlledEntityIds: [entityId],
+        health: "Healthy",
+        eligibility: "Eligible",
+        tacticalEntityCapacity: 4,
+        tacticalReserveCapacity: 1,
+        backlogDepth: 0,
+      }),
+    },
+  );
+  const island = result.islands.find(item => item.entityIds.includes(entityId));
+  selectionActionMessage = island?.desiredFidelity === "Tactical"
+    ? "PROMOTION QUEUED // SEA POWER WILL FOCUS AFTER ACTIVATION"
+    : `REQUEST HELD // ${island?.reason ?? "NO ELIGIBLE INTERACTION ISLAND"}`;
+  await refresh();
 }
 
 function renderPanels(data: Campaign): void {
@@ -619,6 +663,7 @@ async function refresh(): Promise<void> {
   campaign = next;
   renderMap(next);
   renderPanels(next);
+  if (selectedEntityId) selectEntity(selectedEntityId, false);
   byId("health-dot").className = "status-mark friendly";
   byId("health-label").textContent = health.status === "ok" ? "Service healthy" : health.status.toUpperCase();
   byId("connection-message").textContent = `AUTHENTICATED // ${next.canonicalHash.slice(0, 16).toUpperCase()}…`;

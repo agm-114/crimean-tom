@@ -940,6 +940,50 @@ public sealed class CompanionControlIntegrationTests
                     "Crimean Tom Campaign Monitor",
                     await currentMonitor.Content.ReadAsStringAsync(testTimeout.Token),
                     StringComparison.Ordinal);
+
+                using var foreignOriginSchedule = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"/control/campaigns/{campaignId}/schedule")
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        observedEntityIds = Array.Empty<string>(),
+                        controlledEntityIds = Array.Empty<string>(),
+                        health = "Healthy",
+                        eligibility = "Eligible",
+                        tacticalEntityCapacity = 4,
+                        backlogDepth = 0,
+                    }),
+                };
+                foreignOriginSchedule.Headers.TryAddWithoutValidation("Origin", "http://127.0.0.1:59999");
+                foreignOriginSchedule.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                using var foreignOriginResponse = await monitorRedirectClient.SendAsync(
+                    foreignOriginSchedule,
+                    testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, foreignOriginResponse.StatusCode);
+
+                using var monitorSchedule = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"/control/campaigns/{campaignId}/schedule")
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        observedEntityIds = Array.Empty<string>(),
+                        controlledEntityIds = Array.Empty<string>(),
+                        health = "Healthy",
+                        eligibility = "Eligible",
+                        tacticalEntityCapacity = 4,
+                        backlogDepth = 0,
+                    }),
+                };
+                monitorSchedule.Headers.TryAddWithoutValidation(
+                    "Origin",
+                    new Uri(campaignHttpUrl).GetLeftPart(UriPartial.Authority));
+                monitorSchedule.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                using var monitorScheduleResponse = await monitorRedirectClient.SendAsync(
+                    monitorSchedule,
+                    testTimeout.Token);
+                monitorScheduleResponse.EnsureSuccessStatusCode();
             }
             await ProveConcurrentCampaignSessionsAsync(
                 campaignClient,

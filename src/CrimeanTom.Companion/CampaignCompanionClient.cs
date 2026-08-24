@@ -1477,6 +1477,9 @@ public sealed class CampaignCompanionClient(
 
         if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
+            await FocusAfterActivationAsync(
+                stateStore.ReadAssignment(grant.AssignmentId),
+                cancellationToken);
             return;
         }
 
@@ -1584,6 +1587,7 @@ public sealed class CampaignCompanionClient(
                 expectedGameRevision,
                 cancellationToken))
         {
+            await FocusAfterActivationAsync(assignment, cancellationToken);
             return;
         }
 
@@ -1616,6 +1620,7 @@ public sealed class CampaignCompanionClient(
                     grant.AuthorityEpoch,
                     grant.MigrationCommitPosition,
                     cancellationToken);
+                await FocusAfterActivationAsync(assignment, cancellationToken);
                 return;
             }
 
@@ -1643,6 +1648,7 @@ public sealed class CampaignCompanionClient(
                 grant.AuthorityEpoch,
                 grant.MigrationCommitPosition,
                 cancellationToken);
+            await FocusAfterActivationAsync(assignment, cancellationToken);
             return;
         }
 
@@ -1663,6 +1669,34 @@ public sealed class CampaignCompanionClient(
             grant.AuthorityEpoch,
             grant.MigrationCommitPosition,
             cancellationToken);
+        await FocusAfterActivationAsync(assignment, cancellationToken);
+    }
+
+    private async Task FocusAfterActivationAsync(
+        TacticalAssignment assignment,
+        CancellationToken cancellationToken)
+    {
+        if (!assignment.FocusAfterActivation)
+        {
+            return;
+        }
+
+        var result = await game.SendCommandAsync(
+            GameCommandTypes.FocusCameraOnUnit,
+            JsonSerializer.Serialize(new FocusCameraOnUnitRequestPayload
+            {
+                UnitId = $"campaign-unit:{assignment.EntityId}",
+            }, JsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+        if (!result.Success)
+        {
+            logger.LogWarning(
+                "Player-requested camera focus failed after activating {EntityId}: {ErrorCode}: {ErrorMessage}",
+                assignment.EntityId,
+                result.ErrorCode,
+                result.ErrorMessage);
+        }
     }
 
     private async Task EnsureMissionSceneMaterializationReadyAsync(CancellationToken cancellationToken)
