@@ -10,6 +10,182 @@ namespace CrimeanTom.Protocol.Tests;
 public sealed class UnattendedCampaignIntegrationTests
 {
     [Fact]
+    public async Task PlayerCreatesControlsSavesAndRestoresFullCampaignWithoutOperatorAccess()
+    {
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+        var repositoryRoot = FindRepositoryRoot();
+        var runDirectory = CreateTemporaryDirectory();
+        var campaignGrpcPort = GetUnusedLoopbackPort();
+        var campaignHttpPort = GetUnusedLoopbackPort();
+        while (campaignHttpPort == campaignGrpcPort)
+        {
+            campaignHttpPort = GetUnusedLoopbackPort();
+        }
+
+        var campaignGrpcUrl = $"http://127.0.0.1:{campaignGrpcPort}";
+        var campaignHttpUrl = $"http://127.0.0.1:{campaignHttpPort}";
+        Process? campaignService = null;
+        try
+        {
+            campaignService = StartCampaignService(
+                repositoryRoot,
+                runDirectory,
+                campaignGrpcUrl,
+                campaignHttpUrl);
+            _ = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
+            using var playerClient = CreatePlayerClient(campaignHttpUrl);
+            using (var monitor = await playerClient.GetAsync("/monitor/", testTimeout.Token))
+            {
+                monitor.EnsureSuccessStatusCode();
+                Assert.Contains(
+                    "Crimean Tom Dynamic Campaign",
+                    await monitor.Content.ReadAsStringAsync(testTimeout.Token),
+                    StringComparison.Ordinal);
+            }
+
+            using (var operatorRead = await playerClient.GetAsync("/campaigns", testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Unauthorized, operatorRead.StatusCode);
+            }
+            using (var sameOriginOperatorWrite = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"/control/campaigns/{Guid.NewGuid():N}/schedule")
+            {
+                Content = JsonContent.Create(new
+                {
+                    observedEntityIds = Array.Empty<string>(),
+                    controlledEntityIds = Array.Empty<string>(),
+                    health = "Healthy",
+                    eligibility = "Eligible",
+                    tacticalEntityCapacity = 4,
+                    backlogDepth = 0,
+                }),
+            })
+            {
+                sameOriginOperatorWrite.Headers.TryAddWithoutValidation(
+                    "Origin",
+                    new Uri(campaignHttpUrl).GetLeftPart(UriPartial.Authority));
+                sameOriginOperatorWrite.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                using var response = await playerClient.SendAsync(sameOriginOperatorWrite, testTimeout.Token);
+                Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            }
+
+            using var created = await playerClient.PostAsJsonAsync(
+                "/player/campaigns",
+                new { name = "Player verification campaign", coalition = "Blue" },
+                testTimeout.Token);
+            created.EnsureSuccessStatusCode();
+            using var createdBody = JsonDocument.Parse(
+                await created.Content.ReadAsStringAsync(testTimeout.Token));
+            var root = createdBody.RootElement;
+            var campaignId = root.GetProperty("campaignId").GetString()!;
+            var initialTime = root.GetProperty("timeQuanta").GetInt64();
+            Assert.Equal(4_096, root.GetProperty("scenarioEntityCount").GetInt32());
+            Assert.True(root.GetProperty("paused").GetBoolean());
+            Assert.True(root.GetProperty("friendlyEntities").GetArrayLength() > 0);
+            Assert.True(root.GetProperty("friendlyGroups").GetArrayLength() > 0);
+            Assert.False(root.TryGetProperty("entities", out _));
+            Assert.False(root.TryGetProperty("workers", out _));
+            Assert.False(root.TryGetProperty("canonicalHash", out _));
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500), testTimeout.Token);
+            using (var stillPaused = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token))
+            {
+                Assert.True(stillPaused.RootElement.GetProperty("paused").GetBoolean());
+                Assert.Equal(initialTime, stillPaused.RootElement.GetProperty("timeQuanta").GetInt64());
+            }
+
+            using (var resumed = await playerClient.PostAsync(
+                $"/player/campaigns/{campaignId}/resume",
+                content: null,
+                testTimeout.Token))
+            {
+                resumed.EnsureSuccessStatusCode();
+            }
+            await WaitUntilAsync(async () =>
+            {
+                using var view = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
+                return view.RootElement.GetProperty("timeQuanta").GetInt64() > initialTime;
+            }, testTimeout.Token);
+
+            using (var paused = await playerClient.PostAsync(
+                $"/player/campaigns/{campaignId}/pause",
+                content: null,
+                testTimeout.Token))
+            {
+                paused.EnsureSuccessStatusCode();
+            }
+            using var pausedView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
+            var pausedTime = pausedView.RootElement.GetProperty("timeQuanta").GetInt64();
+            var pausedHead = pausedView.RootElement.GetProperty("head").GetInt64();
+            await Task.Delay(TimeSpan.FromMilliseconds(500), testTimeout.Token);
+            using (var stableView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token))
+            {
+                Assert.Equal(pausedTime, stableView.RootElement.GetProperty("timeQuanta").GetInt64());
+            }
+
+            using var saved = await playerClient.PostAsync(
+                $"/player/campaigns/{campaignId}/save",
+                content: null,
+                testTimeout.Token);
+            saved.EnsureSuccessStatusCode();
+            using var savedBody = JsonDocument.Parse(
+                await saved.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.Equal(pausedHead, savedBody.RootElement.GetProperty("head").GetInt64());
+            Assert.Equal(pausedTime, savedBody.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Equal(64, savedBody.RootElement.GetProperty("canonicalHash").GetString()!.Length);
+
+            StopProcess(campaignService);
+            campaignService.Dispose();
+            campaignService = StartCampaignService(
+                repositoryRoot,
+                runDirectory,
+                campaignGrpcUrl,
+                campaignHttpUrl);
+            _ = await WaitForCampaignServiceAsync(runDirectory, campaignHttpUrl, testTimeout.Token);
+            using (var monitor = await playerClient.GetAsync(
+                $"/monitor/?campaign={campaignId}",
+                testTimeout.Token))
+            {
+                monitor.EnsureSuccessStatusCode();
+            }
+
+            using (var campaigns = await playerClient.GetAsync("/player/campaigns", testTimeout.Token))
+            {
+                campaigns.EnsureSuccessStatusCode();
+                using var campaignsBody = JsonDocument.Parse(
+                    await campaigns.Content.ReadAsStringAsync(testTimeout.Token));
+                var restoredSummary = Assert.Single(
+                    campaignsBody.RootElement.EnumerateArray(),
+                    item => item.GetProperty("campaignId").GetString() == campaignId);
+                Assert.True(restoredSummary.GetProperty("paused").GetBoolean());
+                Assert.Equal(pausedHead, restoredSummary.GetProperty("lastSavedHead").GetInt64());
+            }
+            using var restored = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);
+            Assert.Equal("Player verification campaign", restored.RootElement.GetProperty("name").GetString());
+            Assert.True(restored.RootElement.GetProperty("paused").GetBoolean());
+            Assert.Equal(pausedTime, restored.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Equal(pausedHead, restored.RootElement.GetProperty("head").GetInt64());
+            Assert.Equal(pausedHead, restored.RootElement.GetProperty("lastSavedHead").GetInt64());
+        }
+        finally
+        {
+            if (campaignService is not null)
+            {
+                StopProcess(campaignService);
+                campaignService.Dispose();
+            }
+            try
+            {
+                Directory.Delete(runDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public async Task ServerAdvancesCampaignWithoutClientOrSeaPower()
     {
         using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -174,18 +350,29 @@ public sealed class UnattendedCampaignIntegrationTests
         }
     }
 
+    private static async Task<JsonDocument> GetPlayerCampaignAsync(
+        HttpClient client,
+        string campaignId,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync($"/player/campaigns/{campaignId}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+    }
+
     private static Process StartCampaignService(
         string repositoryRoot,
         string runDirectory,
         string grpcUrl,
         string httpUrl)
     {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
         var normalHostPath = Path.Combine(
             repositoryRoot,
             "src",
             "CrimeanTom.Campaign.ServiceHost",
             "bin",
-            "Debug",
+            configuration,
             "net8.0",
             "CrimeanTom.Campaign.ServiceHost.dll");
         var artifactsHostPath = Path.GetFullPath(Path.Combine(
@@ -193,7 +380,7 @@ public sealed class UnattendedCampaignIntegrationTests
             "..",
             "..",
             "CrimeanTom.Campaign.ServiceHost",
-            "debug",
+            configuration.ToLowerInvariant(),
             "CrimeanTom.Campaign.ServiceHost.dll"));
         var hostPath = File.Exists(artifactsHostPath) ? artifactsHostPath : normalHostPath;
         Assert.True(File.Exists(hostPath), $"Campaign service host was not built at {hostPath}.");
@@ -271,6 +458,34 @@ public sealed class UnattendedCampaignIntegrationTests
         };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
+    }
+
+    private static HttpClient CreatePlayerClient(string baseUrl) => new(
+        new HttpClientHandler
+        {
+            UseProxy = false,
+            UseCookies = true,
+            CookieContainer = new CookieContainer(),
+            AllowAutoRedirect = true,
+        })
+    {
+        BaseAddress = new Uri(baseUrl),
+        Timeout = Timeout.InfiniteTimeSpan,
+    };
+
+    private static void StopProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(10_000);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private static string FindRepositoryRoot()

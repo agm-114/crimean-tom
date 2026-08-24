@@ -81,7 +81,7 @@ internal sealed class CampaignUnattendedSimulationHostedService(
                 }
 
                 var campaignId = new CampaignId(parsed);
-                if (coordinator.IsPaused(campaignId))
+                if (await coordinator.IsPausedAsync(campaignId, stoppingToken))
                 {
                     continue;
                 }

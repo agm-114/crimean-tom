@@ -27,12 +27,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/health": serviceProxy(),
-      "/active-campaign": serviceProxy(),
-      "/campaigns": serviceProxy(),
-      "/control": serviceProxy(),
-      "/content": serviceProxy(),
-      "/durability-policy": serviceProxy(),
+      "/player": serviceProxy(),
     },
   },
 });

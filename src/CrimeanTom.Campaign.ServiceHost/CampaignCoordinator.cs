@@ -1079,11 +1079,11 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (_pausedCampaigns.ContainsKey(campaignId))
+            if (await IsPausedCoreAsync(campaignId, cancellationToken))
             {
                 throw new CampaignStoreConflict(
                     "campaign-paused",
-                    "Operator pause is in effect; campaign time does not advance until resume.");
+                    "Campaign pause is in effect; campaign time does not advance until resume.");
             }
             var state = await RecoverStateAsync(campaignId, cancellationToken);
             var startingTime = state.Time;
@@ -1340,7 +1340,74 @@ public sealed class CampaignCoordinator(
         }
     }
 
-    public bool IsPaused(CampaignId campaignId) => _pausedCampaigns.ContainsKey(campaignId);
+    public Task<bool> IsPausedAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken = default) =>
+        IsPausedCoreAsync(campaignId, cancellationToken);
+
+    public async Task<CampaignPlayerView> ViewPlayerAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+        var state = await RecoverStateAsync(campaignId, cancellationToken);
+        return CampaignPlayerHttp.From(state, profile);
+    }
+
+    public async Task<CampaignPauseView> SetPlayerPausedAsync(
+        CampaignId campaignId,
+        bool paused,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            _ = await RecoverStateAsync(campaignId, cancellationToken);
+            await journal.SetPlayerPausedAsync(campaignId, paused, cancellationToken);
+            return new CampaignPauseView(campaignId.ToString(), paused);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CampaignPlayerSaveView> SavePlayerAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var savedAt = DateTimeOffset.UtcNow;
+            var lease = await RequireLeaseAsync(campaignId, cancellationToken);
+            var snapshot = await journal.SaveSnapshotAsync(lease, state, savedAt, cancellationToken);
+            await journal.SavePlayerProgressAsync(
+                campaignId,
+                state.Head.Value,
+                state.Head.Value,
+                savedAt,
+                cancellationToken);
+            return new CampaignPlayerSaveView(
+                campaignId.ToString(),
+                state.Head.Value,
+                state.Time.Quanta,
+                snapshot.StateHash,
+                savedAt,
+                snapshot.Duplicate);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<bool> IsPausedCoreAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken) =>
+        _pausedCampaigns.ContainsKey(campaignId)
+        || await journal.IsPlayerCampaignPausedAsync(campaignId, cancellationToken);
 
     public async Task<CampaignSchedulerView> DrainAsync(
         CampaignId campaignId,
@@ -2762,11 +2829,11 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (_pausedCampaigns.ContainsKey(campaignId))
+            if (await IsPausedCoreAsync(campaignId, cancellationToken))
             {
                 throw new CampaignStoreConflict(
                     "campaign-paused",
-                    "Operator pause is in effect; campaign time does not advance until resume.");
+                    "Campaign pause is in effect; campaign time does not advance until resume.");
             }
             var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (target.Quanta < state.Time.Quanta)
@@ -4564,3 +4631,11 @@ public sealed record CampaignFallbackAssignment(
     string Resolution);
 
 public sealed record CampaignPauseView(string CampaignId, bool Paused);
+
+public sealed record CampaignPlayerSaveView(
+    string CampaignId,
+    long Head,
+    long TimeQuanta,
+    string CanonicalHash,
+    DateTimeOffset SavedAt,
+    bool ExistingSnapshot);

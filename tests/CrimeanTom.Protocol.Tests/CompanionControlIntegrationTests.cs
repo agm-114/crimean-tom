@@ -102,9 +102,9 @@ public sealed class CompanionControlIntegrationTests
                 using var monitorResponse = await anonymousCampaignClient.GetAsync("/monitor/", testTimeout.Token);
                 monitorResponse.EnsureSuccessStatusCode();
                 var monitorHtml = await monitorResponse.Content.ReadAsStringAsync(testTimeout.Token);
-                Assert.Contains("Crimean Tom Campaign Monitor", monitorHtml, StringComparison.Ordinal);
+                Assert.Contains("Crimean Tom Dynamic Campaign", monitorHtml, StringComparison.Ordinal);
                 using var protectedHealth = await anonymousCampaignClient.GetAsync("/health", testTimeout.Token);
-                Assert.Equal(HttpStatusCode.OK, protectedHealth.StatusCode);
+                Assert.Equal(HttpStatusCode.Unauthorized, protectedHealth.StatusCode);
                 using var monitorWrite = await anonymousCampaignClient.PostAsJsonAsync(
                     "/control/campaigns",
                     new
@@ -969,28 +969,24 @@ public sealed class CompanionControlIntegrationTests
                 Timeout = TimeSpan.FromSeconds(10),
             })
             {
-                var expectedMonitorLocation = $"/monitor/?campaign={campaignId}";
                 using var bareMonitor = await monitorRedirectClient.GetAsync(
                     "/monitor/",
                     testTimeout.Token);
-                Assert.Equal(HttpStatusCode.Redirect, bareMonitor.StatusCode);
-                Assert.Equal(expectedMonitorLocation, bareMonitor.Headers.Location?.OriginalString);
+                bareMonitor.EnsureSuccessStatusCode();
                 using var staleMonitor = await monitorRedirectClient.GetAsync(
                     $"/monitor/?campaign={fuldaCampaignId}",
                     testTimeout.Token);
-                Assert.Equal(HttpStatusCode.Redirect, staleMonitor.StatusCode);
-                Assert.Equal(expectedMonitorLocation, staleMonitor.Headers.Location?.OriginalString);
+                staleMonitor.EnsureSuccessStatusCode();
                 using var malformedMonitor = await monitorRedirectClient.GetAsync(
                     "/monitor/it",
                     testTimeout.Token);
-                Assert.Equal(HttpStatusCode.Redirect, malformedMonitor.StatusCode);
-                Assert.Equal(expectedMonitorLocation, malformedMonitor.Headers.Location?.OriginalString);
+                Assert.Equal(HttpStatusCode.NotFound, malformedMonitor.StatusCode);
                 using var currentMonitor = await monitorRedirectClient.GetAsync(
-                    expectedMonitorLocation,
+                    $"/monitor/?campaign={campaignId}",
                     testTimeout.Token);
                 currentMonitor.EnsureSuccessStatusCode();
                 Assert.Contains(
-                    "Crimean Tom Campaign Monitor",
+                    "Crimean Tom Dynamic Campaign",
                     await currentMonitor.Content.ReadAsStringAsync(testTimeout.Token),
                     StringComparison.Ordinal);
 
@@ -1036,7 +1032,7 @@ public sealed class CompanionControlIntegrationTests
                 using var monitorScheduleResponse = await monitorRedirectClient.SendAsync(
                     monitorSchedule,
                     testTimeout.Token);
-                monitorScheduleResponse.EnsureSuccessStatusCode();
+                Assert.Equal(HttpStatusCode.Unauthorized, monitorScheduleResponse.StatusCode);
             }
             await ProveConcurrentCampaignSessionsAsync(
                 campaignClient,
@@ -4092,12 +4088,13 @@ public sealed class CompanionControlIntegrationTests
         string httpUrl,
         IReadOnlyDictionary<string, string>? environment = null)
     {
+        var configuration = ActiveBuildConfiguration();
         var normalHostPath = Path.Combine(
             repositoryRoot,
             "src",
             "CrimeanTom.Campaign.ServiceHost",
             "bin",
-            "Debug",
+            configuration,
             "net8.0",
             "CrimeanTom.Campaign.ServiceHost.dll");
         var artifactsHostPath = ResolveArtifactsProjectDll("CrimeanTom.Campaign.ServiceHost");
@@ -6643,10 +6640,13 @@ public sealed class CompanionControlIntegrationTests
             "..",
             "..",
             projectName,
-            "debug",
+            ActiveBuildConfiguration().ToLowerInvariant(),
             $"{projectName}.dll"));
         return File.Exists(path) ? path : null;
     }
+
+    private static string ActiveBuildConfiguration() =>
+        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
 
     private static string FindRepositoryRoot()
     {

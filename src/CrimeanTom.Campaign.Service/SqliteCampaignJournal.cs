@@ -11,7 +11,7 @@ namespace CrimeanTom.Campaign.Service;
 
 public sealed class SqliteCampaignJournal
 {
-    private const int DatabaseSchemaVersion = 3;
+    private const int DatabaseSchemaVersion = 4;
     private const int MaximumBatchAppendCount = 10_000;
     private const int MaximumRetainedSnapshotsPerCampaign = 8;
     private readonly string _databasePath;
@@ -78,6 +78,11 @@ public sealed class SqliteCampaignJournal
             if (current == 2)
             {
                 await ExecuteAsync(connection, transaction, BlobSchemaSql, cancellationToken);
+                current = 3;
+            }
+            if (current == 3)
+            {
+                await ExecuteAsync(connection, transaction, PlayerProfileSchemaSql, cancellationToken);
             }
             await ExecuteAsync(connection, transaction, $"PRAGMA user_version={DatabaseSchemaVersion};", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -164,6 +169,186 @@ public sealed class SqliteCampaignJournal
         }
         return (IReadOnlyList<CampaignSummary>)campaigns;
         }, cancellationToken);
+
+    public Task CreatePlayerProfileAsync(
+        CampaignId campaignId,
+        string playerId,
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(playerId) || playerId.Length > 128)
+            {
+                throw Conflict("invalid-player-id", "A player ID of at most 128 characters is required.");
+            }
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO campaign_player_profiles (
+                    campaign_id, player_id, coalition_id, is_paused, last_cursor,
+                    last_saved_head, last_saved_at_unix_ms, preferences_json)
+                VALUES ($campaign_id, $player_id, NULL, 1, 0, NULL, NULL, '{}')
+                ON CONFLICT(campaign_id) DO NOTHING;
+                """;
+            command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            command.Parameters.AddWithValue("$player_id", playerId.Trim());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+
+            var profile = await ReadPlayerProfileCoreAsync(connection, campaignId, cancellationToken);
+            if (!string.Equals(profile.PlayerId, playerId.Trim(), StringComparison.Ordinal))
+            {
+                throw Conflict("player-profile-conflict", "The campaign belongs to a different local player.");
+            }
+        }, cancellationToken);
+
+    public Task SetPlayerCoalitionAsync(
+        CampaignId campaignId,
+        string coalitionId,
+        CancellationToken cancellationToken = default) =>
+        UpdatePlayerProfileAsync(
+            campaignId,
+            "coalition_id = $value",
+            command => command.Parameters.AddWithValue("$value", coalitionId),
+            cancellationToken);
+
+    public Task SetPlayerPausedAsync(
+        CampaignId campaignId,
+        bool paused,
+        CancellationToken cancellationToken = default) =>
+        UpdatePlayerProfileAsync(
+            campaignId,
+            "is_paused = $value",
+            command => command.Parameters.AddWithValue("$value", paused ? 1 : 0),
+            cancellationToken);
+
+    public Task SavePlayerProgressAsync(
+        CampaignId campaignId,
+        long head,
+        long cursor,
+        DateTimeOffset savedAt,
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE campaign_player_profiles
+                SET last_saved_head = $head,
+                    last_cursor = $cursor,
+                    last_saved_at_unix_ms = $saved_at
+                WHERE campaign_id = $campaign_id;
+                """;
+            command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            command.Parameters.AddWithValue("$head", head);
+            command.Parameters.AddWithValue("$cursor", cursor);
+            command.Parameters.AddWithValue("$saved_at", savedAt.ToUnixTimeMilliseconds());
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                throw Conflict("player-profile-missing", "The campaign has no local player profile.");
+            }
+        }, cancellationToken);
+
+    public Task<CampaignPlayerProfile> ReadPlayerProfileAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            return await ReadPlayerProfileCoreAsync(connection, campaignId, cancellationToken);
+        }, cancellationToken);
+
+    public Task<bool> IsPlayerCampaignPausedAsync(
+        CampaignId campaignId,
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT is_paused FROM campaign_player_profiles WHERE campaign_id = $campaign_id;";
+            command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            return value is not null && value is not DBNull && Convert.ToInt64(value) != 0;
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<CampaignPlayerSummary>> ListPlayerCampaignsAsync(
+        CancellationToken cancellationToken = default) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT c.campaign_id, c.name, c.head, c.catalog_fingerprint,
+                       p.player_id, p.coalition_id, p.is_paused, p.last_cursor,
+                       p.last_saved_head, p.last_saved_at_unix_ms
+                FROM campaigns c
+                JOIN campaign_player_profiles p ON p.campaign_id = c.campaign_id
+                ORDER BY c.head DESC, c.name COLLATE NOCASE, c.campaign_id;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var campaigns = new List<CampaignPlayerSummary>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                campaigns.Add(new CampaignPlayerSummary(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetInt64(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.GetInt64(6) != 0,
+                    reader.GetInt64(7),
+                    reader.IsDBNull(8) ? null : reader.GetInt64(8),
+                    reader.IsDBNull(9)
+                        ? null
+                        : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(9))));
+            }
+            return (IReadOnlyList<CampaignPlayerSummary>)campaigns;
+        }, cancellationToken);
+
+    private Task UpdatePlayerProfileAsync(
+        CampaignId campaignId,
+        string assignment,
+        Action<SqliteCommand> bind,
+        CancellationToken cancellationToken) =>
+        WithContentionRetryAsync(async () =>
+        {
+            await using var connection = await OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"UPDATE campaign_player_profiles SET {assignment} WHERE campaign_id = $campaign_id;";
+            command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+            bind(command);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                throw Conflict("player-profile-missing", "The campaign has no local player profile.");
+            }
+        }, cancellationToken);
+
+    private static async Task<CampaignPlayerProfile> ReadPlayerProfileCoreAsync(
+        SqliteConnection connection,
+        CampaignId campaignId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT player_id, coalition_id, is_paused, last_cursor, last_saved_head,
+                   last_saved_at_unix_ms, preferences_json
+            FROM campaign_player_profiles WHERE campaign_id = $campaign_id;
+            """;
+        command.Parameters.AddWithValue("$campaign_id", campaignId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw Conflict("player-profile-missing", "The campaign has no local player profile.");
+        }
+        return new CampaignPlayerProfile(
+            campaignId.ToString(),
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            reader.GetInt64(2) != 0,
+            reader.GetInt64(3),
+            reader.IsDBNull(4) ? null : reader.GetInt64(4),
+            reader.IsDBNull(5) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(5)),
+            reader.GetString(6));
+    }
 
     public async Task<CampaignWriterLease> AcquireWriterAsync(
         CampaignId campaignId,
@@ -1810,6 +1995,20 @@ public sealed class SqliteCampaignJournal
             PRIMARY KEY (campaign_id, purpose, logical_id),
             FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id),
             FOREIGN KEY (content_hash) REFERENCES blobs(content_hash)
+        ) STRICT;
+        """;
+
+    private const string PlayerProfileSchemaSql = """
+        CREATE TABLE campaign_player_profiles (
+            campaign_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            coalition_id TEXT NULL,
+            is_paused INTEGER NOT NULL CHECK (is_paused IN (0, 1)),
+            last_cursor INTEGER NOT NULL CHECK (last_cursor >= 0),
+            last_saved_head INTEGER NULL CHECK (last_saved_head IS NULL OR last_saved_head >= 0),
+            last_saved_at_unix_ms INTEGER NULL,
+            preferences_json TEXT NOT NULL,
+            FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
         ) STRICT;
         """;
 

@@ -41,6 +41,28 @@ public sealed record CampaignSummary(
     long CommitPosition,
     string CatalogFingerprint);
 
+public sealed record CampaignPlayerProfile(
+    string CampaignId,
+    string PlayerId,
+    string? CoalitionId,
+    bool Paused,
+    long LastCursor,
+    long? LastSavedHead,
+    DateTimeOffset? LastSavedAt,
+    string PreferencesJson);
+
+public sealed record CampaignPlayerSummary(
+    string CampaignId,
+    string Name,
+    long CommitPosition,
+    string CatalogFingerprint,
+    string PlayerId,
+    string? CoalitionId,
+    bool Paused,
+    long LastCursor,
+    long? LastSavedHead,
+    DateTimeOffset? LastSavedAt);
+
 public enum CampaignBlobPurpose
 {
     TacticalCheckpoint,

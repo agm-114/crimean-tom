@@ -96,18 +96,6 @@ app.Use(async (context, next) =>
                 SameSite = SameSiteMode.Strict,
                 Secure = false,
             });
-        var sessions = context.RequestServices.GetRequiredService<CampaignSessionRegistry>();
-        var activeCampaignId = CampaignMonitorRouting.ResolveActiveCampaignId(
-            await journal.ListCampaignsAsync(context.RequestAborted),
-            sessions.Snapshots());
-        var requestedCampaignId = context.Request.Query["campaign"].ToString();
-        if (activeCampaignId is not null
-            && (!CampaignMonitorRouting.IsMonitorEntryPath(requestPath)
-                || !CampaignMonitorRouting.MatchesActiveCampaign(requestedCampaignId, activeCampaignId)))
-        {
-            context.Response.Redirect(CampaignMonitorRouting.MonitorLocation(activeCampaignId));
-            return;
-        }
     }
     await next(context);
 });
@@ -134,8 +122,7 @@ app.Use(async (context, next) =>
             out var monitorCookie)
         && monitorSession.IsMatch(monitorCookie);
     var monitorAuthenticated = monitorCookieAuthenticated
-        && ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
-            || CampaignMonitorRouting.IsSameOriginScheduleMutation(context.Request, httpUri));
+        && context.Request.Path.StartsWithSegments("/player");
     if (!bearerAuthenticated && !monitorAuthenticated)
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -146,6 +133,109 @@ app.Use(async (context, next) =>
 });
 
 app.MapGrpcService<CampaignCompanionGrpcService>();
+app.MapGet("/player/status", () => Results.Ok(new
+{
+    status = "ready",
+    scenarioId = "ww3-plus-1989",
+    scenarioEntityCount = 4_096,
+}));
+app.MapGet("/player/campaigns", async (
+    SqliteCampaignJournal store,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await store.ListPlayerCampaignsAsync(cancellationToken)));
+app.MapPost("/player/campaigns", async (
+    PlayerCampaignCreateRequest request,
+    SqliteCampaignJournal store,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    var name = request.Name?.Trim() ?? string.Empty;
+    if (name.Length is < 1 or > 80)
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-name" });
+    }
+    if (!string.Equals(request.Coalition, "Blue", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(request.Coalition, "Red", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "invalid-player-coalition" });
+    }
+
+    var campaignId = new CampaignId(Guid.NewGuid());
+    try
+    {
+        await store.CreateCampaignAsync(new CampaignMetadata(
+            campaignId,
+            name,
+            19890911,
+            "ww3-plus-1989-v1",
+            CampaignSchema.Version,
+            CampaignSchema.AlgorithmVersion), cancellationToken);
+        await store.CreatePlayerProfileAsync(campaignId, "local-player", cancellationToken);
+        var seeded = await coordinator.BootstrapFuldaGapAsync(
+            campaignId,
+            cancellationToken,
+            forceMultiplier: 1,
+            maximumEntities: 4_096);
+        var coalitionId = string.Equals(request.Coalition, "Red", StringComparison.OrdinalIgnoreCase)
+            ? seeded.RedCoalitionId
+            : seeded.BlueCoalitionId;
+        await store.SetPlayerCoalitionAsync(campaignId, coalitionId, cancellationToken);
+        _ = await coordinator.SavePlayerAsync(campaignId, cancellationToken);
+        return Results.Created(
+            $"/player/campaigns/{campaignId}",
+            await coordinator.ViewPlayerAsync(campaignId, cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapGet("/player/campaigns/{campaignId}", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.ViewPlayerAsync(new CampaignId(parsed), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
+app.MapPost("/player/campaigns/{campaignId}/pause", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await SetPlayerPauseAsync(campaignId, paused: true, coordinator, cancellationToken));
+app.MapPost("/player/campaigns/{campaignId}/resume", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await SetPlayerPauseAsync(campaignId, paused: false, coordinator, cancellationToken));
+app.MapPost("/player/campaigns/{campaignId}/save", async (
+    string campaignId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.SavePlayerAsync(new CampaignId(parsed), cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+});
 app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
 {
     status = "ok",
@@ -664,6 +754,29 @@ app.MapPost("/control/fences", (AuthorityFence fence, CampaignSessionRegistry se
 
 app.Run();
 
+static async Task<IResult> SetPlayerPauseAsync(
+    string campaignId,
+    bool paused,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.SetPlayerPausedAsync(
+            new CampaignId(parsed),
+            paused,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return Results.Conflict(new { error = exception.Code, message = exception.Message });
+    }
+}
+
 static string? FindRepositoryRoot(string startPath)
 {
     for (var directory = new DirectoryInfo(startPath); directory is not null; directory = directory.Parent)
@@ -691,3 +804,5 @@ static Uri RequireLoopbackUri(string value)
 }
 
 public sealed record CampaignCreateRequest(string CampaignId, string Name, long Seed, string CatalogFingerprint);
+
+public sealed record PlayerCampaignCreateRequest(string Name, string Coalition = "Blue");
