@@ -124,6 +124,13 @@ public sealed class UnattendedCampaignIntegrationTests
                 tacticalAnchorGroup.GetProperty("memberEntityIds").EnumerateArray()
                     .Select(member => member.GetString()!)
                     .Order(StringComparer.Ordinal));
+            var submarineEntity = root.GetProperty("friendlyEntities").EnumerateArray()
+                .Single(item => item.GetProperty("name").GetString() == "USS Honolulu");
+            var submarineEntityId = submarineEntity.GetProperty("entityId").GetString()!;
+            var submarineGroup = root.GetProperty("friendlyGroups").EnumerateArray()
+                .Single(item => item.GetProperty("memberEntityIds").EnumerateArray()
+                    .Any(member => member.GetString() == submarineEntityId));
+            var submarineGroupId = submarineGroup.GetProperty("groupId").GetString()!;
             using (var offlineEntry = await playerClient.GetAsync(
                 $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",
                 testTimeout.Token))
@@ -320,6 +327,12 @@ public sealed class UnattendedCampaignIntegrationTests
                             VariantId = "Default",
                             LoadoutId = "Default",
                         },
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_ssn_los_angeles",
+                            VariantId = "Variant31",
+                            LoadoutId = "Default",
+                        },
                     },
                 },
             });
@@ -451,6 +464,85 @@ public sealed class UnattendedCampaignIntegrationTests
                         "Tactical",
                         tacticalEntity.GetProperty("fidelity").GetString()));
                 Assert.False(tacticalGroup.GetProperty("canMove").GetBoolean());
+            }
+
+            long submarineGroupRevision;
+            using (var readySubmarineEntry = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{submarineGroupId}/tactical-entry",
+                testTimeout.Token))
+            {
+                readySubmarineEntry.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await readySubmarineEntry.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("ready", body.RootElement.GetProperty("state").GetString());
+                Assert.Equal(1, body.RootElement.GetProperty("requiredMemberCount").GetInt32());
+                Assert.Equal(1, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal("supported", body.RootElement.GetProperty("members")[0]
+                    .GetProperty("status").GetString());
+                submarineGroupRevision = body.RootElement.GetProperty("groupRevision").GetInt64();
+            }
+            using (var requestedSubmarineEntry = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{submarineGroupId}/tactical-entry",
+                new
+                {
+                    expectedGroupRevision = submarineGroupRevision,
+                    idempotencyKey = "player-submarine-entry-0003",
+                },
+                testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Accepted, requestedSubmarineEntry.StatusCode);
+            }
+            TacticalAssignment? queuedSubmarine = null;
+            while (queuedSubmarine is null
+                && await tacticalCall.ResponseStream.MoveNext(testTimeout.Token))
+            {
+                if (tacticalCall.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
+                    && tacticalCall.ResponseStream.Current.Assignment.CanonicalEntityId == submarineEntityId)
+                {
+                    queuedSubmarine = tacticalCall.ResponseStream.Current.Assignment;
+                }
+            }
+            Assert.NotNull(queuedSubmarine);
+            Assert.Equal("USS Honolulu", queuedSubmarine.DisplayName);
+            Assert.Equal("usn_ssn_los_angeles", queuedSubmarine.UnitTypeId);
+            Assert.Equal("Variant31", queuedSubmarine.VariantId);
+            Assert.Equal("Default", queuedSubmarine.LoadoutId);
+            Assert.Equal("taskforce:Blue", queuedSubmarine.TaskforceId);
+            await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+            {
+                Sequence = 4,
+                AssignmentPrepared = new AssignmentPrepared
+                {
+                    AssignmentId = queuedSubmarine.AssignmentId,
+                    EntityId = queuedSubmarine.EntityId,
+                    AuthorityEpoch = queuedSubmarine.AuthorityEpoch,
+                    RealizedRevision = 1,
+                    CanonicalStateSha256 = new string('8', 64),
+                    Ready = true,
+                },
+            });
+            await WaitUntilAsync(async () =>
+            {
+                using var entry = await playerClient.GetAsync(
+                    $"/player/campaigns/{campaignId}/groups/{submarineGroupId}/tactical-entry",
+                    testTimeout.Token);
+                entry.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(await entry.Content.ReadAsStringAsync(testTimeout.Token));
+                return body.RootElement.GetProperty("state").GetString() == "active";
+            }, testTimeout.Token);
+            using (var activeSubmarineView = await GetPlayerCampaignAsync(
+                playerClient,
+                campaignId,
+                testTimeout.Token))
+            {
+                var activeSubmarine = activeSubmarineView.RootElement.GetProperty("friendlyEntities")
+                    .EnumerateArray()
+                    .Single(item => item.GetProperty("entityId").GetString() == submarineEntityId);
+                Assert.Equal("Tactical", activeSubmarine.GetProperty("fidelity").GetString());
+                var activeSubmarineGroup = activeSubmarineView.RootElement.GetProperty("friendlyGroups")
+                    .EnumerateArray()
+                    .Single(item => item.GetProperty("groupId").GetString() == submarineGroupId);
+                Assert.False(activeSubmarineGroup.GetProperty("canMove").GetBoolean());
             }
             using (var duplicateEntry = await playerClient.PostAsJsonAsync(
                 $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-entry",

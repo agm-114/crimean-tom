@@ -188,7 +188,7 @@ internal static class RuntimeRenderProxyAdapter
                 || !ids.Add(spec.EntityId)
                 || string.IsNullOrWhiteSpace(spec.Name)
                 || spec.Name.Length > 128
-                || !RuntimeOwnedMutationAdapter.Supports(
+                || !RuntimeOwnedMutationAdapter.SupportsSurfaceRenderProxy(
                     spec.UnitTypeId,
                     spec.VariantId,
                     spec.LoadoutId)

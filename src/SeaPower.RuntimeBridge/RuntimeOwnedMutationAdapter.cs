@@ -19,6 +19,14 @@ internal static class RuntimeOwnedMutationAdapter
         Profile("usn_ff_knox_84", "Variant43"),
         Profile("usn_cg_ticonderoga", "Default"),
         Profile("usn_dd_spruance", "Default"),
+        Profile("usn_ssn_los_angeles", "Variant31"),
+    ];
+
+    private static readonly string[] SurfaceRenderProxyUnitTypeIds =
+    [
+        "usn_ff_knox_84",
+        "usn_cg_ticonderoga",
+        "usn_dd_spruance",
     ];
 
     internal static OwnedSurfaceMaterializationProfilePayload[] SupportedProfiles() =>
@@ -29,6 +37,13 @@ internal static class RuntimeOwnedMutationAdapter
             string.Equals(profile.UnitTypeId, unitTypeId, StringComparison.Ordinal)
             && string.Equals(profile.VariantId, variantId, StringComparison.Ordinal)
             && string.Equals(profile.LoadoutId, loadoutId, StringComparison.Ordinal));
+
+    internal static bool SupportsSurfaceRenderProxy(
+        string unitTypeId,
+        string variantId,
+        string loadoutId) =>
+        SurfaceRenderProxyUnitTypeIds.Contains(unitTypeId, StringComparer.Ordinal)
+        && Supports(unitTypeId, variantId, loadoutId);
 
     internal static string GetPlayerTaskforceId()
     {
@@ -95,7 +110,7 @@ internal static class RuntimeOwnedMutationAdapter
 
     internal static bool HasActiveOwnedEntity(string entityId) =>
         OwnedEntities.TryGetValue(entityId, out var record)
-        && record.Vessel is { Disabled: false };
+        && record.Unit is { Disabled: false };
 
     public static MutationAdapterResult<ArmOwnedMutationModeResultPayload> Arm(
         ArmOwnedMutationModeRequestPayload request,
@@ -162,7 +177,7 @@ internal static class RuntimeOwnedMutationAdapter
             .Select(pair =>
             {
                 var record = pair.Value;
-                var vessel = record.Vessel;
+                var vessel = record.Unit;
                 var lifecycleState = vessel == null
                     ? "detached-after-scene-loss"
                     : vessel.Disabled
@@ -273,7 +288,7 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.StaleRevision,
                 $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
         }
-        if (record.Vessel != null
+        if (record.Unit != null
             || !record.RecoveryRequired
             || record.Checkpoint is not null)
         {
@@ -390,28 +405,25 @@ internal static class RuntimeOwnedMutationAdapter
             });
         }
 
-        Vessel? created = null;
+        ObjectBase? created = null;
         var stopwatch = Stopwatch.StartNew();
         try
         {
             var position = new GeoPosition(predicted.Latitude!.Value, predicted.Longitude!.Value, 0d);
             var heading = new Vector3(0f, (float)NormalizeHeading(predicted.HeadingDegrees!.Value), 0f);
-            created = Singleton<ObjectsManager>.Instance.createShip(
+            created = CreateOwnedUnit(
+                request.UnitTypeId,
                 request.VariantId,
                 request.LoadoutId,
-                request.UnitTypeId,
-                Singleton<ObjectsManager>.Instance._listOfAllObjects.Count + 1,
-                Singleton<SceneCreator>.Instance.GeoCenterPosition,
                 position,
                 predicted.Telegraph,
                 heading,
-                taskforce,
-                loadAsync: false);
+                taskforce);
             if (created is null)
             {
                 return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
                     ProtocolErrorCodes.MutationPreconditionFailed,
-                    "Sea Power's supported ship constructor returned no vessel.");
+                    "Sea Power's supported native constructor returned no unit.");
             }
 
             // Attach external ownership before any later operation can fail. Cleanup paths may
@@ -425,7 +437,7 @@ internal static class RuntimeOwnedMutationAdapter
                 created.transform.eulerAngles = heading;
                 created._geoPosition = position;
                 created.setTelegraph(request.Telegraph);
-                created._velocityInKnots = created.getSpeedForTelegraph(request.Telegraph);
+                created._velocityInKnots = SpeedForTelegraph(created, request.Telegraph);
                 created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
                 Physics.SyncTransforms();
             }
@@ -516,7 +528,7 @@ internal static class RuntimeOwnedMutationAdapter
         string idempotencyRecordKey,
         OwnedEntityRecord record)
     {
-        var vessel = record.Vessel;
+        var vessel = record.Unit;
         var checkpoint = record.Checkpoint;
         if (record.RecoveryRequired
             || vessel is null
@@ -669,7 +681,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var vessel = record.Vessel!;
+        var vessel = record.Unit!;
         if (record.RecoveryRequired)
         {
             return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
@@ -746,7 +758,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var vessel = record.Vessel!;
+        var vessel = record.Unit!;
         if (vessel.Disabled)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -768,7 +780,7 @@ internal static class RuntimeOwnedMutationAdapter
             vessel._geoPosition = position;
             InjectFailure(request.FaultInjectionStep, "after-position-apply");
             vessel.setTelegraph(request.Telegraph);
-            vessel._velocityInKnots = vessel.getSpeedForTelegraph(request.Telegraph);
+            vessel._velocityInKnots = SpeedForTelegraph(vessel, request.Telegraph);
             vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
             InjectFailure(request.FaultInjectionStep, "after-telegraph-apply");
             Physics.SyncTransforms();
@@ -856,7 +868,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var vessel = record.Vessel!;
+        var vessel = record.Unit!;
         if (record.RecoveryRequired && !request.IsSuspended)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -1048,7 +1060,7 @@ internal static class RuntimeOwnedMutationAdapter
                 "The checkpoint task force must resolve exactly to the current player task force.");
         }
 
-        Vessel? vessel = record.Vessel;
+        ObjectBase? vessel = record.Unit;
         var reconstructed = vessel == null;
         if (!reconstructed)
         {
@@ -1080,26 +1092,23 @@ internal static class RuntimeOwnedMutationAdapter
                     0f,
                     (float)NormalizeHeading(checkpointHeading),
                     0f);
-                vessel = Singleton<ObjectsManager>.Instance.createShip(
+                vessel = CreateOwnedUnit(
+                    checkpoint.Unit.UnitTypeId,
                     checkpoint.Unit.VariantId,
                     checkpoint.Unit.LoadoutId,
-                    checkpoint.Unit.UnitTypeId,
-                    Singleton<ObjectsManager>.Instance._listOfAllObjects.Count + 1,
-                    Singleton<SceneCreator>.Instance.GeoCenterPosition,
                     position,
                     checkpoint.Unit.Telegraph,
                     heading,
-                    taskforce,
-                    loadAsync: false);
+                    taskforce);
                 if (vessel is null)
                 {
                     return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                         ProtocolErrorCodes.MutationPreconditionFailed,
-                        "Sea Power's supported ship constructor returned no vessel during rematerialization.");
+                        "Sea Power's supported native constructor returned no unit during rematerialization.");
                 }
                 vessel._campaignTag = request.EntityId;
                 ApplyDisplayName(vessel, record.DisplayName);
-                record.Vessel = vessel;
+                record.Unit = vessel;
             }
 
             ApplyPortableState(vessel!, checkpoint.Unit);
@@ -1168,7 +1177,7 @@ internal static class RuntimeOwnedMutationAdapter
                         vessel.Disable();
                     }
                 }
-                record.Vessel = vessel;
+                record.Unit = vessel;
             }
             record.RecoveryRequired = recovery == "recoverable-suspended-owned-object";
             var injected = exception as InjectedMutationFailureException;
@@ -1220,7 +1229,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var vessel = record.Vessel!;
+        var vessel = record.Unit!;
         if (!vessel.Disabled || record.RecoveryRequired)
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -1322,8 +1331,8 @@ internal static class RuntimeOwnedMutationAdapter
             return resolved;
         }
         var record = resolved.Record!;
-        if (record.Vessel == null
-            || !string.Equals(record.Vessel._campaignTag, entityId, StringComparison.Ordinal))
+        if (record.Unit == null
+            || !string.Equals(record.Unit._campaignTag, entityId, StringComparison.Ordinal))
         {
             return OwnedResolution<T>.Fail(
                 ProtocolErrorCodes.MutationPreconditionFailed,
@@ -1457,11 +1466,11 @@ internal static class RuntimeOwnedMutationAdapter
         Revision = record.Revision,
         IdempotencyKey = context.IdempotencyKey,
         SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
-        Unit = Capture(record.Vessel!, record.TaskforceId, record.InitialStoresQuantity),
+        Unit = Capture(record.Unit!, record.TaskforceId, record.InitialStoresQuantity),
     };
 
     private static void ApplyPortableState(
-        Vessel vessel,
+        ObjectBase vessel,
         OwnedSurfaceUnitStatePayload state)
     {
         var position = new GeoPosition(state.Latitude!.Value, state.Longitude!.Value, 0d);
@@ -1478,7 +1487,7 @@ internal static class RuntimeOwnedMutationAdapter
         Physics.SyncTransforms();
     }
 
-    private static void ApplyFuel(Vessel vessel, long? fuelFractionMilliunits)
+    private static void ApplyFuel(ObjectBase vessel, long? fuelFractionMilliunits)
     {
         if (fuelFractionMilliunits is not long fuel)
         {
@@ -1489,7 +1498,7 @@ internal static class RuntimeOwnedMutationAdapter
         if (parameters is null || parameters._maxFuel <= 0f)
         {
             throw new InvalidOperationException(
-                "The owned surface vessel has no native fuel capacity to restore.");
+                "The owned unit has no native fuel capacity to restore.");
         }
 
         parameters._currentFuelMass = (float)(fuel / 1_000_000d * parameters._maxFuel);
@@ -1728,7 +1737,62 @@ internal static class RuntimeOwnedMutationAdapter
         LoadoutId = profile.LoadoutId,
     };
 
-    private static void ApplyDisplayName(Vessel vessel, string displayName)
+    private static ObjectBase? CreateOwnedUnit(
+        string unitTypeId,
+        string variantId,
+        string loadoutId,
+        GeoPosition position,
+        int telegraph,
+        Vector3 heading,
+        Taskforce taskforce)
+    {
+        var objects = Singleton<ObjectsManager>.Instance;
+        var unitNumber = objects._listOfAllObjects.Count + 1;
+        var center = Singleton<SceneCreator>.Instance.GeoCenterPosition;
+        if (string.Equals(unitTypeId, "usn_ssn_los_angeles", StringComparison.Ordinal))
+        {
+            return objects.createSubmarine(
+                variantId,
+                loadoutId,
+                unitTypeId,
+                unitNumber,
+                center,
+                position,
+                telegraph,
+                heading,
+                taskforce,
+                loadAsync: false);
+        }
+
+        return objects.createShip(
+            variantId,
+            loadoutId,
+            unitTypeId,
+            unitNumber,
+            center,
+            position,
+            telegraph,
+            heading,
+            taskforce,
+            loadAsync: false);
+    }
+
+    private static float SpeedForTelegraph(ObjectBase unit, int telegraph)
+    {
+        if (unit is Vessel vessel)
+        {
+            return vessel.getSpeedForTelegraph(telegraph);
+        }
+        if (unit is Submarine submarine && submarine.SpeedCommand.HasValue)
+        {
+            return submarine.SpeedCommand.Value.GetDemandedSpeedInKnots(submarine);
+        }
+
+        throw new InvalidOperationException(
+            $"The supported owned unit '{unit._obp?._objectIniName}' has no native telegraph speed command.");
+    }
+
+    private static void ApplyDisplayName(ObjectBase vessel, string displayName)
     {
         if (!string.IsNullOrWhiteSpace(displayName))
         {
@@ -1762,7 +1826,7 @@ internal static class RuntimeOwnedMutationAdapter
     }
 
     private static OwnedSurfaceUnitStatePayload Capture(
-        Vessel vessel,
+        ObjectBase vessel,
         string taskforceId,
         long initialStoresQuantity)
     {
@@ -1798,7 +1862,7 @@ internal static class RuntimeOwnedMutationAdapter
         };
     }
 
-    private static long StoreQuantity(Vessel vessel) => vessel.AmmunitionAmountDictionary.Values
+    private static long StoreQuantity(ObjectBase vessel) => vessel.AmmunitionAmountDictionary.Values
         .Where(value => value > 0)
         .Sum(value => checked((long)value));
 
@@ -1993,7 +2057,7 @@ internal static class RuntimeOwnedMutationAdapter
         long revision,
         string taskforceId,
         string displayName,
-        Vessel vessel,
+        ObjectBase unit,
         long initialStoresQuantity,
         bool recoveryRequired = false)
     {
@@ -2003,7 +2067,7 @@ internal static class RuntimeOwnedMutationAdapter
         public string TaskforceId { get; set; } = taskforceId;
         public string DisplayName { get; } = displayName;
         public long InitialStoresQuantity { get; } = initialStoresQuantity;
-        public Vessel? Vessel { get; set; } = vessel;
+        public ObjectBase? Unit { get; set; } = unit;
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
         public bool RecoveryRequired { get; set; } = recoveryRequired;
     }
