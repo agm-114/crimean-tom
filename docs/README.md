@@ -15,17 +15,20 @@ results.
 
 ## Read these documents first
 
-1. [Product contract](planning/playable-dynamic-campaign-product-contract.md)
+1. [Getting started](development/getting-started.md) covers local setup, the
+   repository map, supported workflows, and a clean campaign-bound Sea Power
+   session.
+2. [Product contract](planning/playable-dynamic-campaign-product-contract.md)
    defines the player experience and first-playable boundary.
-2. [Current status](planning/current-status.md) records what works, what does
+3. [Current status](planning/current-status.md) records what works, what does
    not, and the next product gaps.
-3. [System architecture](architecture/system-architecture.md) defines the
+4. [System architecture](architecture/system-architecture.md) defines the
    active local architecture and its invariants.
-4. [Implementation map](architecture/implementation-map.md) maps those roles to
+5. [Implementation map](architecture/implementation-map.md) maps those roles to
    the current repository.
-5. [Implementation plan](planning/implementation-plan.md) orders the work from
+6. [Implementation plan](planning/implementation-plan.md) orders the work from
    local proof of concept through private multiplayer.
-6. [Supported claims](planning/supported-claims.md) limits what the project may
+7. [Supported claims](planning/supported-claims.md) limits what the project may
    present as proven.
 
 When documents disagree, use this order:
@@ -51,6 +54,7 @@ delivery order: implementation plan
 
 ## Planning and operations
 
+- [Getting started](development/getting-started.md)
 - [Product contract](planning/playable-dynamic-campaign-product-contract.md)
 - [Current status](planning/current-status.md)
 - [Implementation plan](planning/implementation-plan.md)
@@ -75,6 +79,8 @@ sources. They inform design but do not define product commitments.
 
 ## Documentation rules
 
+- Put stable setup, repository orientation, and end-to-end development workflows
+  in getting started. Link to changing status instead of copying it there.
 - Put player-visible requirements in the product contract.
 - Put cross-component invariants in system architecture.
 - Put current facts and gaps in current status or the implementation map.

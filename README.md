@@ -5,10 +5,13 @@ campaign-agnostic in-game plugin is **Sea Power Runtime Bridge**, loaded through
 [AnchorChain](https://github.com/SeaPower-Modders/AnchorChain).
 
 Technical research on the installed game, tactical and campaign architecture,
-UI workflows, testing, and the federated continuous-campaign design is indexed
+UI workflows, testing, and the local-first dynamic-campaign design is indexed
 in [`docs/README.md`](docs/README.md).
 
 ## Local development
+
+New development tasks should begin with
+[`docs/development/getting-started.md`](docs/development/getting-started.md).
 
 The default installation is `C:\Program Files (x86)\Steam\steamapps\common\Sea Power`.
 Set `SEA_POWER_DIR` when the game is installed elsewhere.
@@ -44,8 +47,10 @@ open paused. The loopback host gives the page an HttpOnly, same-site,
 process-lifetime session accepted only by `/player`; it cannot authorize operator
 endpoints. CLI and companion traffic use the current-user-only bearer token file.
 The player shell polls HTTP and renews its local session after a service restart.
-Realtime delivery, broader orders and policy controls, complete objective
-progress, campaign end state, and tactical entry are not implemented.
+Selected-group tactical entry works for the qualified profiles. Realtime
+delivery, broader orders and policy controls, complete objective progress,
+campaign end state, combined-arms entry, authored-force replacement, and
+tactical return and recovery remain incomplete.
 
 For iteration with backend restart and frontend hot-module replacement, run:
 
