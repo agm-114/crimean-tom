@@ -81,7 +81,7 @@ requirements without launching Sea Power.
 | `src/CrimeanTom.Campaign.Engine` | Deterministic Operational simulation and strategic AI |
 | `src/CrimeanTom.Campaign.Service` | SQLite journal, snapshots, blobs, backup, and restore |
 | `src/CrimeanTom.Campaign.ServiceHost` | Campaign HTTP/gRPC host, scheduling, player projection, and tactical handoff |
-| `src/CrimeanTom.SeaPower.Companion` | Campaign-to-game adapter, tactical lease, map/proxy sync, and checkpoint readback |
+| `src/CrimeanTom.Companion` | Campaign-to-game adapter, tactical lease, map/proxy sync, and checkpoint readback |
 | `src/SeaPower.RuntimeBridge` | Typed inspection and controlled mutation inside Sea Power |
 | `apps/campaign-monitor` | Local campaign player application |
 | `content` | Campaign and Sea Power content shipped or deployed by the project |

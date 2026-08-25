@@ -33,8 +33,8 @@ player projection.
 | `CrimeanTom.Campaign.Service` | SQLite WAL journal, snapshots, blobs, integrity checks, backup and restore | Long-running save evolution and compaction are not qualified |
 | `CrimeanTom.Campaign.Transport` | Generated gRPC/Protobuf companion protocol with reserved deferred-worker fields | Machine protocol only; not the player API |
 | `CrimeanTom.Campaign.ServiceHost` | HTTP host, campaign coordinator, scheduler, sessions, projections, companion stream, in-process unattended simulation | Still uses broad shared trust in several paths |
-| `CrimeanTom.SeaPower.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
-| `CrimeanTom.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
+| `CrimeanTom.Companion` | Local bridge adapter, tactical lease, map/proxy synchronization, checkpoint readback | Portable tactical state covers only a narrow profile set |
+| `SeaPower.RuntimeBridge` and AnchorChain plugin | Typed Sea Power inspection, mutation, screenshots, and UI interaction | Pinned to the supported Sea Power build |
 | `apps/campaign-monitor` | Local player campaign lifecycle, coalition map, friendly hierarchy, objective assignment, Transit/Hold orders, time, save controls, and selected-group tactical entry | Combined-arms entry, broader orders, objective progress, packaging, and detailed recovery UX remain |
 | Integration test projects | Broad campaign and protocol stories | Do not replace live Sea Power qualification |
 
@@ -134,8 +134,10 @@ private multiplayer flow yet.
 
 ## Deferred code archive
 
-The standalone Operational worker, process supervisor, second-Sea-Power scripts,
-and migration drivers were removed from the active tree. Git tag
+The standalone Operational worker, process supervisor, and second-Sea-Power
+scripts were removed from the active tree. Migration contracts, coordinator
+paths, and protocol tests remain so the local lease can still recover and fence
+older sessions. They are not part of the active player workflow. Git tag
 `archive/distributed-workers-before-local-trim-2026-08-24` preserves them. Some
 assignment, capacity, and protocol types remain because the local Sea Power
 lease uses the same fencing model.

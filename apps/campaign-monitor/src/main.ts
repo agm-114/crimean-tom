@@ -279,6 +279,10 @@ function material(name: string, color: Color3): StandardMaterial {
   return value;
 }
 
+const friendlyMaterial = material("friendly-material", new Color3(0.21, 0.91, 0.54));
+const contactMaterial = material("contact-material", new Color3(1, 0.25, 0.32));
+const baseMaterial = material("base-material", new Color3(0.94, 0.7, 0.2));
+
 function selectable(mesh: Mesh, next: Selection): void {
   mesh.isPickable = true;
   mesh.actionManager = new ActionManager(scene);
@@ -291,21 +295,21 @@ function renderMap(data: PlayerCampaign): void {
   for (const entity of data.friendlyEntities) {
     const mesh = MeshBuilder.CreateBox(`friendly:${entity.entityId}`, { size: 0.34 }, scene);
     mesh.position = mapPosition(entity.latitudeMicrodegrees, entity.longitudeMicrodegrees, 0.25);
-    mesh.material = material(`friendly-material:${entity.entityId}`, new Color3(0.21, 0.91, 0.54));
+    mesh.material = friendlyMaterial;
     selectable(mesh, { kind: "friendly", id: entity.entityId });
     dynamicMeshes.push(mesh);
   }
   for (const contact of data.contacts) {
     const mesh = MeshBuilder.CreateCylinder(`contact:${contact.trackId}`, { diameterTop: 0, diameterBottom: 0.42, height: 0.5, tessellation: 3 }, scene);
     mesh.position = mapPosition(contact.estimatedLatitudeMicrodegrees, contact.estimatedLongitudeMicrodegrees, 0.3);
-    mesh.material = material(`contact-material:${contact.trackId}`, new Color3(1, 0.25, 0.32));
+    mesh.material = contactMaterial;
     selectable(mesh, { kind: "contact", id: contact.trackId });
     dynamicMeshes.push(mesh);
   }
   for (const base of data.friendlyBases) {
     const mesh = MeshBuilder.CreateCylinder(`base:${base.baseId}`, { diameter: 0.32, height: 0.12, tessellation: 4 }, scene);
     mesh.position = mapPosition(base.latitudeMicrodegrees, base.longitudeMicrodegrees, 0.12);
-    mesh.material = material(`base-material:${base.baseId}`, new Color3(0.94, 0.7, 0.2));
+    mesh.material = baseMaterial;
     selectable(mesh, { kind: "base", id: base.baseId });
     dynamicMeshes.push(mesh);
   }
