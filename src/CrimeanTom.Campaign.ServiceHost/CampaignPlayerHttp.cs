@@ -231,3 +231,31 @@ public sealed record CampaignPlayerTacticalEntryResult(
     string Status,
     string BatchId,
     CampaignPlayerTacticalEntryView Entry);
+
+public sealed record CampaignPlayerTacticalExitView(
+    string CampaignId,
+    string GroupId,
+    string GroupName,
+    long GroupRevision,
+    string State,
+    string Message,
+    bool CanExit,
+    string? BatchId,
+    long CampaignTimeQuanta,
+    IReadOnlyList<CampaignPlayerTacticalResultMemberView> Members,
+    IReadOnlyList<string> UnsupportedFields);
+
+public sealed record CampaignPlayerTacticalResultMemberView(
+    string EntityId,
+    string Name,
+    string Lifecycle,
+    string Fidelity,
+    int DamageMilliunits,
+    long FuelMilliunits,
+    long StoresMilliunits,
+    string AssignmentLifecycle,
+    string? CheckpointSha256);
+
+public sealed record CampaignPlayerTacticalExitResult(
+    string Status,
+    CampaignPlayerTacticalExitView Exit);

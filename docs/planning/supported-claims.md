@@ -48,6 +48,10 @@ or complete Sea Power parity.
   remains fenced until reconnect or grace expiry.
 - Stale assignment epochs are rejected. Expired authority can return to the
   accepted checkpoint or Operational fallback.
+- A player can request normal exit for one complete interaction island. The
+  service queues final-checkpoint fences together, releases the island only
+  after every member responds, and returns the committed member result plus the
+  fields that are still unsupported.
 - The owned ship/submarine proof of concept can publish changed readbacks for pose,
   telegraph, fuel or stores fractions, damage, and destruction during unpaused
   play.

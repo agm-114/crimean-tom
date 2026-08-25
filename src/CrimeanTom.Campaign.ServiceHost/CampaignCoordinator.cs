@@ -1707,6 +1707,268 @@ public sealed class CampaignCoordinator(
         }
     }
 
+    public async Task<CampaignPlayerTacticalExitView> InspectPlayerTacticalExitAsync(
+        CampaignId campaignId,
+        string groupIdValue,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var group = RequirePlayerGroup(state, profile, groupIdValue);
+            return await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CampaignPlayerTacticalExitResult> RequestPlayerTacticalExitAsync(
+        CampaignId campaignId,
+        string groupIdValue,
+        long expectedGroupRevision,
+        string idempotencyKeyValue,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            var group = RequirePlayerGroup(state, profile, groupIdValue);
+            if (expectedGroupRevision < 1 || group.Revision.Value != expectedGroupRevision)
+            {
+                throw new CampaignStoreConflict(
+                    "group-revision-conflict",
+                    $"Expected group revision {expectedGroupRevision}, current revision {group.Revision.Value}.");
+            }
+            var idempotencyKey = NormalizePlayerIdempotencyKey(idempotencyKeyValue);
+            var active = PlayerGroupTacticalAssignments(state, group)
+                .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+                .OrderBy(item => item.AssignmentId.Value)
+                .ToArray();
+            if (active.Length == 0)
+            {
+                var completed = await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken);
+                if (completed.State == "complete")
+                {
+                    return new CampaignPlayerTacticalExitResult("complete", completed);
+                }
+                throw new CampaignStoreConflict(
+                    "tactical-exit-not-active",
+                    "This group has no active or completed tactical session.");
+            }
+            if (active.Any(item => item.Lifecycle is AssignmentLifecycle.Quiescing
+                    or AssignmentLifecycle.Quiesced))
+            {
+                return new CampaignPlayerTacticalExitResult(
+                    "leaving",
+                    await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken));
+            }
+            if (active.Any(item => item.Lifecycle != AssignmentLifecycle.Active))
+            {
+                throw new CampaignStoreConflict(
+                    "tactical-exit-not-active",
+                    "Sea Power must finish tactical activation before the group can leave cleanly.");
+            }
+            var workers = active
+                .Select(item => item.WorkerClientInstanceId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var batchIds = active
+                .Select(PlayerTacticalBatchKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (workers.Length != 1
+                || batchIds.Length != 1
+                || active.Any(item => item.BatchSize != active.Length))
+            {
+                throw new CampaignStoreConflict(
+                    "tactical-exit-island-incomplete",
+                    "The selected group does not map to one complete tactical interaction island.");
+            }
+            var lease = sessions.TacticalLeaseState(campaignId.ToString(), workers[0]);
+            if (!lease.Live)
+            {
+                throw new CampaignStoreConflict(
+                    "tactical-exit-session-unavailable",
+                    lease.InGrace
+                        ? "Sea Power is reconnecting; the group remains fenced during lease grace."
+                        : "Sea Power is unavailable; lease recovery will use the last accepted checkpoint.");
+            }
+
+            var outbound = new List<ServiceFrame>(active.Length);
+            for (var index = 0; index < active.Length; index++)
+            {
+                var assignment = active[index];
+                var request = new CampaignQuiesceRequest(
+                    campaignId.ToString(),
+                    $"assignment:{assignment.AssignmentId}",
+                    $"unit:crimean-tom:{assignment.EntityId}",
+                    ExpectedGameRevision: 0,
+                    $"player-exit-{idempotencyKey}-{index + 1}");
+                var quiesced = await BeginQuiesceCoreAsync(
+                    state,
+                    request,
+                    resolveExpectedRevisionFromWorker: true,
+                    cancellationToken);
+                state = quiesced.State;
+                outbound.Add(new ServiceFrame { Fence = quiesced.Fence });
+            }
+            if (!sessions.TryQueueBatchForClient(campaignId.ToString(), workers[0], outbound))
+            {
+                throw new CampaignStoreConflict(
+                    "companion-session-unavailable-or-backpressured",
+                    "Sea Power could not accept the complete tactical-exit fence batch.");
+            }
+            return new CampaignPlayerTacticalExitResult(
+                "leaving",
+                await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<CampaignPlayerTacticalExitView> BuildPlayerTacticalExitViewAsync(
+        CampaignState state,
+        GroupState group,
+        CancellationToken cancellationToken)
+    {
+        var groupAssignments = PlayerGroupTacticalAssignments(state, group);
+        var current = groupAssignments
+            .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+            .OrderBy(item => item.AssignmentId.Value)
+            .ToArray();
+        AssignmentState[] resultAssignments;
+        string stateName;
+        string message;
+        var canExit = false;
+        if (current.Length > 0)
+        {
+            resultAssignments = current;
+            var workers = current.Select(item => item.WorkerClientInstanceId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var batches = current.Select(PlayerTacticalBatchKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var completeIsland = workers.Length == 1
+                && batches.Length == 1
+                && current.All(item => item.BatchSize == current.Length);
+            var lease = workers.Length == 1
+                ? sessions.TacticalLeaseState(state.Metadata.CampaignId.ToString(), workers[0])
+                : CampaignTacticalLeaseState.Expired;
+            if (current.Any(item => item.Lifecycle is AssignmentLifecycle.Quiescing
+                    or AssignmentLifecycle.Quiesced))
+            {
+                stateName = "leaving";
+                message = "Sea Power is capturing final checkpoints for the interaction island.";
+            }
+            else if (!completeIsland)
+            {
+                stateName = "blocked";
+                message = "The group is split across tactical assignments and cannot exit as one island.";
+            }
+            else if (!lease.Live)
+            {
+                stateName = "recovering";
+                message = lease.InGrace
+                    ? "Sea Power is reconnecting while the interaction island remains fenced."
+                    : "The tactical lease expired; recovery will use accepted checkpoints or Operational fallback.";
+            }
+            else if (current.All(item => item.Lifecycle == AssignmentLifecycle.Active))
+            {
+                stateName = "active";
+                message = "The interaction island can return to the campaign cleanly.";
+                canExit = true;
+            }
+            else
+            {
+                stateName = "preparing";
+                message = "Sea Power must finish tactical activation before normal exit.";
+            }
+        }
+        else
+        {
+            resultAssignments = groupAssignments
+                .Where(item => item.Lifecycle == AssignmentLifecycle.Released)
+                .GroupBy(PlayerTacticalBatchKey, StringComparer.Ordinal)
+                .Where(batch => batch.Count() == batch.First().BatchSize)
+                .OrderByDescending(batch => batch.Max(item => item.EffectiveAt.Quanta))
+                .ThenBy(batch => batch.Key, StringComparer.Ordinal)
+                .Select(batch => batch.OrderBy(item => item.AssignmentId.Value).ToArray())
+                .FirstOrDefault() ?? [];
+            stateName = resultAssignments.Length == 0 ? "inactive" : "complete";
+            message = resultAssignments.Length == 0
+                ? "This group has no tactical session to leave."
+                : "The last tactical result is committed and the interaction island is Operational again.";
+        }
+
+        var members = new List<CampaignPlayerTacticalResultMemberView>(resultAssignments.Length);
+        foreach (var assignment in resultAssignments)
+        {
+            var entity = state.Entities[assignment.EntityId];
+            var checkpoint = await journal.ReadLatestBlobReferenceAsync(
+                state.Metadata.CampaignId,
+                CampaignBlobPurpose.TacticalCheckpoint,
+                $"assignment:{assignment.AssignmentId}/",
+                cancellationToken);
+            members.Add(new CampaignPlayerTacticalResultMemberView(
+                entity.EntityId.ToString(),
+                entity.Name,
+                entity.Lifecycle.ToString(),
+                entity.Fidelity.ToString(),
+                entity.DamageMilliUnits,
+                entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
+                entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+                assignment.Lifecycle.ToString(),
+                checkpoint?.Sha256));
+        }
+        return new CampaignPlayerTacticalExitView(
+            state.Metadata.CampaignId.ToString(),
+            group.GroupId.ToString(),
+            group.Name,
+            group.Revision.Value,
+            stateName,
+            message,
+            canExit,
+            resultAssignments.FirstOrDefault() is { } first
+                ? PlayerTacticalBatchKey(first)
+                : null,
+            state.Time.Quanta,
+            members,
+            [
+                "ammunition-expenditure",
+                "sensor-state",
+                "formation-state",
+                "hosted-aircraft-recovery",
+                "launched-weapons",
+                "objective-effects",
+            ]);
+    }
+
+    private static AssignmentState[] PlayerGroupTacticalAssignments(
+        CampaignState state,
+        GroupState group)
+    {
+        var memberIds = group.Members.ToHashSet();
+        return state.Assignments.Values
+            .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
+                && memberIds.Contains(item.EntityId))
+            .OrderBy(item => item.AssignmentId.Value)
+            .ToArray();
+    }
+
+    private static string PlayerTacticalBatchKey(AssignmentState assignment) =>
+        string.IsNullOrEmpty(assignment.BatchId)
+            ? $"assignment:{assignment.AssignmentId}"
+            : assignment.BatchId;
+
     private CampaignPlayerTacticalEntryPlan BuildPlayerTacticalEntryPlan(
         CampaignState state,
         CampaignPlayerProfile profile,

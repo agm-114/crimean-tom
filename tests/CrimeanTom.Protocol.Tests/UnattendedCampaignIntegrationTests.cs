@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
@@ -764,6 +766,145 @@ public sealed class UnattendedCampaignIntegrationTests
                 using var duplicateBody = JsonDocument.Parse(
                     await duplicateEntry.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("duplicate", duplicateBody.RootElement.GetProperty("status").GetString());
+            }
+
+            using (var activeExit = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-exit",
+                testTimeout.Token))
+            {
+                activeExit.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await activeExit.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("active", body.RootElement.GetProperty("state").GetString());
+                Assert.True(body.RootElement.GetProperty("canExit").GetBoolean());
+                Assert.Equal(4, body.RootElement.GetProperty("members").GetArrayLength());
+            }
+            const string tacticalExitKey = "player-exit-connected-0005";
+            using (var requestedExit = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-exit",
+                new
+                {
+                    expectedGroupRevision = tacticalEntryGroupRevision,
+                    idempotencyKey = tacticalExitKey,
+                },
+                testTimeout.Token))
+            {
+                Assert.Equal(HttpStatusCode.Accepted, requestedExit.StatusCode);
+                using var body = JsonDocument.Parse(
+                    await requestedExit.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("leaving", body.RootElement.GetProperty("status").GetString());
+                Assert.Equal("leaving", body.RootElement.GetProperty("exit").GetProperty("state").GetString());
+            }
+            var exitFences = new Dictionary<string, AuthorityFence>(StringComparer.Ordinal);
+            while (exitFences.Count < queuedEntries.Count
+                && await tacticalCall.ResponseStream.MoveNext(testTimeout.Token))
+            {
+                if (tacticalCall.ResponseStream.Current.PayloadCase != ServiceFrame.PayloadOneofCase.Fence)
+                {
+                    continue;
+                }
+                var fence = tacticalCall.ResponseStream.Current.Fence;
+                if (queuedEntries.Values.Any(item => item.AssignmentId == fence.AssignmentId))
+                {
+                    exitFences[fence.AssignmentId] = fence;
+                }
+            }
+            Assert.Equal(4, exitFences.Count);
+            Assert.All(exitFences.Values, fence => Assert.True(fence.ResolveExpectedRevisionFromWorker));
+            foreach (var fence in exitFences.Values.OrderBy(item => item.AssignmentId, StringComparer.Ordinal))
+            {
+                var entry = queuedEntries.Values.Single(item => item.AssignmentId == fence.AssignmentId);
+                var checkpointBytes = Encoding.UTF8.GetBytes($"{{\"assignmentId\":\"{fence.AssignmentId}\"}}");
+                var checkpointSha256 = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
+                using (var upload = await operatorClient.PutAsync(
+                    $"/content/{checkpointSha256}",
+                    new ByteArrayContent(checkpointBytes),
+                    testTimeout.Token))
+                {
+                    upload.EnsureSuccessStatusCode();
+                }
+                await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+                {
+                    Sequence = nextCompanionSequence++,
+                    CheckpointPublished = new CheckpointPublished
+                    {
+                        AssignmentId = fence.AssignmentId,
+                        EntityId = fence.EntityId,
+                        AuthorityEpoch = fence.FencedAuthorityEpoch,
+                        EntityRevision = 1,
+                        CheckpointSha256 = checkpointSha256,
+                        CheckpointLength = checkpointBytes.Length,
+                    },
+                });
+                await tacticalCall.RequestStream.WriteAsync(new CompanionFrame
+                {
+                    Sequence = nextCompanionSequence++,
+                    TacticalEvent = new TacticalEventProposal
+                    {
+                        EventId = $"exit-{fence.AssignmentId}",
+                        IdempotencyKey = fence.IdempotencyKey,
+                        AssignmentId = fence.AssignmentId,
+                        EntityId = fence.EntityId,
+                        AuthorityEpoch = fence.FencedAuthorityEpoch,
+                        ExpectedEntityRevision = 1,
+                        EffectiveTimeQuanta = fence.EffectiveTimeQuanta,
+                        Kind = TacticalEventKind.Checkpoint,
+                        LatitudeMicrodegrees = entry.LatitudeMicrodegrees,
+                        LongitudeMicrodegrees = entry.LongitudeMicrodegrees,
+                        HeadingMillidegrees = entry.HeadingMillidegrees,
+                        Telegraph = entry.Telegraph,
+                        FuelMilliunits = entry.InitialFuelMilliunits,
+                        StoresMilliunits = entry.InitialStoresMilliunits,
+                        DamageMilliunits = entry.InitialDamageMilliunits,
+                        CheckpointSha256 = checkpointSha256,
+                    },
+                });
+            }
+            await WaitUntilAsync(async () =>
+            {
+                using var response = await playerClient.GetAsync(
+                    $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-exit",
+                    testTimeout.Token);
+                response.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(testTimeout.Token));
+                return body.RootElement.GetProperty("state").GetString() == "complete";
+            }, testTimeout.Token);
+            using (var completedExit = await playerClient.GetAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-exit",
+                testTimeout.Token))
+            {
+                completedExit.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await completedExit.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("complete", body.RootElement.GetProperty("state").GetString());
+                Assert.False(body.RootElement.GetProperty("canExit").GetBoolean());
+                Assert.Equal(4, body.RootElement.GetProperty("members").GetArrayLength());
+                Assert.All(
+                    body.RootElement.GetProperty("members").EnumerateArray(),
+                    member =>
+                    {
+                        Assert.Equal("Released", member.GetProperty("assignmentLifecycle").GetString());
+                        Assert.Equal("Operational", member.GetProperty("fidelity").GetString());
+                        Assert.Equal(64, member.GetProperty("checkpointSha256").GetString()!.Length);
+                    });
+                Assert.Contains(
+                    body.RootElement.GetProperty("unsupportedFields").EnumerateArray(),
+                    item => item.GetString() == "hosted-aircraft-recovery");
+            }
+            using (var duplicateExit = await playerClient.PostAsJsonAsync(
+                $"/player/campaigns/{campaignId}/groups/{tacticalAnchorGroupId}/tactical-exit",
+                new
+                {
+                    expectedGroupRevision = tacticalEntryGroupRevision,
+                    idempotencyKey = tacticalExitKey,
+                },
+                testTimeout.Token))
+            {
+                duplicateExit.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await duplicateExit.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal("complete", body.RootElement.GetProperty("status").GetString());
+                Assert.Equal("complete", body.RootElement.GetProperty("exit").GetProperty("state").GetString());
             }
 
             using (var resumedMove = await playerClient.PostAsync(

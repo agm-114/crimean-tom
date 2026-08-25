@@ -1513,30 +1513,47 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
-        var expectedGameRevision = fence.ResolveExpectedRevisionFromWorker
-            ? stateStore.ReadGameRevision(fence.AssignmentId)
-            : fence.ExpectedEntityRevision;
-        var checkpointResult = await RequireGameCommandAsync(
-            GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
-            JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
-            {
-                Context = Context(fence.AssignmentId, fence.FencedAuthorityEpoch,
-                    expectedGameRevision, $"{fence.IdempotencyKey}-checkpoint"),
-                EntityId = fence.EntityId,
-            }, JsonOptions),
-            cancellationToken);
-        var checkpointBytes = Encoding.UTF8.GetBytes(checkpointResult.ResultJson);
-        var checkpointHash = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
-        await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
-        var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(
-            checkpointResult.ResultJson,
-            JsonOptions) ?? throw new InvalidDataException("Final tactical checkpoint was empty.");
         var assignment = stateStore.ReadAssignment(fence.AssignmentId);
         if (assignment.AuthorityEpoch != fence.FencedAuthorityEpoch
             || !string.Equals(assignment.EntityId, fence.EntityId, StringComparison.Ordinal))
         {
             throw new InvalidDataException("The authority fence does not match the durable assignment baseline.");
         }
+        var expectedGameRevision = fence.ResolveExpectedRevisionFromWorker
+            ? stateStore.ReadGameRevision(fence.AssignmentId)
+            : fence.ExpectedEntityRevision;
+        GameCommandResult checkpointResult;
+        try
+        {
+            checkpointResult = await RequireGameCommandAsync(
+                GameCommandTypes.CaptureOwnedSurfaceCheckpoint,
+                JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+                {
+                    Context = Context(fence.AssignmentId, fence.FencedAuthorityEpoch,
+                        expectedGameRevision, $"{fence.IdempotencyKey}-checkpoint"),
+                    EntityId = fence.EntityId,
+                }, JsonOptions),
+                cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (
+            !string.IsNullOrWhiteSpace(assignment.HostEntityId)
+            && exception.Message.Contains(
+                "No bridge-owned surface record matches the requested entity.",
+                StringComparison.Ordinal))
+        {
+            return await BuildUnsupportedHostedAircraftFenceAsync(
+                fence,
+                assignment,
+                expectedGameRevision,
+                serviceToken,
+                cancellationToken);
+        }
+        var checkpointBytes = Encoding.UTF8.GetBytes(checkpointResult.ResultJson);
+        var checkpointHash = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
+        await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
+        var checkpoint = JsonSerializer.Deserialize<OwnedSurfaceCheckpointPayload>(
+            checkpointResult.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException("Final tactical checkpoint was empty.");
         var unit = checkpoint.Unit;
         if (unit.Latitude is null || unit.Longitude is null || unit.HeadingDegrees is null)
         {
@@ -1582,6 +1599,62 @@ public sealed class CampaignCompanionClient(
                     unit.DamageFractionMilliunits,
                     unit.IsDestroyed),
                 Destroyed = unit.IsDestroyed,
+                CheckpointSha256 = checkpointHash,
+            },
+            new CheckpointPublished
+            {
+                AssignmentId = fence.AssignmentId,
+                EntityId = fence.EntityId,
+                AuthorityEpoch = fence.FencedAuthorityEpoch,
+                EntityRevision = expectedGameRevision,
+                CheckpointSha256 = checkpointHash,
+                CheckpointLength = checkpointBytes.Length,
+            });
+    }
+
+    private async Task<FencePreparation> BuildUnsupportedHostedAircraftFenceAsync(
+        AuthorityFence fence,
+        TacticalAssignment assignment,
+        long expectedGameRevision,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        var checkpointBytes = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            schemaVersion = 1,
+            kind = "hosted-aircraft-final-state-unsupported",
+            assignmentId = fence.AssignmentId,
+            entityId = fence.EntityId,
+            hostEntityId = assignment.HostEntityId,
+            authorityEpoch = fence.FencedAuthorityEpoch,
+            revision = expectedGameRevision,
+            capturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            unsupportedFields = new[]
+            {
+                "hosted-aircraft-final-state",
+                "hosted-aircraft-recovery",
+            },
+        }, JsonOptions);
+        var checkpointHash = Convert.ToHexString(SHA256.HashData(checkpointBytes)).ToLowerInvariant();
+        await UploadCheckpointAsync(checkpointHash, checkpointBytes, serviceToken, cancellationToken);
+        return new FencePreparation(
+            new TacticalEventProposal
+            {
+                EventId = DeterministicId(fence.AssignmentId, fence.IdempotencyKey),
+                IdempotencyKey = fence.IdempotencyKey,
+                AssignmentId = fence.AssignmentId,
+                EntityId = fence.EntityId,
+                AuthorityEpoch = fence.FencedAuthorityEpoch,
+                ExpectedEntityRevision = expectedGameRevision,
+                EffectiveTimeQuanta = fence.EffectiveTimeQuanta,
+                Kind = TacticalEventKind.Checkpoint,
+                LatitudeMicrodegrees = assignment.LatitudeMicrodegrees,
+                LongitudeMicrodegrees = assignment.LongitudeMicrodegrees,
+                HeadingMillidegrees = assignment.HeadingMillidegrees,
+                Telegraph = assignment.Telegraph,
+                FuelMilliunits = assignment.InitialFuelMilliunits,
+                StoresMilliunits = assignment.InitialStoresMilliunits,
+                DamageMilliunits = assignment.InitialDamageMilliunits,
                 CheckpointSha256 = checkpointHash,
             },
             new CheckpointPublished

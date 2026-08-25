@@ -252,6 +252,10 @@ focus, and proxy loading.
 - Confirm stable campaign identity, task-force membership, native type,
   position, fuel, stores, damage, and hosted relationships. A visible model is
   not enough.
+- Use **Leave Sea Power** in the campaign application for a normal tactical
+  return. The application shows `FINALIZING` while the whole island is
+  checkpointed, then keeps the last committed member result and unsupported
+  fields visible. Closing the game process is a recovery test, not normal exit.
 - Ground objects and installations require finalized terrain, a valid land
   sample, and a final bounds check above the surface.
 - Non-local friendlies and known hostile contacts must remain available as map

@@ -291,6 +291,28 @@ app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/tactical-entry", as
         request,
         coordinator,
         cancellationToken));
+app.MapGet("/player/campaigns/{campaignId}/groups/{groupId}/tactical-exit", async (
+    string campaignId,
+    string groupId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await InspectPlayerTacticalExitAsync(
+        campaignId,
+        groupId,
+        coordinator,
+        cancellationToken));
+app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/tactical-exit", async (
+    string campaignId,
+    string groupId,
+    PlayerTacticalExitRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken) =>
+    await RequestPlayerTacticalExitAsync(
+        campaignId,
+        groupId,
+        request,
+        coordinator,
+        cancellationToken));
 app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
 {
     status = "ok",
@@ -922,6 +944,55 @@ static async Task<IResult> RequestPlayerTacticalEntryAsync(
     }
 }
 
+static async Task<IResult> InspectPlayerTacticalExitAsync(
+    string campaignId,
+    string groupId,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Ok(await coordinator.InspectPlayerTacticalExitAsync(
+            new CampaignId(parsed),
+            groupId,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return PlayerConflictResult(exception);
+    }
+}
+
+static async Task<IResult> RequestPlayerTacticalExitAsync(
+    string campaignId,
+    string groupId,
+    PlayerTacticalExitRequest request,
+    CampaignCoordinator coordinator,
+    CancellationToken cancellationToken)
+{
+    if (!Guid.TryParseExact(campaignId, "N", out var parsed))
+    {
+        return Results.BadRequest(new { error = "invalid-campaign-id" });
+    }
+    try
+    {
+        return Results.Accepted(value: await coordinator.RequestPlayerTacticalExitAsync(
+            new CampaignId(parsed),
+            groupId,
+            request.ExpectedGroupRevision,
+            request.IdempotencyKey,
+            cancellationToken));
+    }
+    catch (CampaignStoreConflict exception)
+    {
+        return PlayerConflictResult(exception);
+    }
+}
+
 static IResult PlayerConflictResult(CampaignStoreConflict exception)
 {
     var statusCode = exception.Code == "player-group-forbidden"
@@ -976,5 +1047,9 @@ public sealed record PlayerCancelOrderRequest(
     string IdempotencyKey);
 
 public sealed record PlayerTacticalEntryRequest(
+    long ExpectedGroupRevision,
+    string IdempotencyKey);
+
+public sealed record PlayerTacticalExitRequest(
     long ExpectedGroupRevision,
     string IdempotencyKey);

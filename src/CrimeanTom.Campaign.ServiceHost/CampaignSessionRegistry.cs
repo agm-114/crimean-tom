@@ -175,6 +175,19 @@ public sealed class CampaignSessionRegistry
         }
     }
 
+    public bool TryQueueBatchForClient(
+        string campaignId,
+        string clientInstanceId,
+        IReadOnlyList<ServiceFrame> frames)
+    {
+        lock (_gate)
+        {
+            return _activeByClient.TryGetValue(clientInstanceId, out var session)
+                && string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal)
+                && session.TryQueueBatch(frames);
+        }
+    }
+
     public bool HasSessionsForCampaign(string campaignId)
     {
         lock (_gate)
@@ -300,9 +313,11 @@ public sealed record CampaignBroadcastResult(int MatchedSessionCount, int Queued
 
 public sealed class CampaignCompanionSession
 {
+    private const int OutgoingCapacity = 256;
     private readonly CampaignTacticalLeasePolicy _tacticalLeasePolicy;
     private readonly object _capabilityGate = new();
-    private readonly Channel<ServiceFrame> _outgoing = Channel.CreateBounded<ServiceFrame>(new BoundedChannelOptions(256)
+    private readonly object _outgoingGate = new();
+    private readonly Channel<ServiceFrame> _outgoing = Channel.CreateBounded<ServiceFrame>(new BoundedChannelOptions(OutgoingCapacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
@@ -376,7 +391,36 @@ public sealed class CampaignCompanionSession
     {
         var queued = frame.Clone();
         queued.Sequence = 0;
-        return _outgoing.Writer.TryWrite(queued);
+        lock (_outgoingGate)
+        {
+            return _outgoing.Writer.TryWrite(queued);
+        }
+    }
+
+    public bool TryQueueBatch(IReadOnlyList<ServiceFrame> frames)
+    {
+        if (frames.Count == 0)
+        {
+            return true;
+        }
+        lock (_outgoingGate)
+        {
+            if (frames.Count > OutgoingCapacity - _outgoing.Reader.Count)
+            {
+                return false;
+            }
+            foreach (var frame in frames)
+            {
+                var queued = frame.Clone();
+                queued.Sequence = 0;
+                if (!_outgoing.Writer.TryWrite(queued))
+                {
+                    throw new InvalidOperationException(
+                        "Reserved companion batch capacity became unavailable while queueing.");
+                }
+            }
+            return true;
+        }
     }
 
     public void Observe(CompanionFrame frame)

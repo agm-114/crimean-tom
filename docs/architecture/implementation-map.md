@@ -60,6 +60,13 @@ unrelated entities. Eight seconds without an eligible heartbeat starts a
 reconnect clears it; expiry releases stale authority and falls back to the
 accepted checkpoint or Operational state.
 
+The player campaign API can also quiesce one complete interaction island. It
+queues the island's final-checkpoint fences as one bounded companion batch,
+waits for every member, releases the island together, and exposes the committed
+member result to the campaign application. Final ammunition, sensor, formation,
+hosted-aircraft recovery, launched-weapon, and objective-effect fields remain
+explicitly unsupported.
+
 The bridge can materialize allow-listed owned ship, submarine, and airborne
 helicopter profiles, plus several terrain-gated ground or installation
 profiles. It can register allow-listed helicopters in a bridge-owned ship's

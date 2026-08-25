@@ -125,6 +125,34 @@ type TacticalEntry = {
 
 type TacticalEntryResult = { status: string; batchId: string; entry: TacticalEntry };
 
+type TacticalResultMember = {
+  entityId: string;
+  name: string;
+  lifecycle: string;
+  fidelity: string;
+  damageMilliunits: number;
+  fuelMilliunits: number;
+  storesMilliunits: number;
+  assignmentLifecycle: string;
+  checkpointSha256: string | null;
+};
+
+type TacticalExit = {
+  campaignId: string;
+  groupId: string;
+  groupName: string;
+  groupRevision: number;
+  state: string;
+  message: string;
+  canExit: boolean;
+  batchId: string | null;
+  campaignTimeQuanta: number;
+  members: TacticalResultMember[];
+  unsupportedFields: string[];
+};
+
+type TacticalExitResult = { status: string; exit: TacticalExit };
+
 type PlayerCampaignSummary = {
   campaignId: string;
   name: string;
@@ -251,6 +279,7 @@ let orderGroupId = "";
 let destinationRegionId = "";
 let orderMessage = "SELECT A GROUP AND DESTINATION";
 let tacticalEntry: TacticalEntry | null = null;
+let tacticalExit: TacticalExit | null = null;
 let tacticalLoading = false;
 let tacticalMessage = "SELECT A GROUP TO CHECK SEA POWER";
 let pollHandle: number | undefined;
@@ -479,24 +508,42 @@ function renderTacticalPanel(): void {
   const entry = tacticalEntry?.campaignId === campaign.campaignId && tacticalEntry.groupId === group.groupId
     ? tacticalEntry
     : null;
+  const exit = tacticalExit?.campaignId === campaign.campaignId && tacticalExit.groupId === group.groupId
+    ? tacticalExit
+    : null;
   const currentEntry = entry?.groupRevision === group.revision ? entry : null;
-  byId("tactical-state").textContent = tacticalLoading ? "CHECKING" : (entry?.state ?? "UNCHECKED").toUpperCase();
-  const message = entry?.message ?? tacticalMessage;
+  const currentExit = exit?.groupRevision === group.revision ? exit : null;
+  const tacticalState = currentExit?.state === "active" || currentExit?.state === "leaving"
+    || currentExit?.state === "recovering" || currentExit?.state === "blocked"
+    ? currentExit.state
+    : entry?.state ?? currentExit?.state ?? "unchecked";
+  byId("tactical-state").textContent = tacticalLoading ? "CHECKING" : tacticalState.toUpperCase();
+  const message = currentExit?.state === "active" || currentExit?.state === "leaving"
+    ? currentExit.message
+    : entry?.message ?? currentExit?.message ?? tacticalMessage;
   const members = entry?.members.map(member => `
     <div class="detail-row"><span class="truncate" title="${escapeHtml(member.catalogUnitId)}">${escapeHtml(member.name.toUpperCase())}</span><strong title="${escapeHtml(member.message)}">${escapeHtml(member.status.toUpperCase())}</strong></div>`).join("") ?? "";
   const capacity = entry ? `${entry.supportedMemberCount}/${entry.requiredMemberCount} SUPPORTED // ${entry.availableTacticalCapacity} SLOTS` : "NOT CHECKED";
+  const results = currentExit?.members.map(member => `
+    <div class="detail-row"><span class="truncate">${escapeHtml(member.name.toUpperCase())}</span><strong>${escapeHtml(member.lifecycle.toUpperCase())} // ${Math.round(member.damageMilliunits / 10_000)}% DMG</strong></div>`).join("") ?? "";
+  const unsupported = currentExit?.state === "complete" && currentExit.unsupportedFields.length
+    ? `<div class="mt-1 text-[8px] text-[#626262]">NOT YET RETURNED // ${escapeHtml(currentExit.unsupportedFields.join(", ").toUpperCase())}</div>`
+    : "";
   byId("tactical-panel").innerHTML = `
     <div class="detail-row"><span>GROUP</span><strong>${escapeHtml(group.name.toUpperCase())}</strong></div>
     <div class="detail-row"><span>SEA POWER</span><strong>${entry?.workerConnected ? "CONNECTED" : "NOT CONNECTED"}</strong></div>
     <div class="detail-row"><span>READINESS</span><strong>${escapeHtml(capacity)}</strong></div>
     <div class="mt-1 border-t border-[#252525] pt-1">${members || `<div class="py-1 text-[#626262]">MEMBER SUPPORT HAS NOT BEEN CHECKED</div>`}</div>
-    <div class="mt-2 grid grid-cols-2 gap-1">
+    ${results ? `<div class="mt-1 border-t border-[#252525] pt-1"><div class="metric-label mb-1">LAST COMMITTED RESULT // T+${currentExit?.campaignTimeQuanta}</div>${results}${unsupported}</div>` : ""}
+    <div class="mt-2 grid grid-cols-3 gap-1">
       <button id="refresh-tactical-entry" class="command-cell" ${tacticalLoading ? "disabled" : ""}>CHECK SEA POWER</button>
       <button id="enter-tactical-session" class="command-cell command-cell-primary" ${!currentEntry?.canEnter || tacticalLoading ? "disabled" : ""}>ENTER SEA POWER</button>
+      <button id="exit-tactical-session" class="command-cell" ${!currentExit?.canExit || tacticalLoading ? "disabled" : ""}>${currentExit?.state === "leaving" ? "FINALIZING" : "LEAVE SEA POWER"}</button>
     </div>
     <div class="mt-2 text-[8px] text-[#626262]">${escapeHtml(message.toUpperCase())}</div>`;
   byId<HTMLButtonElement>("refresh-tactical-entry").addEventListener("click", () => void refreshTacticalEntry().catch(showTacticalError));
   byId<HTMLButtonElement>("enter-tactical-session").addEventListener("click", () => void submitTacticalEntry().catch(showTacticalError));
+  byId<HTMLButtonElement>("exit-tactical-session").addEventListener("click", () => void submitTacticalExit().catch(showTacticalError));
 }
 
 async function refreshTacticalEntry(): Promise<void> {
@@ -508,10 +555,40 @@ async function refreshTacticalEntry(): Promise<void> {
   tacticalMessage = "CHECKING SEA POWER READINESS";
   renderTacticalPanel();
   try {
-    const entry = await request<TacticalEntry>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`);
+    const [entry, exit] = await Promise.all([
+      request<TacticalEntry>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`),
+      request<TacticalExit>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-exit`),
+    ]);
     if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
     tacticalEntry = entry;
+    tacticalExit = exit;
     tacticalMessage = entry.message;
+  } finally {
+    tacticalLoading = false;
+    renderTacticalPanel();
+  }
+}
+
+async function submitTacticalExit(): Promise<void> {
+  if (!campaign || tacticalLoading) return;
+  const activeCampaign = campaign;
+  const group = activeCampaign.friendlyGroups.find(item => item.groupId === orderGroupId);
+  const exit = tacticalExit?.campaignId === activeCampaign.campaignId && tacticalExit.groupId === group?.groupId
+    ? tacticalExit
+    : null;
+  if (!group || !exit?.canExit || exit.groupRevision !== group.revision) return;
+  tacticalLoading = true;
+  tacticalMessage = "REQUESTING FINAL TACTICAL CHECKPOINTS";
+  renderTacticalPanel();
+  try {
+    const result = await request<TacticalExitResult>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-exit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedGroupRevision: exit.groupRevision, idempotencyKey: crypto.randomUUID() }),
+    });
+    if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
+    tacticalExit = result.exit;
+    tacticalMessage = result.exit.message;
   } finally {
     tacticalLoading = false;
     renderTacticalPanel();
@@ -603,6 +680,7 @@ async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").valu
     destinationRegionId = "";
     orderMessage = "SELECT A GROUP AND DESTINATION";
     tacticalEntry = null;
+    tacticalExit = null;
     tacticalMessage = "SELECT A GROUP TO CHECK SEA POWER";
   }
   renderCampaign(data);
