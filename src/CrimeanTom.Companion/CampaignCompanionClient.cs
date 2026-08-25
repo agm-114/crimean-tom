@@ -449,8 +449,11 @@ public sealed class CampaignCompanionClient(
 
         using var client = CreateCampaignHttpClient(serviceToken);
         client.Timeout = TimeSpan.FromSeconds(5);
+        // Temporary local validation mode. The service preserves the normal
+        // coalition-filtered projection unless this explicit flag is present.
         using var response = await client.GetAsync(
-            $"/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/projection",
+            $"/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/projection"
+                + "?debugRevealAllEnemies=true",
             cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -520,6 +523,11 @@ public sealed class CampaignCompanionClient(
         var contacts = root.TryGetProperty("contacts", out var contactElement)
             ? contactElement.EnumerateArray().ToArray()
             : [];
+        var debugHostileEntities = root.TryGetProperty(
+                "debugHostileEntities",
+                out var debugHostileElement)
+            ? debugHostileElement.EnumerateArray().ToArray()
+            : [];
 
         SurfaceRenderProxySpecPayload[] proxies = string.IsNullOrWhiteSpace(
                 root.GetProperty("coalitionId").GetString())
@@ -534,10 +542,17 @@ public sealed class CampaignCompanionClient(
                 .Select(entity => CreateRenderProxySpec(entity, capabilities))
                 .Where(spec => spec is not null)
                 .Cast<SurfaceRenderProxySpecPayload>()
-                .Concat(contacts
-                    .Where(contact => !contact.TryGetProperty("isLocallyTactical", out var local)
-                        || !local.GetBoolean())
-                    .Select(CreateContactRenderProxySpec)
+                .Concat((debugHostileEntities.Length > 0
+                        ? debugHostileEntities
+                            .Where(entity => !string.Equals(
+                                entity.GetProperty("lifecycle").GetString(),
+                                "Destroyed",
+                                StringComparison.Ordinal))
+                            .Select(CreateDebugHostileRenderProxySpec)
+                        : contacts
+                            .Where(contact => !contact.TryGetProperty("isLocallyTactical", out var local)
+                                || !local.GetBoolean())
+                            .Select(CreateContactRenderProxySpec))
                     .Where(spec => spec is not null)
                     .Cast<SurfaceRenderProxySpecPayload>())
                 .OrderBy(spec => spec.EntityId, StringComparer.Ordinal)
@@ -809,6 +824,31 @@ public sealed class CampaignCompanionClient(
             SimulationDomain = classification,
             Latitude = contact.GetProperty("latitudeMicrodegrees").GetInt32() / 1_000_000d,
             Longitude = contact.GetProperty("longitudeMicrodegrees").GetInt32() / 1_000_000d,
+        };
+    }
+
+    private static SurfaceRenderProxySpecPayload? CreateDebugHostileRenderProxySpec(JsonElement entity)
+    {
+        var entityId = entity.GetProperty("entityId").GetString() ?? string.Empty;
+        if (!Guid.TryParseExact(entityId, "N", out _))
+        {
+            return null;
+        }
+        var simulationDomain = entity.GetProperty("simulationDomain").GetString() ?? "Unknown";
+        return new SurfaceRenderProxySpecPayload
+        {
+            EntityId = $"contact:crimean-tom:{entityId}",
+            Name = entity.GetProperty("name").GetString() ?? entityId,
+            Relationship = "HostileContact",
+            Classification = simulationDomain,
+            Confidence = "DebugExact",
+            UncertaintyRadiusMeters = 0,
+            Lifecycle = entity.GetProperty("lifecycle").GetString() ?? "Unknown",
+            SimulationDomain = simulationDomain,
+            UnitTypeId = entity.GetProperty("catalogUnitId").GetString() ?? string.Empty,
+            Latitude = entity.GetProperty("latitudeMicrodegrees").GetInt32() / 1_000_000d,
+            Longitude = entity.GetProperty("longitudeMicrodegrees").GetInt32() / 1_000_000d,
+            HeadingDegrees = entity.GetProperty("headingMilliDegrees").GetInt32() / 1_000d,
         };
     }
 

@@ -9,7 +9,8 @@ internal static class CampaignTacticalWorkerProjectionHttp
     public static CampaignTacticalWorkerProjectionView From(
         CampaignState state,
         string clientInstanceId,
-        string? advertisedCoalitionId)
+        string? advertisedCoalitionId,
+        bool debugRevealAllEnemies = false)
     {
         var workerAssignments = state.Assignments.Values
             .Where(item => string.Equals(
@@ -99,6 +100,21 @@ internal static class CampaignTacticalWorkerProjectionHttp
                     localTacticalEntityIds.Contains(item.Key.ContactEntityId)))
                 .OrderBy(item => item.TrackId, StringComparer.Ordinal)
                 .ToArray();
+        var debugHostileEntities = !debugRevealAllEnemies || coalition is null
+            ? []
+            : state.Entities.Values
+                .Where(item => item.CoalitionId != coalition.Value)
+                .OrderBy(item => item.EntityId)
+                .Select(item => new CampaignTacticalDebugHostileEntityView(
+                    item.EntityId.ToString(),
+                    item.Name,
+                    item.CatalogUnitId,
+                    item.SimulationDomain.ToString(),
+                    item.Lifecycle.ToString(),
+                    item.Coordinate.LatitudeMicrodegrees,
+                    item.Coordinate.LongitudeMicrodegrees,
+                    item.Heading.Value))
+                .ToArray();
 
         return new CampaignTacticalWorkerProjectionView(
             state.Metadata.CampaignId.ToString(),
@@ -113,7 +129,8 @@ internal static class CampaignTacticalWorkerProjectionHttp
                 item.Role.ToString(),
                 item.Lifecycle.ToString())).ToArray(),
             friendly,
-            contacts);
+            contacts,
+            debugHostileEntities);
     }
 }
 
@@ -125,7 +142,8 @@ public sealed record CampaignTacticalWorkerProjectionView(
     long Head,
     IReadOnlyList<CampaignTacticalAssignmentView> Assignments,
     IReadOnlyList<CampaignTacticalFriendlyEntityView> FriendlyEntities,
-    IReadOnlyList<CampaignTacticalContactView> Contacts);
+    IReadOnlyList<CampaignTacticalContactView> Contacts,
+    IReadOnlyList<CampaignTacticalDebugHostileEntityView> DebugHostileEntities);
 
 public sealed record CampaignTacticalAssignmentView(
     string AssignmentId,
@@ -157,3 +175,13 @@ public sealed record CampaignTacticalContactView(
     long ObservedAtQuanta,
     long Revision,
     bool IsLocallyTactical);
+
+public sealed record CampaignTacticalDebugHostileEntityView(
+    string EntityId,
+    string Name,
+    string CatalogUnitId,
+    string SimulationDomain,
+    string Lifecycle,
+    int LatitudeMicrodegrees,
+    int LongitudeMicrodegrees,
+    int HeadingMilliDegrees);

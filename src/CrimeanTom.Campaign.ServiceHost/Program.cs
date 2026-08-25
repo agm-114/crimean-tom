@@ -423,6 +423,7 @@ app.MapGet("/campaigns/{campaignId}/projections/{coalitionId}", async (
 app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projection", async (
     string campaignId,
     string clientInstanceId,
+    bool? debugRevealAllEnemies,
     CampaignCoordinator coordinator,
     CampaignSessionRegistry sessions,
     CancellationToken cancellationToken) =>
@@ -438,6 +439,7 @@ app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projecti
             new CampaignId(parsedCampaign),
             parsedClient.ToString("N"),
             sessions.SnapshotForClient(campaignId, parsedClient.ToString("N"))?.PlayerCoalitionId,
+            debugRevealAllEnemies ?? false,
             cancellationToken));
     }
     catch (CampaignStoreConflict exception)

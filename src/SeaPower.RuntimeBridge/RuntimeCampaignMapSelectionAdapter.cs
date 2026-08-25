@@ -64,10 +64,17 @@ internal static class RuntimeCampaignMapSelectionAdapter
         ref bool handled,
         ref HitTestResultBehavior __result)
     {
+        var interactionState = Globals._mainGameViewModel?
+            .Map?
+            .DisplayMap?
+            .InteractionState?
+            .GetType()
+            .FullName;
         if (args is not MouseButtonEventArgs mouse
             || mouse.LeftButton != MouseButtonState.Pressed
-            || Globals._mainGameViewModel?.Map?.DisplayMap?.InteractionState?.GetType().FullName
-                != "SeapowerUI.ViewModels.DefaultInteractionState"
+            || interactionState is not (
+                "SeapowerUI.ViewModels.DefaultInteractionState"
+                or "SeapowerUI.ViewModels.UnitSelectedState")
             || !RuntimeVisualRenderProxyAdapter.TrySelectMapProjection(
                 v,
                 mousePosition,

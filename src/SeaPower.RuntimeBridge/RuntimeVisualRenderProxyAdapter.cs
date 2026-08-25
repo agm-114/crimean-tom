@@ -147,6 +147,10 @@ internal static class RuntimeVisualRenderProxyAdapter
         // passive authored-symbol elements are not returned by that hit test.
         if (hitObject is IMapSelectable)
         {
+            foreach (var record in Records.Values)
+            {
+                record.ClearSelectionAndHideWorldModel();
+            }
             return false;
         }
 
@@ -170,6 +174,10 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         if (nearest is null)
         {
+            foreach (var record in Records.Values)
+            {
+                record.ClearSelectionAndHideWorldModel();
+            }
             return false;
         }
 
@@ -419,8 +427,11 @@ internal static class RuntimeVisualRenderProxyAdapter
             var position = PresentationPosition();
             if (_root is not null)
             {
-                _root.SetActive(true);
-                ApplyWorldTransform(position);
+                _root.SetActive(_selected);
+                if (_selected)
+                {
+                    ApplyWorldTransform(position);
+                }
             }
             EnsureMapAnnotations(position);
         }
@@ -638,7 +649,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             _physicalProxyError = string.Empty;
         }
 
-        private void ClearSelectionAndHideWorldModel()
+        internal void ClearSelectionAndHideWorldModel()
         {
             _selected = false;
             if (_root is not null)

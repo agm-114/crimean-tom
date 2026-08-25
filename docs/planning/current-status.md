@@ -139,6 +139,12 @@ uncertainty, focus, bounded loading feedback, and terrain-safe visual proxies.
 Local and non-local records must be indistinguishable at the map interaction
 level.
 
+For local map debugging, the companion currently asks the operator-only worker
+projection to reveal every live opposing entity as an exact hostile marker.
+This temporary mode replaces approximate contact markers so contacts are not
+drawn twice. The normal worker projection remains coalition-filtered when the
+explicit debug query is absent; remove the debug request before release.
+
 ### 3. Complete tactical return
 
 Commit campaign-owned hostile fate, player damage, fuel, stores, ammunition,

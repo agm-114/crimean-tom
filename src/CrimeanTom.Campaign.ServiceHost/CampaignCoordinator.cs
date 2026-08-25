@@ -1322,6 +1322,7 @@ public sealed class CampaignCoordinator(
         CampaignId campaignId,
         string clientInstanceId,
         string? advertisedCoalitionId,
+        bool debugRevealAllEnemies,
         CancellationToken cancellationToken)
     {
         // The coordinator cache contains immutable states and is replaced only
@@ -1334,14 +1335,16 @@ public sealed class CampaignCoordinator(
             return CampaignTacticalWorkerProjectionHttp.From(
                 cached.State,
                 clientInstanceId,
-                advertisedCoalitionId);
+                advertisedCoalitionId,
+                debugRevealAllEnemies);
         }
 
         var state = await RecoverStateAsync(campaignId, cancellationToken);
         return CampaignTacticalWorkerProjectionHttp.From(
             state,
             clientInstanceId,
-            advertisedCoalitionId);
+            advertisedCoalitionId,
+            debugRevealAllEnemies);
     }
 
     public async Task<CampaignPauseView> PauseAsync(

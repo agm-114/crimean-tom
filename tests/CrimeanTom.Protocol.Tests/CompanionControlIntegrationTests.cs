@@ -983,6 +983,17 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 7,
                 initialWorkerProjection.RootElement.GetProperty("friendlyEntities").GetArrayLength());
+            Assert.Empty(initialWorkerProjection.RootElement
+                .GetProperty("debugHostileEntities").EnumerateArray());
+            using var debugWorkerProjectionResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}/tactical-workers/{projectionClientId}/projection"
+                    + "?debugRevealAllEnemies=true",
+                testTimeout.Token);
+            debugWorkerProjectionResponse.EnsureSuccessStatusCode();
+            using var debugWorkerProjection = JsonDocument.Parse(
+                await debugWorkerProjectionResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            Assert.NotEmpty(debugWorkerProjection.RootElement
+                .GetProperty("debugHostileEntities").EnumerateArray());
             using var activeCampaignResponse = await campaignClient.GetAsync(
                 "/active-campaign",
                 testTimeout.Token);
