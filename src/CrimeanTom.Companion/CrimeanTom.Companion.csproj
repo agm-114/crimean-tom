@@ -23,4 +23,8 @@
     <ProjectReference Include="..\CrimeanTom.LoadAcceleration\CrimeanTom.LoadAcceleration.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrimeanTom.Protocol.Tests" />
+  </ItemGroup>
+
 </Project>

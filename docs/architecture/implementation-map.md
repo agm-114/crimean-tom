@@ -79,10 +79,10 @@ track, estimated classification, and relationship without revealing its
 canonical identity, name, or catalog profile. The companion resolves an
 authored Sea Power task force on the opposing side, and the whole friendly and
 hostile batch shares the same entry, lease, checkpoint, and return fence. This
-path passes the full campaign service story and bridge compilation; it still
-needs live Sea Power qualification. The worker projection marks that contact
-as locally tactical, so proxy reconciliation removes its generic estimate while
-the native hostile object is present.
+path passes the full campaign service story and a live Sea Power run. The worker
+projection marks that contact as locally tactical, so proxy reconciliation
+removes its generic estimate while the native hostile object is present. Live
+exit checkpointed and released all five members together.
 
 The bridge can materialize allow-listed owned ship, submarine, and airborne
 helicopter profiles, plus several terrain-gated ground or installation
@@ -152,8 +152,8 @@ fourth run enters the canonical North Sea group as two native ships plus two
 helicopters in Yorktown's native flight-deck inventory. Their campaign
 identities cross the service, companion, and Runtime Bridge boundary into native
 Formation Manager and Flight Deck labels. Combined surface/submarine entry,
-broader submarine families, combined-arms entry, authored-force replacement,
-and live qualification of the service-proven opposing Krivak remain open.
+broader submarine families, combined-arms entry, and authored-force replacement
+remain open. The opposing Krivak now passes live entry and clean return.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -175,8 +175,8 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | The canonical North Sea group enters as two native ships plus two native onboard helicopters; the service story adds one coalition-known hostile to an opposing task force, but live qualification and replacement of the remaining authored placeholder force are open |
-| Complete tactical round trip | Whole-island return works for supported state fields in the service story; campaign-owned hostile fate and expenditure still need a live battle qualification and broader portable state |
+| Campaign-owned task force | The canonical North Sea island enters as two native ships, two native onboard helicopters, and one coalition-known hostile on the opposing task force; replacement of the remaining authored placeholder force is open |
+| Complete tactical round trip | Live clean return checkpoints and releases all five North Sea members for supported fields; hostile combat fate, expenditure, and broader portable state remain open |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
 | Portable state | Canonical ship-hosted assignment works for two helicopter profiles; fixed-wing aircraft, hosted recovery, broader submarine state, magazines, sensors, and formations are incomplete |
 | Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |

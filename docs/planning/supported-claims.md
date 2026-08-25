@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 18.
+Authenticated `GET /supported-claims` mirrors this document at schema version 19.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -102,13 +102,22 @@ or complete Sea Power parity.
   contained no duplicate stable IDs. The game returned from a bounded x10 deck
   wait to x1 at about 60 FPS, a 16.667 ms fixed step, and internal time dilation
   1.
+- A fresh live full-campaign run prepared the same four friendly North Sea
+  members plus one coalition-confirmed Krivak contact. Sea Power placed Yorktown
+  and Spruance in the player task force, both helicopters in Yorktown's native
+  deck inventory, and the Krivak in the authored Enemy task force. The worker
+  ledger held five owned resources and three world objects, with no duplicate
+  stable IDs or remaining generic hostile proxy. Normal exit checkpointed and
+  released all five assignments together. Sea Power held about 60 FPS, a
+  16.667 ms fixed step, and internal time dilation 1.
 
 This is a narrow ship, single-profile submarine, two-profile airborne
 helicopter, and two-profile hosted-helicopter entry contract. It does not cover
 hosted-aircraft recovery, complete magazines, sensors, formations, fixed-wing
 aircraft, submerged-state portability, broader submarine families, or every
-ground and installation family. The opposing Krivak path is service-qualified,
-not a live Sea Power claim.
+ground and installation family. The opposing Krivak entry and clean supported-
+field return are live-qualified; combat damage and complete expenditure return
+are not.
 
 ## Map and presentation
 

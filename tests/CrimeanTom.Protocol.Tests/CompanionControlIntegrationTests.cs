@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 
 using CrimeanTom.Campaign.Transport.V1;
+using CrimeanTom.Companion;
 using CrimeanTom.LoadAcceleration;
 using CrimeanTom.Protocol;
 
@@ -159,7 +160,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(18, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(19, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -180,6 +181,10 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
                     == "service-qualified-coalition-known-hostile-entry-under-opposing-taskforce-without-player-truth-leakage");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString()
+                    == "live-coalition-known-hostile-entry-on-opposing-taskforce-with-whole-island-return");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
@@ -1657,6 +1662,11 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "taskforce:Blue",
                 world.RootElement.GetProperty("taskforces")[0].GetProperty("id").GetString());
+            Assert.Equal(
+                "taskforce:Red",
+                CampaignCompanionClient.SelectOpposingTaskforce(
+                    CreateWorldSnapshot(),
+                    "taskforce:Blue").Id);
             Assert.Equal(
                 "integration-canonical-sha256",
                 world.RootElement.GetProperty("canonicalSha256").GetString());
@@ -3861,6 +3871,19 @@ public sealed class CompanionControlIntegrationTests
                     Side = "Player",
                     Nation = "us",
                     UnitIds = ["unit:42"],
+                },
+                new TaskforceSnapshotPayload
+                {
+                    Id = "taskforce:Neutral",
+                    MissionName = "Neutral",
+                    Side = "Neutral",
+                },
+                new TaskforceSnapshotPayload
+                {
+                    Id = "taskforce:Red",
+                    MissionName = "Red",
+                    Side = "Enemy",
+                    Nation = "soviet",
                 },
             ],
             Units =

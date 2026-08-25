@@ -1324,8 +1324,15 @@ public sealed class CampaignCompanionClient(
             cancellationToken);
         var world = JsonSerializer.Deserialize<WorldSnapshotPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Sea Power world inspection was empty.");
+        return SelectOpposingTaskforce(world, capabilities.PlayerTaskforceId).Id;
+    }
+
+    internal static TaskforceSnapshotPayload SelectOpposingTaskforce(
+        WorldSnapshotPayload world,
+        string playerTaskforceId)
+    {
         var player = world.Taskforces.SingleOrDefault(item =>
-            string.Equals(item.Id, capabilities.PlayerTaskforceId, StringComparison.Ordinal));
+            string.Equals(item.Id, playerTaskforceId, StringComparison.Ordinal));
         if (player is null || string.IsNullOrWhiteSpace(player.Side))
         {
             throw new InvalidOperationException("Sea Power did not report the current player task-force side.");
@@ -1334,10 +1341,11 @@ public sealed class CampaignCompanionClient(
             .Where(item => !item.IsPlayerControlled
                 && !string.IsNullOrWhiteSpace(item.Id)
                 && !string.IsNullOrWhiteSpace(item.Side)
+                && !string.Equals(item.Side, "Neutral", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(item.Side, player.Side, StringComparison.OrdinalIgnoreCase))
             .OrderBy(item => item.Id, StringComparer.Ordinal)
             .FirstOrDefault();
-        return opposing?.Id ?? throw new InvalidOperationException(
+        return opposing ?? throw new InvalidOperationException(
             "The tactical mission has no authored opposing task force for a campaign hostile.");
     }
 

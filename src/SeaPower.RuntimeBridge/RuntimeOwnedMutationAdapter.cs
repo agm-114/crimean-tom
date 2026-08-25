@@ -2394,6 +2394,10 @@ internal static class RuntimeOwnedMutationAdapter
         }
         return string.Equals(relationship, "Hostile", StringComparison.Ordinal)
             && taskforce != player
+            && !string.Equals(
+                taskforce.Side.ToString(),
+                "Neutral",
+                StringComparison.OrdinalIgnoreCase)
             && taskforce.Side != player.Side;
     }
 
