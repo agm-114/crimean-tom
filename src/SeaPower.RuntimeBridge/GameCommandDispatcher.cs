@@ -18,6 +18,11 @@ internal static partial class GameCommandDispatcher
     private const string ScreenshotFileName = "_CrimeanTomScreenshot.png";
     private static Action? _deferredAction;
     private static Action? _endOfFrameAction;
+    private static readonly object UiAutomationReplayGate = new();
+    private static readonly Dictionary<string, UiAutomationReplayRecord> UiAutomationReplays =
+        new(StringComparer.Ordinal);
+    private static readonly Queue<string> UiAutomationReplayOrder = new();
+    private const int MaximumUiAutomationReplayCount = 128;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -99,6 +104,8 @@ internal static partial class GameCommandDispatcher
                         Success(CaptureOwnedTacticalResourceState()),
                     GameCommandTypes.GetSurfaceRenderProxyState =>
                         Success(RuntimeRenderProxyProvider.Capture()),
+                    GameCommandTypes.GetSelectedSurfaceRenderProxy =>
+                        Success(RuntimeRenderProxyProvider.CaptureSelected()),
                     GameCommandTypes.GetUnitCatalogPage => Success(GetUnitCatalogPage(
                         command.PayloadJson,
                         fileFingerprintProvider)),
@@ -1084,6 +1091,32 @@ internal static partial class GameCommandDispatcher
                 ProtocolErrorCodes.InvalidMessage,
                 "A normalized scenario ID is required.");
         }
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey)
+            || request.IdempotencyKey.Length > 128)
+        {
+            return Failure(
+                ProtocolErrorCodes.InvalidMessage,
+                "An idempotency key containing 1 to 128 characters is required.");
+        }
+
+        var replayKey = string.Join(
+            "\n",
+            GameCommandTypes.StartScenario,
+            request.IdempotencyKey);
+        lock (UiAutomationReplayGate)
+        {
+            if (UiAutomationReplays.TryGetValue(replayKey, out var prior))
+            {
+                if (!string.Equals(prior.SemanticPayload, requestedId, StringComparison.Ordinal))
+                {
+                    return Failure(
+                        ProtocolErrorCodes.IdempotencyConflict,
+                        "The idempotency key was already used for a different scenario.");
+                }
+
+                return Success(CloneUiAutomationReplay(prior.Result));
+            }
+        }
         if (!Singleton<MenuSystemViewModel>.InstanceExists())
         {
             return Failure(
@@ -1141,13 +1174,15 @@ internal static partial class GameCommandDispatcher
                 "The scenario load command ran without selecting the requested mission path.");
         }
 
-        return Success(new UiAutomationActionResultPayload
+        var completed = new UiAutomationActionResultPayload
         {
             Action = GameCommandTypes.StartScenario,
             Outcome = "completed",
             Postcondition = "scenario-load-requested",
             Scenario = after,
-        });
+        };
+        RememberUiAutomationReplay(replayKey, requestedId, completed);
+        return Success(completed);
     }
 
     private static CommandResponsePayload StartPortOperations()
@@ -1511,6 +1546,12 @@ internal static partial class GameCommandDispatcher
             request.LoadoutId)
             ? RuntimeOwnedLandMutationAdapter.MaterializeLegacy(request, commandSessionId)
             : RuntimeOwnedMutationAdapter.Materialize(request, commandSessionId);
+        if (result.Succeeded
+            && result.Payload?.DryRun != true
+            && result.Payload?.RealizedUnit is not null)
+        {
+            RuntimeRenderProxyProvider.SuppressForOwnedEntity(request.EntityId);
+        }
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1554,6 +1595,12 @@ internal static partial class GameCommandDispatcher
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new MaterializeOwnedLandUnitRequestPayload();
         var result = RuntimeOwnedLandMutationAdapter.Materialize(request, commandSessionId);
+        if (result.Succeeded
+            && result.Payload?.DryRun != true
+            && result.Payload?.RealizedUnit is not null)
+        {
+            RuntimeRenderProxyProvider.SuppressForOwnedEntity(request.EntityId);
+        }
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1653,9 +1700,13 @@ internal static partial class GameCommandDispatcher
         string payloadJson,
         string commandSessionId)
     {
+        var parseTimer = Stopwatch.StartNew();
         var request = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesRequestPayload>(
             payloadJson,
             JsonOptions) ?? new ReconcileSurfaceRenderProxiesRequestPayload();
+        parseTimer.Stop();
+        RuntimeRenderProxyProvider.RecordProjectionParse(
+            Math.Max(0, (long)Math.Ceiling(parseTimer.Elapsed.TotalMilliseconds * 1_000d)));
         var result = RuntimeRenderProxyProvider.Reconcile(request, commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
@@ -1855,9 +1906,12 @@ internal static partial class GameCommandDispatcher
                 || string.Equals($"object:{item.UniqueID}", requestedId, StringComparison.Ordinal))
             .ToArray();
         string? proxyRequestError = null;
+        var proxyRequestAccepted = false;
         if (matches.Length == 0
             && !RuntimeRenderProxyProvider.TryResolveVisiblePivot(requestedId, out _)
-            && !RuntimeRenderProxyProvider.TryRequestPhysicalProxy(requestedId, out proxyRequestError))
+            && !(proxyRequestAccepted = RuntimeRenderProxyProvider.TryRequestPhysicalProxy(
+                requestedId,
+                out proxyRequestError)))
         {
             proxyRequestError = string.IsNullOrWhiteSpace(proxyRequestError)
                 ? "the campaign map projection could not create a physical visual proxy"
@@ -1884,6 +1938,16 @@ internal static partial class GameCommandDispatcher
                 Scenario = GetScenarioAutomationState(),
             });
         }
+        if (matches.Length == 0 && proxyRequestAccepted)
+        {
+            return Success(new UiAutomationActionResultPayload
+            {
+                Action = GameCommandTypes.FocusCameraOnUnit,
+                Outcome = "accepted",
+                Postcondition = "visual-render-proxy-focus-request-accepted",
+                Scenario = GetScenarioAutomationState(),
+            });
+        }
         if (matches.Length != 1)
         {
             return Failure(
@@ -1895,39 +1959,27 @@ internal static partial class GameCommandDispatcher
         }
 
         var target = matches[0];
-        var preparedLandTerrain = false;
-        var resumeAfterLandFocus = target is LandUnit && !GameTime.IsPaused();
-        if (resumeAfterLandFocus)
+        var preparedTargetLocation = false;
+        var position = target.getGeoPosition();
+        var preparation = RuntimeTacticalLocationAdapter.PrepareForLocalMapSelection(
+            position._latitude,
+            position._longitude);
+        if (!preparation.Succeeded)
         {
-            GameTime.Pause();
+            return Failure(
+                preparation.ErrorCode,
+                $"Camera focus could not prepare the target tactical window: {preparation.ErrorMessage}",
+                preparation.ErrorId);
         }
-        try
+        if (target is LandUnit && preparation.Payload?.Terrain.PlacementReady != true)
         {
-            if (target is LandUnit)
-            {
-                var position = target.getGeoPosition();
-                var preparation = RuntimeTacticalLocationAdapter.Prepare(new()
-                {
-                    SessionId = commandSessionId,
-                    Latitude = position._latitude,
-                    Longitude = position._longitude,
-                }, commandSessionId);
-                if (!preparation.Succeeded)
-                {
-                    return Failure(
-                        preparation.ErrorCode,
-                        $"Land camera focus could not prepare the target terrain window: {preparation.ErrorMessage}",
-                        preparation.ErrorId);
-                }
-                if (preparation.Payload?.Terrain.PlacementReady != true)
-                {
-                    return Failure(
-                        ProtocolErrorCodes.AutomationPreconditionFailed,
-                        "Land camera focus relocated the tactical window, but target terrain is still streaming; retry focus after terrain finalizes.");
-                }
-                preparedLandTerrain = true;
-            }
+            return Failure(
+                ProtocolErrorCodes.AutomationPreconditionFailed,
+                "Land camera focus relocated the tactical window, but target terrain is still streaming; retry focus after terrain finalizes.");
+        }
+        preparedTargetLocation = preparation.Payload?.Relocated == true;
 
+        {
             var nativeRenderPosition = Singleton<RenderPosition>.Instance;
             nativeRenderPosition.switchToObject(
                 target,
@@ -1967,20 +2019,13 @@ internal static partial class GameCommandDispatcher
                     0f);
             }
         }
-        finally
-        {
-            if (resumeAfterLandFocus && GameTime.IsPaused())
-            {
-                GameTime.UnPause();
-            }
-        }
 
         return Success(new UiAutomationActionResultPayload
         {
             Action = GameCommandTypes.FocusCameraOnUnit,
             Outcome = "completed",
-            Postcondition = preparedLandTerrain
-                ? "camera-focused-on-land-unit-with-terrain-window-prepared"
+            Postcondition = preparedTargetLocation
+                ? "camera-focused-on-unit-with-tactical-origin-relocated"
                 : "camera-focused-on-unit",
             Scenario = GetScenarioAutomationState(),
         });
@@ -2748,6 +2793,45 @@ internal static partial class GameCommandDispatcher
     {
         return double.IsNaN(value) || double.IsInfinity(value) ? null : value;
     }
+
+    private static void RememberUiAutomationReplay(
+        string replayKey,
+        string semanticPayload,
+        UiAutomationActionResultPayload result)
+    {
+        lock (UiAutomationReplayGate)
+        {
+            var isNew = !UiAutomationReplays.ContainsKey(replayKey);
+            while (isNew
+                && UiAutomationReplays.Count >= MaximumUiAutomationReplayCount
+                && UiAutomationReplayOrder.Count > 0)
+            {
+                UiAutomationReplays.Remove(UiAutomationReplayOrder.Dequeue());
+            }
+            UiAutomationReplays[replayKey] = new(semanticPayload, result);
+            if (isNew)
+            {
+                UiAutomationReplayOrder.Enqueue(replayKey);
+            }
+        }
+    }
+
+    private static UiAutomationActionResultPayload CloneUiAutomationReplay(
+        UiAutomationActionResultPayload source) => new()
+    {
+        SchemaVersion = source.SchemaVersion,
+        Action = source.Action,
+        Outcome = source.Outcome,
+        Postcondition = source.Postcondition,
+        IdempotentReplay = true,
+        CampaignPath = source.CampaignPath,
+        Campaign = source.Campaign,
+        Scenario = source.Scenario,
+    };
+
+    private sealed record UiAutomationReplayRecord(
+        string SemanticPayload,
+        UiAutomationActionResultPayload Result);
 
     private static CommandResponsePayload Success<T>(T payload)
     {

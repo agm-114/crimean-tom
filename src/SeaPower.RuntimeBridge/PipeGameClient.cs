@@ -23,6 +23,7 @@ internal sealed class PipeGameClient : IDisposable
         ProtocolConstants.MaximumGameOutboundQueue);
     private readonly CancellationTokenSource _stopping = new();
     private NamedPipeClientStream? _activePipe;
+    private string? _activeSessionId;
     private Task? _backgroundTask;
 
     public PipeGameClient(
@@ -56,6 +57,24 @@ internal sealed class PipeGameClient : IDisposable
         _log("[Sea Power Runtime Bridge] outbound pipe queue is full; reconnecting instead of dropping a response", true);
         _activePipe?.Dispose();
         return false;
+    }
+
+    public bool SendEvent(string eventType, string payloadJson, int priority)
+    {
+        var sessionId = _activeSessionId;
+        if (string.IsNullOrEmpty(sessionId) || !CommandPriorities.IsDefined(priority))
+        {
+            return false;
+        }
+        return Send(new WireEnvelope
+        {
+            Kind = MessageKinds.Event,
+            MessageId = Guid.NewGuid().ToString("N"),
+            SessionId = sessionId,
+            MessageType = eventType,
+            PayloadJson = payloadJson,
+            Priority = priority,
+        });
     }
 
     public void Dispose()
@@ -92,6 +111,7 @@ internal sealed class PipeGameClient : IDisposable
                 await pipe.ConnectAsync(2_000, stoppingToken).ConfigureAwait(false);
 
                 sessionId = await PerformHandshakeAsync(pipe, stoppingToken).ConfigureAwait(false);
+                _activeSessionId = sessionId;
                 _log($"[Sea Power Runtime Bridge] companion accepted pipe session {sessionId}", false);
 
                 using var sessionStopping = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -124,6 +144,7 @@ internal sealed class PipeGameClient : IDisposable
             finally
             {
                 _activePipe = null;
+                _activeSessionId = null;
                 if (sessionId is not null)
                 {
                     var droppedResponses = _outbound.RemoveSession(sessionId);

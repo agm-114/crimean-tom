@@ -52,20 +52,9 @@ internal static class RuntimeOwnedLandMutationAdapter
 
     public static void EndSession(string sessionId)
     {
-        foreach (var key in IdempotencyRecords
-                     .Where(pair => pair.Value.SessionId == sessionId)
-                     .Select(pair => pair.Key)
-                     .ToArray())
-        {
-            IdempotencyRecords.Remove(key);
-        }
-        foreach (var key in LifecycleIdempotencyRecords
-                     .Where(pair => pair.Value.SessionId == sessionId)
-                     .Select(pair => pair.Key)
-                     .ToArray())
-        {
-            LifecycleIdempotencyRecords.Remove(key);
-        }
+        // A pipe session is transport identity, not mutation identity. Keep
+        // effect-keyed replay records across reconnects; owned-record release
+        // is the lifecycle boundary that may evict them.
     }
 
     public static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> MaterializeLegacy(
@@ -170,6 +159,8 @@ internal static class RuntimeOwnedLandMutationAdapter
                     LifecycleState = lifecycle,
                     HasCheckpoint = record.Checkpoint is not null,
                     RecoveryRequired = record.RecoveryRequired,
+                    NativeInitialized = RuntimeNativeUnitReadiness.IsInitialized(landUnit),
+                    AcceptsPlayerOrders = RuntimeNativeUnitReadiness.AcceptsPlayerOrders(landUnit),
                     GameUniqueId = landUnit == null ? null : landUnit.UniqueID,
                 };
             })
@@ -202,7 +193,7 @@ internal static class RuntimeOwnedLandMutationAdapter
             return validation;
         }
 
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, request.Context);
         var idempotencyKey = string.Join(
             "|",
             request.Context.AssignmentId,
@@ -1263,7 +1254,7 @@ internal static class RuntimeOwnedLandMutationAdapter
         {
             return false;
         }
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, context);
         if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
         {
             replay = MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -1287,8 +1278,29 @@ internal static class RuntimeOwnedLandMutationAdapter
             LifecycleKey(command, context),
             new(
                 commandSessionId,
-                JsonSerializer.Serialize(request, JsonOptions),
+                IdempotencyRequestJson(request, context),
                 CloneLifecycle(result)));
+
+    private static string IdempotencyRequestJson<T>(
+        T request,
+        OwnedMutationContextPayload? context)
+    {
+        if (context is null)
+        {
+            return JsonSerializer.Serialize(request, JsonOptions);
+        }
+
+        var sessionId = context.SessionId;
+        try
+        {
+            context.SessionId = string.Empty;
+            return JsonSerializer.Serialize(request, JsonOptions);
+        }
+        finally
+        {
+            context.SessionId = sessionId;
+        }
+    }
 
     private static string LifecycleKey(string command, OwnedMutationContextPayload context) =>
         string.Join("|", command, context.AssignmentId, context.IdempotencyKey);

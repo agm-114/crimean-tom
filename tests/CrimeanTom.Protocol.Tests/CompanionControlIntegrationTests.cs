@@ -31,6 +31,7 @@ public sealed class CompanionControlIntegrationTests
         {
             ["CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA"] = MigrationCooldownEnvironmentValue,
             ["CRIMEAN_TOM_TACTICAL_LEASE_GRACE_MS"] = "2000",
+            ["CRIMEAN_TOM_ALLOW_DEBUG_REVEAL_ALL_ENEMIES"] = "true",
         };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -49,7 +50,7 @@ public sealed class CompanionControlIntegrationTests
         // The full-catalog 4,096-entity bootstrap intentionally exercises the
         // current per-record durability path; keep the broad story bounded but
         // allow enough time to expose its measured cost on local hardware.
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(600));
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(900));
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
         var runDirectory = CreateTemporaryDirectory();
@@ -293,21 +294,21 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(1, fuldaBootstrap.RootElement.GetProperty("forceMultiplier").GetInt32());
             Assert.Equal(55, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
             Assert.Equal(81, fuldaBootstrap.RootElement.GetProperty("baseCount").GetInt32());
-            Assert.Equal(4_096, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(919, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
-            Assert.Equal(740, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
-            Assert.Equal(1_329, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
+            Assert.Equal(4_161, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
+            Assert.Equal(1_229, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
+            Assert.Equal(934, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
+            Assert.Equal(1_393, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
             Assert.Equal(491, fuldaBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
             Assert.Equal(149, fuldaBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
-            Assert.Equal(399, fuldaBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
+            Assert.Equal(400, fuldaBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
             Assert.Equal(1_728, fuldaBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
             Assert.Equal(984, fuldaBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
             Assert.Equal(654, fuldaBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
             Assert.Equal(90, fuldaBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
             Assert.Equal(158, fuldaBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
             Assert.Equal(838, fuldaBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
-            Assert.Equal(325, fuldaBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
-            Assert.Equal(4_006, fuldaBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
+            Assert.Equal(324, fuldaBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
+            Assert.Equal(4_071, fuldaBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
 
             var boundedCampaignId = Guid.Parse("10000000-0000-0000-0000-000000000006").ToString("N");
             using var createdBoundedCampaign = await campaignClient.PostAsJsonAsync(
@@ -329,20 +330,20 @@ public sealed class CompanionControlIntegrationTests
             using var boundedBootstrap = JsonDocument.Parse(
                 await boundedBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(500, boundedBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(369, boundedBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
-            Assert.Equal(286, boundedBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
-            Assert.Equal(160, boundedBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
-            Assert.Equal(63, boundedBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
-            Assert.Equal(15, boundedBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
-            Assert.Equal(49, boundedBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
-            Assert.Equal(213, boundedBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
-            Assert.Equal(128, boundedBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
-            Assert.Equal(69, boundedBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
-            Assert.Equal(16, boundedBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
-            Assert.Equal(21, boundedBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
-            Assert.Equal(92, boundedBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
-            Assert.Equal(40, boundedBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
-            Assert.Equal(484, boundedBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
+            Assert.Equal(148, boundedBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
+            Assert.Equal(119, boundedBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
+            Assert.Equal(198, boundedBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
+            Assert.Equal(75, boundedBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
+            Assert.Equal(25, boundedBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
+            Assert.Equal(42, boundedBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
+            Assert.Equal(160, boundedBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
+            Assert.Equal(95, boundedBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
+            Assert.Equal(57, boundedBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
+            Assert.Equal(8, boundedBootstrap.RootElement.GetProperty("abstractLandFormationCount").GetInt32());
+            Assert.Equal(23, boundedBootstrap.RootElement.GetProperty("civilianTrafficCount").GetInt32());
+            Assert.Equal(72, boundedBootstrap.RootElement.GetProperty("fixedSiteCount").GetInt32());
+            Assert.Equal(38, boundedBootstrap.RootElement.GetProperty("residentStrategicSystemCount").GetInt32());
+            Assert.Equal(492, boundedBootstrap.RootElement.GetProperty("tacticalEligibleEntityCount").GetInt32());
             using var boundedViewResponse = await campaignClient.GetAsync(
                 $"/campaigns/{boundedCampaignId}",
                 testTimeout.Token);
@@ -355,9 +356,19 @@ public sealed class CompanionControlIntegrationTests
                 .ToHashSet(StringComparer.Ordinal);
             Assert.Equal(500, boundedEntities.Length);
             Assert.Equal(
-                12,
+                16,
                 boundedEntities.Count(item =>
                     item.GetProperty("catalogUnitId").GetString() == "usn_ff_knox_84"));
+            Assert.All(
+                boundedView.RootElement.GetProperty("groups").EnumerateArray()
+                    .Where(group => group.GetProperty("name").GetString() is { } name
+                        && (name.Contains("carriers task group", StringComparison.Ordinal)
+                            || name.Contains("aviation cruiser task group", StringComparison.Ordinal)
+                            || name.Contains("battleship task group", StringComparison.Ordinal))),
+                group => Assert.InRange(
+                    group.GetProperty("memberEntityIds").GetArrayLength(),
+                    4,
+                    5));
             Assert.All(
                 boundedView.RootElement.GetProperty("groups").EnumerateArray(),
                 group => Assert.All(
@@ -374,7 +385,7 @@ public sealed class CompanionControlIntegrationTests
             using var fuldaView = JsonDocument.Parse(
                 await fuldaViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
             var fuldaEntities = fuldaView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
-            Assert.Equal(4_096, fuldaEntities.Length);
+            Assert.Equal(4_161, fuldaEntities.Length);
             var tacticalDemoGroup = Assert.Single(
                 fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
                 item => item.GetProperty("memberEntityIds").EnumerateArray()
@@ -393,9 +404,14 @@ public sealed class CompanionControlIntegrationTests
             var fuldaCatalogUnitIds = fuldaEntities
                 .Select(item => item.GetProperty("catalogUnitId").GetString()!)
                 .ToHashSet(StringComparer.Ordinal);
+            var fuldaEntitiesById = fuldaEntities.ToDictionary(
+                item => item.GetProperty("entityId").GetString()!,
+                StringComparer.Ordinal);
             Assert.Contains("USS America 001", fuldaEntityNames);
             Assert.Contains("USS Enterprise 001", fuldaEntityNames);
-            Assert.Contains("Soviet Orel 002", fuldaEntityNames);
+            Assert.Contains(
+                fuldaEntities,
+                item => item.GetProperty("catalogUnitId").GetString() == "wp_cv_orel");
             Assert.Contains("USS Iowa 001", fuldaEntityNames);
             Assert.Contains("USS Alaska 001", fuldaEntityNames);
             Assert.Contains("USN SH-2F 003", fuldaEntityNames);
@@ -412,6 +428,38 @@ public sealed class CompanionControlIntegrationTests
             Assert.Contains("jsdf_mbt_type74", fuldaCatalogUnitIds);
             Assert.Contains("pla_apc_type63", fuldaCatalogUnitIds);
             Assert.Contains("wp_p-14_radar", fuldaCatalogUnitIds);
+            var america = Assert.Single(
+                fuldaEntities,
+                item => item.GetProperty("name").GetString() == "USS America 001");
+            var americaGroup = Assert.Single(
+                fuldaView.RootElement.GetProperty("groups").EnumerateArray(),
+                group => group.GetProperty("memberEntityIds").EnumerateArray()
+                    .Any(member => member.GetString() == america.GetProperty("entityId").GetString()));
+            var americaGroupMembers = americaGroup.GetProperty("memberEntityIds")
+                .EnumerateArray()
+                .Select(member => fuldaEntitiesById[member.GetString()!])
+                .ToArray();
+            Assert.Equal(5, americaGroupMembers.Length);
+            Assert.Equal(
+                new[]
+                {
+                    "usn_aoe_sacramento",
+                    "usn_cg_ticonderoga",
+                    "usn_cv_america_79",
+                    "usn_dd_spruance",
+                    "usn_ff_knox_84",
+                },
+                americaGroupMembers
+                    .Select(item => item.GetProperty("catalogUnitId").GetString()!)
+                    .Order(StringComparer.Ordinal));
+            Assert.Equal(
+                5,
+                americaGroupMembers
+                    .Select(item => (
+                        item.GetProperty("latitudeMicrodegrees").GetInt32(),
+                        item.GetProperty("longitudeMicrodegrees").GetInt32()))
+                    .Distinct()
+                    .Count());
             Assert.Equal(
                 542,
                 fuldaEntities
@@ -455,7 +503,7 @@ public sealed class CompanionControlIntegrationTests
                 .EnumerateArray().ToArray();
             var coalitionStrategies = advancedFuldaView.RootElement.GetProperty("coalitionStrategies")
                 .EnumerateArray().ToArray();
-            Assert.Equal(919, groupCommitments.Length);
+            Assert.Equal(1_229, groupCommitments.Length);
             Assert.All(groupCommitments, item => Assert.NotNull(item.GetProperty("objectiveId").GetString()));
             Assert.Equal(2, coalitionStrategies.Length);
             Assert.Contains(strategicObjectives, item =>
@@ -1157,20 +1205,33 @@ public sealed class CompanionControlIntegrationTests
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
             var renderProxyRequest = await tacticalCheckpointState.WaitForRenderProxyCountAsync(
-                6,
+                7,
                 testTimeout.Token);
             Assert.Equal(campaignId, renderProxyRequest.CampaignId);
             Assert.Equal("taskforce:Blue", renderProxyRequest.TaskforceId);
+            Assert.True(renderProxyRequest.ProjectionGeneration > 0);
+            Assert.True(renderProxyRequest.ProjectionRevision > 0);
             Assert.DoesNotContain(
                 renderProxyRequest.Proxies,
                 item => item.EntityId == gameEntityId);
-            Assert.All(renderProxyRequest.Proxies, item =>
+            var friendlyRenderProxies = renderProxyRequest.Proxies
+                .Where(item => item.Relationship == "Friendly")
+                .ToArray();
+            Assert.Equal(6, friendlyRenderProxies.Length);
+            Assert.All(friendlyRenderProxies, item =>
             {
                 Assert.StartsWith("unit:crimean-tom:", item.EntityId, StringComparison.Ordinal);
                 Assert.Equal("usn_ff_knox_84", item.UnitTypeId);
                 Assert.Equal("Variant43", item.VariantId);
                 Assert.Equal("Default", item.LoadoutId);
             });
+            var hostileRenderProxy = Assert.Single(
+                renderProxyRequest.Proxies,
+                item => item.Relationship == "HostileContact");
+            Assert.StartsWith(
+                "contact:crimean-tom:",
+                hostileRenderProxy.EntityId,
+                StringComparison.Ordinal);
             var activeEntities = activeCampaign.RootElement.GetProperty("entities").EnumerateArray().ToArray();
             await ProveShadowDestinationPreparationAsync(
                 campaignClient,
@@ -1952,6 +2013,7 @@ public sealed class CompanionControlIntegrationTests
                 JsonSerializer.Serialize(new StartScenarioRequestPayload
                 {
                     ScenarioId = "scenario:missions/intro/integration",
+                    IdempotencyKey = "integration-start-scenario",
                 }, JsonOptions),
                 testTimeout.Token);
             Assert.Equal(
@@ -3305,6 +3367,12 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.GetSurfaceRenderProxyState => JsonSerializer.Serialize(
                     tacticalCheckpointState.CaptureRenderProxies(),
                     JsonOptions),
+                GameCommandTypes.GetSelectedSurfaceRenderProxy => JsonSerializer.Serialize(
+                    new SelectedSurfaceRenderProxyPayload
+                    {
+                        HasSelection = false,
+                    },
+                    JsonOptions),
                 GameCommandTypes.ReconcileSurfaceRenderProxies => JsonSerializer.Serialize(
                     tacticalCheckpointState.ReconcileRenderProxies(command.PayloadJson),
                     JsonOptions),
@@ -3482,6 +3550,12 @@ public sealed class CompanionControlIntegrationTests
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
                     CreateOwnedSurfaceCheckpoint(command.PayloadJson),
                     JsonOptions),
+                GameCommandTypes.GetSelectedSurfaceRenderProxy => JsonSerializer.Serialize(
+                    new SelectedSurfaceRenderProxyPayload
+                    {
+                        HasSelection = false,
+                    },
+                    JsonOptions),
                 GameCommandTypes.ReconcileSurfaceRenderProxies =>
                     CreateCrashPeerRenderProxyReconciliation(command.PayloadJson),
                 _ => throw new InvalidOperationException(
@@ -3550,6 +3624,10 @@ public sealed class CompanionControlIntegrationTests
             Postcondition =
                 "friendly-campaign-render-proxies-visible-without-simulation-authority",
             CampaignId = request.CampaignId,
+            AcceptedProjectionGeneration = request.ProjectionGeneration,
+            AcceptedProjectionRevision = request.ProjectionRevision,
+            AppliedProjectionGeneration = request.ProjectionGeneration,
+            AppliedProjectionRevision = request.ProjectionRevision,
             RequestedCount = request.Proxies.Length,
         }, JsonOptions);
     }
@@ -3713,12 +3791,16 @@ public sealed class CompanionControlIntegrationTests
                 Postcondition =
                     "friendly-campaign-render-proxies-visible-without-simulation-authority",
                 CampaignId = request.CampaignId,
+                AcceptedProjectionGeneration = request.ProjectionGeneration,
+                AcceptedProjectionRevision = request.ProjectionRevision,
+                AppliedProjectionGeneration = request.ProjectionGeneration,
+                AppliedProjectionRevision = request.ProjectionRevision,
                 RequestedCount = request.Proxies.Length,
                 CreatedCount = request.Proxies.Length,
                 Proxies = request.Proxies.Select(item => new SurfaceRenderProxyStatePayload
                 {
                     EntityId = item.EntityId,
-                    StableUnitId = $"campaign-unit:render-proxy:{request.CampaignId}:{item.EntityId}",
+                    StableUnitId = $"campaign-unit:{item.EntityId}",
                     GameUniqueId = null,
                     IsVisible = true,
                     IsSimulated = false,
@@ -3744,11 +3826,12 @@ public sealed class CompanionControlIntegrationTests
                 {
                     RepresentationProvider = "visual-only-preferred",
                     CapturedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    AppliedProjectionGeneration = request.ProjectionGeneration,
+                    AppliedProjectionRevision = request.ProjectionRevision,
                     Proxies = request.Proxies.Select(item => new SurfaceRenderProxyStatePayload
                     {
                         EntityId = item.EntityId,
-                        StableUnitId =
-                            $"campaign-unit:render-proxy:{request.CampaignId}:{item.EntityId}",
+                        StableUnitId = $"campaign-unit:{item.EntityId}",
                         IsVisible = true,
                         IsSimulated = false,
                         RepresentationKind = "visual-model-and-map-annotation",
@@ -4133,6 +4216,7 @@ public sealed class CompanionControlIntegrationTests
                 payloadJson,
                 JsonOptions)!;
             Assert.Equal("scenario:missions/intro/integration", request.ScenarioId);
+            Assert.Equal("integration-start-scenario", request.IdempotencyKey);
         }
 
         return new UiAutomationActionResultPayload
@@ -6674,6 +6758,8 @@ public sealed class CompanionControlIntegrationTests
                     AuthorityEpoch = pair.Value.AuthorityEpoch,
                     Revision = pair.Value.Revision,
                     LifecycleState = pair.Value.IsSuspended ? "suspended-retained" : "active",
+                    NativeInitialized = true,
+                    AcceptsPlayerOrders = !pair.Value.IsSuspended,
                     GameUniqueId = 44 + index,
                 })
                 .ToArray();

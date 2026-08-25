@@ -23,21 +23,39 @@ public sealed class CampaignCompanionClient(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan MaterializationReadinessPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaterializationReadinessTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan NativeUnitReadinessPollInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan NativeUnitReadinessTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TerrainStreamingPollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan TerrainStreamingTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AssignmentRecoveryInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TacticalSelectionFallbackInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PlayerFocusQuietPeriod = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan PlayerFocusRetryInterval = TimeSpan.FromMilliseconds(200);
-    private const int PlayerFocusAttempts = 4;
+    private const int PlayerFocusAttempts = 80;
 
     private string? _armedMutationSessionId;
     private long _armedMutationExpiresAtUnixMilliseconds;
     private readonly ConcurrentDictionary<string, string> _lastPublishedTacticalState =
         new(StringComparer.Ordinal);
+    private readonly TacticalPromotionOrchestrator _promotion = new();
     private readonly object _playerFocusGate = new();
+    private readonly object _projectionGate = new();
+    private readonly SemaphoreSlim _renderProjectionGate = new(1, 1);
+    private readonly SemaphoreSlim _tacticalPauseGate = new(1, 1);
     private TacticalAssignment? _pendingPlayerFocus;
     private long _playerFocusGeneration;
+    private long _projectionGameSessionGeneration;
+    private long _projectionGeneration;
+    private long _projectionRevision;
+    private string? _lastAppliedRenderProjectionSignature;
+    private string? _pendingRenderProjectionSignature;
+    private long _pendingProjectionGeneration;
+    private long _pendingProjectionRevision;
+    private Dictionary<string, SurfaceRenderProxySpecPayload>? _lastProjectionSpecs;
+    private Dictionary<string, SurfaceRenderProxySpecPayload>? _pendingProjectionSpecs;
+    private bool _projectionRequiresFullSnapshot = true;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -50,17 +68,63 @@ public sealed class CampaignCompanionClient(
                     await Task.Delay(250, stoppingToken);
                     continue;
                 }
-                await ConnectOnceAsync(stoppingToken);
+                var expectedGameSessionGeneration = game.SessionGeneration;
+                using var sessionCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                var sessionWatch = CancelWhenGameSessionChangesAsync(
+                    expectedGameSessionGeneration,
+                    sessionCancellation,
+                    stoppingToken);
+                try
+                {
+                    await ConnectOnceAsync(sessionCancellation.Token);
+                }
+                finally
+                {
+                    sessionCancellation.Cancel();
+                    await sessionWatch;
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (OperationCanceledException)
+            {
+                // A Sea Power reconnect is a campaign transport boundary too.
+                // Re-enter ConnectOnceAsync so Hello, capabilities, event reads,
+                // projection generations, and mutation arming bind to the new
+                // game session rather than leaking state from the old pipe.
             }
             catch (Exception exception)
             {
                 logger.LogWarning(exception, "Campaign-service session ended; reconnecting from durable cursor {Cursor}.", stateStore.ReadCursor());
                 await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
             }
+        }
+    }
+
+    private async Task CancelWhenGameSessionChangesAsync(
+        long expectedGeneration,
+        CancellationTokenSource sessionCancellation,
+        CancellationToken lifetimeToken)
+    {
+        try
+        {
+            while (!sessionCancellation.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), lifetimeToken);
+                if (!game.IsGameConnected || game.SessionGeneration != expectedGeneration)
+                {
+                    sessionCancellation.Cancel();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (
+            lifetimeToken.IsCancellationRequested
+            || sessionCancellation.IsCancellationRequested)
+        {
         }
     }
 
@@ -132,6 +196,9 @@ public sealed class CampaignCompanionClient(
 
         using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeatTask = RunHeartbeatAsync(heartbeatCancellation.Token);
+        var tacticalSelectionTask = RunTacticalSelectionWatchAsync(
+            token,
+            heartbeatCancellation.Token);
         try
         {
             ulong previousServiceSequence = 0;
@@ -235,7 +302,7 @@ public sealed class CampaignCompanionClient(
             heartbeatCancellation.Cancel();
             try
             {
-                await heartbeatTask;
+                await Task.WhenAll(heartbeatTask, tacticalSelectionTask);
             }
             catch (OperationCanceledException) when (heartbeatCancellation.IsCancellationRequested)
             {
@@ -285,9 +352,16 @@ public sealed class CampaignCompanionClient(
             var nextStateSyncAt = DateTimeOffset.UtcNow;
             var nextRenderProxySyncAt = DateTimeOffset.UtcNow;
             var nextAssignmentRecoveryAt = DateTimeOffset.UtcNow;
+            var observedGameSessionGeneration = game.SessionGeneration;
+            var observedRenderResourceSignature = string.Empty;
             while (!heartbeatToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), heartbeatToken);
+                if (observedGameSessionGeneration != game.SessionGeneration)
+                {
+                    observedGameSessionGeneration = game.SessionGeneration;
+                    nextRenderProxySyncAt = DateTimeOffset.UtcNow;
+                }
                 CompanionHeartbeat heartbeat;
                 OwnedSurfaceResourceStatePayload? resources = null;
                 CapabilitiesPayload? heartbeatCapabilities = null;
@@ -386,9 +460,22 @@ public sealed class CampaignCompanionClient(
                     }
                 }
 
+                if (resources is not null)
+                {
+                    var resourceSignature = RenderProjectionResourceSignature(resources);
+                    if (!string.Equals(
+                        observedRenderResourceSignature,
+                        resourceSignature,
+                        StringComparison.Ordinal))
+                    {
+                        observedRenderResourceSignature = resourceSignature;
+                        nextRenderProxySyncAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
                 if (resources is not null && DateTimeOffset.UtcNow >= nextAssignmentRecoveryAt)
                 {
-                    nextAssignmentRecoveryAt = DateTimeOffset.UtcNow + RenderProxySyncInterval;
+                    nextAssignmentRecoveryAt = DateTimeOffset.UtcNow + AssignmentRecoveryInterval;
                     try
                     {
                         await RecoverMissingActiveAssignmentsFromProjectionAsync(
@@ -402,6 +489,7 @@ public sealed class CampaignCompanionClient(
                     }
                     catch (Exception exception)
                     {
+                        nextRenderProxySyncAt = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1);
                         logger.LogWarning(
                             exception,
                             "Missing local tactical-assignment recovery failed; campaign authority remains canonical.");
@@ -436,11 +524,277 @@ public sealed class CampaignCompanionClient(
         }
     }
 
+    private async Task RunTacticalSelectionWatchAsync(
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        var eventTask = game.ReadRuntimeEventAsync(cancellationToken).AsTask();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var fallbackTask = Task.Delay(TacticalSelectionFallbackInterval, cancellationToken);
+            var completed = await Task.WhenAny(eventTask, fallbackTask);
+            SelectedSurfaceRenderProxyPayload? observedSelection = null;
+            if (ReferenceEquals(completed, eventTask))
+            {
+                var runtimeEvent = await eventTask;
+                eventTask = game.ReadRuntimeEventAsync(cancellationToken).AsTask();
+                if (!string.Equals(
+                        runtimeEvent.EventType,
+                        GameEventTypes.CampaignMapSelectionChanged,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                observedSelection = JsonSerializer.Deserialize<SelectedSurfaceRenderProxyPayload>(
+                    runtimeEvent.PayloadJson,
+                    JsonOptions);
+            }
+            try
+            {
+                await RequestSelectedTacticalEntryAsync(
+                    serviceToken,
+                    observedSelection,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Selected friendly campaign-unit tactical entry request failed.");
+            }
+        }
+    }
+
+    private async Task RequestSelectedTacticalEntryAsync(
+        string serviceToken,
+        SelectedSurfaceRenderProxyPayload? observedSelection,
+        CancellationToken cancellationToken)
+    {
+        var selection = observedSelection;
+        if (selection is null)
+        {
+            var result = await game.SendCommandAsync(
+                GameCommandTypes.GetSelectedSurfaceRenderProxy,
+                "{}",
+                CommandPriorities.Control,
+                cancellationToken);
+            if (!result.Success)
+            {
+                return;
+            }
+            selection = JsonSerializer.Deserialize<SelectedSurfaceRenderProxyPayload>(
+                result.ResultJson,
+                JsonOptions);
+        }
+
+        var proxy = selection?.Proxy;
+        if (selection?.HasSelection != true
+            || proxy is null
+            || !proxy.PhysicalProxyRequested
+            || !string.Equals(proxy.Relationship, "Friendly", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(proxy.GroupId)
+            || proxy.GroupRevision < 1)
+        {
+            _promotion.ResetSelection();
+            return;
+        }
+
+        var selectedEntityId = BareCampaignEntityId(proxy.EntityId);
+        if (selectedEntityId is null)
+        {
+            return;
+        }
+        var attempt = _promotion.Observe(proxy, selectedEntityId);
+        if (proxy.PhysicalProxyState is "selected" or "relocating" or "terrain-streaming" or "spawning")
+        {
+            return;
+        }
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (!_promotion.ShouldAttempt(attempt.RequestKey, now, 5_000))
+        {
+            return;
+        }
+
+        var resources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+        if (await BeginSelectedLocalityHandoffAsync(
+                resources,
+                selectedEntityId,
+                proxy.RequiresLocalityHandoff,
+                serviceToken,
+                cancellationToken))
+        {
+            return;
+        }
+
+        using var client = CreateCampaignHttpClient(serviceToken);
+        client.Timeout = TimeSpan.FromSeconds(5);
+        var route = $"/player/campaigns/{options.CampaignId}/groups/{proxy.GroupId}/tactical-entry";
+        var focusedRoute = $"{route}?entityId={Uri.EscapeDataString(selectedEntityId)}";
+        using var inspectionResponse = await client.GetAsync(focusedRoute, cancellationToken);
+        if (!inspectionResponse.IsSuccessStatusCode)
+        {
+            var detail = await inspectionResponse.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogWarning(
+                "Selected friendly group {GroupId} tactical-entry inspection returned {StatusCode}: {Detail}",
+                proxy.GroupId,
+                (int)inspectionResponse.StatusCode,
+                detail);
+            return;
+        }
+
+        await using var inspectionStream = await inspectionResponse.Content.ReadAsStreamAsync(
+            cancellationToken);
+        using var inspection = await JsonDocument.ParseAsync(
+            inspectionStream,
+            cancellationToken: cancellationToken);
+        var root = inspection.RootElement;
+        var canEnter = root.TryGetProperty("canEnter", out var canEnterElement)
+            && canEnterElement.GetBoolean();
+        if (!canEnter)
+        {
+            logger.LogDebug(
+                "Selected friendly group {GroupId} is not ready for tactical entry ({State}).",
+                proxy.GroupId,
+                root.TryGetProperty("state", out var state)
+                    ? state.GetString()
+                    : "unknown");
+            return;
+        }
+
+        var expectedRevision = root.TryGetProperty("groupRevision", out var groupRevision)
+            ? groupRevision.GetInt64()
+            : proxy.GroupRevision;
+        var idempotencyKey = $"sea-power-select-{selectedEntityId}-{attempt.AttemptId}";
+        using var entryResponse = await client.PostAsJsonAsync(
+            route,
+            new
+            {
+                expectedGroupRevision = expectedRevision,
+                idempotencyKey,
+                entityId = selectedEntityId,
+            },
+            JsonOptions,
+            cancellationToken);
+        if (!entryResponse.IsSuccessStatusCode)
+        {
+            var detail = await entryResponse.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogWarning(
+                "Selected friendly group {GroupId} tactical entry returned {StatusCode}: {Detail}",
+                proxy.GroupId,
+                (int)entryResponse.StatusCode,
+                detail);
+            return;
+        }
+
+        _promotion.MarkAccepted(attempt.RequestKey);
+        logger.LogInformation(
+            "Selected friendly campaign unit {EntityId}; requested tactical entry for group {GroupId} at revision {Revision}.",
+            proxy.EntityId,
+            proxy.GroupId,
+            expectedRevision);
+    }
+
+    private async Task<bool> BeginSelectedLocalityHandoffAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        string selectedEntityId,
+        bool requiresLocalityHandoff,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
+        if (!requiresLocalityHandoff)
+        {
+            return false;
+        }
+
+        var activeOutsideSelection = resources.Entities
+            .Where(item => string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(BareCampaignEntityId(item.EntityId), selectedEntityId, StringComparison.Ordinal))
+            .OrderBy(item => item.AssignmentId, StringComparer.Ordinal)
+            .ToArray();
+        if (activeOutsideSelection.Length == 0)
+        {
+            return false;
+        }
+
+        using var client = CreateCampaignHttpClient(serviceToken);
+        client.Timeout = TimeSpan.FromSeconds(5);
+        foreach (var resource in activeOutsideSelection)
+        {
+            var handoffKey = $"{resource.AssignmentId}:{resource.AuthorityEpoch}";
+            if (!_promotion.TryBeginLocalityHandoff(handoffKey))
+            {
+                continue;
+            }
+
+            using var response = await client.PostAsJsonAsync(
+                "/control/quiesce",
+                new
+                {
+                    campaignId = options.CampaignId,
+                    assignmentId = resource.AssignmentId,
+                    gameEntityId = resource.EntityId,
+                    expectedGameRevision = resource.Revision,
+                    idempotencyKey = $"map-locality-handoff-{NormalizeScopedAssignmentId(resource.AssignmentId)}-{resource.AuthorityEpoch}",
+                },
+                JsonOptions,
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _promotion.AbandonLocalityHandoff(handoffKey);
+                var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+                logger.LogWarning(
+                    "Could not quiesce tactical assignment {AssignmentId} before promoting campaign entity {EntityId}: {StatusCode} {Detail}",
+                    resource.AssignmentId,
+                    selectedEntityId,
+                    (int)response.StatusCode,
+                    detail);
+                continue;
+            }
+            // The POST is idempotent. Release the in-flight latch once the
+            // service has accepted it so a failed checkpoint/quiesce sequence
+            // can be repaired by the next selection observation.
+            _promotion.AbandonLocalityHandoff(handoffKey);
+            logger.LogInformation(
+                "Quiescing tactical assignment {AssignmentId} before promoting distant campaign entity {EntityId}.",
+                resource.AssignmentId,
+                selectedEntityId);
+        }
+        return true;
+    }
+
     private async Task ReconcileFriendlyRenderProxiesAsync(
         OwnedSurfaceResourceStatePayload resources,
         CapabilitiesPayload capabilities,
         string serviceToken,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool force = false)
+    {
+        await _renderProjectionGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ReconcileFriendlyRenderProxiesCoreAsync(
+                resources,
+                capabilities,
+                serviceToken,
+                cancellationToken,
+                force);
+        }
+        finally
+        {
+            _renderProjectionGate.Release();
+        }
+    }
+
+    private async Task ReconcileFriendlyRenderProxiesCoreAsync(
+        OwnedSurfaceResourceStatePayload resources,
+        CapabilitiesPayload capabilities,
+        string serviceToken,
+        CancellationToken cancellationToken,
+        bool force)
     {
         if (string.IsNullOrWhiteSpace(capabilities.PlayerTaskforceId))
         {
@@ -449,11 +803,12 @@ public sealed class CampaignCompanionClient(
 
         using var client = CreateCampaignHttpClient(serviceToken);
         client.Timeout = TimeSpan.FromSeconds(5);
-        // Temporary local validation mode. The service preserves the normal
-        // coalition-filtered projection unless this explicit flag is present.
+        var debugQuery = options.DebugRevealAllEnemies
+            ? "?debugRevealAllEnemies=true"
+            : string.Empty;
         using var response = await client.GetAsync(
             $"/campaigns/{options.CampaignId}/tactical-workers/{options.ClientInstanceId}/projection"
-                + "?debugRevealAllEnemies=true",
+                + debugQuery,
             cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -519,6 +874,48 @@ public sealed class CampaignCompanionClient(
             return;
         }
 
+        ResetProjectionForGameSessionIfNeeded();
+
+        var sourceSignature = string.Join(
+            ":",
+            game.SessionGeneration,
+            root.GetProperty("head").GetInt64(),
+            RenderProjectionResourceSignature(resources));
+        if (!force && string.Equals(
+                _lastAppliedRenderProjectionSignature,
+                sourceSignature,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (_pendingRenderProjectionSignature is not null)
+        {
+            var snapshotResult = await game.SendCommandAsync(
+                GameCommandTypes.GetSurfaceRenderProxyState,
+                "{}",
+                CommandPriorities.Control,
+                cancellationToken);
+            if (!snapshotResult.Success)
+            {
+                return;
+            }
+            var runtimeSnapshot = JsonSerializer.Deserialize<SurfaceRenderProxySnapshotPayload>(
+                snapshotResult.ResultJson,
+                JsonOptions);
+            if (runtimeSnapshot is null
+                || runtimeSnapshot.AppliedProjectionGeneration < _pendingProjectionGeneration
+                || runtimeSnapshot.AppliedProjectionGeneration == _pendingProjectionGeneration
+                    && runtimeSnapshot.AppliedProjectionRevision < _pendingProjectionRevision)
+            {
+                return;
+            }
+            _lastAppliedRenderProjectionSignature = _pendingRenderProjectionSignature;
+            _lastProjectionSpecs = _pendingProjectionSpecs;
+            _pendingRenderProjectionSignature = null;
+            _pendingProjectionSpecs = null;
+        }
+
         var entities = root.GetProperty("friendlyEntities").EnumerateArray().ToArray();
         var contacts = root.TryGetProperty("contacts", out var contactElement)
             ? contactElement.EnumerateArray().ToArray()
@@ -559,25 +956,131 @@ public sealed class CampaignCompanionClient(
                 .Take(4_096)
                 .ToArray();
 
+        var desiredSpecs = proxies.ToDictionary(item => item.EntityId, StringComparer.Ordinal);
+        var fullSnapshot = _projectionRequiresFullSnapshot || _lastProjectionSpecs is null;
+        var upserts = fullSnapshot
+            ? proxies
+            : proxies.Where(spec => !_lastProjectionSpecs!.TryGetValue(spec.EntityId, out var prior)
+                    || !string.Equals(
+                        RenderProxySpecSignature(prior),
+                        RenderProxySpecSignature(spec),
+                        StringComparison.Ordinal))
+                .ToArray();
+        var removals = fullSnapshot
+            ? Array.Empty<string>()
+            : _lastProjectionSpecs!.Keys
+                .Where(entityId => !desiredSpecs.ContainsKey(entityId))
+                .OrderBy(entityId => entityId, StringComparer.Ordinal)
+                .ToArray();
+        if (!fullSnapshot && upserts.Length == 0 && removals.Length == 0)
+        {
+            _lastAppliedRenderProjectionSignature = sourceSignature;
+            return;
+        }
+
         await EnsureRenderProxyMutationsArmedAsync(capabilities, cancellationToken);
+        var projectionPosition = NextProjectionPosition();
         var result = await RequireGameCommandAsync(
             GameCommandTypes.ReconcileSurfaceRenderProxies,
             JsonSerializer.Serialize(new ReconcileSurfaceRenderProxiesRequestPayload
             {
+                ProjectionGeneration = projectionPosition.Generation,
+                ProjectionRevision = projectionPosition.Revision,
                 CampaignId = options.CampaignId,
                 TaskforceId = capabilities.PlayerTaskforceId,
-                Proxies = proxies,
+                IsFullSnapshot = fullSnapshot,
+                Proxies = upserts,
+                RemovedEntityIds = removals,
             }, JsonOptions),
-            cancellationToken);
+            cancellationToken,
+            CommandPriorities.Bulk);
         var reconciled = JsonSerializer.Deserialize<ReconcileSurfaceRenderProxiesResultPayload>(
             result.ResultJson,
             JsonOptions) ?? throw new InvalidDataException("Render-proxy result was empty.");
+        if (reconciled.ResyncRequired)
+        {
+            _lastAppliedRenderProjectionSignature = null;
+            _pendingRenderProjectionSignature = null;
+            _lastProjectionSpecs = null;
+            _pendingProjectionSpecs = null;
+            _projectionRequiresFullSnapshot = true;
+            AdvanceProjectionGenerationPast(reconciled.AcceptedProjectionGeneration);
+        }
+        else if (string.Equals(reconciled.Outcome, "accepted", StringComparison.Ordinal))
+        {
+            _pendingRenderProjectionSignature = sourceSignature;
+            _pendingProjectionSpecs = desiredSpecs;
+            _pendingProjectionGeneration = projectionPosition.Generation;
+            _pendingProjectionRevision = projectionPosition.Revision;
+            _projectionRequiresFullSnapshot = false;
+        }
         logger.LogDebug(
-            "Reconciled {VisibleCount} friendly campaign render proxies ({CreatedCount} created, {UpdatedCount} updated, {SuspendedCount} suspended).",
-            reconciled.Proxies.Count(item => item.IsVisible),
-            reconciled.CreatedCount,
-            reconciled.UpdatedCount,
-            reconciled.SuspendedCount);
+            "Runtime projection outcome {Outcome}; accepted {AcceptedGeneration}/{AcceptedRevision}, applied {AppliedGeneration}/{AppliedRevision}, {VisibleCount} visible proxies.",
+            reconciled.Outcome,
+            reconciled.AcceptedProjectionGeneration,
+            reconciled.AcceptedProjectionRevision,
+            reconciled.AppliedProjectionGeneration,
+            reconciled.AppliedProjectionRevision,
+            reconciled.Proxies.Count(item => item.IsVisible));
+    }
+
+    private static string RenderProxySpecSignature(SurfaceRenderProxySpecPayload spec) =>
+        JsonSerializer.Serialize(spec, JsonOptions);
+
+    private (long Generation, long Revision) NextProjectionPosition()
+    {
+        lock (_projectionGate)
+        {
+            return (_projectionGeneration, ++_projectionRevision);
+        }
+    }
+
+    private void ResetProjectionForGameSessionIfNeeded()
+    {
+        lock (_projectionGate)
+        {
+            var gameSessionGeneration = game.SessionGeneration;
+            if (_projectionGameSessionGeneration == gameSessionGeneration)
+            {
+                return;
+            }
+            _projectionGameSessionGeneration = gameSessionGeneration;
+            _projectionGeneration = Math.Max(
+                _projectionGeneration + 1,
+                gameSessionGeneration);
+            _projectionRevision = 0;
+            _lastAppliedRenderProjectionSignature = null;
+            _pendingRenderProjectionSignature = null;
+            _lastProjectionSpecs = null;
+            _pendingProjectionSpecs = null;
+            _projectionRequiresFullSnapshot = true;
+        }
+    }
+
+    private static string RenderProjectionResourceSignature(
+        OwnedSurfaceResourceStatePayload resources) => string.Join(
+            "\n",
+            resources.Entities
+                .OrderBy(item => item.EntityId, StringComparer.Ordinal)
+                .ThenBy(item => item.AssignmentId, StringComparer.Ordinal)
+                .Select(item => string.Join(
+                    ":",
+                    item.EntityId,
+                    item.AssignmentId,
+                    item.AuthorityEpoch,
+                    item.Revision,
+                    item.LifecycleState,
+                    item.GameUniqueId)));
+
+    private void AdvanceProjectionGenerationPast(long acceptedGeneration)
+    {
+        lock (_projectionGate)
+        {
+            _projectionGeneration = Math.Max(
+                _projectionGeneration + 1,
+                acceptedGeneration + 1);
+            _projectionRevision = 0;
+        }
     }
 
     private async Task RecoverMissingActiveAssignmentsFromProjectionAsync(
@@ -790,6 +1293,15 @@ public sealed class CampaignCompanionClient(
                 Classification = entity.GetProperty("simulationDomain").GetString() ?? string.Empty,
                 Lifecycle = entity.GetProperty("lifecycle").GetString() ?? string.Empty,
                 SimulationDomain = entity.GetProperty("simulationDomain").GetString() ?? string.Empty,
+                GroupId = entity.TryGetProperty("groupId", out var groupId)
+                    ? groupId.GetString() ?? string.Empty
+                    : string.Empty,
+                GroupName = entity.TryGetProperty("groupName", out var groupName)
+                    ? groupName.GetString() ?? string.Empty
+                    : string.Empty,
+                GroupRevision = entity.TryGetProperty("groupRevision", out var groupRevision)
+                    ? groupRevision.GetInt64()
+                    : 0,
                 UnitTypeId = unitTypeId,
                 VariantId = profile?.VariantId ?? "Default",
                 LoadoutId = profile?.LoadoutId ?? loadoutId,
@@ -852,30 +1364,33 @@ public sealed class CampaignCompanionClient(
         };
     }
 
-    private static string? BareCampaignEntityId(string entityId)
-    {
-        const string prefix = "unit:crimean-tom:";
-        return entityId.StartsWith(prefix, StringComparison.Ordinal)
-            && Guid.TryParseExact(entityId[prefix.Length..], "N", out var parsed)
-                ? parsed.ToString("N")
-                : null;
-    }
+    private string? BareCampaignEntityId(string entityId) =>
+        CampaignEntityRef.TryParseCanonical(options.CampaignId, entityId, out var entity)
+            ? entity.EntityId.ToString("N")
+            : null;
 
     private async Task EnsureRenderProxyMutationsArmedAsync(
         CapabilitiesPayload capabilities,
+        CancellationToken cancellationToken) =>
+        await EnsureMutationModeArmedAsync(capabilities, 30_000, cancellationToken);
+
+    private async Task EnsureMutationModeArmedAsync(
+        CapabilitiesPayload capabilities,
+        long minimumRemainingMilliseconds,
         CancellationToken cancellationToken)
     {
         var sessionId = CurrentGameSessionId();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var advertisedExpiry = capabilities.MutationModeExpiresAtUnixMilliseconds ?? 0;
-        if (capabilities.MutatingCommandsEnabled && advertisedExpiry > now + 30_000)
+        if (capabilities.MutatingCommandsEnabled
+            && advertisedExpiry > now + minimumRemainingMilliseconds)
         {
             _armedMutationSessionId = sessionId;
             _armedMutationExpiresAtUnixMilliseconds = advertisedExpiry;
             return;
         }
         if (string.Equals(_armedMutationSessionId, sessionId, StringComparison.Ordinal)
-            && _armedMutationExpiresAtUnixMilliseconds > now + 30_000)
+            && _armedMutationExpiresAtUnixMilliseconds > now + minimumRemainingMilliseconds)
         {
             return;
         }
@@ -892,10 +1407,14 @@ public sealed class CampaignCompanionClient(
             cancellationToken);
         var armed = JsonSerializer.Deserialize<ArmOwnedMutationModeResultPayload>(
             armResult.ResultJson,
-            JsonOptions) ?? throw new InvalidDataException("Render-proxy mutation arming result was empty.");
-        _armedMutationSessionId = armed.SessionId;
-        _armedMutationExpiresAtUnixMilliseconds = armed.ExpiresAtUnixMilliseconds
-            ?? throw new InvalidDataException("Render-proxy mutation arming had no expiry.");
+            JsonOptions) ?? throw new InvalidDataException("Mutation arming result was empty.");
+        if (!string.Equals(armed.SessionId, sessionId, StringComparison.Ordinal)
+            || armed.ExpiresAtUnixMilliseconds is not long expiresAtUnixMilliseconds)
+        {
+            throw new InvalidDataException("Mutation arming did not bind to the current game session.");
+        }
+        _armedMutationSessionId = sessionId;
+        _armedMutationExpiresAtUnixMilliseconds = expiresAtUnixMilliseconds;
     }
 
     private async Task<CapabilitiesPayload> ReadCapabilitiesAsync(CancellationToken cancellationToken)
@@ -1042,7 +1561,7 @@ public sealed class CampaignCompanionClient(
         UnsafeToSplit = observation.UnsafeToSplit,
     };
 
-    private static void ResolveCampaignParticipants(
+    private void ResolveCampaignParticipants(
         string? objectId,
         IReadOnlyDictionary<string, WeaponSnapshotPayload> weapons,
         ISet<string> participants,
@@ -1063,17 +1582,11 @@ public sealed class CampaignCompanionClient(
         ResolveCampaignParticipants(weapon.IntendedTargetId, weapons, participants, visitedWeapons);
     }
 
-    private static string? CampaignEntityId(string? stableUnitId)
-    {
-        const string prefix = "campaign-unit:unit:crimean-tom:";
-        if (stableUnitId is null || !stableUnitId.StartsWith(prefix, StringComparison.Ordinal))
-        {
-            return null;
-        }
-        return Guid.TryParseExact(stableUnitId[prefix.Length..], "N", out var parsed)
-            ? parsed.ToString("N")
+    private string? CampaignEntityId(string? stableUnitId) =>
+        stableUnitId is not null
+        && CampaignEntityRef.TryParseStableUnitId(options.CampaignId, stableUnitId, out var entity)
+            ? entity.EntityId.ToString("N")
             : null;
-    }
 
     private async Task<AssignmentPreparation> PrepareAssignmentAsync(
         TacticalAssignment assignment,
@@ -1081,6 +1594,7 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
+        var pauseGateHeld = false;
         var resumeAfterPreparation = false;
         try
         {
@@ -1099,7 +1613,8 @@ public sealed class CampaignCompanionClient(
                     await ReadOwnedSurfaceResourcesAsync(cancellationToken),
                     capabilities,
                     serviceToken,
-                    cancellationToken);
+                    cancellationToken,
+                    force: true);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -1117,6 +1632,11 @@ public sealed class CampaignCompanionClient(
                 capabilities,
                 cancellationToken);
 
+            // Projection reconciliation can contain stale owned resources at a
+            // paused safe point. Complete it before taking the pause gate so
+            // the projection and pause locks always have one acquisition order.
+            await _tacticalPauseGate.WaitAsync(cancellationToken);
+            pauseGateHeld = true;
             var inspectionResult = await RequireGameCommandAsync(
                 GameCommandTypes.GetUiInspection,
                 "{}",
@@ -1135,16 +1655,7 @@ public sealed class CampaignCompanionClient(
                         JsonOptions),
                     cancellationToken);
             }
-            await RequireGameCommandAsync(
-                GameCommandTypes.ArmOwnedMutationMode,
-                JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
-                {
-                    SessionId = CurrentGameSessionId(),
-                    RuntimeFingerprintSha256 = capabilities.RuntimeFingerprint.FingerprintSha256,
-                    Confirmation = "enable-owned-mutations",
-                    DurationSeconds = 300,
-                }, JsonOptions),
-                cancellationToken);
+            await EnsureMutationModeArmedAsync(capabilities, 30_000, cancellationToken);
             if (!string.IsNullOrWhiteSpace(assignment.HostEntityId))
             {
                 if (isShadow)
@@ -1155,7 +1666,8 @@ public sealed class CampaignCompanionClient(
                 var hostResources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
                 var host = hostResources.Entities.FirstOrDefault(item =>
                     string.Equals(item.EntityId, assignment.HostEntityId, StringComparison.Ordinal)
-                    && string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase));
+                    && string.Equals(item.LifecycleState, "active", StringComparison.OrdinalIgnoreCase)
+                    && item.NativeInitialized);
                 if (host is null)
                 {
                     throw new InvalidOperationException(
@@ -1206,6 +1718,10 @@ public sealed class CampaignCompanionClient(
                     },
                     null);
             }
+            if (string.IsNullOrWhiteSpace(assignment.HostEntityId))
+            {
+                await EnsureTacticalOriginNearAssignmentAsync(assignment, cancellationToken);
+            }
             if (IsVerifiedLandProfile(assignment, capabilities))
             {
                 await EnsureLandTerrainReadyAsync(assignment, cancellationToken);
@@ -1235,6 +1751,10 @@ public sealed class CampaignCompanionClient(
                 cancellationToken);
             var materialized = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitResultPayload>(result.ResultJson, JsonOptions)
                 ?? throw new InvalidDataException("Materialization result was empty.");
+            await EnsureOwnedUnitTacticallyReadyAsync(
+                assignment,
+                materialized.Revision,
+                cancellationToken);
             await stateStore.SaveMaterializedGameSessionAsync(
                 assignment.AssignmentId,
                 CurrentGameSessionId(),
@@ -1341,6 +1861,10 @@ public sealed class CampaignCompanionClient(
                         assignment.AssignmentId);
                 }
             }
+            if (pauseGateHeld)
+            {
+                _tacticalPauseGate.Release();
+            }
         }
     }
 
@@ -1399,28 +1923,8 @@ public sealed class CampaignCompanionClient(
         {
             throw new InvalidDataException("A Shadow assignment cannot publish before a post-commit activation grant.");
         }
-        var inspectionResult = await RequireGameCommandAsync(
-            GameCommandTypes.GetUiInspection,
-            "{}",
-            cancellationToken);
-        var inspection = JsonSerializer.Deserialize<UiInspectionPayload>(
-            inspectionResult.ResultJson,
-            JsonOptions) ?? throw new InvalidDataException("Tactical UI inspection was empty.");
-        var resumeAfterMutation = !inspection.IsPaused;
-        if (resumeAfterMutation)
-        {
-            await RequireGameCommandAsync(
-                GameCommandTypes.SetExperimentalPauseState,
-                JsonSerializer.Serialize(
-                    new ExperimentalPauseRequestPayload { IsPaused = true },
-                    JsonOptions),
-                cancellationToken);
-        }
-
-        GameCommandResult result;
-        try
-        {
-            result = await RequireGameCommandAsync(
+        var result = await RunAtPausedTacticalSafePointAsync(
+            () => RequireGameCommandAsync(
                 GameCommandTypes.UpdateOwnedSurfaceUnit,
                 JsonSerializer.Serialize(new UpdateOwnedSurfaceUnitRequestPayload
                 {
@@ -1432,20 +1936,9 @@ public sealed class CampaignCompanionClient(
                     HeadingDegrees = command.HeadingMillidegrees / 1_000d,
                     Telegraph = command.Telegraph,
                 }, JsonOptions),
-                cancellationToken);
-        }
-        finally
-        {
-            if (resumeAfterMutation)
-            {
-                await RequireGameCommandAsync(
-                    GameCommandTypes.SetExperimentalPauseState,
-                    JsonSerializer.Serialize(
-                        new ExperimentalPauseRequestPayload { IsPaused = false },
-                        JsonOptions),
-                    cancellationToken);
-            }
-        }
+                cancellationToken),
+            $"tactical command {command.CommandId}",
+            cancellationToken);
         var update = JsonSerializer.Deserialize<OwnedSurfaceLifecycleResultPayload>(result.ResultJson, JsonOptions)
             ?? throw new InvalidDataException("Tactical update result was empty.");
         await stateStore.SaveGameRevisionAsync(command.AssignmentId, update.Revision, cancellationToken);
@@ -1882,6 +2375,27 @@ public sealed class CampaignCompanionClient(
         string serviceToken,
         CancellationToken cancellationToken)
     {
+        var focusAssignment = await RunAtPausedTacticalSafePointAsync(
+            async () =>
+            {
+                return await ApplyActivationGrantAtSafePointAsync(
+                    grant,
+                    serviceToken,
+                    cancellationToken);
+            },
+            $"activation grant {grant.AssignmentId}",
+            cancellationToken);
+        if (focusAssignment is not null)
+        {
+            await FocusAfterActivationAsync(focusAssignment, cancellationToken);
+        }
+    }
+
+    private async Task<TacticalAssignment?> ApplyActivationGrantAtSafePointAsync(
+        ActivationGrant grant,
+        string serviceToken,
+        CancellationToken cancellationToken)
+    {
         if (stateStore.HasSupersededActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
         {
             logger.LogInformation(
@@ -1890,7 +2404,7 @@ public sealed class CampaignCompanionClient(
                 grant.AuthorityEpoch,
                 stateStore.TryReadSupersededActivationGrantReason(grant.AssignmentId, grant.AuthorityEpoch)
                     ?? "campaign-assignment-superseded");
-            return;
+            return null;
         }
 
         if (stateStore.HasActivationGrant(grant.AssignmentId, grant.AuthorityEpoch))
@@ -1907,8 +2421,7 @@ public sealed class CampaignCompanionClient(
                     grant.AssignmentId,
                     CurrentGameSessionId(),
                     cancellationToken);
-                await FocusAfterActivationAsync(grantedAssignment, cancellationToken);
-                return;
+                return grantedAssignment;
             }
         }
 
@@ -1929,7 +2442,7 @@ public sealed class CampaignCompanionClient(
                 "Campaign view was unreachable while resolving activation grant for assignment {AssignmentId} epoch {AuthorityEpoch}.",
                 grant.AssignmentId,
                 grant.AuthorityEpoch);
-            return;
+            return null;
         }
 
         if (lookup.Status != CampaignViewStatus.Ready)
@@ -1941,7 +2454,7 @@ public sealed class CampaignCompanionClient(
                 lookup.Status,
                 lookup.ViewCommitPosition,
                 grant.MigrationCommitPosition);
-            return;
+            return null;
         }
 
         var liveAssignment = lookup.Assignment;
@@ -1967,7 +2480,7 @@ public sealed class CampaignCompanionClient(
                 grant.AssignmentId,
                 grant.AuthorityEpoch,
                 reason);
-            return;
+            return null;
         }
 
         var assignment = stateStore.ReadAssignment(grant.AssignmentId);
@@ -2016,8 +2529,7 @@ public sealed class CampaignCompanionClient(
                 expectedGameRevision,
                 cancellationToken))
         {
-            await FocusAfterActivationAsync(assignment, cancellationToken);
-            return;
+            return assignment;
         }
 
         var resources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
@@ -2053,8 +2565,7 @@ public sealed class CampaignCompanionClient(
                     grant.AssignmentId,
                     CurrentGameSessionId(),
                     cancellationToken);
-                await FocusAfterActivationAsync(assignment, cancellationToken);
-                return;
+                return assignment;
             }
 
             if (!string.Equals(ownedRecord.LifecycleState, "suspended-retained", StringComparison.OrdinalIgnoreCase)
@@ -2085,8 +2596,7 @@ public sealed class CampaignCompanionClient(
                 grant.AssignmentId,
                 CurrentGameSessionId(),
                 cancellationToken);
-            await FocusAfterActivationAsync(assignment, cancellationToken);
-            return;
+            return assignment;
         }
 
         var restagedRevision = await RestageActivationCheckpointAsync(
@@ -2110,7 +2620,7 @@ public sealed class CampaignCompanionClient(
             grant.AssignmentId,
             CurrentGameSessionId(),
             cancellationToken);
-        await FocusAfterActivationAsync(assignment, cancellationToken);
+        return assignment;
     }
 
     private async Task FocusAfterActivationAsync(
@@ -2139,6 +2649,20 @@ public sealed class CampaignCompanionClient(
                 cancellationToken);
             if (result.Success)
             {
+                var focus = JsonSerializer.Deserialize<UiAutomationActionResultPayload>(
+                    result.ResultJson,
+                    JsonOptions);
+                if (!string.Equals(focus?.Outcome, "completed", StringComparison.Ordinal))
+                {
+                    errorCode = focus?.Outcome ?? "focus-pending";
+                    errorMessage = focus?.Postcondition
+                        ?? "The runtime accepted focus but has not attached the camera yet.";
+                    if (attempt < PlayerFocusAttempts)
+                    {
+                        await Task.Delay(PlayerFocusRetryInterval, cancellationToken);
+                    }
+                    continue;
+                }
                 await stateStore.SaveCompletedPlayerFocusAsync(
                     assignment.AssignmentId,
                     assignment.AuthorityEpoch,
@@ -2152,6 +2676,13 @@ public sealed class CampaignCompanionClient(
 
             errorCode = result.ErrorCode;
             errorMessage = result.ErrorMessage;
+            if (string.Equals(
+                    errorCode,
+                    ProtocolErrorCodes.LocalityRebaseRequired,
+                    StringComparison.Ordinal))
+            {
+                break;
+            }
             if (attempt < PlayerFocusAttempts)
             {
                 await Task.Delay(PlayerFocusRetryInterval, cancellationToken);
@@ -2290,42 +2821,8 @@ public sealed class CampaignCompanionClient(
 
     private async Task EnsureOwnedMutationsArmedAsync(
         CapabilitiesPayload capabilities,
-        CancellationToken cancellationToken)
-    {
-        var sessionId = CurrentGameSessionId();
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (string.Equals(_armedMutationSessionId, sessionId, StringComparison.Ordinal)
-            && _armedMutationExpiresAtUnixMilliseconds > now)
-        {
-            return;
-        }
-
-        await RequireGameCommandAsync(
-            GameCommandTypes.SetExperimentalPauseState,
-            JsonSerializer.Serialize(new ExperimentalPauseRequestPayload { IsPaused = true }, JsonOptions),
-            cancellationToken);
-        var armResult = await RequireGameCommandAsync(
-            GameCommandTypes.ArmOwnedMutationMode,
-            JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
-            {
-                SessionId = sessionId,
-                RuntimeFingerprintSha256 = capabilities.RuntimeFingerprint.FingerprintSha256 ?? string.Empty,
-                Confirmation = "enable-owned-mutations",
-                DurationSeconds = 300,
-            }, JsonOptions),
-            cancellationToken);
-        var armed = JsonSerializer.Deserialize<ArmOwnedMutationModeResultPayload>(
-            armResult.ResultJson,
-            JsonOptions) ?? throw new InvalidDataException("Owned mutation arming result was empty.");
-        if (!string.Equals(armed.SessionId, sessionId, StringComparison.Ordinal)
-            || armed.ExpiresAtUnixMilliseconds is not long expiresAtUnixMilliseconds)
-        {
-            throw new InvalidDataException("Owned mutation arming did not bind to the current game session.");
-        }
-
-        _armedMutationSessionId = sessionId;
-        _armedMutationExpiresAtUnixMilliseconds = expiresAtUnixMilliseconds;
-    }
+        CancellationToken cancellationToken) =>
+        await EnsureMutationModeArmedAsync(capabilities, 30_000, cancellationToken);
 
     private async Task<long> RestageActivationCheckpointAsync(
         ActivationGrant grant,
@@ -2528,9 +3025,10 @@ public sealed class CampaignCompanionClient(
     private async Task<GameCommandResult> RequireGameCommandAsync(
         string type,
         string json,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int priority = CommandPriorities.Control)
     {
-        var result = await game.SendCommandAsync(type, json, CommandPriorities.Control, cancellationToken);
+        var result = await game.SendCommandAsync(type, json, priority, cancellationToken);
         if (!result.Success)
         {
             throw new InvalidOperationException($"Game command {type} failed: {result.ErrorCode}: {result.ErrorMessage}");
@@ -2750,6 +3248,68 @@ public sealed class CampaignCompanionClient(
             + $"{TerrainStreamingTimeout.TotalSeconds:F0} seconds (last state: {terrain.Postcondition}).");
     }
 
+    private async Task EnsureOwnedUnitTacticallyReadyAsync(
+        TacticalAssignment assignment,
+        long minimumRevision,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + NativeUnitReadinessTimeout;
+        OwnedSurfaceResourceEntryPayload? lastObserved = null;
+        while (true)
+        {
+            var resources = await ReadOwnedSurfaceResourcesAsync(cancellationToken);
+            lastObserved = resources.Entities.FirstOrDefault(item =>
+                string.Equals(item.EntityId, assignment.EntityId, StringComparison.Ordinal)
+                && string.Equals(item.AssignmentId, assignment.AssignmentId, StringComparison.Ordinal)
+                && item.AuthorityEpoch == assignment.AuthorityEpoch
+                && item.Revision >= minimumRevision);
+            var requiresPlayerOrders = assignment.Relationship != TacticalRelationship.Hostile;
+            if (lastObserved is not null
+                && string.Equals(lastObserved.LifecycleState, "active", StringComparison.OrdinalIgnoreCase)
+                && lastObserved.NativeInitialized
+                && (!requiresPlayerOrders || lastObserved.AcceptsPlayerOrders))
+            {
+                return;
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                var observed = lastObserved is null
+                    ? "owned record not visible"
+                    : string.Join(
+                        ", ",
+                        $"lifecycle={lastObserved.LifecycleState}",
+                        $"nativeInitialized={lastObserved.NativeInitialized}",
+                        $"acceptsPlayerOrders={lastObserved.AcceptsPlayerOrders}",
+                        $"revision={lastObserved.Revision}");
+                throw new InvalidOperationException(
+                    $"Sea Power did not finish initializing tactical unit '{assignment.EntityId}' "
+                    + $"within {NativeUnitReadinessTimeout.TotalSeconds:0} seconds ({observed}).");
+            }
+
+            await Task.Delay(NativeUnitReadinessPollInterval, cancellationToken);
+        }
+    }
+
+    private async Task EnsureTacticalOriginNearAssignmentAsync(
+        TacticalAssignment assignment,
+        CancellationToken cancellationToken)
+    {
+        var result = await RequireGameCommandAsync(
+            GameCommandTypes.PrepareTacticalLocation,
+            JsonSerializer.Serialize(new PrepareTacticalLocationRequestPayload
+            {
+                SessionId = CurrentGameSessionId(),
+                Latitude = assignment.LatitudeMicrodegrees / 1_000_000d,
+                Longitude = assignment.LongitudeMicrodegrees / 1_000_000d,
+            }, JsonOptions),
+            cancellationToken);
+        _ = JsonSerializer.Deserialize<PrepareTacticalLocationResultPayload>(
+            result.ResultJson,
+            JsonOptions) ?? throw new InvalidDataException(
+                "Tactical-origin preparation returned no state.");
+    }
+
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
 
@@ -2784,6 +3344,25 @@ public sealed class CampaignCompanionClient(
     }
 
     private async Task<T> RunAtPausedTacticalSafePointAsync<T>(
+        Func<Task<T>> operation,
+        string operationName,
+        CancellationToken cancellationToken)
+    {
+        await _tacticalPauseGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await RunAtPausedTacticalSafePointCoreAsync(
+                operation,
+                operationName,
+                cancellationToken);
+        }
+        finally
+        {
+            _tacticalPauseGate.Release();
+        }
+    }
+
+    private async Task<T> RunAtPausedTacticalSafePointCoreAsync<T>(
         Func<Task<T>> operation,
         string operationName,
         CancellationToken cancellationToken)

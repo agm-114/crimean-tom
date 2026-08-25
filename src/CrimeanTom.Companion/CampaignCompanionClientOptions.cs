@@ -9,4 +9,5 @@ public sealed record CampaignCompanionClientOptions(
     string StateDirectory,
     string PlayerCoalitionId,
     int TacticalEntityCapacity,
-    int TacticalReserveCapacity);
+    int TacticalReserveCapacity,
+    bool DebugRevealAllEnemies);

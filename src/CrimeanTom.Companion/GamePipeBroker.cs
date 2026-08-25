@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text.Json;
+using System.Threading.Channels;
 
 using CrimeanTom.Protocol;
 
@@ -27,8 +28,20 @@ public sealed class GamePipeBroker : BackgroundService
     private readonly TimeSpan _commandTimeout;
     private readonly TimeSpan _transportWriteTimeout;
     private readonly ConcurrentDictionary<string, PendingCommand> _pending = new();
+    private readonly Channel<GameRuntimeEvent> _runtimeEvents = Channel.CreateBounded<GameRuntimeEvent>(
+        new BoundedChannelOptions(256)
+        {
+            SingleReader = false,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.DropOldest,
+        });
     private readonly SemaphoreSlim _pendingSlots;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private int _waitingControlWriters;
+    private int _waitingBulkWriters;
+    private int _consecutiveControlWrites;
+    private const int MaximumConsecutiveControlWrites = 8;
+    private static readonly TimeSpan MaximumBulkPriorityDelay = TimeSpan.FromMilliseconds(25);
     private readonly object _sessionLock = new();
     private GameSession? _session;
     private string _connectionState = GamePipeConnectionStates.Starting;
@@ -231,7 +244,7 @@ public sealed class GamePipeBroker : BackgroundService
 
             try
             {
-                await _writeLock.WaitAsync(commandLifetime.Token);
+                await AcquireWriteLockAsync(priority, commandLifetime.Token);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -331,6 +344,81 @@ public sealed class GamePipeBroker : BackgroundService
         }
     }
 
+    public ValueTask<GameRuntimeEvent> ReadRuntimeEventAsync(CancellationToken cancellationToken) =>
+        _runtimeEvents.Reader.ReadAsync(cancellationToken);
+
+    private async Task AcquireWriteLockAsync(int priority, CancellationToken cancellationToken)
+    {
+        var isControl = priority == CommandPriorities.Control;
+        var priorityWait = System.Diagnostics.Stopwatch.StartNew();
+        if (isControl)
+        {
+            Interlocked.Increment(ref _waitingControlWriters);
+        }
+        else
+        {
+            Interlocked.Increment(ref _waitingBulkWriters);
+        }
+
+        try
+        {
+            while (true)
+            {
+                var controlMustYield = isControl
+                    && Volatile.Read(ref _waitingBulkWriters) > 0
+                    && Volatile.Read(ref _consecutiveControlWrites)
+                        >= MaximumConsecutiveControlWrites;
+                var bulkMustYield = !isControl
+                    && Volatile.Read(ref _waitingControlWriters) > 0
+                    && Volatile.Read(ref _consecutiveControlWrites)
+                        < MaximumConsecutiveControlWrites
+                    && priorityWait.Elapsed < MaximumBulkPriorityDelay;
+                if (controlMustYield || bulkMustYield)
+                {
+                    await Task.Delay(1, cancellationToken);
+                    continue;
+                }
+
+                await _writeLock.WaitAsync(cancellationToken);
+                controlMustYield = isControl
+                    && Volatile.Read(ref _waitingBulkWriters) > 0
+                    && Volatile.Read(ref _consecutiveControlWrites)
+                        >= MaximumConsecutiveControlWrites;
+                bulkMustYield = !isControl
+                    && Volatile.Read(ref _waitingControlWriters) > 0
+                    && Volatile.Read(ref _consecutiveControlWrites)
+                        < MaximumConsecutiveControlWrites
+                    && priorityWait.Elapsed < MaximumBulkPriorityDelay;
+                if (!controlMustYield && !bulkMustYield)
+                {
+                    if (isControl)
+                    {
+                        Interlocked.Increment(ref _consecutiveControlWrites);
+                    }
+                    else
+                    {
+                        Interlocked.Exchange(ref _consecutiveControlWrites, 0);
+                    }
+                    return;
+                }
+
+                _writeLock.Release();
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        finally
+        {
+            if (isControl)
+            {
+                Interlocked.Decrement(ref _waitingControlWriters);
+            }
+            else
+            {
+                Interlocked.Decrement(ref _waitingBulkWriters);
+            }
+        }
+    }
+
     private static TimeSpan RequirePositiveTimeout(TimeSpan value, string parameterName)
     {
         if (value <= TimeSpan.Zero)
@@ -353,7 +441,7 @@ public sealed class GamePipeBroker : BackgroundService
 
         try
         {
-            await _writeLock.WaitAsync(timeout.Token);
+            await AcquireWriteLockAsync(CommandPriorities.Control, timeout.Token);
             lockAcquired = true;
 
             lock (_sessionLock)
@@ -381,10 +469,15 @@ public sealed class GamePipeBroker : BackgroundService
                 Priority = CommandPriorities.Control,
             }, timeout.Token);
         }
+        catch (OperationCanceledException exception)
+        {
+            _logger.LogDebug(
+                exception,
+                "Cancellation send timed out for game command {CommandMessageId}",
+                commandMessageId);
+        }
         catch (Exception exception) when (
-            exception is OperationCanceledException
-            or IOException
-            or ObjectDisposedException)
+            exception is IOException or ObjectDisposedException)
         {
             session.Pipe.Dispose();
             _logger.LogDebug(
@@ -548,8 +641,27 @@ public sealed class GamePipeBroker : BackgroundService
             }
 
             if (envelope.ProtocolVersion != ProtocolConstants.Version
-                || envelope.SessionId != session.SessionId
-                || !string.Equals(envelope.Kind, MessageKinds.Response, StringComparison.Ordinal)
+                || envelope.SessionId != session.SessionId)
+            {
+                throw new InvalidDataException("Sea Power returned an invalid session envelope.");
+            }
+
+            if (string.Equals(envelope.Kind, MessageKinds.Event, StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(envelope.MessageId)
+                    || string.IsNullOrWhiteSpace(envelope.MessageType))
+                {
+                    throw new InvalidDataException("Sea Power returned an invalid event envelope.");
+                }
+                _runtimeEvents.Writer.TryWrite(new GameRuntimeEvent(
+                    envelope.MessageType,
+                    envelope.PayloadJson,
+                    envelope.MessageId,
+                    session.SessionId));
+                continue;
+            }
+
+            if (!string.Equals(envelope.Kind, MessageKinds.Response, StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(envelope.CorrelationId))
             {
                 throw new InvalidDataException("Sea Power returned an invalid response envelope.");
@@ -715,3 +827,9 @@ public sealed class GamePipeBroker : BackgroundService
         string SessionId,
         TaskCompletionSource<CommandResponsePayload> Completion);
 }
+
+public sealed record GameRuntimeEvent(
+    string EventType,
+    string PayloadJson,
+    string MessageId,
+    string SessionId);

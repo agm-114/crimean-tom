@@ -116,6 +116,29 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.False(root.TryGetProperty("canonicalHash", out _));
 
             var friendlyEntities = root.GetProperty("friendlyEntities").EnumerateArray().ToArray();
+            var friendlyEntityById = friendlyEntities.ToDictionary(
+                item => item.GetProperty("entityId").GetString()!,
+                StringComparer.Ordinal);
+            var friendlyGroups = root.GetProperty("friendlyGroups").EnumerateArray().ToArray();
+            var airGroups = friendlyGroups.Where(group =>
+                group.GetProperty("name").GetString() is { } name
+                && (name.Contains("squadron", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("flight", StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            Assert.NotEmpty(airGroups);
+            Assert.All(airGroups, group => Assert.Single(
+                group.GetProperty("memberEntityIds").EnumerateArray()
+                    .Select(item => friendlyEntityById[item.GetString()!]
+                        .GetProperty("catalogUnitId").GetString())
+                    .Distinct(StringComparer.Ordinal)));
+            var friendlyGroupNames = friendlyGroups
+                .Select(group => group.GetProperty("name").GetString()!)
+                .ToArray();
+            Assert.Contains("JASDF F-15A squadron", friendlyGroupNames);
+            Assert.Contains("JMSDF PS-1 squadron", friendlyGroupNames);
+            Assert.DoesNotContain(friendlyGroupNames, name =>
+                name.Contains(" or ", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("fixed-wing", StringComparison.OrdinalIgnoreCase));
             var tacticalAnchorEntityIds = friendlyEntities
                 .Where(item => item.GetProperty("name").GetString() is "USS Yorktown" or "USS Spruance")
                 .ToDictionary(
@@ -1268,7 +1291,12 @@ public sealed class UnattendedCampaignIntegrationTests
             "CrimeanTom.Campaign.ServiceHost",
             configuration.ToLowerInvariant(),
             "CrimeanTom.Campaign.ServiceHost.dll"));
-        var hostPath = File.Exists(artifactsHostPath) ? artifactsHostPath : normalHostPath;
+        var colocatedHostPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "CrimeanTom.Campaign.ServiceHost.dll");
+        var hostPath = File.Exists(colocatedHostPath)
+            ? colocatedHostPath
+            : File.Exists(artifactsHostPath) ? artifactsHostPath : normalHostPath;
         Assert.True(File.Exists(hostPath), $"Campaign service host was not built at {hostPath}.");
 
         var start = new ProcessStartInfo("dotnet")

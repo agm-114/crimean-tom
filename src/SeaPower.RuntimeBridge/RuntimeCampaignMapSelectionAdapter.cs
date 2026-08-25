@@ -29,6 +29,8 @@ internal static class RuntimeCampaignMapSelectionAdapter
 
     public static string InstallationError { get; private set; } = string.Empty;
 
+    public static string ViewportHookError { get; private set; } = string.Empty;
+
     public static void Install()
     {
         if (HooksInstalled || !string.IsNullOrEmpty(InstallationError))
@@ -63,6 +65,7 @@ internal static class RuntimeCampaignMapSelectionAdapter
     public static void TryInstallViewportHook()
     {
         if (!HooksInstalled
+            || !string.IsNullOrEmpty(ViewportHookError)
             || Globals._mainGameViewModel?.Map?.DisplayMap is null
             || MainGameView.Instance is null)
         {
@@ -94,9 +97,10 @@ internal static class RuntimeCampaignMapSelectionAdapter
             }
             catch (Exception exception)
             {
+                ViewportHookError = $"{exception.GetType().Name}: {exception.Message}";
                 UnityEngine.Debug.LogWarning(
                     "[Sea Power Runtime Bridge] campaign map-viewport hook failed: "
-                    + $"{exception.GetType().Name}: {exception.Message}");
+                    + ViewportHookError);
                 return;
             }
         }
@@ -111,6 +115,11 @@ internal static class RuntimeCampaignMapSelectionAdapter
         {
             RuntimeVisualRenderProxyAdapter.RefreshMapViewport(map, force: true);
         }
+    }
+
+    public static void ResetSceneViewport()
+    {
+        _nextMapSearchAt = 0f;
     }
 
     private static MapBase? FindMapBase(Noesis.DependencyObject root)

@@ -110,6 +110,19 @@ internal static class RuntimeTacticalLocationAdapter
         try
         {
             var target = new GeoPosition(latitude, longitude, 0d);
+            var activeCampaignUnitsOutsideTarget = ActiveUnits()
+                .Where(unit => !string.IsNullOrWhiteSpace(unit._campaignTag))
+                .Where(unit => HorizontalDistanceSquared(unit._geoPosition, targetTile)
+                    > Globals._rebaseToOriginSq)
+                .Select(unit => unit._campaignTag)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+            if (activeCampaignUnitsOutsideTarget.Length > 0)
+            {
+                return MutationAdapterResult<PrepareTacticalLocationResultPayload>.Failure(
+                    ProtocolErrorCodes.LocalityRebaseRequired,
+                    "The current campaign-owned tactical locality must be checkpointed and suspended before a distant floating-origin rebase.");
+            }
             var renderPosition = Singleton<RenderPosition>.Instance;
             var localBeforeRelocation = Utils.longLatToLocalV3(
                 target,
@@ -126,8 +139,28 @@ internal static class RuntimeTacticalLocationAdapter
             Singleton<RelocationHandler>.Instance.relocate(delta);
             Physics.SyncTransforms();
 
+            var suspendedAuthoredUnitCount = 0;
+            foreach (var unit in ActiveUnits()
+                .Where(unit => string.IsNullOrWhiteSpace(unit._campaignTag))
+                .Where(unit => HorizontalDistanceSquared(unit._geoPosition, Globals._currentCenterTile)
+                    > Globals._rebaseToOriginSq))
+            {
+                unit.gameObject.SetActive(false);
+                suspendedAuthoredUnitCount++;
+            }
+
             timer.Stop();
             var currentCenter = Globals._currentCenterTile;
+            var targetLocal = Utils.longLatToLocalV3(target, currentCenter);
+            targetLocal.y = 0f;
+            if (Math.Abs(currentCenter.x - targetTile.x) > 1f
+                || Math.Abs(currentCenter.y - targetTile.y) > 1f
+                || targetLocal.sqrMagnitude > Globals._rebaseToOriginSq)
+            {
+                return MutationAdapterResult<PrepareTacticalLocationResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    "Sea Power did not commit the requested tactical location as its floating origin.");
+            }
             var afterProbe = RuntimeTerrainPlacementAdapter.Probe(new()
             {
                 Latitude = latitude,
@@ -146,6 +179,7 @@ internal static class RuntimeTacticalLocationAdapter
                 CurrentCenterTileX = (int)currentCenter.x,
                 CurrentCenterTileY = (int)currentCenter.y,
                 Relocated = true,
+                SuspendedDistantAuthoredUnitCount = suspendedAuthoredUnitCount,
                 SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
                 Terrain = afterProbe,
             });
@@ -166,4 +200,19 @@ internal static class RuntimeTacticalLocationAdapter
         (long)Math.Round(
             stopwatch.ElapsedTicks * 1_000_000d / Stopwatch.Frequency,
             MidpointRounding.AwayFromZero);
+
+    private static IEnumerable<ObjectBase> ActiveUnits() =>
+        Singleton<ObjectsManager>.InstanceExists()
+            ? Singleton<ObjectsManager>.Instance._listOfAllObjects
+                .Where(unit => unit is not null
+                    && unit.isUnit()
+                    && unit.gameObject.activeInHierarchy)
+            : [];
+
+    private static float HorizontalDistanceSquared(GeoPosition position, Vector2 centerTile)
+    {
+        var local = Utils.longLatToLocalV3(position, centerTile);
+        local.y = 0f;
+        return local.sqrMagnitude;
+    }
 }

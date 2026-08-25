@@ -24,6 +24,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     private void Awake()
     {
         _mainThreadId = Environment.CurrentManagedThreadId;
+        SceneManager.activeSceneChanged += OnActiveSceneChanged;
         RuntimeCampaignMapSelectionAdapter.Install();
         _fileFingerprintProvider = RuntimeFileFingerprintProvider.Start();
         _executionThreadGuardSelfTest.Start(_mainThreadId, _fileFingerprintProvider);
@@ -51,6 +52,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
             CancelCommand,
             EndSession,
             QueueLogMessage);
+        RuntimeEventPublisher.Bind(_pipeClient.SendEvent);
         _pipeClient.Start();
         UnityEngine.Debug.Log(
             $"[Sea Power Runtime Bridge] game-control bridge started for instance {instance.InstanceId} on pipe {instance.PipeName}");
@@ -110,8 +112,16 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
 
     private void OnDestroy()
     {
+        SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+        RuntimeEventPublisher.Unbind();
         _pipeClient?.Dispose();
         _pipeClient = null;
+    }
+
+    private static void OnActiveSceneChanged(Scene previous, Scene current)
+    {
+        RuntimeVisualRenderProxyAdapter.ReleaseScenePresentation();
+        RuntimeCampaignMapSelectionAdapter.ResetSceneViewport();
     }
 
     private void QueueLogMessage(string message, bool isWarning)
@@ -133,6 +143,8 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     {
         RuntimeOwnedMutationAdapter.EndSession(sessionId);
         RuntimeOwnedLandMutationAdapter.EndSession(sessionId);
+        RuntimeVisualRenderProxyAdapter.ClearAll();
+        RuntimeCampaignMapSelectionAdapter.ResetSceneViewport();
         var removed = _commands.RemoveSession(sessionId);
         if (removed > 0)
         {

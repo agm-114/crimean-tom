@@ -38,6 +38,7 @@ var campaignServiceGrpcUrl = builder.Configuration["CampaignServiceGrpcUrl"]
 var campaignServiceHttpUrl = string.Empty;
 var campaignId = string.Empty;
 var playerCoalitionId = string.Empty;
+var debugRevealAllEnemies = false;
 if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
 {
     campaignServiceHttpUrl = builder.Configuration["CampaignServiceHttpUrl"]
@@ -79,6 +80,11 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         minimum: 0,
         maximum: tacticalEntityCapacity,
         "TacticalReserveCapacity");
+    debugRevealAllEnemies = bool.TryParse(
+        builder.Configuration["DebugRevealAllEnemies"]
+            ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_DEBUG_REVEAL_ALL_ENEMIES"),
+        out var revealAllEnemies)
+        && revealAllEnemies;
     var options = new CampaignCompanionClientOptions(
         RequireCampaignServiceUri(campaignServiceGrpcUrl),
         RequireCampaignServiceUri(campaignServiceHttpUrl),
@@ -90,7 +96,8 @@ if (!string.IsNullOrWhiteSpace(campaignServiceGrpcUrl))
         campaignStateDirectory,
         playerCoalitionId,
         tacticalEntityCapacity,
-        tacticalReserveCapacity);
+        tacticalReserveCapacity,
+        debugRevealAllEnemies);
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(new CampaignCompanionStateStore(campaignStateDirectory));
     builder.Services.AddHostedService<CampaignCompanionClient>();
@@ -116,6 +123,7 @@ app.MapGet("/health", (GamePipeBroker broker) => Results.Ok(new
         enabled = !string.IsNullOrWhiteSpace(campaignServiceGrpcUrl),
         campaignId,
         playerCoalitionId,
+        debugRevealAllEnemies,
         grpcUrl = campaignServiceGrpcUrl ?? string.Empty,
         httpUrl = campaignServiceHttpUrl,
     },

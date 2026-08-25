@@ -14,7 +14,7 @@ internal static class RuntimeOwnedMutationAdapter
     public const string Confirmation = "enable-owned-mutations";
     public const string FaultInjectionConfirmation = "inject-owned-mutation-failure";
 
-    private static readonly OwnedSurfaceMaterializationProfilePayload[] Profiles =
+    private static readonly OwnedSurfaceMaterializationProfilePayload[] PinnedProfiles =
     [
         Profile("usn_ff_knox_84", "Variant43"),
         Profile("usn_cg_ticonderoga", "Default"),
@@ -25,6 +25,8 @@ internal static class RuntimeOwnedMutationAdapter
         Profile("wp_skr_krivak2", "Default"),
     ];
 
+    private static OwnedSurfaceMaterializationProfilePayload[]? _catalogProfiles;
+
     private static readonly string[] SurfaceRenderProxyUnitTypeIds =
     [
         "usn_ff_knox_84",
@@ -34,13 +36,68 @@ internal static class RuntimeOwnedMutationAdapter
     ];
 
     internal static OwnedSurfaceMaterializationProfilePayload[] SupportedProfiles() =>
-        Profiles.Select(CloneProfile).ToArray();
+        CatalogProfiles().Select(CloneProfile).ToArray();
 
     internal static bool Supports(string unitTypeId, string variantId, string loadoutId) =>
-        Profiles.Any(profile =>
+        CatalogProfiles().Any(profile =>
             string.Equals(profile.UnitTypeId, unitTypeId, StringComparison.Ordinal)
             && string.Equals(profile.VariantId, variantId, StringComparison.Ordinal)
             && string.Equals(profile.LoadoutId, loadoutId, StringComparison.Ordinal));
+
+    private static OwnedSurfaceMaterializationProfilePayload[] CatalogProfiles()
+    {
+        if (_catalogProfiles is { Length: > 0 })
+        {
+            return _catalogProfiles;
+        }
+
+        var unitData = Singleton<UnitMetadataProvider>.Instance?.UnitData;
+        if (unitData is null || unitData.Count == 0)
+        {
+            return PinnedProfiles;
+        }
+
+        var profiles = new List<OwnedSurfaceMaterializationProfilePayload>(PinnedProfiles);
+        var identities = PinnedProfiles
+            .Select(ProfileIdentity)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in unitData
+            .Where(item => item.Value.Item2 is not null
+                && item.Value.Item2._objectType is ObjectBase.ObjectType.Vessel
+                    or ObjectBase.ObjectType.Submarine
+                    or ObjectBase.ObjectType.Aircraft
+                    or ObjectBase.ObjectType.Helicopter)
+            .OrderBy(item => item.Key.Item2, StringComparer.Ordinal))
+        {
+            var metadata = entry.Value.Item2;
+            var variantId = metadata._variants.ContainsKey("Default")
+                ? "Default"
+                : metadata._variants.Keys.OrderBy(value => value, StringComparer.Ordinal).FirstOrDefault()
+                    ?? "Default";
+            var loadoutIds = metadata._loadouts?.Keys
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray() ?? [];
+            if (loadoutIds.Length == 0)
+            {
+                loadoutIds = ["Default"];
+            }
+
+            foreach (var loadoutId in loadoutIds)
+            {
+                var profile = Profile(entry.Key.Item2, variantId, loadoutId);
+                if (identities.Add(ProfileIdentity(profile)))
+                {
+                    profiles.Add(profile);
+                }
+            }
+        }
+
+        _catalogProfiles = profiles.ToArray();
+        return _catalogProfiles;
+    }
+
+    private static string ProfileIdentity(OwnedSurfaceMaterializationProfilePayload profile) =>
+        $"{profile.UnitTypeId}\n{profile.VariantId}\n{profile.LoadoutId}";
 
     internal static bool SupportsSurfaceRenderProxy(
         string unitTypeId,
@@ -176,11 +233,6 @@ internal static class RuntimeOwnedMutationAdapter
         {
             _armedSessionId = string.Empty;
             _expiresAtUnixMilliseconds = 0;
-            IdempotencyRecords.Clear();
-            HostedIdempotencyRecords.Clear();
-            HostedLaunchIdempotencyRecords.Clear();
-            LifecycleIdempotencyRecords.Clear();
-            RecoveryReleaseIdempotencyRecords.Clear();
         }
     }
 
@@ -209,6 +261,8 @@ internal static class RuntimeOwnedMutationAdapter
                     LifecycleState = lifecycleState,
                     HasCheckpoint = record.Checkpoint is not null,
                     RecoveryRequired = record.RecoveryRequired,
+                    NativeInitialized = RuntimeNativeUnitReadiness.IsInitialized(vessel),
+                    AcceptsPlayerOrders = RuntimeNativeUnitReadiness.AcceptsPlayerOrders(vessel),
                     GameUniqueId = vessel == null ? null : vessel.UniqueID,
                     HostEntityId = record.HostEntityId,
                 };
@@ -223,6 +277,7 @@ internal static class RuntimeOwnedMutationAdapter
                 AuthorityEpoch = pair.Value.AuthorityEpoch,
                 Revision = pair.Value.Revision,
                 LifecycleState = "hosted-on-board",
+                NativeInitialized = true,
                 HostEntityId = pair.Value.HostEntityId,
             });
         var entries = materializedEntries.Concat(hostedEntries).ToArray();
@@ -251,7 +306,7 @@ internal static class RuntimeOwnedMutationAdapter
             RegisterOwnedHostedAircraftRequestPayload request,
             string commandSessionId)
     {
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, request.Context);
         var idempotencyKey = string.Join(
             "|",
             request.Context?.AssignmentId,
@@ -349,7 +404,7 @@ internal static class RuntimeOwnedMutationAdapter
             LaunchOwnedHostedAircraftRequestPayload request,
             string commandSessionId)
     {
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, request.Context);
         var idempotencyKey = string.Join(
             "|",
             request.Context?.AssignmentId,
@@ -455,7 +510,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var key = LifecycleKey(GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery, context);
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, request.Context);
         if (RecoveryReleaseIdempotencyRecords.TryGetValue(key, out var prior))
         {
             if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
@@ -503,6 +558,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         OwnedEntities.Remove(request.EntityId);
+        EvictIdempotencyForAssignment(record.AssignmentId);
         var result = new OwnedSurfaceRecoveryReleaseResultPayload
         {
             Outcome = "released",
@@ -529,7 +585,7 @@ internal static class RuntimeOwnedMutationAdapter
             return validationError;
         }
 
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, request.Context);
         var idempotencyRecordKey = string.Join(
             "|",
             request.Context.AssignmentId,
@@ -648,6 +704,7 @@ internal static class RuntimeOwnedMutationAdapter
                 ApplyTelegraph(created, request.Telegraph);
                 created._velocityInKnots = SpeedForTelegraph(created, request.Telegraph);
                 created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
+                InitializeAirborneState(created, position);
                 Physics.SyncTransforms();
             }
             else
@@ -660,7 +717,7 @@ internal static class RuntimeOwnedMutationAdapter
             var realized = Capture(created, request.TaskforceId, initialStoresQuantity);
             if (sourceUnit is null)
             {
-                AssertRealizedIdentity(request, realized);
+                AssertRealizedIdentity(request, realized, created);
             }
             else
             {
@@ -820,7 +877,7 @@ internal static class RuntimeOwnedMutationAdapter
                 vessel.Enable();
             }
             var realized = Capture(vessel, request.TaskforceId, record.InitialStoresQuantity);
-            AssertRealizedIdentity(request, realized);
+            AssertRealizedIdentity(request, realized, vessel);
             var revision = request.Context.ExpectedRevision + 1;
             record.AssignmentId = request.Context.AssignmentId;
             record.AuthorityEpoch = request.Context.AuthorityEpoch;
@@ -1645,7 +1702,7 @@ internal static class RuntimeOwnedMutationAdapter
         {
             return null;
         }
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        var requestJson = IdempotencyRequestJson(request, context);
         if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
@@ -1665,11 +1722,61 @@ internal static class RuntimeOwnedMutationAdapter
         LifecycleIdempotencyRecords.Add(
             LifecycleKey(command, context),
             new(
-                JsonSerializer.Serialize(request, JsonOptions),
+                IdempotencyRequestJson(request, context),
                 CloneLifecycle(result)));
+
+    private static string IdempotencyRequestJson<T>(
+        T request,
+        OwnedMutationContextPayload? context)
+    {
+        if (context is null)
+        {
+            return JsonSerializer.Serialize(request, JsonOptions);
+        }
+
+        var sessionId = context.SessionId;
+        try
+        {
+            context.SessionId = string.Empty;
+            return JsonSerializer.Serialize(request, JsonOptions);
+        }
+        finally
+        {
+            context.SessionId = sessionId;
+        }
+    }
 
     private static string LifecycleKey(string command, OwnedMutationContextPayload context) =>
         string.Join("|", command, context.AssignmentId, context.IdempotencyKey);
+
+    private static void EvictIdempotencyForAssignment(string assignmentId)
+    {
+        RemoveWhere(
+            IdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+        RemoveWhere(
+            HostedIdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+        RemoveWhere(
+            HostedLaunchIdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+        RemoveWhere(
+            LifecycleIdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+    }
+
+    private static void RemoveWhere<T>(
+        Dictionary<string, T> records,
+        Func<T, bool> predicate)
+    {
+        foreach (var key in records
+            .Where(item => predicate(item.Value))
+            .Select(item => item.Key)
+            .ToArray())
+        {
+            records.Remove(key);
+        }
+    }
 
     private static OwnedSurfaceLifecycleResultPayload LifecycleResult(
         string outcome,
@@ -1898,7 +2005,7 @@ internal static class RuntimeOwnedMutationAdapter
         if (!Supports(request.UnitTypeId, request.VariantId, request.LoadoutId))
         {
             return Invalid(
-                "The requested surface materialization profile is not allow-listed.");
+                "The requested materialization profile is not present in Sea Power's active unit catalog.");
         }
         if (IsHelicopterProfile(request.UnitTypeId)
             && request.SourceCheckpoint is null
@@ -2223,7 +2330,7 @@ internal static class RuntimeOwnedMutationAdapter
             || character is ':' or '-' or '_' or '.');
 
     private static bool IsHelicopterProfile(string unitTypeId) =>
-        unitTypeId is "usn_sh-2f" or "usn_sh-3h";
+        ResolveObjectType(unitTypeId) == ObjectBase.ObjectType.Helicopter;
 
     private static OwnedSurfaceMaterializationProfilePayload Profile(
         string unitTypeId,
@@ -2255,47 +2362,96 @@ internal static class RuntimeOwnedMutationAdapter
         var objects = Singleton<ObjectsManager>.Instance;
         var unitNumber = objects._listOfAllObjects.Count + 1;
         var center = Singleton<SceneCreator>.Instance.GeoCenterPosition;
-        if (string.Equals(unitTypeId, "usn_ssn_los_angeles", StringComparison.Ordinal))
+        switch (ResolveObjectType(unitTypeId))
         {
-            return objects.createSubmarine(
-                variantId,
-                loadoutId,
-                unitTypeId,
-                unitNumber,
-                center,
-                position,
-                telegraph,
-                heading,
-                taskforce,
-                loadAsync: false);
+            case ObjectBase.ObjectType.Submarine:
+                return objects.createSubmarine(
+                    variantId,
+                    loadoutId,
+                    unitTypeId,
+                    unitNumber,
+                    center,
+                    position,
+                    telegraph,
+                    heading,
+                    taskforce,
+                    loadAsync: false);
+            case ObjectBase.ObjectType.Aircraft:
+                return objects.createAircraft(
+                    variantId,
+                    loadoutId,
+                    null,
+                    null,
+                    unitTypeId,
+                    unitNumber,
+                    center,
+                    position,
+                    heading,
+                    taskforce,
+                    createMinimapSymbol: true,
+                    loadWeaponSystems: true,
+                    loadAsync: false);
+            case ObjectBase.ObjectType.Helicopter:
+                return objects.createHelicopter(
+                    variantId,
+                    loadoutId,
+                    null,
+                    null,
+                    unitTypeId,
+                    unitNumber,
+                    center,
+                    position,
+                    heading,
+                    taskforce,
+                    loadAsync: false);
+            case ObjectBase.ObjectType.Vessel:
+                return objects.createShip(
+                    variantId,
+                    loadoutId,
+                    unitTypeId,
+                    unitNumber,
+                    center,
+                    position,
+                    telegraph,
+                    heading,
+                    taskforce,
+                    loadAsync: false);
+            default:
+                return null;
         }
-        if (unitTypeId is "usn_sh-2f" or "usn_sh-3h")
+    }
+
+    private static ObjectBase.ObjectType ResolveObjectType(string unitTypeId)
+    {
+        var unitData = Singleton<UnitMetadataProvider>.Instance?.UnitData;
+        if (unitData is null)
         {
-            return objects.createHelicopter(
-                variantId,
-                loadoutId,
-                null,
-                null,
-                unitTypeId,
-                unitNumber,
-                center,
-                position,
-                heading,
-                taskforce,
-                loadAsync: false);
+            return ObjectBase.ObjectType.Other;
         }
 
-        return objects.createShip(
-            variantId,
-            loadoutId,
-            unitTypeId,
-            unitNumber,
-            center,
-            position,
-            telegraph,
-            heading,
-            taskforce,
-            loadAsync: false);
+        foreach (var folder in new[] { "vessels", "aircraft", "land_units" })
+        {
+            if (unitData.TryGetValue((folder, unitTypeId), out var entry)
+                && entry.Item2 is { } metadata)
+            {
+                return metadata._objectType;
+            }
+        }
+        return ObjectBase.ObjectType.Other;
+    }
+
+    private static void InitializeAirborneState(ObjectBase unit, GeoPosition position)
+    {
+        if (unit is Aircraft aircraft)
+        {
+            aircraft.DesiredAltitude.Value = (float)position._height;
+            if (aircraft._obp?._codeAnimations.TryGetValue("Gear_Extend", out var gear) == true)
+            {
+                gear.setClosedState();
+            }
+            aircraft.ImmediateStartEngines();
+            aircraft.giveControl(aircraft._velocityInKnots, resetAltitude: false);
+        }
     }
 
     private static float SpeedForTelegraph(ObjectBase unit, int telegraph)
@@ -2311,6 +2467,10 @@ internal static class RuntimeOwnedMutationAdapter
         if (unit is Helicopter helicopter && helicopter.SpeedCommand.Value is { } helicopterSpeed)
         {
             return helicopterSpeed.GetDemandedSpeedInKnots(helicopter);
+        }
+        if (unit is Aircraft aircraft && aircraft.SpeedCommand.Value is { } aircraftSpeed)
+        {
+            return aircraftSpeed.GetDemandedSpeedInKnots(aircraft);
         }
 
         throw new InvalidOperationException(
@@ -2333,6 +2493,10 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static int CaptureTelegraph(ObjectBase unit)
     {
+        if (unit is Aircraft aircraft)
+        {
+            return aircraft.getTelegraph() + 1;
+        }
         if (unit is not Helicopter helicopter
             || helicopter.SpeedCommand.Value is not { } speedCommand
             || helicopter._maxSpeedSeaLevel <= 0f)
@@ -2449,26 +2613,74 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static void AssertRealizedIdentity(
         MaterializeOwnedSurfaceUnitRequestPayload request,
-        OwnedSurfaceUnitStatePayload realized)
+        OwnedSurfaceUnitStatePayload realized,
+        ObjectBase realizedObject)
     {
-        if (!string.Equals(realized.EntityId, request.EntityId, StringComparison.Ordinal)
-            || !string.Equals(realized.UnitTypeId, request.UnitTypeId, StringComparison.Ordinal)
-            || !string.Equals(realized.VariantId, request.VariantId, StringComparison.Ordinal)
-            || !string.Equals(realized.LoadoutId, request.LoadoutId, StringComparison.Ordinal)
-            || !string.Equals(realized.TaskforceId, request.TaskforceId, StringComparison.Ordinal)
-            || !Within(realized.Latitude, request.Latitude, PositionToleranceDegrees)
-            || !Within(realized.Longitude, request.Longitude, PositionToleranceDegrees)
-            || request.AltitudeFeet is not null
-                && !Within(realized.AltitudeFeet, request.AltitudeFeet, AltitudeToleranceFeet)
-            || !Within(
-                realized.HeadingDegrees,
-                NormalizeHeading(request.HeadingDegrees),
-                HeadingToleranceDegrees)
-            || realized.Telegraph != request.Telegraph
-            || realized.IsDestroyed
-            || realized.IsDisabled)
+        var mismatches = new List<string>();
+        IdentityMismatch(mismatches, "entity", request.EntityId, realized.EntityId);
+        IdentityMismatch(mismatches, "unit-type", request.UnitTypeId, realized.UnitTypeId);
+        IdentityMismatch(mismatches, "variant", request.VariantId, realized.VariantId);
+        IdentityMismatch(mismatches, "loadout", request.LoadoutId, realized.LoadoutId);
+        IdentityMismatch(mismatches, "taskforce", request.TaskforceId, realized.TaskforceId);
+        PositionMismatch(mismatches, "latitude", request.Latitude, realized.Latitude, PositionToleranceDegrees);
+        PositionMismatch(mismatches, "longitude", request.Longitude, realized.Longitude, PositionToleranceDegrees);
+        if (request.AltitudeFeet is not null
+            && realizedObject is Aircraft or Helicopter)
         {
-            throw new InvalidOperationException("Sea Power realized a different surface identity.");
+            PositionMismatch(
+                mismatches,
+                "altitude-feet",
+                request.AltitudeFeet,
+                realized.AltitudeFeet,
+                AltitudeToleranceFeet);
+        }
+        PositionMismatch(
+            mismatches,
+            "heading",
+            NormalizeHeading(request.HeadingDegrees),
+            realized.HeadingDegrees,
+            HeadingToleranceDegrees);
+        if (realized.Telegraph != request.Telegraph)
+        {
+            mismatches.Add($"telegraph expected={request.Telegraph} actual={realized.Telegraph}");
+        }
+        if (realized.IsDestroyed)
+        {
+            mismatches.Add("destroyed=true");
+        }
+        if (realized.IsDisabled)
+        {
+            mismatches.Add("disabled=true");
+        }
+        if (mismatches.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Sea Power realized a different unit identity: {string.Join("; ", mismatches)}.");
+        }
+    }
+
+    private static void IdentityMismatch(
+        ICollection<string> mismatches,
+        string field,
+        string? expected,
+        string? actual)
+    {
+        if (!string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            mismatches.Add($"{field} expected='{expected}' actual='{actual}'");
+        }
+    }
+
+    private static void PositionMismatch(
+        ICollection<string> mismatches,
+        string field,
+        double? expected,
+        double? actual,
+        double tolerance)
+    {
+        if (!Within(actual, expected, tolerance))
+        {
+            mismatches.Add($"{field} expected={expected} actual={actual} tolerance={tolerance}");
         }
     }
 

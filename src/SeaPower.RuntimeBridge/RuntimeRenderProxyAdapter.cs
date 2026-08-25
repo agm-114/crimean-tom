@@ -28,6 +28,14 @@ internal static class RuntimeRenderProxyAdapter
             .ToArray(),
     };
 
+    public static void SuppressForOwnedEntity(string entityId)
+    {
+        if (Records.TryGetValue(entityId, out var record))
+        {
+            Suspend(record);
+        }
+    }
+
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
         ReconcileSurfaceRenderProxiesRequestPayload request,
         string commandSessionId)

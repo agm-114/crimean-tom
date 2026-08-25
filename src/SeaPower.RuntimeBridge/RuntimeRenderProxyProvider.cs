@@ -8,9 +8,21 @@ internal static class RuntimeRenderProxyProvider
 {
     private static bool _useNativeFallback;
 
+    public static void RecordProjectionParse(long elapsedMicroseconds)
+    {
+        if (!_useNativeFallback)
+        {
+            RuntimeVisualRenderProxyAdapter.RecordProjectionParse(elapsedMicroseconds);
+        }
+    }
+
     public static SurfaceRenderProxySnapshotPayload Capture() => _useNativeFallback
         ? RuntimeRenderProxyAdapter.CaptureState()
         : RuntimeVisualRenderProxyAdapter.Capture();
+
+    public static SelectedSurfaceRenderProxyPayload CaptureSelected() => _useNativeFallback
+        ? new SelectedSurfaceRenderProxyPayload()
+        : RuntimeVisualRenderProxyAdapter.CaptureSelected();
 
     public static bool TryResolveVisiblePivot(string requestedId, out GameObject pivot)
     {
@@ -30,6 +42,16 @@ internal static class RuntimeRenderProxyProvider
         }
         error = "lazy visual proxies are unavailable while the native fallback is active";
         return false;
+    }
+
+    public static void SuppressForOwnedEntity(string entityId)
+    {
+        if (_useNativeFallback)
+        {
+            RuntimeRenderProxyAdapter.SuppressForOwnedEntity(entityId);
+            return;
+        }
+        RuntimeVisualRenderProxyAdapter.SuppressForOwnedEntity(entityId);
     }
 
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
