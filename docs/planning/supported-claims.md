@@ -15,6 +15,8 @@ update requires renewed qualification.
   or cloud storage.
 - Online backup and side-directory restore verify journal and blob integrity.
 - Operator pause rejects campaign time advances until resume.
+- One campaign quantum is one simulated second. The default local target tempo
+  is 10x, and the player API declares the tick contract and multiplier.
 - The local player application can create and name the fixed 4,096-entity
   proving scenario paused, start it, pause it, save it, restart the campaign
   service, and restore the same campaign head and time.

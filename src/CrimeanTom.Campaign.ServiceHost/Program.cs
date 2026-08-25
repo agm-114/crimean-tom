@@ -49,6 +49,7 @@ var runDirectory = Path.GetFullPath(
     ?? Path.Combine(repositoryRoot ?? workingDirectory, ".run", "campaign-service"));
 var token = CampaignServiceToken.LoadOrCreate(Path.Combine(runDirectory, "service.token"));
 var monitorSession = new CampaignMonitorSession();
+var unattendedSimulation = CampaignUnattendedSimulationOptions.Load();
 var journal = new SqliteCampaignJournal(
     Path.Combine(runDirectory, "campaign.db"),
     Path.Combine(runDirectory, "blobs"));
@@ -67,6 +68,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(token);
 builder.Services.AddSingleton(monitorSession);
+builder.Services.AddSingleton(unattendedSimulation);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton(new CampaignHostPaths(runDirectory, Path.Combine(runDirectory, "backups")));
 builder.Services.AddSingleton<CampaignSessionRegistry>();

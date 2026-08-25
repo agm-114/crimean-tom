@@ -103,8 +103,13 @@ object becomes player-visible. Demotion preserves the map record.
 
 ## Campaign time and tactical leases
 
-Campaign time advances in fixed logical quanta at a declared tempo. Sea Power
-may use its supported native fixed timestep inside the tactical process.
+One campaign quantum is one simulated second. The default local clock advances
+ten quanta every one wall-clock second, for a target tempo of 10x. The service
+returns that clock contract with every player campaign view, and the application
+shows both simulated date/time and target multiplier. Operators may override the
+tick interval and quanta per tick for tests or calibration; an override changes
+the declared tempo rather than silently changing the meaning of a quantum. Sea
+Power may use its supported native fixed timestep inside the tactical process.
 
 A tactical session sends heartbeats. Healthy heartbeats renew the island lease.
 The rest of the campaign continues in parallel. The service marks a session

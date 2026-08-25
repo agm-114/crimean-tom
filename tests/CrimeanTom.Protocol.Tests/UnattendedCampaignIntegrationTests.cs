@@ -102,6 +102,11 @@ public sealed class UnattendedCampaignIntegrationTests
             var campaignId = root.GetProperty("campaignId").GetString()!;
             var playerCoalitionId = root.GetProperty("coalitionId").GetString()!;
             var initialTime = root.GetProperty("timeQuanta").GetInt64();
+            var tempo = root.GetProperty("tempo");
+            Assert.Equal(1, tempo.GetProperty("simulatedSecondsPerQuantum").GetInt32());
+            Assert.Equal(10, tempo.GetProperty("advanceQuanta").GetInt64());
+            Assert.Equal(200, tempo.GetProperty("wallIntervalMilliseconds").GetInt32());
+            Assert.Equal(50d, tempo.GetProperty("targetMultiplier").GetDouble());
             Assert.Equal(4_096, root.GetProperty("scenarioEntityCount").GetInt32());
             Assert.True(root.GetProperty("paused").GetBoolean());
             Assert.True(root.GetProperty("friendlyEntities").GetArrayLength() > 0);

@@ -137,6 +137,13 @@ player session. Operator and companion routes use the bearer token in
 `.run/campaign-service/service.token`; never copy that token into source,
 documentation, or shell history.
 
+The default campaign tempo is 10x: one quantum is one simulated second, and the
+service advances ten quanta per one wall-clock second. The application displays
+the simulated day/time and declared multiplier. Tests may override
+`CRIMEAN_TOM_UNATTENDED_TICK_WALL_MS` and
+`CRIMEAN_TOM_UNATTENDED_QUANTA_PER_TICK`; these are calibration controls, not
+save-format settings.
+
 ## Run a campaign-bound Sea Power session
 
 Use the repository-local `sea-power-runtime` skill for live Runtime Bridge work.

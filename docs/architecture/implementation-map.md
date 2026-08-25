@@ -51,6 +51,12 @@ weather, doctrine, sensors, weapons, countermeasures, damage, and withdrawal.
 Strategic AI generates coalition plans, objectives, commitments, packages, and
 orders. All Operational ticks still execute in the service process.
 
+One campaign quantum is one simulated second. The default hosted clock advances
+ten quanta per one-second wall interval, so its declared target tempo is 10x.
+The player projection exposes the quantum duration, tick size, wall interval,
+and target multiplier; the campaign application renders simulated day/time and
+the multiplier.
+
 ## Implemented Sea Power path
 
 The service assigns and fences interaction islands. Eligible companion

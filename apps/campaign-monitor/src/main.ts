@@ -81,6 +81,12 @@ type PlayerCampaign = {
   playerId: string;
   coalitionId: string;
   timeQuanta: number;
+  tempo: {
+    simulatedSecondsPerQuantum: number;
+    advanceQuanta: number;
+    wallIntervalMilliseconds: number;
+    targetMultiplier: number;
+  };
   head: number;
   paused: boolean;
   lastCursor: number;
@@ -347,7 +353,8 @@ function renderMap(data: PlayerCampaign): void {
 function renderCampaign(data: PlayerCampaign): void {
   campaign = data;
   byId("campaign-title").textContent = data.name;
-  byId("campaign-time").textContent = `T+${data.timeQuanta}`;
+  byId("campaign-time").textContent =
+    `${formatCampaignTime(data)} // ${formatTempo(data.tempo.targetMultiplier)}`;
   byId("save-head").textContent = data.lastSavedHead === null ? "UNSAVED" : `C${data.lastSavedHead}`;
   byId("run-state").textContent = data.paused ? "PAUSED" : "RUNNING";
   byId("scenario-id").textContent = data.scenarioId.toUpperCase();
@@ -375,6 +382,21 @@ function renderCampaign(data: PlayerCampaign): void {
     renderTacticalPanel();
   }
   void refreshTacticalEntry().catch(showTacticalError);
+}
+
+function formatCampaignTime(data: PlayerCampaign): string {
+  const seconds = Math.floor(data.timeQuanta * data.tempo.simulatedSecondsPerQuantum);
+  const day = Math.floor(seconds / 86_400) + 1;
+  const daySeconds = seconds % 86_400;
+  const hours = Math.floor(daySeconds / 3_600);
+  const minutes = Math.floor(daySeconds % 3_600 / 60);
+  const remainder = daySeconds % 60;
+  return `D${String(day).padStart(3, "0")} `
+    + `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatTempo(multiplier: number): string {
+  return `${Number.isInteger(multiplier) ? multiplier.toFixed(0) : multiplier.toFixed(1)}x`;
 }
 
 function renderForceHierarchy(data: PlayerCampaign): void {

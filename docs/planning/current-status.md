@@ -27,6 +27,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Area | Current capability | Limit |
 | --- | --- | --- |
 | Campaign core | Immutable state, typed commands and events, fixed logical time, deterministic replay and hashing | Save schema and algorithm evolution are not qualified |
+| Campaign clock | One quantum is one simulated second; the default target tempo is 10x and the player view declares the clock contract | Actual throughput can fall below target under load; player-selectable tempo and measured lag are not implemented |
 | Persistence | SQLite WAL, writer fencing, periodic snapshots, compressed events, content-addressed blobs, integrity checks, online backup, side-directory restore | Long campaigns, compaction, disk pressure, and upgrade paths remain open |
 | Scenario | Sourced 55-region, 81-base, 4,096-entity WW3++ proving seed | It is an engineering load scenario, not a balanced release campaign |
 | Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |

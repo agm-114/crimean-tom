@@ -19,7 +19,8 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public sealed class CampaignCoordinator(
     SqliteCampaignJournal journal,
     CampaignSessionRegistry sessions,
-    CampaignPerformanceTelemetry telemetry)
+    CampaignPerformanceTelemetry telemetry,
+    CampaignUnattendedSimulationOptions unattendedSimulation)
 {
     private static readonly JsonSerializerOptions CheckpointJsonOptions = new(JsonSerializerDefaults.Web);
     private const long SnapshotIntervalCommits = 100;
@@ -1366,7 +1367,7 @@ public sealed class CampaignCoordinator(
     {
         var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
         var state = await RecoverStateAsync(campaignId, cancellationToken);
-        return CampaignPlayerHttp.From(state, profile);
+        return CampaignPlayerHttp.From(state, profile, unattendedSimulation);
     }
 
     public async Task<CampaignPauseView> SetPlayerPausedAsync(
@@ -1513,7 +1514,7 @@ public sealed class CampaignCoordinator(
                 return new CampaignPlayerOrderResult(
                     "duplicate",
                     existing.OrderId.ToString(),
-                    CampaignPlayerHttp.From(state, profile));
+                    CampaignPlayerHttp.From(state, profile, unattendedSimulation));
             }
 
             var playerId = new PlayerId(KeyedGuid(campaignId.Value, $"player:{profile.PlayerId}"));
@@ -1545,7 +1546,7 @@ public sealed class CampaignCoordinator(
             return new CampaignPlayerOrderResult(
                 holdPosition ? "holding" : "accepted",
                 orderId.ToString(),
-                CampaignPlayerHttp.From(state, profile));
+                CampaignPlayerHttp.From(state, profile, unattendedSimulation));
         }
         finally
         {

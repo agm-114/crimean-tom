@@ -3,11 +3,14 @@ using CrimeanTom.Campaign.Service;
 
 namespace CrimeanTom.Campaign.ServiceHost;
 
-internal sealed record CampaignUnattendedSimulationOptions(
+public sealed record CampaignUnattendedSimulationOptions(
     bool Enabled,
     TimeSpan WallInterval,
     long QuantaPerTick)
 {
+    public double TargetTempoMultiplier =>
+        QuantaPerTick * CampaignTime.SimulatedSecondsPerQuantum / WallInterval.TotalSeconds;
+
     public static CampaignUnattendedSimulationOptions Load()
     {
         var enabled = ParseEnabled(
@@ -43,13 +46,12 @@ internal sealed record CampaignUnattendedSimulationOptions(
 internal sealed class CampaignUnattendedSimulationHostedService(
     SqliteCampaignJournal journal,
     CampaignCoordinator coordinator,
+    CampaignUnattendedSimulationOptions options,
     ILogger<CampaignUnattendedSimulationHostedService> logger) : BackgroundService
 {
-    private readonly CampaignUnattendedSimulationOptions _options = CampaignUnattendedSimulationOptions.Load();
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.Enabled)
+        if (!options.Enabled)
         {
             logger.LogInformation("Unattended kernel simulation is disabled.");
             return;
@@ -57,9 +59,9 @@ internal sealed class CampaignUnattendedSimulationHostedService(
 
         logger.LogInformation(
             "Unattended kernel simulation enabled: {Quanta} quanta every {Interval}.",
-            _options.QuantaPerTick,
-            _options.WallInterval);
-        using var timer = new PeriodicTimer(_options.WallInterval);
+            options.QuantaPerTick,
+            options.WallInterval);
+        using var timer = new PeriodicTimer(options.WallInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             IReadOnlyList<CampaignSummary> campaigns;
@@ -97,7 +99,7 @@ internal sealed class CampaignUnattendedSimulationHostedService(
                     }
 
                     var target = new CampaignTime(
-                        checked(simulation.Time.Quanta + _options.QuantaPerTick));
+                        checked(simulation.Time.Quanta + options.QuantaPerTick));
                     _ = await coordinator.ResolveExpiredAssignmentsAsync(
                         campaignId,
                         target,

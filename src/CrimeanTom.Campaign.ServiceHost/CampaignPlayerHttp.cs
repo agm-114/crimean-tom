@@ -6,7 +6,10 @@ namespace CrimeanTom.Campaign.ServiceHost;
 
 internal static class CampaignPlayerHttp
 {
-    public static CampaignPlayerView From(CampaignState state, CampaignPlayerProfile profile)
+    public static CampaignPlayerView From(
+        CampaignState state,
+        CampaignPlayerProfile profile,
+        CampaignUnattendedSimulationOptions unattendedSimulation)
     {
         if (string.IsNullOrWhiteSpace(profile.CoalitionId)
             || !Guid.TryParseExact(profile.CoalitionId, "N", out var coalitionValue))
@@ -112,6 +115,11 @@ internal static class CampaignPlayerHttp
             profile.PlayerId,
             coalitionId.ToString(),
             state.Time.Quanta,
+            new CampaignPlayerTempoView(
+                CampaignTime.SimulatedSecondsPerQuantum,
+                unattendedSimulation.QuantaPerTick,
+                checked((int)unattendedSimulation.WallInterval.TotalMilliseconds),
+                unattendedSimulation.TargetTempoMultiplier),
             state.Head.Value,
             profile.Paused,
             profile.LastCursor,
@@ -156,6 +164,7 @@ public sealed record CampaignPlayerView(
     string PlayerId,
     string CoalitionId,
     long TimeQuanta,
+    CampaignPlayerTempoView Tempo,
     long Head,
     bool Paused,
     long LastCursor,
@@ -168,6 +177,12 @@ public sealed record CampaignPlayerView(
     IReadOnlyList<CampaignPlayerBaseView> FriendlyBases,
     IReadOnlyList<CampaignContactProjectionView> Contacts,
     IReadOnlyList<CampaignPlayerObjectiveView> Objectives);
+
+public sealed record CampaignPlayerTempoView(
+    int SimulatedSecondsPerQuantum,
+    long AdvanceQuanta,
+    int WallIntervalMilliseconds,
+    double TargetMultiplier);
 
 public sealed record CampaignPlayerGroupView(
     string GroupId,

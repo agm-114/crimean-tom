@@ -2,6 +2,7 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public readonly record struct CampaignTime(long Quanta) : IComparable<CampaignTime>
 {
+    public const int SimulatedSecondsPerQuantum = 1;
     public static readonly CampaignTime Origin = new(0);
 
     public CampaignTime Add(CampaignDuration duration) => new(checked(Quanta + duration.Quanta));
