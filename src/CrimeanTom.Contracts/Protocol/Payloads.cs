@@ -201,6 +201,7 @@ public sealed class PrepareTacticalLocationResultPayload
     public int CurrentCenterTileX { get; set; }
     public int CurrentCenterTileY { get; set; }
     public bool Relocated { get; set; }
+    public int SuspendedDistantAuthoredUnitCount { get; set; }
     public long SynchronousDurationMicroseconds { get; set; }
     public TerrainPlacementProbeResultPayload Terrain { get; set; } = new();
 }
@@ -425,7 +426,7 @@ public sealed class StageOwnedSurfaceCheckpointRequestPayload
 
 public sealed class OwnedSurfaceResourceStatePayload
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public int OwnedRecordCount { get; set; }
     public int ActiveObjectCount { get; set; }
     public int SuspendedRetainedObjectCount { get; set; }
@@ -448,16 +449,22 @@ public sealed class OwnedSurfaceResourceEntryPayload
     public string LifecycleState { get; set; } = string.Empty;
     public bool HasCheckpoint { get; set; }
     public bool RecoveryRequired { get; set; }
+    public bool NativeInitialized { get; set; }
+    public bool AcceptsPlayerOrders { get; set; }
     public int? GameUniqueId { get; set; }
     public string? HostEntityId { get; set; }
 }
 
 public sealed class ReconcileSurfaceRenderProxiesRequestPayload
 {
+    public long ProjectionGeneration { get; set; }
+    public long ProjectionRevision { get; set; }
     public string CampaignId { get; set; } = string.Empty;
     public string TaskforceId { get; set; } = string.Empty;
+    public bool IsFullSnapshot { get; set; } = true;
     public SurfaceRenderProxySpecPayload[] Proxies { get; set; } =
         Array.Empty<SurfaceRenderProxySpecPayload>();
+    public string[] RemovedEntityIds { get; set; } = Array.Empty<string>();
 }
 
 public sealed class SurfaceRenderProxySpecPayload
@@ -470,6 +477,9 @@ public sealed class SurfaceRenderProxySpecPayload
     public int UncertaintyRadiusMeters { get; set; }
     public string Lifecycle { get; set; } = "Deployed";
     public string SimulationDomain { get; set; } = string.Empty;
+    public string GroupId { get; set; } = string.Empty;
+    public string GroupName { get; set; } = string.Empty;
+    public long GroupRevision { get; set; }
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = "Default";
@@ -485,6 +495,11 @@ public sealed class ReconcileSurfaceRenderProxiesResultPayload
     public string Outcome { get; set; } = string.Empty;
     public string Postcondition { get; set; } = string.Empty;
     public string CampaignId { get; set; } = string.Empty;
+    public long AcceptedProjectionGeneration { get; set; }
+    public long AcceptedProjectionRevision { get; set; }
+    public long AppliedProjectionGeneration { get; set; }
+    public long AppliedProjectionRevision { get; set; }
+    public bool ResyncRequired { get; set; }
     public int RequestedCount { get; set; }
     public int CreatedCount { get; set; }
     public int UpdatedCount { get; set; }
@@ -507,11 +522,19 @@ public sealed class SurfaceRenderProxyStatePayload
     public bool MapMarkerVisible { get; set; }
     public bool IsSelected { get; set; }
     public bool PhysicalProxyRequested { get; set; }
+    public string PhysicalProxyState { get; set; } = "idle";
     public string PhysicalProxyError { get; set; } = string.Empty;
+    public bool RequiresLocalityHandoff { get; set; }
     public string Relationship { get; set; } = string.Empty;
     public string Classification { get; set; } = string.Empty;
     public string Confidence { get; set; } = string.Empty;
     public int UncertaintyRadiusMeters { get; set; }
+    public string GroupId { get; set; } = string.Empty;
+    public string GroupName { get; set; } = string.Empty;
+    public long GroupRevision { get; set; }
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
@@ -522,7 +545,14 @@ public sealed class SurfaceRenderProxySnapshotPayload
 {
     public int SchemaVersion { get; set; } = 1;
     public string RepresentationProvider { get; set; } = string.Empty;
+    public long AppliedProjectionGeneration { get; set; }
+    public long AppliedProjectionRevision { get; set; }
     public long CapturedAtUnixMilliseconds { get; set; }
+    public long LastProjectionParseMicroseconds { get; set; }
+    public long LastProjectionApplyMicroseconds { get; set; }
+    public long MaximumProjectionSliceMicroseconds { get; set; }
+    public int LastProjectionUpsertCount { get; set; }
+    public int LastProjectionRemovalCount { get; set; }
     public SurfaceRenderProxyStatePayload[] Proxies { get; set; } =
         Array.Empty<SurfaceRenderProxyStatePayload>();
 }
@@ -1564,6 +1594,8 @@ public sealed class UiAutomationActionResultPayload
 
     public string Postcondition { get; set; } = string.Empty;
 
+    public bool IdempotentReplay { get; set; }
+
     public string CampaignPath { get; set; } = string.Empty;
 
     public CampaignManagementStatePayload Campaign { get; set; } = new();
@@ -1574,6 +1606,15 @@ public sealed class UiAutomationActionResultPayload
 public sealed class StartScenarioRequestPayload
 {
     public string ScenarioId { get; set; } = string.Empty;
+
+    public string IdempotencyKey { get; set; } = string.Empty;
+}
+
+public sealed class SelectedSurfaceRenderProxyPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public bool HasSelection { get; set; }
+    public SurfaceRenderProxyStatePayload? Proxy { get; set; }
 }
 
 public sealed class AddMaintenanceDraftUnitRequestPayload

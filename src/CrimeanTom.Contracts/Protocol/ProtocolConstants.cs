@@ -26,6 +26,12 @@ public static class MessageKinds
     public const string Command = "command";
     public const string CancelCommand = "cancel-command";
     public const string Response = "response";
+    public const string Event = "event";
+}
+
+public static class GameEventTypes
+{
+    public const string CampaignMapSelectionChanged = "campaign-map-selection-changed";
 }
 
 public static class CommandPriorities
@@ -69,6 +75,7 @@ public static class ProtocolErrorCodes
     public const string MutationDisabled = "mutation-disabled";
     public const string MutationInjectedFailure = "mutation-injected-failure";
     public const string MutationPreconditionFailed = "mutation-precondition-failed";
+    public const string LocalityRebaseRequired = "locality-rebase-required";
     public const string StaleAuthorityEpoch = "stale-authority-epoch";
     public const string StaleRevision = "stale-revision";
     public const string WrongExecutionThread = "wrong-execution-thread";
@@ -115,6 +122,7 @@ public static class GameCommandTypes
     public const string StageOwnedSurfaceCheckpoint = "stage-owned-surface-checkpoint";
     public const string GetOwnedSurfaceResourceState = "get-owned-surface-resource-state";
     public const string GetSurfaceRenderProxyState = "get-surface-render-proxy-state";
+    public const string GetSelectedSurfaceRenderProxy = "get-selected-surface-render-proxy";
     public const string ReconcileSurfaceRenderProxies = "reconcile-surface-render-proxies";
     public const string ReleaseDetachedOwnedSurfaceRecovery =
         "release-detached-owned-surface-recovery";
@@ -130,6 +138,7 @@ public static class GameCommandTypes
         GetTacticalCouplingState,
         GetOwnedSurfaceResourceState,
         GetSurfaceRenderProxyState,
+        GetSelectedSurfaceRenderProxy,
         GetUnitCatalogPage,
         GetReferenceCatalogPage,
         GetCatalogDiagnostics,
@@ -220,6 +229,7 @@ public static class GameCommandTypes
         StageOwnedSurfaceCheckpoint,
         GetOwnedSurfaceResourceState,
         GetSurfaceRenderProxyState,
+        GetSelectedSurfaceRenderProxy,
         ReconcileSurfaceRenderProxies,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
