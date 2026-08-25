@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.CompilerServices;
 
 using CrimeanTom.Campaign.Contracts;
 using CrimeanTom.Campaign.Domain;
@@ -25,6 +26,8 @@ namespace CrimeanTom.Campaign.Engine;
 /// </summary>
 internal static class CampaignSimulation
 {
+    private static readonly ConditionalWeakTable<CampaignState, TacticalAuthorityIndex>
+        TacticalAuthorityIndexes = new();
     private const long ActivityInterval = 10;
     private const long RepairPerActivity = 50_000;
     private const long MeanEarthRadiusMeters = 6_371_000;
@@ -376,33 +379,62 @@ internal static class CampaignSimulation
 
     private static EntityState[] ApplyFormationStations(CampaignState state, EntityState[] members)
     {
-        var lead = members.FirstOrDefault(item => IsOperational(state, item));
+        var operational = members
+            .Where(item => IsOperational(state, item))
+            .OrderByDescending(FormationLeadPriority)
+            .ThenBy(item => item.EntityId)
+            .ToArray();
+        var lead = operational.FirstOrDefault(item =>
+                item.Coordinate != state.Entities[item.EntityId].Coordinate)
+            ?? operational.FirstOrDefault();
         if (lead is null)
         {
             return members;
         }
 
-        var station = 0;
+        var originalLead = state.Entities[lead.EntityId];
+        if (lead.Coordinate == originalLead.Coordinate)
+        {
+            return members;
+        }
+
+        var displacementMeters = RoundedGreatCircleDistanceMeters(
+            originalLead.Coordinate,
+            lead.Coordinate);
+        var displacementBearing = BearingMilliDegrees(
+            originalLead.Coordinate,
+            lead.Coordinate);
+        if (displacementMeters <= 0 || displacementBearing < 0)
+        {
+            return members;
+        }
+
         return members.Select(entity =>
         {
+            var original = state.Entities[entity.EntityId];
             if (entity.EntityId == lead.EntityId
                 || !IsOperational(state, entity)
                 || entity.RegionId != lead.RegionId
-                || entity.Coordinate == state.Entities[entity.EntityId].Coordinate
-                || RoundedGreatCircleDistanceMeters(entity.Coordinate, lead.Coordinate) > 10_000)
+                || entity.Coordinate == original.Coordinate
+                || state.InFlight.Any(item => item.TargetEntityId == entity.EntityId
+                    && (item.Kind == OrdnanceKind.Torpedo
+                        || ContainsToken(item.AmmunitionId, "torpedo"))))
             {
                 return entity;
             }
 
-            station++;
-            var offsetHeading = (lead.Heading.Value + 90_000) % 360_000;
-            var coordinate = DisplaceAlongBearing(lead.Coordinate, offsetHeading, 450L * station);
+            // Translate every moving member by the lead's movement vector. This keeps
+            // the scenario's authored screen, trail, barrier, and echelon geometry
+            // instead of collapsing every group into a 450 m line on its first tick.
+            var coordinate = DisplaceAlongBearing(
+                original.Coordinate,
+                displacementBearing,
+                displacementMeters);
             if (coordinate == entity.Coordinate)
             {
                 return entity;
             }
 
-            var original = state.Entities[entity.EntityId];
             return entity with
             {
                 Coordinate = coordinate,
@@ -411,6 +443,20 @@ internal static class CampaignSimulation
                     : entity.Revision,
             };
         }).ToArray();
+    }
+
+    private static int FormationLeadPriority(EntityState entity)
+    {
+        var parts = entity.CatalogUnitId.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Any(part => part is "cv" or "cvn" or "takr") ? 100
+            : parts.Any(part => part is "bb" or "bc") ? 90
+            : parts.Any(part => part is "cg" or "cgn" or "rkr") ? 80
+            : parts.Any(part => part is "dd" or "ddg" or "em" or "bpk") ? 70
+            : parts.Any(part => part is "ff" or "ffg" or "skr") ? 60
+            : entity.SimulationDomain is SimulationDomain.Maritime ? 50
+            : entity.SimulationDomain is SimulationDomain.Air ? 40
+            : entity.SimulationDomain is SimulationDomain.RotaryWing ? 30
+            : 20;
     }
 
     private static CampaignState ApplyCollisionAvoidance(CampaignState beforeMovement, CampaignState state)
@@ -2281,10 +2327,26 @@ internal static class CampaignSimulation
     }
 
     private static bool HasActiveTacticalAuthority(CampaignState state, EntityId entityId) =>
-        state.Assignments.Values.Any(item => item.EntityId == entityId
-            && !CampaignAssignmentKinds.IsOperationalSim(item)
-            && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
-                or AssignmentLifecycle.Quiesced);
+        TacticalAuthorityIndexes.GetValue(
+                state,
+                static value => new TacticalAuthorityIndex(value))
+            .EntityIds.Contains(entityId);
+
+    private sealed class TacticalAuthorityIndex
+    {
+        public TacticalAuthorityIndex(CampaignState state)
+        {
+            EntityIds = state.Assignments.Values
+                .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
+                    && item.Lifecycle is AssignmentLifecycle.Active
+                        or AssignmentLifecycle.Quiescing
+                        or AssignmentLifecycle.Quiesced)
+                .Select(item => item.EntityId)
+                .ToHashSet();
+        }
+
+        public HashSet<EntityId> EntityIds { get; }
+    }
 
     private static (ImmutableSortedDictionary<ResourceKind, ResourceAmount> Entity, BaseState Base, bool Changed)
         Replenish(ImmutableSortedDictionary<ResourceKind, ResourceAmount> entity, BaseState campaignBase)

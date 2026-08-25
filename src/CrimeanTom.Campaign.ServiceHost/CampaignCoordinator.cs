@@ -19,6 +19,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public sealed class CampaignCoordinator(
     SqliteCampaignJournal journal,
     CampaignSessionRegistry sessions,
+    CampaignInteractionIslandRegistry interactionIslands,
     CampaignPerformanceTelemetry telemetry,
     CampaignUnattendedSimulationOptions unattendedSimulation)
 {
@@ -1582,20 +1583,19 @@ public sealed class CampaignCoordinator(
     public async Task<CampaignPlayerTacticalEntryView> InspectPlayerTacticalEntryAsync(
         CampaignId campaignId,
         string groupIdValue,
+        string? selectedEntityIdValue,
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
-            var state = await RecoverStateAsync(campaignId, cancellationToken);
-            var group = RequirePlayerGroup(state, profile, groupIdValue);
-            return BuildPlayerTacticalEntryPlan(state, profile, group).View;
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+        var state = _stateCache.TryGetValue(campaignId, out var cached)
+            ? cached.State
+            : await RecoverStateAsync(campaignId, cancellationToken);
+        var group = RequirePlayerGroup(state, profile, groupIdValue);
+        return BuildPlayerTacticalEntryPlan(
+            state,
+            profile,
+            group,
+            ParseSelectedGroupMember(group, selectedEntityIdValue)).View;
     }
 
     public async Task<CampaignPlayerTacticalEntryResult> RequestPlayerTacticalEntryAsync(
@@ -1603,6 +1603,7 @@ public sealed class CampaignCoordinator(
         string groupIdValue,
         long expectedGroupRevision,
         string idempotencyKeyValue,
+        string? selectedEntityIdValue,
         CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -1624,11 +1625,12 @@ public sealed class CampaignCoordinator(
                     $"Expected group revision {expectedGroupRevision}, current revision {group.Revision.Value}.");
             }
             var idempotencyKey = NormalizePlayerIdempotencyKey(idempotencyKeyValue);
+            var selectedEntityId = ParseSelectedGroupMember(group, selectedEntityIdValue);
             var batchGuid = KeyedGuid(
                 campaignId.Value,
                 $"player-entry-batch:{profile.PlayerId}:{group.GroupId}:{idempotencyKey}");
             var batchId = $"player-entry:{batchGuid:N}";
-            var plan = BuildPlayerTacticalEntryPlan(state, profile, group);
+            var plan = BuildPlayerTacticalEntryPlan(state, profile, group, selectedEntityId);
             var expectedMembers = plan.Members
                 .Select(item => item.EntityId)
                 .OrderBy(id => id)
@@ -1653,7 +1655,7 @@ public sealed class CampaignCoordinator(
                 return new CampaignPlayerTacticalEntryResult(
                     "duplicate",
                     batchId,
-                    BuildPlayerTacticalEntryPlan(state, profile, group).View);
+                    BuildPlayerTacticalEntryPlan(state, profile, group, selectedEntityId).View);
             }
 
             if (!plan.View.CanEnter || plan.Worker is null)
@@ -1741,18 +1743,12 @@ public sealed class CampaignCoordinator(
         string groupIdValue,
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
-            var state = await RecoverStateAsync(campaignId, cancellationToken);
-            var group = RequirePlayerGroup(state, profile, groupIdValue);
-            return await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        var profile = await journal.ReadPlayerProfileAsync(campaignId, cancellationToken);
+        var state = _stateCache.TryGetValue(campaignId, out var cached)
+            ? cached.State
+            : await RecoverStateAsync(campaignId, cancellationToken);
+        var group = RequirePlayerGroup(state, profile, groupIdValue);
+        return await BuildPlayerTacticalExitViewAsync(state, group, cancellationToken);
     }
 
     public async Task<CampaignPlayerTacticalExitResult> RequestPlayerTacticalExitAsync(
@@ -1807,17 +1803,12 @@ public sealed class CampaignCoordinator(
                 .Select(item => item.WorkerClientInstanceId)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            var batchIds = active
-                .Select(PlayerTacticalBatchKey)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
             if (workers.Length != 1
-                || batchIds.Length != 1
-                || active.Any(item => item.BatchSize != active.Length))
+                || !interactionIslands.AreCompleteIslands(state, active))
             {
                 throw new CampaignStoreConflict(
                     "tactical-exit-island-incomplete",
-                    "The selected group does not map to one complete tactical interaction island.");
+                    "The selected group contains an incomplete tactical assignment batch.");
             }
             var lease = sessions.TacticalLeaseState(campaignId.ToString(), workers[0]);
             if (!lease.Live)
@@ -1883,12 +1874,8 @@ public sealed class CampaignCoordinator(
             var workers = current.Select(item => item.WorkerClientInstanceId)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            var batches = current.Select(PlayerTacticalBatchKey)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
             var completeIsland = workers.Length == 1
-                && batches.Length == 1
-                && current.All(item => item.BatchSize == current.Length);
+                && interactionIslands.AreCompleteIslands(state, current);
             var lease = workers.Length == 1
                 ? sessions.TacticalLeaseState(state.Metadata.CampaignId.ToString(), workers[0])
                 : CampaignTacticalLeaseState.Expired;
@@ -1901,7 +1888,7 @@ public sealed class CampaignCoordinator(
             else if (!completeIsland)
             {
                 stateName = "blocked";
-                message = "The group is split across tactical assignments and cannot exit as one island.";
+                message = "The group contains an incomplete tactical assignment batch and cannot exit cleanly.";
             }
             else if (!lease.Live)
             {
@@ -1983,31 +1970,14 @@ public sealed class CampaignCoordinator(
             ]);
     }
 
-    private static AssignmentState[] PlayerGroupTacticalAssignments(
+    private AssignmentState[] PlayerGroupTacticalAssignments(
         CampaignState state,
         GroupState group)
     {
         var memberIds = group.Members.ToHashSet();
-        var anchors = state.Assignments.Values
-            .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
-                && memberIds.Contains(item.EntityId))
-            .OrderBy(item => item.AssignmentId.Value)
-            .ToArray();
-        return ExpandTacticalIslandAssignments(state, anchors);
-    }
-
-    private static AssignmentState[] ExpandTacticalIslandAssignments(
-        CampaignState state,
-        IReadOnlyCollection<AssignmentState> anchors)
-    {
-        if (anchors.Count == 0)
-        {
-            return [];
-        }
-        var batchKeys = anchors.Select(PlayerTacticalBatchKey).ToHashSet(StringComparer.Ordinal);
-        return state.Assignments.Values
-            .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
-                && batchKeys.Contains(PlayerTacticalBatchKey(item)))
+        return interactionIslands.ExpandFromEntities(state, memberIds)
+            .Concat(interactionIslands.ExpandReleasedFromEntities(state, memberIds))
+            .DistinctBy(item => item.AssignmentId)
             .OrderBy(item => item.AssignmentId.Value)
             .ToArray();
     }
@@ -2061,9 +2031,11 @@ public sealed class CampaignCoordinator(
     private CampaignPlayerTacticalEntryPlan BuildPlayerTacticalEntryPlan(
         CampaignState state,
         CampaignPlayerProfile profile,
-        GroupState group)
+        GroupState group,
+        EntityId? selectedEntityId = null)
     {
         var members = group.Members
+            .Where(id => selectedEntityId is null || id == selectedEntityId.Value)
             .Select(id => state.Entities[id])
             .OrderBy(item => item.HostEntityId is null ? 0 : 1)
             .ThenBy(item => item.EntityId)
@@ -2071,12 +2043,9 @@ public sealed class CampaignCoordinator(
         var availableMembers = members
             .Where(item => item.Lifecycle != EntityLifecycle.Destroyed)
             .ToArray();
-        var groupAssignments = state.Assignments.Values
-            .Where(item => availableMembers.Any(member => member.EntityId == item.EntityId)
-                && item.Lifecycle != AssignmentLifecycle.Released)
-            .OrderBy(item => item.EntityId)
-            .ToArray();
-        var activeAssignments = ExpandTacticalIslandAssignments(state, groupAssignments);
+        var activeAssignments = interactionIslands.ExpandFromEntities(
+            state,
+            availableMembers.Select(item => item.EntityId));
         if (activeAssignments.Length > 0)
         {
             var activeMembers = activeAssignments
@@ -2097,11 +2066,11 @@ public sealed class CampaignCoordinator(
             var assignedWorker = assignedWorkerIds.Length == 1
                 ? sessions.SnapshotForClient(state.Metadata.CampaignId.ToString(), assignedWorkerIds[0])
                 : null;
-            var completeBatch = activeAssignments.Length == activeAssignments[0].BatchSize
-                && activeAssignments.Select(item => item.BatchId).Distinct(StringComparer.Ordinal).Count() == 1;
-            var stateName = completeBatch && activeAssignments.All(item => item.Lifecycle == AssignmentLifecycle.Active)
+            var completeIsland = assignedWorkerIds.Length == 1
+                && interactionIslands.AreCompleteIslands(state, activeAssignments);
+            var stateName = completeIsland && activeAssignments.All(item => item.Lifecycle == AssignmentLifecycle.Active)
                 ? assignedWorker is null ? "recovering" : "active"
-                : completeBatch ? "preparing" : "blocked";
+                : completeIsland ? "preparing" : "blocked";
             var activeMessage = stateName == "active"
                 ? "This campaign group is active in Sea Power."
                 : stateName == "recovering"
@@ -2400,6 +2369,30 @@ public sealed class CampaignCoordinator(
         IReadOnlyList<EntityState> Members,
         IReadOnlyDictionary<EntityId, CampaignMaterializationProfile> Profiles,
         IReadOnlySet<EntityId> HostileEntityIds);
+
+    private static EntityId? ParseSelectedGroupMember(
+        GroupState group,
+        string? selectedEntityIdValue)
+    {
+        if (string.IsNullOrWhiteSpace(selectedEntityIdValue))
+        {
+            return null;
+        }
+        if (!Guid.TryParseExact(selectedEntityIdValue, "N", out var parsed))
+        {
+            throw new CampaignStoreConflict(
+                "invalid-entity-id",
+                "The selected campaign entity id is invalid.");
+        }
+        var selectedEntityId = new EntityId(parsed);
+        if (!group.Members.Contains(selectedEntityId))
+        {
+            throw new CampaignStoreConflict(
+                "entity-not-in-group",
+                "The selected campaign entity is not a member of this group.");
+        }
+        return selectedEntityId;
+    }
 
     private async Task<bool> IsPausedCoreAsync(
         CampaignId campaignId,
@@ -5249,7 +5242,14 @@ public sealed class CampaignCoordinator(
             _ => 0,
         },
         HeadingMillidegrees = entity.Heading.Value,
-        Telegraph = entity.Telegraph,
+        // Sea Power aircraft have no stationary airborne telegraph. Campaign
+        // entities can be Operationally stopped while waiting outside the
+        // tactical world, so enter them at the campaign cruise setting instead
+        // of asking the native aircraft controller to realize an impossible 0.
+        Telegraph = entity.SimulationDomain == SimulationDomain.Air
+            && entity.Telegraph <= 0
+                ? 2
+                : entity.Telegraph,
         GloballyPaused = true,
         InitialFuelMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
         InitialStoresMilliunits = entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,

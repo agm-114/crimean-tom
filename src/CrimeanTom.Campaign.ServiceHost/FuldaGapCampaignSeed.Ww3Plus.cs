@@ -95,7 +95,7 @@ internal static partial class FuldaGapCampaignSeed
         IReadOnlyDictionary<string, RegionId> regionIds) =>
         Ww3PlusPackages(default, default)
             .Where(package => package.DestinationRegionKey is not null)
-            .SelectMany(package => Enumerable.Range(0, GroupCount(package)).Select(groupIndex =>
+            .SelectMany(package => Enumerable.Range(0, PackageGroups(package).Count).Select(groupIndex =>
             {
                 var groupKey = PackageGroupKey(package, groupIndex);
                 return groupIds.TryGetValue(groupKey, out var groupId)
@@ -293,8 +293,13 @@ internal static partial class FuldaGapCampaignSeed
 
     private static IReadOnlyList<Ww3PlusPackage> Ww3PlusPackages(CoalitionId blue, CoalitionId red) =>
     [
-        // United States Atlantic Fleet and East Coast mobilization: 58 entities.
-        Package("blue-usec-carriers", "US Atlantic carrier", ["usn_cv_america_79", "usn_cv_forrestal_75", "usn_cvn_nimitz"], blue, "usec", "norfolk", SimulationDomain.Maritime, 3, 1, 35_800_000, -73_000_000, "midatl", OrderKind.Patrol),
+        // United States Atlantic Fleet and East Coast mobilization.
+        FormationPackage("blue-usec-carriers", "US Atlantic carrier strike group",
+        [
+            ["usn_cv_america_79", "usn_cg_ticonderoga", "usn_dd_spruance", "usn_ff_knox_84", "usn_aoe_sacramento"],
+            ["usn_cv_forrestal_75", "usn_cgn_virginia", "usn_dd_spruance_abl", "usn_ffg_oliver_hazard_perry", "usn_ao_neosho"],
+            ["usn_cvn_nimitz", "usn_cg_belknap", "usn_ddg_adams_late", "usn_ffg_oliver_hazard_perry_longhull", "usn_aoe_sacramento"],
+        ], blue, "usec", "norfolk", SimulationDomain.Maritime, 35_800_000, -73_000_000, "midatl", OrderKind.Patrol),
         Package("blue-usec-cruisers", "US Atlantic cruiser", ["usn_cg_ticonderoga", "usn_cgn_virginia", "usn_cg_belknap"], blue, "usec", "norfolk", SimulationDomain.Maritime, 6, 3, 36_100_000, -73_500_000, "midatl", OrderKind.Escort),
         Package("blue-usec-destroyers", "US Atlantic destroyer", ["usn_dd_spruance", "usn_dd_spruance_abl", "usn_ddg_adams_late"], blue, "usec", "charleston", SimulationDomain.Maritime, 10, 5, 34_800_000, -75_500_000, "midatl", OrderKind.Escort),
         Package("blue-usec-frigates", "US Atlantic frigate", ["usn_ffg_oliver_hazard_perry", "usn_ffg_oliver_hazard_perry_longhull", "usn_ff_knox_84"], blue, "usec", "mayport", SimulationDomain.Maritime, 16, 4, 31_500_000, -78_000_000, "midatl", OrderKind.Escort),
@@ -303,8 +308,14 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-usec-amphib", "US Atlantic amphibious ship", ["usn_lha_tarawa", "usn_lpd_austin"], blue, "usec", "norfolk", SimulationDomain.Maritime, 6, 3, 35_000_000, -74_500_000, "caribbean", OrderKind.Reinforce),
         Package("blue-usec-aux", "US Atlantic fleet auxiliary", ["usn_aoe_sacramento", "civ_ms_sealift_pacific", "civ_ms_seabee"], blue, "usec", "charleston", SimulationDomain.Logistics, 6, 3, 33_500_000, -76_500_000, "midatl", OrderKind.Resupply),
 
-        // United States Pacific Fleet, West Coast, and Hawaii: 83 entities.
-        Package("blue-uswc-carriers", "US Pacific carrier", ["usn_cvn_enterprise", "usn_cv_kitty_hawk", "usn_cvn_nimitz"], blue, "uswc", "alameda", SimulationDomain.Maritime, 4, 1, 35_000_000, -124_000_000, "northpac", OrderKind.Patrol),
+        // United States Pacific Fleet, West Coast, and Hawaii.
+        FormationPackage("blue-uswc-carriers", "US Pacific carrier strike group",
+        [
+            ["usn_cvn_enterprise", "usn_cgn_california", "usn_dd_spruance_abl", "usn_ff_knox_84", "usn_aoe_sacramento"],
+            ["usn_cv_kitty_hawk", "usn_cg_ticonderoga", "usn_ddg_kidd", "usn_ffg_oliver_hazard_perry_longhull", "usn_aoe_sacramento"],
+            ["usn_cvn_nimitz", "usn_cgn_long_beach_83", "usn_dd_spruance", "usn_ffg_oliver_hazard_perry", "usn_ao_t2"],
+            ["usn_cv_kitty_hawk", "usn_cg_ticonderoga", "usn_ddg_adams_late", "usn_ff_garcia", "usn_ao_neosho"],
+        ], blue, "uswc", "alameda", SimulationDomain.Maritime, 35_000_000, -124_000_000, "northpac", OrderKind.Patrol),
         Package("blue-uswc-cruisers", "US Pacific cruiser", ["usn_cg_ticonderoga", "usn_cgn_california", "usn_cgn_long_beach_83"], blue, "uswc", "long-beach", SimulationDomain.Maritime, 7, 3, 34_000_000, -123_000_000, "northpac", OrderKind.Escort),
         Package("blue-uswc-destroyers", "US Pacific destroyer", ["usn_dd_spruance_abl", "usn_ddg_kidd", "usn_ddg_adams_late"], blue, "uswc", "san-diego", SimulationDomain.Maritime, 12, 4, 32_000_000, -121_500_000, "hawaii", OrderKind.Escort),
         Package("blue-uswc-frigates", "US Pacific frigate", ["usn_ffg_oliver_hazard_perry_longhull", "usn_ff_knox_84", "usn_ff_garcia"], blue, "uswc", "san-diego", SimulationDomain.Maritime, 18, 6, 31_500_000, -122_500_000, "hawaii", OrderKind.Escort),
@@ -315,7 +326,7 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-hawaii-screen", "US Hawaii surface combatant", ["usn_cg_ticonderoga", "usn_dd_spruance_abl", "usn_ffg_oliver_hazard_perry_longhull"], blue, "hawaii", "pearl-harbor", SimulationDomain.Maritime, 8, 4, 22_000_000, -160_000_000, "northpac", OrderKind.Patrol),
         Package("blue-hawaii-sub", "US Hawaii attack submarine", ["usn_ssn_los_angeles", "usn_ssn_sturgeon"], blue, "hawaii", "pearl-harbor", SimulationDomain.Maritime, 4, 2, 20_500_000, -160_500_000, "northpac", OrderKind.Asw),
 
-        // Soviet global fleet packages: 116 entities.
+        // Soviet global fleet packages.
         Package("red-northern-surface", "Soviet Northern Fleet combatant", ["wp_rkr_kirov", "wp_rkr_slava", "wp_bpk_udaloy", "wp_em_sovremenny"], red, "barents", "severomorsk", SimulationDomain.Maritime, 12, 4, 71_000_000, 31_000_000, "norsea", OrderKind.Patrol),
         Package("red-northern-sub", "Soviet Northern Fleet submarine", ["wp_ssn_victor3", "wp_ssgn_oscar1", "wp_ssbn_delta3", "wp_ss_kilo"], red, "barents", "polyarny", SimulationDomain.Maritime, 16, 4, 70_500_000, 29_000_000, "giuk", OrderKind.Asw),
         Package("red-northern-aux", "Soviet Northern Fleet amphibious or auxiliary ship", ["wp_bdk_ivan_rogov", "wp_bdk_ropucha", "wp_vt_boris_chilikin"], red, "barents", "severomorsk", SimulationDomain.Logistics, 10, 5, 69_800_000, 35_000_000, "norsea", OrderKind.Resupply),
@@ -328,7 +339,7 @@ internal static partial class FuldaGapCampaignSeed
         Package("red-med-sub", "Soviet Mediterranean submarine", ["wp_ss_kilo", "wp_ss_foxtrot", "wp_ssn_victor2"], red, "med", "tartus", SimulationDomain.Maritime, 4, 2, 35_000_000, 23_000_000, "levant", OrderKind.Asw),
         Package("red-med-aux", "Soviet Mediterranean auxiliary", ["wp_bdk_ropucha", "wp_vt_boris_chilikin"], red, "med", "tartus", SimulationDomain.Logistics, 2, 2, 34_500_000, 24_000_000, "levant", OrderKind.Resupply),
 
-        // Cuban forces and representative allied fleets: 60 entities.
+        // Cuban forces and representative allied fleets.
         Package("red-cuba-navy", "Cuban Revolutionary Navy unit", ["wp_ptg_osa1", "wp_skr_petya3", "wp_ss_foxtrot", "civ_ms_kommunist"], red, "cuba", "cienfuegos", SimulationDomain.Maritime, 12, 4, 21_500_000, -79_500_000, "florida", OrderKind.Patrol),
         Package("blue-allied-atlantic", "NATO Atlantic allied combatant", ["rn_dd_battle", "rcn_ss_oberon", "nrp_ssk_albacora", "fgs_ddg_lutjens"], blue, "wapp", "plymouth", SimulationDomain.Maritime, 16, 4, 50_000_000, -12_000_000, "giuk", OrderKind.Escort),
         Package("blue-allied-europe", "NATO European littoral combatant", ["fgs_ddg_lutjens", "knm_ptg_hauk", "es_ffg_baleares", "fr_ss_agosta"], blue, "nsea", "wilhelmshaven", SimulationDomain.Maritime, 12, 4, 55_000_000, 5_000_000, "baltap", OrderKind.Patrol),
@@ -354,7 +365,12 @@ internal static partial class FuldaGapCampaignSeed
 
         // Rotary-wing packages exercise attack, lift, maritime patrol, and ASW behavior separately from fixed-wing aircraft.
         Package("blue-central-rotary", "NATO attack or lift helicopter flight", ["usmc_ah-1t", "usn_ch-46"], blue, "northag", "ramstein", SimulationDomain.RotaryWing, 4, 2, 50_050_000, 7_250_000, "fulda", OrderKind.Patrol),
-        Package("blue-atlantic-rotary", "NATO maritime helicopter flight", ["usn_sh-2f", "usn_sh-3h"], blue, "giuk", "keflavik", SimulationDomain.RotaryWing, 4, 2, 63_900_000, -22_450_000, "norsea", OrderKind.Asw),
+        FormationPackage("blue-atlantic-rotary", "USN ASW detachment",
+        [
+            ["usn_sh-2f", "usn_sh-3h"],
+            ["usn_sh-2f", "usn_sh-3h"],
+        ], blue, "giuk", "keflavik", SimulationDomain.RotaryWing,
+            63_900_000, -22_450_000, "norsea", OrderKind.Asw),
         Package("red-central-rotary", "Warsaw Pact assault helicopter flight", ["wp_ka-29"], red, "fulda", "peenemunde", SimulationDomain.RotaryWing, 4, 2, 51_000_000, 10_600_000, "northag", OrderKind.Patrol),
         Package("red-northern-rotary", "Soviet maritime helicopter flight", ["wp_ka-27", "wp_mi-14"], red, "barents", "severomorsk", SimulationDomain.RotaryWing, 4, 2, 69_250_000, 33_250_000, "giuk", OrderKind.Asw),
 
@@ -375,8 +391,8 @@ internal static partial class FuldaGapCampaignSeed
         Package("red-supply-sites", "Soviet fuel, ammunition, or warehouse site", ["tgt_fueltanks_large_brown", "tgt_ammo_depot_small", "warehouses_3"], red, "cuba", "mariel", SimulationDomain.Logistics, 3, 3, 22_900_000, -82_600_000),
 
         // Campaign-scale ground formations stay abstract until an encounter is streamed down.
-        Package("blue-ground-formations", "NATO division or brigade", ["abstract_land_formation"], blue, "fulda", null, SimulationDomain.LandAbstract, 8, 4, 50_300_000, 9_300_000, maximumFidelity: FidelityState.Operational),
-        Package("red-ground-formations", "Warsaw Pact division or brigade", ["abstract_land_formation"], red, "fulda", null, SimulationDomain.LandAbstract, 8, 4, 50_900_000, 10_200_000, maximumFidelity: FidelityState.Operational),
+        Package("blue-ground-formations", "NATO ground formation", ["abstract_land_formation"], blue, "fulda", null, SimulationDomain.LandAbstract, 8, 4, 50_300_000, 9_300_000, maximumFidelity: FidelityState.Operational),
+        Package("red-ground-formations", "Warsaw Pact ground formation", ["abstract_land_formation"], red, "fulda", null, SimulationDomain.LandAbstract, 8, 4, 50_900_000, 10_200_000, maximumFidelity: FidelityState.Operational),
         Package("red-cuba-ground", "Cuban ground formation", ["abstract_land_formation"], red, "cuba", null, SimulationDomain.LandAbstract, 4, 2, 22_200_000, -79_800_000, maximumFidelity: FidelityState.Operational),
         Package("blue-rear-area", "NATO rear-area command", ["abstract_land_formation"], blue, "northag", null, SimulationDomain.LandAbstract, 2, 2, 50_600_000, 8_000_000, maximumFidelity: FidelityState.Operational),
         Package("red-rear-area", "Soviet rear-area command", ["abstract_land_formation"], red, "baltic", null, SimulationDomain.LandAbstract, 2, 2, 53_900_000, 13_500_000, maximumFidelity: FidelityState.Operational),
@@ -399,42 +415,386 @@ internal static partial class FuldaGapCampaignSeed
         string? destinationRegionKey = null,
         OrderKind orderKind = OrderKind.Hold,
         FidelityState maximumFidelity = FidelityState.Tactical,
-        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null) =>
+        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null,
+        bool dedicatedFormations = false,
+        string? formationOwner = null) =>
         new(key, name, catalogUnitIds, coalitionId, regionKey, homeBaseKey, simulationDomain,
             maximumFidelity, count, groupSize, latitude, longitude, destinationRegionKey, orderKind,
-            operationalWeapons);
+            operationalWeapons, dedicatedFormations, formationOwner);
+
+    private static Ww3PlusPackage FormationPackage(
+        string key,
+        string name,
+        string[][] formations,
+        CoalitionId coalitionId,
+        string regionKey,
+        string? homeBaseKey,
+        SimulationDomain simulationDomain,
+        int latitude,
+        int longitude,
+        string? destinationRegionKey = null,
+        OrderKind orderKind = OrderKind.Hold,
+        FidelityState maximumFidelity = FidelityState.Tactical,
+        IReadOnlyList<OperationalWeaponCapability>? operationalWeapons = null)
+    {
+        if (formations.Length == 0
+            || formations[0].Length == 0
+            || formations.Any(formation => formation.Length != formations[0].Length))
+        {
+            throw new ArgumentException(
+                "Dedicated formations must contain equally sized, non-empty rosters.",
+                nameof(formations));
+        }
+        var roster = formations.SelectMany(formation => formation).ToArray();
+        return Package(
+            key,
+            name,
+            roster,
+            coalitionId,
+            regionKey,
+            homeBaseKey,
+            simulationDomain,
+            roster.Length,
+            formations[0].Length,
+            latitude,
+            longitude,
+            destinationRegionKey,
+            orderKind,
+            maximumFidelity,
+            operationalWeapons,
+            dedicatedFormations: true);
+    }
 
     private static IEnumerable<FuldaEntitySeed> ExpandPackage(CampaignId campaignId, Ww3PlusPackage package)
     {
-        for (var index = 0; index < package.Count; index++)
+        var ordinal = 0;
+        var groups = PackageGroups(package);
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
         {
-            var ordinal = index + 1;
-            var key = $"{package.Key}-{ordinal:D3}";
-            var catalogUnitId = package.CatalogUnitIds[index % package.CatalogUnitIds.Count];
-            var latitudeOffset = ((index % 6) - 2) * 22_000;
-            var longitudeOffset = (((index / 6) % 6) - 2) * 28_000;
-            var hostedByYorktown = string.Equals(
-                    package.Key,
-                    "blue-atlantic-rotary",
-                    StringComparison.Ordinal)
-                && index < 2;
-            yield return Entity(
-                campaignId,
-                key,
-                GeneratedUnitName(catalogUnitId, package.SimulationDomain, ordinal),
-                catalogUnitId,
-                package.CoalitionId,
-                hostedByYorktown ? "nsea" : package.RegionKey,
-                hostedByYorktown ? 57_000_000 : package.LatitudeMicrodegrees + latitudeOffset,
-                hostedByYorktown ? 3_000_000 : package.LongitudeMicrodegrees + longitudeOffset,
-                hostedByYorktown ? "bremerhaven" : package.HomeBaseKey,
-                hostedByYorktown ? "blue-north-sea" : PackageGroupKey(package, index / package.GroupSize),
-                package.SimulationDomain,
-                package.MaximumFidelity,
-                catalogLoadoutId: hostedByYorktown ? "ASW" : "Default",
-                operationalWeapons: package.OperationalWeapons,
-                hostEntityKey: hostedByYorktown ? "yorktown" : null);
+            var group = groups[groupIndex];
+            for (var memberIndex = 0; memberIndex < group.Count; memberIndex++)
+            {
+                ordinal++;
+                var key = $"{package.Key}-{ordinal:D3}";
+                var catalogUnitId = group[memberIndex];
+                var position = DeploymentPosition(
+                    package,
+                    groupIndex,
+                    memberIndex,
+                    group.Count,
+                    catalogUnitId);
+                var hostedByYorktown = string.Equals(
+                        package.Key,
+                        "blue-atlantic-rotary",
+                        StringComparison.Ordinal)
+                    && ordinal <= 2;
+                yield return Entity(
+                    campaignId,
+                    key,
+                    GeneratedUnitName(catalogUnitId, package.SimulationDomain, ordinal),
+                    catalogUnitId,
+                    package.CoalitionId,
+                    hostedByYorktown ? "nsea" : package.RegionKey,
+                    hostedByYorktown ? 57_000_000 : position.LatitudeMicrodegrees,
+                    hostedByYorktown ? 3_000_000 : position.LongitudeMicrodegrees,
+                    hostedByYorktown ? "bremerhaven" : package.HomeBaseKey,
+                    hostedByYorktown ? "blue-north-sea" : PackageGroupKey(package, groupIndex),
+                    package.SimulationDomain,
+                    package.MaximumFidelity,
+                    catalogLoadoutId: hostedByYorktown ? "ASW" : "Default",
+                    operationalWeapons: package.OperationalWeapons,
+                    hostEntityKey: hostedByYorktown ? "yorktown" : null);
+            }
         }
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> PackageGroups(Ww3PlusPackage package)
+    {
+        if (package.DedicatedFormations)
+        {
+            return Enumerable.Range(0, package.Count / package.GroupSize)
+                .Select(groupIndex => (IReadOnlyList<string>)package.CatalogUnitIds
+                    .Skip(groupIndex * package.GroupSize)
+                    .Take(package.GroupSize)
+                    .ToArray())
+                .ToArray();
+        }
+
+        // Ordinary packages describe a pool of available platforms, not a recipe
+        // for mixing every platform into each formation. Allocate each platform's
+        // share into one or more homogeneous groups. Deliberately mixed formations
+        // must use FormationPackage and provide their roster explicitly.
+        var groups = new List<IReadOnlyList<string>>();
+        var activeCatalogCount = Math.Min(package.Count, package.CatalogUnitIds.Count);
+        for (var catalogIndex = 0; catalogIndex < activeCatalogCount; catalogIndex++)
+        {
+            var quantity = package.Count / activeCatalogCount
+                + (catalogIndex < package.Count % activeCatalogCount ? 1 : 0);
+            var formationCount = (quantity + package.GroupSize - 1) / package.GroupSize;
+            for (var formationIndex = 0; formationIndex < formationCount; formationIndex++)
+            {
+                var formationSize = quantity / formationCount
+                    + (formationIndex < quantity % formationCount ? 1 : 0);
+                groups.Add(Enumerable.Repeat(
+                    package.CatalogUnitIds[catalogIndex],
+                    formationSize).ToArray());
+            }
+        }
+        return groups;
+    }
+
+    private static SeedPosition DeploymentPosition(
+        Ww3PlusPackage package,
+        int groupIndex,
+        int memberIndex,
+        int memberCount,
+        string catalogUnitId)
+    {
+        var center = DeploymentGroupCenter(package, groupIndex);
+        var station = ResolveFormationStation(
+            package,
+            memberIndex,
+            memberCount,
+            catalogUnitId);
+        return OffsetPosition(
+            center,
+            station.DistanceNauticalMiles,
+            NormalizeBearing(DeploymentBearing(package) + station.RelativeBearingDegrees));
+    }
+
+    private static SeedPosition DeploymentGroupCenter(Ww3PlusPackage package, int groupIndex)
+    {
+        var groupCount = PackageGroups(package).Count;
+        var isFrontFormation = package.SimulationDomain is SimulationDomain.Ground
+            or SimulationDomain.LandAbstract;
+        var groupsPerLine = isFrontFormation
+            || package.SimulationDomain == SimulationDomain.Installation
+            ? Math.Min(groupCount, 8)
+            : Math.Min(groupCount, 10);
+        var lineCount = (groupCount + groupsPerLine - 1) / groupsPerLine;
+        var slot = groupIndex % groupsPerLine;
+        var line = groupIndex / groupsPerLine;
+        var slotsOnLine = Math.Min(groupsPerLine, groupCount - (line * groupsPerLine));
+        var spacing = DeploymentGroupSpacingNauticalMiles(package);
+        var alongTrack = (slot - ((slotsOnLine - 1) / 2d)) * spacing;
+        if ((line & 1) == 1)
+        {
+            alongTrack += spacing * 0.5d;
+        }
+        var crossTrack = (line - ((lineCount - 1) / 2d)) * spacing * 0.55d;
+        var origin = new SeedPosition(
+            package.LatitudeMicrodegrees,
+            package.LongitudeMicrodegrees);
+        var bearing = DeploymentBearing(package);
+        if (isFrontFormation)
+        {
+            var frontagePosition = OffsetSigned(origin, alongTrack, bearing + 90d);
+            return OffsetPosition(
+                frontagePosition,
+                line * spacing * 0.55d,
+                bearing + 180d);
+        }
+        var alongPosition = OffsetSigned(origin, alongTrack, bearing);
+        return OffsetSigned(alongPosition, crossTrack, bearing + 90d);
+    }
+
+    private static FormationStation ResolveFormationStation(
+        Ww3PlusPackage package,
+        int memberIndex,
+        int memberCount,
+        string catalogUnitId)
+    {
+        if (memberIndex == 0)
+        {
+            return new FormationStation(0d, 0d);
+        }
+        if (package.SimulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing)
+        {
+            var spacing = package.SimulationDomain == SimulationDomain.Air ? 0.1d : 0.25d;
+            var side = (memberIndex & 1) == 1 ? -1d : 1d;
+            var rank = (memberIndex + 1) / 2d;
+            return new FormationStation(spacing * rank, side < 0 ? 150d : 210d);
+        }
+        if (package.SimulationDomain is SimulationDomain.Ground or SimulationDomain.LandAbstract)
+        {
+            var column = memberIndex % 4;
+            var row = memberIndex / 4;
+            var lateral = (column - 1.5d) * 0.8d;
+            var depth = row * 1.2d;
+            return PolarStation(lateral, -depth);
+        }
+        if (package.SimulationDomain == SimulationDomain.Installation
+            || IsFixedInstallationCatalog(catalogUnitId))
+        {
+            var distance = 2d + ((memberIndex - 1) % 3 * 1.5d);
+            return new FormationStation(distance, memberIndex * (360d / memberCount));
+        }
+        if (package.CatalogUnitIds.All(IsSubmarineCatalog))
+        {
+            var distance = 12d + (((memberIndex - 1) / 2) * 8d);
+            return new FormationStation(distance, (memberIndex & 1) == 1 ? 90d : 270d);
+        }
+        if (IsSubmarineCatalog(catalogUnitId))
+        {
+            return new FormationStation(20d, 0d);
+        }
+        if (IsFleetAuxiliaryCatalog(catalogUnitId))
+        {
+            return new FormationStation(8d, 180d);
+        }
+        if (IsAirDefenseEscortCatalog(catalogUnitId))
+        {
+            var bearings = new[] { 90d, 270d, 30d, 330d, 150d, 210d };
+            return new FormationStation(2d, bearings[(memberIndex - 1) % bearings.Length]);
+        }
+        if (package.CatalogUnitIds.All(IsCivilianCatalog))
+        {
+            return new FormationStation(memberIndex * 1.5d, 180d);
+        }
+        var escortBearings = new[] { 30d, 330d, 90d, 270d, 150d, 210d };
+        var escortDistance = package.GroupSize <= 3 ? 1.5d : 5d;
+        return new FormationStation(
+            escortDistance,
+            escortBearings[(memberIndex - 1) % escortBearings.Length]);
+    }
+
+    private static FormationStation PolarStation(double lateralNauticalMiles, double forwardNauticalMiles)
+    {
+        var distance = Math.Sqrt(
+            (lateralNauticalMiles * lateralNauticalMiles)
+            + (forwardNauticalMiles * forwardNauticalMiles));
+        if (distance == 0d)
+        {
+            return new FormationStation(0d, 0d);
+        }
+        var bearing = Math.Atan2(lateralNauticalMiles, forwardNauticalMiles)
+            * 180d / Math.PI;
+        return new FormationStation(distance, NormalizeBearing(bearing));
+    }
+
+    private static double DeploymentGroupSpacingNauticalMiles(Ww3PlusPackage package)
+    {
+        if (package.Key.Contains("carrier", StringComparison.Ordinal)
+            || package.Key.Contains("aviation-cruiser", StringComparison.Ordinal)
+            || package.Key.Contains("battleship", StringComparison.Ordinal))
+        {
+            return 120d;
+        }
+        if (package.CatalogUnitIds.All(IsSubmarineCatalog))
+        {
+            return 70d;
+        }
+        return package.SimulationDomain switch
+        {
+            SimulationDomain.Maritime => 45d,
+            SimulationDomain.Logistics when package.CatalogUnitIds.All(IsCivilianCatalog) => 35d,
+            SimulationDomain.Logistics => 18d,
+            SimulationDomain.Air => 70d,
+            SimulationDomain.RotaryWing => 20d,
+            SimulationDomain.LandAbstract => 18d,
+            SimulationDomain.Ground => 8d,
+            SimulationDomain.Installation => 10d,
+            _ => 20d,
+        };
+    }
+
+    private static double DeploymentBearing(Ww3PlusPackage package) =>
+        (package.RegionKey, package.DestinationRegionKey) switch
+        {
+            ("usec", "midatl") => 90d,
+            ("uswc", "northpac") => 270d,
+            ("midatl", "wapp") => 65d,
+            ("wapp", "giuk") => 25d,
+            ("giuk", "norsea") => 35d,
+            ("barents", "giuk" or "norsea") => 225d,
+            ("baltic", "baltap") => 245d,
+            ("blacksea", "bosporus") => 235d,
+            ("cuba", "florida") => 330d,
+            ("japan" or "okhotsk", "northpac") => 85d,
+            ("southchina", "taiwan" or "japan") => 30d,
+            ("med", "levant") => 90d,
+            ("northag", "fulda") => 105d,
+            ("fulda", "northag") => 285d,
+            ("northag", _) => 105d,
+            ("fulda", _) => 285d,
+            ("korea-land" or "korea", _) => 20d,
+            ("taiwan-land" or "taiwan", _) => 15d,
+            _ => StableBearing(package.Key),
+        };
+
+    private static double StableBearing(string key)
+    {
+        uint hash = 2_166_136_261;
+        foreach (var value in key)
+        {
+            hash = (hash ^ value) * 16_777_619;
+        }
+        return hash % 360;
+    }
+
+    private static SeedPosition OffsetSigned(
+        SeedPosition origin,
+        double signedDistanceNauticalMiles,
+        double bearingDegrees) =>
+        signedDistanceNauticalMiles >= 0d
+            ? OffsetPosition(origin, signedDistanceNauticalMiles, bearingDegrees)
+            : OffsetPosition(origin, -signedDistanceNauticalMiles, bearingDegrees + 180d);
+
+    private static SeedPosition OffsetPosition(
+        SeedPosition origin,
+        double distanceNauticalMiles,
+        double bearingDegrees)
+    {
+        if (distanceNauticalMiles == 0d)
+        {
+            return origin;
+        }
+        const double earthRadiusNauticalMiles = 3_440.065d;
+        var latitude = origin.LatitudeMicrodegrees / 1_000_000d * Math.PI / 180d;
+        var longitude = origin.LongitudeMicrodegrees / 1_000_000d * Math.PI / 180d;
+        var bearing = NormalizeBearing(bearingDegrees) * Math.PI / 180d;
+        var angularDistance = distanceNauticalMiles / earthRadiusNauticalMiles;
+        var targetLatitude = Math.Asin(
+            (Math.Sin(latitude) * Math.Cos(angularDistance))
+            + (Math.Cos(latitude) * Math.Sin(angularDistance) * Math.Cos(bearing)));
+        var targetLongitude = longitude + Math.Atan2(
+            Math.Sin(bearing) * Math.Sin(angularDistance) * Math.Cos(latitude),
+            Math.Cos(angularDistance) - (Math.Sin(latitude) * Math.Sin(targetLatitude)));
+        var latitudeDegrees = Math.Clamp(targetLatitude * 180d / Math.PI, -85d, 85d);
+        var longitudeDegrees = ((targetLongitude * 180d / Math.PI + 540d) % 360d) - 180d;
+        return new SeedPosition(
+            checked((int)Math.Round(latitudeDegrees * 1_000_000d)),
+            checked((int)Math.Round(longitudeDegrees * 1_000_000d)));
+    }
+
+    private static double NormalizeBearing(double bearing) =>
+        ((bearing % 360d) + 360d) % 360d;
+
+    private static bool IsCivilianCatalog(string catalogUnitId) =>
+        catalogUnitId.StartsWith("civ_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("merchant_", StringComparison.Ordinal);
+
+    private static bool IsFixedInstallationCatalog(string catalogUnitId) =>
+        catalogUnitId.StartsWith("tgt_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("warehouses_", StringComparison.Ordinal)
+        || catalogUnitId.Contains("airbase", StringComparison.Ordinal)
+        || catalogUnitId.Contains("radar", StringComparison.Ordinal)
+        || catalogUnitId.Contains("sam_site", StringComparison.Ordinal);
+
+    private static bool IsSubmarineCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "ss", "ssn", "ssbn", "ssgn", "ssk", "ssg");
+
+    private static bool IsFleetAuxiliaryCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "ao", "aoe", "aor", "ae", "vt")
+        || catalogUnitId.StartsWith("civ_", StringComparison.Ordinal);
+
+    private static bool IsAirDefenseEscortCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "cg", "cgn", "clg", "ddg", "rkr");
+
+    private static bool HasCatalogRole(string catalogUnitId, params string[] roles)
+    {
+        var parts = catalogUnitId.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Any(part => roles.Contains(part, StringComparer.Ordinal));
     }
 
     private static string GeneratedUnitName(
@@ -518,6 +878,12 @@ internal static partial class FuldaGapCampaignSeed
     private static string HumanizeCatalogPart(string value)
     {
         var trimmed = value.Trim();
+        if (trimmed.StartsWith("type", StringComparison.OrdinalIgnoreCase)
+            && trimmed.Length > 4
+            && trimmed[4..].All(char.IsDigit))
+        {
+            return $"Type {trimmed[4..]}";
+        }
         if (trimmed.Any(char.IsDigit))
         {
             return trimmed.ToUpperInvariant();
@@ -527,16 +893,15 @@ internal static partial class FuldaGapCampaignSeed
         {
             return normalized;
         }
-        if (normalized is "asw" or "cap" or "ewr" or "fcr" or "gbad" or "tel")
+        if (normalized is "asw" or "cap" or "ddh" or "ew" or "ewr" or "fcr"
+            or "gbad" or "rldn" or "tel"
+            || normalized is "i" or "ii" or "iii" or "iv" or "v" or "vi")
         {
             return normalized.ToUpperInvariant();
         }
         return string.Join(' ', normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
     }
-
-    private static int GroupCount(Ww3PlusPackage package) =>
-        (package.Count + package.GroupSize - 1) / package.GroupSize;
 
     private static string PackageGroupKey(Ww3PlusPackage package, int groupIndex) =>
         $"{package.Key}-group-{groupIndex + 1:D2}";
@@ -565,12 +930,227 @@ internal static partial class FuldaGapCampaignSeed
             DistanceMeters.FromMeters(rangeMeters)),
     ];
 
-    private static string Ww3PlusGroupName(string key) =>
-        string.Join(' ', key.Split('-', StringSplitOptions.RemoveEmptyEntries))
-            .Replace(" group ", " task group ", StringComparison.Ordinal)
+    private static readonly Lazy<IReadOnlyDictionary<string, Ww3PlusPackage>> Ww3PlusPackagesByKey =
+        new(() => Ww3PlusPackages(default, default)
+            .ToDictionary(package => package.Key, StringComparer.Ordinal));
+
+    private static string Ww3PlusGroupName(string key)
+    {
+        var groupMarker = key.LastIndexOf("-group-", StringComparison.Ordinal);
+        var packageKey = groupMarker < 0 ? key : key[..groupMarker];
+        var groupNumber = groupMarker < 0
+            ? 0
+            : int.TryParse(key[(groupMarker + 7)..], out var parsed) ? parsed : 0;
+        if (Ww3PlusPackagesByKey.Value.TryGetValue(packageKey, out var package))
+        {
+            var groups = PackageGroups(package);
+            var groupIndex = Math.Clamp(groupNumber - 1, 0, groups.Count - 1);
+            var group = groups[groupIndex];
+            if (!package.DedicatedFormations
+                && group.Count > 0
+                && group.All(item => string.Equals(item, group[0], StringComparison.Ordinal))
+                && !string.Equals(group[0], "abstract_land_formation", StringComparison.Ordinal))
+            {
+                var matchingGroups = groups
+                    .Select((items, index) => new { items, index })
+                    .Where(item => item.items.Count > 0
+                        && string.Equals(item.items[0], group[0], StringComparison.Ordinal))
+                    .ToArray();
+                var platformOrdinal = matchingGroups.Count(item => item.index <= groupIndex);
+                var platformName = PlatformGroupName(package, group[0]);
+                return matchingGroups.Length > 1
+                    ? $"{platformName} {platformOrdinal}"
+                    : platformName;
+            }
+
+            return groups.Count > 1
+                ? $"{package.Name} {groupIndex + 1}"
+                : package.Name;
+        }
+
+        if (key.EndsWith("-defense-complex", StringComparison.Ordinal))
+        {
+            return $"{HumanizeGroupStem(key[..^16])} air defenses";
+        }
+        foreach (var role in new[] { "fighter", "strike", "support" })
+        {
+            var suffix = $"-{role}-sortie";
+            if (key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                return $"{HumanizeGroupStem(key[..^suffix.Length])} {role} sortie";
+            }
+        }
+
+        var readableKey = key
+            .Replace("blue-", string.Empty, StringComparison.Ordinal)
+            .Replace("red-", string.Empty, StringComparison.Ordinal)
             .Replace("usec", "US East Coast", StringComparison.Ordinal)
             .Replace("uswc", "US West Coast", StringComparison.Ordinal)
             .Replace("pnw", "Pacific Northwest", StringComparison.Ordinal);
+        return string.Join(' ', readableKey
+            .Split(['-', ' '], StringSplitOptions.RemoveEmptyEntries)
+            .Select(HumanizeCatalogPart));
+    }
+
+    private static string HumanizeGroupStem(string key)
+    {
+        var stem = key
+            .Replace("blue-", string.Empty, StringComparison.Ordinal)
+            .Replace("red-", string.Empty, StringComparison.Ordinal);
+        if (stem.EndsWith("-complex", StringComparison.Ordinal))
+        {
+            stem = stem[..^8];
+        }
+        return string.Join(' ', stem
+            .Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(HumanizeCatalogPart));
+    }
+
+    private static string PlatformGroupName(Ww3PlusPackage package, string catalogUnitId)
+    {
+        var parts = catalogUnitId.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return "Campaign formation";
+        }
+        var service = package.FormationOwner
+            ?? ServiceName(parts[0], package.SimulationDomain);
+        var modelParts = parts.Skip(1)
+            .Where(part => !CatalogRoleWords.Contains(part))
+            .ToList();
+        while (modelParts.Count > 1 && IsCatalogVariantNoise(modelParts[^1]))
+        {
+            modelParts.RemoveAt(modelParts.Count - 1);
+        }
+        if (parts[0] == "port" && modelParts.Count > 1 && modelParts[0] == "pg")
+        {
+            modelParts.RemoveAt(0);
+        }
+        var model = string.Join(' ', modelParts.Select(HumanizeCatalogPart));
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = string.Join(' ', parts.Skip(1).Select(HumanizeCatalogPart));
+        }
+        model = model
+            .Replace("130MM", "130 mm", StringComparison.Ordinal)
+            .Replace(" Coastal Artillery", string.Empty, StringComparison.Ordinal)
+            .Replace(" Emplacement", string.Empty, StringComparison.Ordinal)
+            .Replace("Pickup 1983 ", string.Empty, StringComparison.Ordinal)
+            .Replace("Oliver Hazard Perry", "Perry", StringComparison.Ordinal)
+            .Replace("Ural ", string.Empty, StringComparison.Ordinal);
+        if (string.Equals(model, "Coastal Artillery", StringComparison.Ordinal))
+        {
+            model = string.Empty;
+        }
+        var formation = FormationNoun(catalogUnitId, package.SimulationDomain);
+        return string.Join(' ', new[] { service, model, formation }
+            .Where(item => !string.IsNullOrWhiteSpace(item)));
+    }
+
+    private static string ServiceName(string prefix, SimulationDomain domain) => prefix switch
+    {
+        "usaf" => "USAF",
+        "usn" => domain is SimulationDomain.Air or SimulationDomain.RotaryWing ? "USN" : "US Navy",
+        "usmc" => "USMC",
+        "usa" => "US Army",
+        "jasdf" => "JASDF",
+        "jmsdf" => "JMSDF",
+        "jsdf" => "JGSDF",
+        "raf" => "RAF",
+        "raaf" => "RAAF",
+        "ran" => "RAN",
+        "rn" => "Royal Navy",
+        "rcn" => "RCN",
+        "fgs" => "West German Navy",
+        "knm" => "Norwegian Navy",
+        "nrp" => "Portuguese Navy",
+        "es" => "Spanish Navy",
+        "fr" => "French",
+        "fin" => "Finnish",
+        "swe" => "Swedish",
+        "nv" => "North Vietnamese",
+        "wp" => "Soviet",
+        "pla" => "PLA",
+        "plan" => "PLAN",
+        "iaf" => "Israeli Air Force",
+        "ins" => "Israeli Navy",
+        "iriaf" => "IRIAF",
+        "irina" => "Iranian Navy",
+        "iqaf" => "Iraqi Air Force",
+        "iqa" => "Iraqi Army",
+        "ir" => "Iranian Navy",
+        "nato" => "NATO",
+        "civ" => "Civilian",
+        "port" or "tgt" or "warehouses" or "oil" or "airfield" or "abstract" => string.Empty,
+        _ => HumanizeCatalogPart(prefix),
+    };
+
+    private static string FormationNoun(string catalogUnitId, SimulationDomain domain)
+    {
+        if (domain == SimulationDomain.Air)
+        {
+            return catalogUnitId.StartsWith("civ_", StringComparison.Ordinal)
+                ? "flight"
+                : "squadron";
+        }
+        if (domain == SimulationDomain.RotaryWing)
+        {
+            return "flight";
+        }
+        if (domain == SimulationDomain.Maritime)
+        {
+            if (IsSubmarineCatalog(catalogUnitId)) return "submarine group";
+            if (HasCatalogRole(catalogUnitId, "cv", "cvn")) return "carrier group";
+            if (HasCatalogRole(catalogUnitId, "cg", "cgn", "clg", "rkr", "kr")) return "cruiser group";
+            if (HasCatalogRole(catalogUnitId, "dd", "ddg", "em", "bpk")) return "destroyer group";
+            if (HasCatalogRole(catalogUnitId, "ff", "ffg", "skr")) return "frigate group";
+            if (HasCatalogRole(catalogUnitId, "lha", "lpd", "lka", "lst", "bdk", "ap")) return "amphibious group";
+            if (HasCatalogRole(catalogUnitId, "msc", "mso")) return "mine-warfare group";
+            if (HasCatalogRole(catalogUnitId, "pt", "ptg", "pb", "mrk", "mpk")) return "patrol group";
+            return "naval group";
+        }
+        if (domain == SimulationDomain.Ground)
+        {
+            if (catalogUnitId.Contains("coastal_artillery", StringComparison.Ordinal)) return "coastal battery";
+            if (HasCatalogRole(catalogUnitId, "mbt", "lt")) return "tank company";
+            if (HasCatalogRole(catalogUnitId, "apc", "ifv")) return "mechanized company";
+            if (HasCatalogRole(catalogUnitId, "mlrs", "spa")) return "artillery battery";
+            if (HasCatalogRole(catalogUnitId, "sam", "aaa", "spaag")
+                || catalogUnitId.Contains("launcher", StringComparison.Ordinal)) return "air-defense battery";
+            if (HasCatalogRole(catalogUnitId, "car")) return "support company";
+            return "ground unit";
+        }
+        if (domain is SimulationDomain.Installation or SimulationDomain.LandAbstract)
+        {
+            if (catalogUnitId.Contains("airbase", StringComparison.Ordinal)
+                || catalogUnitId.StartsWith("airfield_", StringComparison.Ordinal)) return "airbase";
+            if (catalogUnitId.Contains("radar", StringComparison.Ordinal)
+                || catalogUnitId.Contains("ewr", StringComparison.Ordinal)) return "radar site";
+            if (catalogUnitId.Contains("sam", StringComparison.Ordinal)
+                || catalogUnitId.Contains("launcher", StringComparison.Ordinal)) return "SAM site";
+            if (catalogUnitId.StartsWith("port_", StringComparison.Ordinal)) return "naval base";
+            return "site";
+        }
+        if (domain == SimulationDomain.Logistics)
+        {
+            return IsCivilianCatalog(catalogUnitId) ? "convoy" : "logistics group";
+        }
+        return "formation";
+    }
+
+    private static bool IsCatalogVariantNoise(string value) =>
+        value is "default" or "early" or "late" or "mod" or "shorthull" or "longhull"
+        || value.All(char.IsDigit);
+
+    private static readonly HashSet<string> CatalogRoleWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "aaa", "ae", "agi", "ao", "aoe", "aor", "ap", "apc", "avp", "bb", "bdk",
+        "bpk", "car", "cg", "cgn", "clg", "cv", "cvn", "dd", "ddg", "em", "fab",
+        "fcr", "ff", "ffg", "fs", "fv", "ifv", "k", "kr", "launcher", "lha", "lka", "lpd",
+        "lst", "lt", "mbt", "mlrs", "mpk", "mrk", "ms", "msc", "mso", "pb", "pf",
+        "pt", "ptg", "radar", "rkr", "sam", "site", "skr", "spa", "spaag", "ss",
+        "ssbn", "ssg", "ssgn", "ssk", "ssn", "tel", "vt",
+    };
 
     private sealed record Ww3PlusPackage(
         string Key,
@@ -587,7 +1167,17 @@ internal static partial class FuldaGapCampaignSeed
         int LongitudeMicrodegrees,
         string? DestinationRegionKey,
         OrderKind OrderKind,
-        IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons);
+        IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons,
+        bool DedicatedFormations,
+        string? FormationOwner);
+
+    private readonly record struct SeedPosition(
+        int LatitudeMicrodegrees,
+        int LongitudeMicrodegrees);
+
+    private readonly record struct FormationStation(
+        double DistanceNauticalMiles,
+        double RelativeBearingDegrees);
 
     private sealed record Ww3AirbaseComplex(
         string Key,

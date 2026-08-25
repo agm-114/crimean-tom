@@ -48,6 +48,11 @@ var runDirectory = Path.GetFullPath(
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY")
     ?? Path.Combine(repositoryRoot ?? workingDirectory, ".run", "campaign-service"));
 var token = CampaignServiceToken.LoadOrCreate(Path.Combine(runDirectory, "service.token"));
+var allowDebugRevealAllEnemies = bool.TryParse(
+    builder.Configuration["AllowDebugRevealAllEnemies"]
+        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_ALLOW_DEBUG_REVEAL_ALL_ENEMIES"),
+    out var allowDebugEnemyProjection)
+    && allowDebugEnemyProjection;
 var monitorSession = new CampaignMonitorSession();
 var unattendedSimulation = CampaignUnattendedSimulationOptions.Load();
 var journal = new SqliteCampaignJournal(
@@ -72,6 +77,7 @@ builder.Services.AddSingleton(unattendedSimulation);
 builder.Services.AddSingleton(journal);
 builder.Services.AddSingleton(new CampaignHostPaths(runDirectory, Path.Combine(runDirectory, "backups")));
 builder.Services.AddSingleton<CampaignSessionRegistry>();
+builder.Services.AddSingleton<CampaignInteractionIslandRegistry>();
 builder.Services.AddSingleton<CampaignPlayerSessionRegistry>();
 builder.Services.AddSingleton<CampaignPlayerCommandSequencer>();
 builder.Services.AddSingleton<CampaignPerformanceTelemetry>();
@@ -274,11 +280,13 @@ app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/orders/cancel", asy
 app.MapGet("/player/campaigns/{campaignId}/groups/{groupId}/tactical-entry", async (
     string campaignId,
     string groupId,
+    string? entityId,
     CampaignCoordinator coordinator,
     CancellationToken cancellationToken) =>
     await InspectPlayerTacticalEntryAsync(
         campaignId,
         groupId,
+        entityId,
         coordinator,
         cancellationToken));
 app.MapPost("/player/campaigns/{campaignId}/groups/{groupId}/tactical-entry", async (
@@ -432,6 +440,12 @@ app.MapGet("/campaigns/{campaignId}/tactical-workers/{clientInstanceId}/projecti
         || !Guid.TryParseExact(clientInstanceId, "N", out var parsedClient))
     {
         return Results.BadRequest(new { error = "invalid-campaign-or-client-instance-id" });
+    }
+    if (debugRevealAllEnemies == true && !allowDebugRevealAllEnemies)
+    {
+        return Results.Json(
+            new { error = "debug-enemy-projection-disabled" },
+            statusCode: StatusCodes.Status403Forbidden);
     }
     try
     {
@@ -902,6 +916,7 @@ static async Task<IResult> IssuePlayerOrderAsync(
 static async Task<IResult> InspectPlayerTacticalEntryAsync(
     string campaignId,
     string groupId,
+    string? entityId,
     CampaignCoordinator coordinator,
     CancellationToken cancellationToken)
 {
@@ -914,6 +929,7 @@ static async Task<IResult> InspectPlayerTacticalEntryAsync(
         return Results.Ok(await coordinator.InspectPlayerTacticalEntryAsync(
             new CampaignId(parsed),
             groupId,
+            entityId,
             cancellationToken));
     }
     catch (CampaignStoreConflict exception)
@@ -940,6 +956,7 @@ static async Task<IResult> RequestPlayerTacticalEntryAsync(
             groupId,
             request.ExpectedGroupRevision,
             request.IdempotencyKey,
+            request.EntityId,
             cancellationToken));
     }
     catch (CampaignStoreConflict exception)
@@ -1052,7 +1069,8 @@ public sealed record PlayerCancelOrderRequest(
 
 public sealed record PlayerTacticalEntryRequest(
     long ExpectedGroupRevision,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? EntityId = null);
 
 public sealed record PlayerTacticalExitRequest(
     long ExpectedGroupRevision,

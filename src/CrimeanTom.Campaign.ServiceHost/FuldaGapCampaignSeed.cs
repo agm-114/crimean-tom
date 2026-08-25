@@ -115,15 +115,18 @@ internal static partial class FuldaGapCampaignSeed
             Entity(campaignId, "southatl-kara", "Soviet South Atlantic Kara group", "wp_bpk_kara", red, "southatl", -37_000_000, -35_000_000, "ushuaia", "red-southatl", SimulationDomain.Maritime),
             Entity(campaignId, "southatl-kynda", "Soviet South Atlantic Kynda group", "wp_rkr_kynda", red, "southatl", -37_200_000, -34_700_000, "ushuaia", "red-southatl", SimulationDomain.Maritime),
             Entity(campaignId, "southatl-escort", "US South Atlantic convoy escort", "usn_ffg_brooke", blue, "southatl", -31_000_000, -28_000_000, "hampton", "blue-southatl", SimulationDomain.Maritime),
-            Entity(campaignId, "kidd-gulf", "USS Kidd Gulf action group", "usn_ddg_kidd", blue, "arabian", 23_000_000, 61_000_000, "diego-garcia", "blue-middle-east", SimulationDomain.Maritime),
-            Entity(campaignId, "israel-saar", "Israeli Sa'ar missile group", "ins_ptg_saar_4", blue, "levant", 33_000_000, 34_600_000, "haifa", "blue-middle-east", SimulationDomain.Maritime),
-            Entity(campaignId, "israel-gal", "Israeli Gal submarine patrol", "ins_ss_gal", blue, "levant", 32_500_000, 34_100_000, "haifa", "blue-middle-east", SimulationDomain.Maritime),
+            Entity(campaignId, "kidd-gulf", "USS Kidd Gulf action group", "usn_ddg_kidd", blue, "arabian", 23_000_000, 61_000_000, "diego-garcia", "blue-us-indian-ocean", SimulationDomain.Maritime),
+            Entity(campaignId, "israel-saar", "Israeli Sa'ar missile group", "ins_ptg_saar_4", blue, "levant", 33_000_000, 34_600_000, "haifa", "blue-israel-levant", SimulationDomain.Maritime),
+            Entity(campaignId, "israel-gal", "Israeli Gal submarine patrol", "ins_ss_gal", blue, "levant", 32_500_000, 34_100_000, "haifa", "blue-israel-levant", SimulationDomain.Maritime),
             Entity(campaignId, "iran-alvand", "Iranian Alvand Gulf group", "ir_ffg_alvand", red, "gulf", 26_000_000, 55_000_000, "bandar-abbas", "red-iran", SimulationDomain.Maritime),
             Entity(campaignId, "iran-combattante", "Iranian Combattante II missile group", "ir_ptg_combattante_II", red, "gulf", 26_200_000, 55_300_000, "bandar-abbas", "red-iran", SimulationDomain.Maritime),
-            Entity(campaignId, "levant-osa", "Syrian Osa missile group", "wp_ptg_osa2", red, "levant", 34_600_000, 35_600_000, "tartus", "red-levant", SimulationDomain.Maritime),
-            Entity(campaignId, "levant-ropucha", "Soviet Ropucha reinforcement ship", "wp_bdk_ropucha", red, "levant", 34_700_000, 35_300_000, "tartus", "red-levant", SimulationDomain.Logistics),
+            Entity(campaignId, "levant-osa", "Syrian Osa missile group", "wp_ptg_osa2", red, "levant", 34_600_000, 35_600_000, "tartus", "red-syria-levant", SimulationDomain.Maritime),
+            Entity(campaignId, "levant-ropucha", "Soviet Ropucha reinforcement ship", "wp_bdk_ropucha", red, "levant", 34_700_000, 35_300_000, "tartus", "red-soviet-levant", SimulationDomain.Logistics),
             Entity(campaignId, "kitty-hawk", "USS Kitty Hawk", "usn_cv_kitty_hawk", blue, "japan", 30_000_000, 142_000_000, "yokosuka", "blue-pacific-cvg", SimulationDomain.Maritime),
             Entity(campaignId, "pacific-tico", "Pacific Fleet Ticonderoga escort", "usn_cg_ticonderoga", blue, "japan", 30_200_000, 142_200_000, "yokosuka", "blue-pacific-cvg", SimulationDomain.Maritime),
+            Entity(campaignId, "pacific-spruance", "USS Fife", "usn_dd_spruance_abl", blue, "japan", 29_920_000, 142_050_000, "yokosuka", "blue-pacific-cvg", SimulationDomain.Maritime),
+            Entity(campaignId, "pacific-perry", "USS Curts", "usn_ffg_oliver_hazard_perry_longhull", blue, "japan", 30_080_000, 141_920_000, "yokosuka", "blue-pacific-cvg", SimulationDomain.Maritime),
+            Entity(campaignId, "pacific-sacramento", "USS Sacramento", "usn_aoe_sacramento", blue, "japan", 29_850_000, 141_850_000, "yokosuka", "blue-pacific-cvg", SimulationDomain.Logistics),
             Entity(campaignId, "haruna", "JDS Haruna", "jmsdf_ddh_haruna", blue, "japan", 36_000_000, 137_000_000, "yokosuka", "blue-japan", SimulationDomain.Maritime),
             Entity(campaignId, "tachikaze", "JDS Tachikaze", "jmsdf_ddg_tachikaze", blue, "japan", 36_100_000, 137_200_000, "yokosuka", "blue-japan", SimulationDomain.Maritime),
             Entity(campaignId, "yushio", "JMSDF Yushio-class patrol", "jmsdf_ss_yushio", blue, "okhotsk", 43_000_000, 146_000_000, "yokosuka", "blue-japan", SimulationDomain.Maritime),
@@ -133,12 +136,12 @@ internal static partial class FuldaGapCampaignSeed
             Entity(campaignId, "pacific-sovremenny", "Soviet Pacific Fleet Sovremenny", "wp_em_sovremenny", red, "japan", 41_000_000, 134_000_000, "vladivostok", "red-pacific", SimulationDomain.Maritime),
             Entity(campaignId, "pacific-charlie", "Soviet Pacific Fleet Charlie II", "wp_ssgn_charlie2", red, "northpac", 44_000_000, 155_000_000, "vladivostok", "red-pacific", SimulationDomain.Maritime),
             Entity(campaignId, "pacific-tanker", "Soviet Pacific replenishment group", "wp_vt_boris_chilikin", red, "okhotsk", 45_000_000, 148_000_000, "vladivostok", "red-pacific", SimulationDomain.Logistics),
-            Entity(campaignId, "canadian-oberon", "HMCS Ojibwa Canadian barrier patrol", "rcn_ss_oberon", blue, "giuk", 61_500_000, -20_000_000, "keflavik", "blue-atlantic-allies", SimulationDomain.Maritime),
-            Entity(campaignId, "royal-navy-battle", "Royal Navy Battle-class Atlantic escort", "rn_dd_battle", blue, "wapp", 49_000_000, -10_000_000, "plymouth", "blue-atlantic-allies", SimulationDomain.Maritime),
+            Entity(campaignId, "canadian-oberon", "HMCS Ojibwa Canadian barrier patrol", "rcn_ss_oberon", blue, "giuk", 61_500_000, -20_000_000, "keflavik", "blue-canada-atlantic", SimulationDomain.Maritime),
+            Entity(campaignId, "royal-navy-battle", "Royal Navy Battle-class Atlantic escort", "rn_dd_battle", blue, "wapp", 49_000_000, -10_000_000, "plymouth", "blue-uk-atlantic", SimulationDomain.Maritime),
             Entity(campaignId, "lutjens", "FGS Lutjens", "fgs_ddg_lutjens", blue, "bight", 54_000_000, 7_000_000, "wilhelmshaven", "blue-continental-allies", SimulationDomain.Maritime),
-            Entity(campaignId, "baleares", "Spanish Baleares-class frigate", "es_ffg_baleares", blue, "med", 37_000_000, -4_000_000, "rota", "blue-mediterranean-allies", SimulationDomain.Maritime),
-            Entity(campaignId, "french-agosta", "French Agosta submarine patrol", "fr_ss_agosta", blue, "med", 41_000_000, 5_000_000, "toulon", "blue-mediterranean-allies", SimulationDomain.Maritime),
-            Entity(campaignId, "portuguese-albacora", "Portuguese Albacora submarine patrol", "nrp_ssk_albacora", blue, "wapp", 39_000_000, -11_000_000, "lisbon", "blue-atlantic-allies", SimulationDomain.Maritime),
+            Entity(campaignId, "baleares", "Spanish Baleares-class frigate", "es_ffg_baleares", blue, "med", 37_000_000, -4_000_000, "rota", "blue-spain-med", SimulationDomain.Maritime),
+            Entity(campaignId, "french-agosta", "French Agosta submarine patrol", "fr_ss_agosta", blue, "med", 41_000_000, 5_000_000, "toulon", "blue-france-med", SimulationDomain.Maritime),
+            Entity(campaignId, "portuguese-albacora", "Portuguese Albacora submarine patrol", "nrp_ssk_albacora", blue, "wapp", 39_000_000, -11_000_000, "lisbon", "blue-portugal-atlantic", SimulationDomain.Maritime),
             Entity(campaignId, "libyan-missile", "Libyan Beir Grassa missile group", "ln_ptg_beir_grassa", red, "med", 33_000_000, 14_000_000, "tripoli", "red-mediterranean", SimulationDomain.Maritime),
             Entity(campaignId, "india-petya", "Indian Navy Petya III escort group", "wp_skr_petya3", blue, "india-west", 17_500_000, 70_500_000, "mumbai", "blue-india", SimulationDomain.Maritime),
             Entity(campaignId, "india-osa", "Indian Navy Osa I missile group", "wp_ptg_osa1", blue, "india-west", 17_300_000, 70_700_000, "mumbai", "blue-india", SimulationDomain.Maritime),
@@ -185,16 +188,21 @@ internal static partial class FuldaGapCampaignSeed
             Order(campaignId, "argentine-support-to-cape", groupIds["red-argentina-support"], regionIds["cape"], OrderKind.Transit),
             Order(campaignId, "southatl-sag-to-patagonia", groupIds["red-southatl"], regionIds["patagonia"], OrderKind.Patrol),
             Order(campaignId, "blue-southatl-to-patagonia", groupIds["blue-southatl"], regionIds["patagonia"], OrderKind.Escort),
-            Order(campaignId, "blue-middle-east-to-gulf", groupIds["blue-middle-east"], regionIds["gulf"], OrderKind.Patrol),
+            Order(campaignId, "blue-us-indian-ocean-to-gulf", groupIds["blue-us-indian-ocean"], regionIds["gulf"], OrderKind.Patrol),
+            Order(campaignId, "blue-israel-levant-patrol", groupIds["blue-israel-levant"], regionIds["levant"], OrderKind.Patrol),
             Order(campaignId, "iran-to-arabian", groupIds["red-iran"], regionIds["arabian"], OrderKind.Transit),
-            Order(campaignId, "levant-pressure", groupIds["red-levant"], regionIds["med"], OrderKind.Transit),
+            Order(campaignId, "syrian-levant-pressure", groupIds["red-syria-levant"], regionIds["med"], OrderKind.Transit),
+            Order(campaignId, "soviet-levant-reinforcement", groupIds["red-soviet-levant"], regionIds["med"], OrderKind.Transit),
             Order(campaignId, "pacific-cvg-to-northpac", groupIds["blue-pacific-cvg"], regionIds["northpac"], OrderKind.Patrol),
             Order(campaignId, "japan-barrier-to-okhotsk", groupIds["blue-japan"], regionIds["okhotsk"], OrderKind.Patrol),
             Order(campaignId, "plan-to-japan", groupIds["red-plan"], regionIds["japan"], OrderKind.Transit),
             Order(campaignId, "soviet-pacific-to-northpac", groupIds["red-pacific"], regionIds["northpac"], OrderKind.Patrol),
-            Order(campaignId, "atlantic-allies-to-giuk", groupIds["blue-atlantic-allies"], regionIds["giuk"], OrderKind.Patrol),
+            Order(campaignId, "canada-atlantic-to-giuk", groupIds["blue-canada-atlantic"], regionIds["giuk"], OrderKind.Patrol),
+            Order(campaignId, "uk-atlantic-to-giuk", groupIds["blue-uk-atlantic"], regionIds["giuk"], OrderKind.Patrol),
+            Order(campaignId, "portugal-atlantic-to-giuk", groupIds["blue-portugal-atlantic"], regionIds["giuk"], OrderKind.Patrol),
             Order(campaignId, "continental-allies-to-baltap", groupIds["blue-continental-allies"], regionIds["baltap"], OrderKind.Patrol),
-            Order(campaignId, "med-allies-to-levant", groupIds["blue-mediterranean-allies"], regionIds["levant"], OrderKind.Patrol),
+            Order(campaignId, "spain-med-to-levant", groupIds["blue-spain-med"], regionIds["levant"], OrderKind.Patrol),
+            Order(campaignId, "france-med-to-levant", groupIds["blue-france-med"], regionIds["levant"], OrderKind.Patrol),
             Order(campaignId, "libyan-group-to-levant", groupIds["red-mediterranean"], regionIds["levant"], OrderKind.Transit),
             Order(campaignId, "india-to-arabian", groupIds["blue-india"], regionIds["arabian"], OrderKind.Patrol),
             Order(campaignId, "pakistan-to-arabian", groupIds["red-pakistan"], regionIds["arabian"], OrderKind.Patrol),
@@ -261,31 +269,67 @@ internal static partial class FuldaGapCampaignSeed
         IReadOnlyList<FuldaEntitySeed> entities,
         int selectedCount)
     {
-        // Preserve the current tactical anchor and, when the requested bound
-        // permits it, every unit supported by the POC's native/proxy Knox
-        // profile. Fill the rest with a stable hash of the campaign-independent
-        // entity key so repeated benchmark campaigns have identical composition
-        // even though their canonical IDs differ.
-        var required = entities
-            .Where(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)
-                || string.Equals(item.Key, "yorktown", StringComparison.Ordinal)
-                || string.Equals(item.Key, "spruance", StringComparison.Ordinal)
-                || string.Equals(item.Key, "krivak", StringComparison.Ordinal)
-                || string.Equals(item.HostEntityKey, "yorktown", StringComparison.Ordinal)
-                || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal))
-            .OrderByDescending(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal))
-            .ThenBy(item => item.Key, StringComparer.Ordinal)
-            .Take(selectedCount)
+        // Bounded fixtures sample complete formations. Groups containing a POC
+        // anchor or a natively supported Knox are considered first, so retaining
+        // one important entity does not leave the rest of its formation behind.
+        var groups = entities
+            .GroupBy(item => item.GroupKey, StringComparer.Ordinal)
+            .Select(group => new
+            {
+                Group = group,
+                Priority = group.Any(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)) ? 0
+                    : group.Any(IsRequiredBoundedEntity) ? 1
+                    : 2,
+            })
+            .OrderBy(item => item.Priority)
+            .ThenBy(item => StableSampleKey(item.Group.Key), StringComparer.Ordinal)
             .ToArray();
-        var requiredKeys = required.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
-        return required
-            .Concat(entities
-                .Where(item => !requiredKeys.Contains(item.Key))
-                .OrderBy(item => StableSampleKey(item.Key), StringComparer.Ordinal)
-                .Take(selectedCount - required.Length))
+        var selected = new List<FuldaEntitySeed>(selectedCount);
+        var selectedKeys = new HashSet<string>(StringComparer.Ordinal);
+        var remaining = selectedCount;
+        foreach (var candidateGroup in groups)
+        {
+            var candidates = candidateGroup.Group
+                .OrderBy(item => item.Key, StringComparer.Ordinal)
+                .ToArray();
+            if (candidates.Length > remaining)
+            {
+                continue;
+            }
+            selected.AddRange(candidates);
+            foreach (var candidate in candidates)
+            {
+                selectedKeys.Add(candidate.Key);
+            }
+            remaining -= candidates.Length;
+            if (remaining == 0)
+            {
+                break;
+            }
+        }
+        if (remaining > 0)
+        {
+            selected.AddRange(entities
+                .Where(item => !selectedKeys.Contains(item.Key))
+                .OrderByDescending(IsRequiredBoundedEntity)
+                .ThenBy(item => StableSampleKey(item.Key), StringComparer.Ordinal)
+                .Take(remaining));
+        }
+        return selected
             .OrderBy(item => item.EntityId)
             .ToArray();
     }
+
+    private static bool IsRequiredBoundedEntity(FuldaEntitySeed item) =>
+        string.Equals(item.Key, "pharris", StringComparison.Ordinal)
+        || string.Equals(item.Key, "yorktown", StringComparison.Ordinal)
+        || string.Equals(item.Key, "spruance", StringComparison.Ordinal)
+        || string.Equals(item.Key, "krivak", StringComparison.Ordinal)
+        || string.Equals(item.HostEntityKey, "yorktown", StringComparison.Ordinal)
+        || string.Equals(item.GroupKey, "blue-pacific-cvg", StringComparison.Ordinal)
+        || string.Equals(item.GroupKey, "blue-usec-carriers-group-01", StringComparison.Ordinal)
+        || string.Equals(item.GroupKey, "red-northern-aviation-cruiser-group-01", StringComparison.Ordinal)
+        || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal);
 
     private static string StableSampleKey(string entityKey) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entityKey)));
@@ -408,41 +452,46 @@ internal static partial class FuldaGapCampaignSeed
         }
         return key switch
         {
-        "blue-giuk" => "NATO GIUK barrier group",
-        "blue-giuk-sub" => "NATO GIUK submarine patrol",
-        "blue-north-sea" => "NATO North Sea surface action group",
+        "blue-giuk" => "NATO GIUK barrier",
+        "blue-giuk-sub" => "GIUK submarine patrol",
+        "blue-north-sea" => "NATO North Sea group",
         "blue-reforger" => "REFORGER Convoy 261",
         "blue-baltap" => "BALTAP fast attack group",
         "blue-fulda" => "US V Corps abstract formation",
-        "red-northern-sag" => "Northern Fleet surface action group",
+        "red-northern-sag" => "Northern Fleet surface group",
         "red-north-sea-picket" => "Northern Fleet North Sea picket",
         "red-giuk" => "Northern Fleet submarine barrier group",
         "red-baltic" => "Baltic Fleet missile raid group",
         "red-fulda" => "8th Guards Army abstract formation",
-        "red-argentina-support" => "Argentine-Soviet logistics command",
+        "red-argentina-support" => "Argentine resupply group",
         "red-southatl" => "Soviet South Atlantic action group",
         "blue-southatl" => "NATO South Atlantic escort",
-        "blue-middle-east" => "US-Israeli eastern Mediterranean command",
+        "blue-us-indian-ocean" => "US Indian Ocean group",
+        "blue-israel-levant" => "Israeli Levant group",
         "red-iran" => "Iranian Gulf exclusion group",
-        "red-levant" => "Soviet-Syrian Levant reinforcement group",
+        "red-syria-levant" => "Syrian missile group",
+        "red-soviet-levant" => "Soviet Levant reinforcement",
         "blue-pacific-cvg" => "US Pacific carrier group",
         "blue-japan" => "JMSDF northern barrier group",
         "red-plan" => "PLAN South China Sea group",
         "red-pacific" => "Soviet Pacific Fleet action group",
-        "blue-atlantic-allies" => "British-Canadian-Portuguese Atlantic barrier",
+        "blue-canada-atlantic" => "RCN Atlantic patrol",
+        "blue-uk-atlantic" => "Royal Navy Atlantic escort",
+        "blue-portugal-atlantic" => "Portuguese Atlantic patrol",
         "blue-continental-allies" => "West German Baltic reinforcement group",
-        "blue-mediterranean-allies" => "French-Spanish Mediterranean group",
+        "blue-spain-med" => "Spanish Mediterranean group",
+        "blue-france-med" => "French Mediterranean group",
         "red-mediterranean" => "Libyan Mediterranean missile group",
         "blue-india" => "Indian Navy western fleet group",
         "red-pakistan" => "Pakistan Navy submarine group",
         "blue-australia" => "Royal Australian Navy task group",
         "blue-australia-air" => "RAAF maritime strike command",
         "red-vietnam" => "Vietnamese coastal intelligence command",
-        "blue-taiwan-air" => "Republic of China Air Force island defense",
+        "blue-taiwan-air" => "ROCAF defense squadron",
         "blue-taiwan-coastal" => "Republic of China Navy coastal defense",
         "red-taiwan-invasion" => "PLAN Taiwan Strait invasion group",
-        "blue-south-korea-air" => "Republic of Korea Air Force defense command",
-        "red-north-korea-air" => "Korean People's Air Force offensive command",
+        "blue-south-korea-air" => "ROKAF defense squadron",
+        "red-north-korea-air" => "KPAF interceptor regiment",
         _ => Ww3PlusGroupName(key),
         };
     }

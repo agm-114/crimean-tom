@@ -6,7 +6,7 @@ namespace CrimeanTom.Campaign.Contracts;
 public static class CampaignSchema
 {
     public const int Version = 11;
-    public const int AlgorithmVersion = 19;
+    public const int AlgorithmVersion = 20;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }

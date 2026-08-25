@@ -63,23 +63,35 @@ internal static class CampaignTacticalWorkerProjectionHttp
             ? assignmentCoalitions[0]
             : (CoalitionId?)null);
 
+        var groupByEntity = state.Groups.Values
+            .OrderBy(group => group.GroupId)
+            .SelectMany(group => group.Members.Select(entityId => (entityId, group)))
+            .GroupBy(item => item.entityId)
+            .ToDictionary(group => group.Key, group => group.First().group);
         var friendly = coalition is null
             ? []
             : state.Entities.Values
                 .Where(item => item.CoalitionId == coalition.Value)
                 .OrderBy(item => item.EntityId)
-                .Select(item => new CampaignTacticalFriendlyEntityView(
-                    item.EntityId.ToString(),
-                    item.Name,
-                    item.CatalogUnitId,
-                    item.CatalogLoadoutId,
-                    item.SimulationDomain.ToString(),
-                    item.Lifecycle.ToString(),
-                    item.Coordinate.LatitudeMicrodegrees,
-                    item.Coordinate.LongitudeMicrodegrees,
-                    item.Heading.Value,
-                    item.Telegraph,
-                    item.HostEntityId?.ToString()))
+                .Select(item =>
+                {
+                    groupByEntity.TryGetValue(item.EntityId, out var group);
+                    return new CampaignTacticalFriendlyEntityView(
+                        item.EntityId.ToString(),
+                        item.Name,
+                        item.CatalogUnitId,
+                        item.CatalogLoadoutId,
+                        item.SimulationDomain.ToString(),
+                        item.Lifecycle.ToString(),
+                        item.Coordinate.LatitudeMicrodegrees,
+                        item.Coordinate.LongitudeMicrodegrees,
+                        item.Heading.Value,
+                        item.Telegraph,
+                        item.HostEntityId?.ToString(),
+                        group?.GroupId.ToString(),
+                        group?.Name,
+                        group?.Revision.Value ?? 0);
+                })
                 .ToArray();
         var localTacticalEntityIds = assignments
             .Select(item => item.EntityId)
@@ -163,7 +175,10 @@ public sealed record CampaignTacticalFriendlyEntityView(
     int LongitudeMicrodegrees,
     int HeadingMilliDegrees,
     int Telegraph,
-    string? HostEntityId);
+    string? HostEntityId,
+    string? GroupId,
+    string? GroupName,
+    long GroupRevision);
 
 public sealed record CampaignTacticalContactView(
     string TrackId,
