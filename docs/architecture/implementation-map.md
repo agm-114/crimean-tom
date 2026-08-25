@@ -73,6 +73,17 @@ member result to the campaign application. Final ammunition, sensor, formation,
 hosted-aircraft recovery, launched-weapon, and objective-effect fields remain
 explicitly unsupported.
 
+The service can add one coalition-known, materializable hostile surface contact
+to the initial North Sea island. The player view exposes its stable contact
+track, estimated classification, and relationship without revealing its
+canonical identity, name, or catalog profile. The companion resolves an
+authored Sea Power task force on the opposing side, and the whole friendly and
+hostile batch shares the same entry, lease, checkpoint, and return fence. This
+path passes the full campaign service story and bridge compilation; it still
+needs live Sea Power qualification. The worker projection marks that contact
+as locally tactical, so proxy reconciliation removes its generic estimate while
+the native hostile object is present.
+
 The bridge can materialize allow-listed owned ship, submarine, and airborne
 helicopter profiles, plus several terrain-gated ground or installation
 profiles. It can register allow-listed helicopters in a bridge-owned ship's
@@ -83,10 +94,10 @@ the local window, waits for finalized land terrain, samples height, and rejects
 water or unready placement. The two-second naval readback can commit changed
 kinematics, telegraph, fuel or stores fractions, damage, and destruction.
 
-This is not complete portable tactical state. Hosted-aircraft recovery and
-canonical assignment wiring, magazines, sensors, formations, fixed-wing
-aircraft, broader rotary-wing profiles, and broader subsurface ownership still
-need explicit extraction, application, and return contracts.
+This is not complete portable tactical state. Hosted-aircraft recovery,
+magazines, sensors, formations, fixed-wing aircraft, broader rotary-wing
+profiles, and broader subsurface ownership still need explicit extraction,
+application, and return contracts.
 
 ## Implemented map and proxy path
 
@@ -141,8 +152,8 @@ fourth run enters the canonical North Sea group as two native ships plus two
 helicopters in Yorktown's native flight-deck inventory. Their campaign
 identities cross the service, companion, and Runtime Bridge boundary into native
 Formation Manager and Flight Deck labels. Combined surface/submarine entry,
-broader submarine families, combined-arms entry, and authored-force replacement
-remain open.
+broader submarine families, combined-arms entry, authored-force replacement,
+and live qualification of the service-proven opposing Krivak remain open.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.
@@ -164,8 +175,8 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
-| Campaign-owned task force | The canonical North Sea group enters as two native ships plus two native onboard helicopters; one separate submarine patrol and one separate airborne two-helicopter group also enter, while the authored mission still supplies the rest of the placeholder local force |
-| Complete tactical round trip | No qualified campaign-owned hostile fate and expenditure commit |
+| Campaign-owned task force | The canonical North Sea group enters as two native ships plus two native onboard helicopters; the service story adds one coalition-known hostile to an opposing task force, but live qualification and replacement of the remaining authored placeholder force are open |
+| Complete tactical round trip | Whole-island return works for supported state fields in the service story; campaign-owned hostile fate and expenditure still need a live battle qualification and broader portable state |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |
 | Portable state | Canonical ship-hosted assignment works for two helicopter profiles; fixed-wing aircraft, hosted recovery, broader submarine state, magazines, sensors, and formations are incomplete |
 | Recovery | Protocol recovery exists, but live kill, relaunch, duplicate-object, and latency checks remain |

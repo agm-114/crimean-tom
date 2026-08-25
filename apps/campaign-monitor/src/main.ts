@@ -141,6 +141,7 @@ type TacticalResultMember = {
   storesMilliunits: number;
   assignmentLifecycle: string;
   checkpointSha256: string | null;
+  relationship: string;
 };
 
 type TacticalExit = {
@@ -547,7 +548,8 @@ function renderTacticalPanel(): void {
     <div class="detail-row"><span class="truncate" title="${escapeHtml(member.catalogUnitId)}">${escapeHtml(member.name.toUpperCase())}</span><strong title="${escapeHtml(member.message)}">${escapeHtml(member.status.toUpperCase())}</strong></div>`).join("") ?? "";
   const capacity = entry ? `${entry.supportedMemberCount}/${entry.requiredMemberCount} SUPPORTED // ${entry.availableTacticalCapacity} SLOTS` : "NOT CHECKED";
   const results = currentExit?.members.map(member => `
-    <div class="detail-row"><span class="truncate">${escapeHtml(member.name.toUpperCase())}</span><strong>${escapeHtml(member.lifecycle.toUpperCase())} // ${Math.round(member.damageMilliunits / 10_000)}% DMG</strong></div>`).join("") ?? "";
+    <div class="detail-row"><span class="truncate">${escapeHtml(member.name.toUpperCase())} // ${escapeHtml(member.relationship.toUpperCase())}</span>
+    <strong>${escapeHtml(member.lifecycle.toUpperCase())} // ${Math.round(member.damageMilliunits / 10_000)}% DMG</strong></div>`).join("") ?? "";
   const unsupported = currentExit?.state === "complete" && currentExit.unsupportedFields.length
     ? `<div class="mt-1 text-[8px] text-[#626262]">NOT YET RETURNED // ${escapeHtml(currentExit.unsupportedFields.join(", ").toUpperCase())}</div>`
     : "";

@@ -252,6 +252,28 @@ public sealed class CampaignCoordinator(
                     $"fulda-entity-{entity.Key}"));
             }
 
+            if (seed.EntityIds.TryGetValue("krivak", out var northSeaHostile))
+            {
+                state = Stage(Command(
+                    state,
+                    new CampaignSubject(CampaignSubjectKind.Intelligence, northSeaHostile.Value),
+                    EntityRevision.None,
+                    new ReportIntelligenceCommand(
+                        seed.BlueCoalitionId,
+                        northSeaHostile,
+                        seed.RegionIds["nsea"],
+                        GeoCoordinate.FromMicrodegrees(57_180_000, 3_260_000),
+                        IntelligenceConfidence.Confirmed,
+                        CampaignTime.Origin,
+                        UncertaintyRadiusMeters: 2_000,
+                        Classification: ContactClassification.Surface),
+                    "fulda-intelligence-blue-north-sea-krivak",
+                    scope: new InformationScope(
+                        seed.BlueCoalitionId,
+                        MayCommand: true,
+                        MaySeeClassifiedTruth: false)));
+            }
+
             foreach (var group in seed.Groups)
             {
                 state = Stage(Command(
@@ -1603,8 +1625,9 @@ public sealed class CampaignCoordinator(
                 campaignId.Value,
                 $"player-entry-batch:{profile.PlayerId}:{group.GroupId}:{idempotencyKey}");
             var batchId = $"player-entry:{batchGuid:N}";
-            var expectedMembers = group.Members
-                .Where(id => state.Entities[id].Lifecycle != EntityLifecycle.Destroyed)
+            var plan = BuildPlayerTacticalEntryPlan(state, profile, group);
+            var expectedMembers = plan.Members
+                .Select(item => item.EntityId)
                 .OrderBy(id => id)
                 .ToArray();
             var expectedAssignmentIds = expectedMembers
@@ -1630,7 +1653,6 @@ public sealed class CampaignCoordinator(
                     BuildPlayerTacticalEntryPlan(state, profile, group).View);
             }
 
-            var plan = BuildPlayerTacticalEntryPlan(state, profile, group);
             if (!plan.View.CanEnter || plan.Worker is null)
             {
                 throw new CampaignStoreConflict("tactical-entry-not-ready", plan.View.Message);
@@ -1664,11 +1686,14 @@ public sealed class CampaignCoordinator(
                         profileForEntity.UnitTypeId,
                         profileForEntity.VariantId,
                         profileForEntity.LoadoutId,
-                        plan.Worker.PlayerTaskforceId,
+                        plan.HostileEntityIds.Contains(entity.EntityId)
+                            ? string.Empty
+                            : plan.Worker.PlayerTaskforceId,
                         plan.Members.Count > 1 ? batchId : string.Empty,
                         plan.Members.Count,
                         plan.Worker.ClientInstanceId,
-                        FocusAfterActivation: index == 0);
+                        FocusAfterActivation: index == 0,
+                        IsHostile: plan.HostileEntityIds.Contains(entity.EntityId));
                     var prepared = await PrepareHandoffCoreAsync(state, handoff, cancellationToken);
                     state = prepared.State;
                     preparedAssignments.Add((assignmentId, prepared.Assignment));
@@ -1914,21 +1939,23 @@ public sealed class CampaignCoordinator(
         foreach (var assignment in resultAssignments)
         {
             var entity = state.Entities[assignment.EntityId];
+            var hostile = entity.CoalitionId != group.CoalitionId;
             var checkpoint = await journal.ReadLatestBlobReferenceAsync(
                 state.Metadata.CampaignId,
                 CampaignBlobPurpose.TacticalCheckpoint,
                 $"assignment:{assignment.AssignmentId}/",
                 cancellationToken);
             members.Add(new CampaignPlayerTacticalResultMemberView(
-                entity.EntityId.ToString(),
-                entity.Name,
+                PlayerTacticalMemberId(state, group.CoalitionId, entity),
+                hostile ? "Campaign hostile" : entity.Name,
                 entity.Lifecycle.ToString(),
                 entity.Fidelity.ToString(),
                 entity.DamageMilliUnits,
                 entity.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
                 entity.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
                 assignment.Lifecycle.ToString(),
-                checkpoint?.Sha256));
+                checkpoint?.Sha256,
+                hostile ? "hostile" : "friendly"));
         }
         return new CampaignPlayerTacticalExitView(
             state.Metadata.CampaignId.ToString(),
@@ -1958,9 +1985,26 @@ public sealed class CampaignCoordinator(
         GroupState group)
     {
         var memberIds = group.Members.ToHashSet();
-        return state.Assignments.Values
+        var anchors = state.Assignments.Values
             .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
                 && memberIds.Contains(item.EntityId))
+            .OrderBy(item => item.AssignmentId.Value)
+            .ToArray();
+        return ExpandTacticalIslandAssignments(state, anchors);
+    }
+
+    private static AssignmentState[] ExpandTacticalIslandAssignments(
+        CampaignState state,
+        IReadOnlyCollection<AssignmentState> anchors)
+    {
+        if (anchors.Count == 0)
+        {
+            return [];
+        }
+        var batchKeys = anchors.Select(PlayerTacticalBatchKey).ToHashSet(StringComparer.Ordinal);
+        return state.Assignments.Values
+            .Where(item => !CampaignAssignmentKinds.IsOperationalSim(item)
+                && batchKeys.Contains(PlayerTacticalBatchKey(item)))
             .OrderBy(item => item.AssignmentId.Value)
             .ToArray();
     }
@@ -1969,6 +2013,47 @@ public sealed class CampaignCoordinator(
         string.IsNullOrEmpty(assignment.BatchId)
             ? $"assignment:{assignment.AssignmentId}"
             : assignment.BatchId;
+
+    private static EntityState? SelectKnownTacticalHostile(
+        CampaignState state,
+        CoalitionId coalitionId,
+        IReadOnlyCollection<EntityState> friendlyMembers,
+        IReadOnlyDictionary<string, CampaignMaterializationProfile> profilesByCatalog)
+    {
+        if (friendlyMembers.Count(item => item.SimulationDomain == SimulationDomain.Maritime
+                && item.HostEntityId is null) < 2
+            || !friendlyMembers.Any(item => item.HostEntityId is not null))
+        {
+            return null;
+        }
+        var regionId = friendlyMembers
+            .GroupBy(item => item.RegionId)
+            .OrderByDescending(item => item.Count())
+            .ThenBy(item => item.Key)
+            .Select(item => item.Key)
+            .First();
+        var assignedEntityIds = state.Assignments.Values
+            .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+            .Select(item => item.EntityId)
+            .ToHashSet();
+        return state.Intelligence.Values
+            .Where(item => item.Key.ObserverCoalitionId == coalitionId
+                && item.EstimatedRegionId == regionId
+                && item.Confidence >= IntelligenceConfidence.Probable
+                && item.Classification is ContactClassification.Surface or ContactClassification.Subsurface)
+            .OrderByDescending(item => item.Confidence)
+            .ThenByDescending(item => item.ObservedAt.Quanta)
+            .ThenBy(item => item.Key.ContactEntityId)
+            .Select(item => state.Entities[item.Key.ContactEntityId])
+            .Where(item => item.CoalitionId != coalitionId
+                && item.Lifecycle != EntityLifecycle.Destroyed
+                && item.MaximumFidelity == FidelityState.Tactical
+                && item.SimulationDomain == SimulationDomain.Maritime
+                && item.HostEntityId is null
+                && !assignedEntityIds.Contains(item.EntityId)
+                && profilesByCatalog.ContainsKey(item.CatalogUnitId))
+            .FirstOrDefault();
+    }
 
     private CampaignPlayerTacticalEntryPlan BuildPlayerTacticalEntryPlan(
         CampaignState state,
@@ -1983,13 +2068,25 @@ public sealed class CampaignCoordinator(
         var availableMembers = members
             .Where(item => item.Lifecycle != EntityLifecycle.Destroyed)
             .ToArray();
-        var activeAssignments = state.Assignments.Values
+        var groupAssignments = state.Assignments.Values
             .Where(item => availableMembers.Any(member => member.EntityId == item.EntityId)
                 && item.Lifecycle != AssignmentLifecycle.Released)
             .OrderBy(item => item.EntityId)
             .ToArray();
+        var activeAssignments = ExpandTacticalIslandAssignments(state, groupAssignments);
         if (activeAssignments.Length > 0)
         {
+            var activeMembers = activeAssignments
+                .Select(item => state.Entities[item.EntityId])
+                .OrderBy(item => item.EntityId)
+                .ToArray();
+            var activeHostileIds = activeMembers
+                .Where(item => !string.Equals(
+                    item.CoalitionId.ToString(),
+                    profile.CoalitionId,
+                    StringComparison.Ordinal))
+                .Select(item => item.EntityId)
+                .ToHashSet();
             var assignedWorkerIds = activeAssignments
                 .Select(item => item.WorkerClientInstanceId)
                 .Distinct(StringComparer.Ordinal)
@@ -1997,7 +2094,7 @@ public sealed class CampaignCoordinator(
             var assignedWorker = assignedWorkerIds.Length == 1
                 ? sessions.SnapshotForClient(state.Metadata.CampaignId.ToString(), assignedWorkerIds[0])
                 : null;
-            var completeBatch = activeAssignments.Length == availableMembers.Length
+            var completeBatch = activeAssignments.Length == activeAssignments[0].BatchSize
                 && activeAssignments.Select(item => item.BatchId).Distinct(StringComparer.Ordinal).Count() == 1;
             var stateName = completeBatch && activeAssignments.All(item => item.Lifecycle == AssignmentLifecycle.Active)
                 ? assignedWorker is null ? "recovering" : "active"
@@ -2019,15 +2116,15 @@ public sealed class CampaignCoordinator(
                     activeMessage,
                     WorkerConnected: assignedWorker is not null,
                     CanEnter: false,
-                    availableMembers.Length,
+                    activeMembers.Length,
                     activeAssignments.Length,
                     AvailableTacticalCapacity: 0,
                     activeAssignments.Select(item => item.WorkerClientInstanceId).FirstOrDefault(),
                     assignedWorker?.PlayerTaskforceId,
-                    members.Select(member => new CampaignPlayerTacticalMemberView(
-                        member.EntityId.ToString(),
-                        member.Name,
-                        member.CatalogUnitId,
+                    activeMembers.Select(member => new CampaignPlayerTacticalMemberView(
+                        PlayerTacticalMemberId(state, group.CoalitionId, member),
+                        activeHostileIds.Contains(member.EntityId) ? "Confirmed surface contact" : member.Name,
+                        activeHostileIds.Contains(member.EntityId) ? "contact:surface" : member.CatalogUnitId,
                         member.Lifecycle == EntityLifecycle.Destroyed
                             ? "destroyed"
                             : activeAssignments.FirstOrDefault(item => item.EntityId == member.EntityId)?.Lifecycle.ToString().ToLowerInvariant()
@@ -2037,11 +2134,13 @@ public sealed class CampaignCoordinator(
                             : activeAssignments.Any(item => item.EntityId == member.EntityId)
                                 ? "Sea Power owns this member under a tactical lease."
                                 : "This member is not part of the active tactical batch.",
-                        member.HostEntityId?.ToString()))
+                        member.HostEntityId?.ToString(),
+                        activeHostileIds.Contains(member.EntityId) ? "hostile" : "friendly"))
                         .ToArray()),
                 Worker: null,
-                Members: availableMembers,
-                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>());
+                Members: activeMembers,
+                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>(),
+                HostileEntityIds: activeHostileIds);
         }
 
         var campaignWorkers = sessions.Snapshots(state.Metadata.CampaignId.ToString())
@@ -2094,14 +2193,26 @@ public sealed class CampaignCoordinator(
                         .ToArray()),
                 Worker: null,
                 Members: availableMembers,
-                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>());
+                Profiles: new Dictionary<EntityId, CampaignMaterializationProfile>(),
+                HostileEntityIds: new HashSet<EntityId>());
         }
 
         var profilesByCatalog = worker.MaterializationProfiles
             .GroupBy(item => item.UnitTypeId, StringComparer.Ordinal)
             .ToDictionary(item => item.Key, item => item.First(), StringComparer.Ordinal);
+        var knownHostile = SelectKnownTacticalHostile(
+            state,
+            group.CoalitionId,
+            availableMembers,
+            profilesByCatalog);
+        var hostileIds = knownHostile is null
+            ? new HashSet<EntityId>()
+            : new HashSet<EntityId> { knownHostile.EntityId };
+        var tacticalMembers = knownHostile is null
+            ? availableMembers
+            : [.. availableMembers, knownHostile];
         var profiles = new Dictionary<EntityId, CampaignMaterializationProfile>();
-        foreach (var member in availableMembers)
+        foreach (var member in tacticalMembers)
         {
             if (member.MaximumFidelity == FidelityState.Tactical
                 && profilesByCatalog.TryGetValue(member.CatalogUnitId, out var materializationProfile))
@@ -2121,11 +2232,11 @@ public sealed class CampaignCoordinator(
         var availableCapacity = Math.Max(
             0,
             worker.TacticalEntityCapacity - worker.TacticalReserveCapacity - occupied);
-        var requiredMaterializedCapacity = availableMembers.Count(item => item.HostEntityId is null);
-        var everyMemberSupported = availableMembers.Length > 0 && profiles.Count == availableMembers.Length;
-        var everyHostedMemberHasItsHost = availableMembers
+        var requiredMaterializedCapacity = tacticalMembers.Count(item => item.HostEntityId is null);
+        var everyMemberSupported = tacticalMembers.Length > 0 && profiles.Count == tacticalMembers.Length;
+        var everyHostedMemberHasItsHost = tacticalMembers
             .Where(item => item.HostEntityId is not null)
-            .All(item => availableMembers.Any(host => host.EntityId == item.HostEntityId));
+            .All(item => tacticalMembers.Any(host => host.EntityId == item.HostEntityId));
         var canEnter = everyMemberSupported
             && everyHostedMemberHasItsHost
             && availableCapacity >= requiredMaterializedCapacity;
@@ -2148,44 +2259,74 @@ public sealed class CampaignCoordinator(
                 supportMessage,
                 WorkerConnected: true,
                 canEnter,
-                availableMembers.Length,
+                tacticalMembers.Length,
                 profiles.Count,
                 availableCapacity,
                 worker.ClientInstanceId,
                 worker.PlayerTaskforceId,
-                members.Select(member =>
+                members.Concat(knownHostile is null ? [] : [knownHostile]).Select(member =>
                 {
+                    var isHostile = hostileIds.Contains(member.EntityId);
                     if (member.Lifecycle == EntityLifecycle.Destroyed)
                     {
                         return new CampaignPlayerTacticalMemberView(
-                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "destroyed",
+                            PlayerTacticalMemberId(state, group.CoalitionId, member),
+                            member.Name,
+                            member.CatalogUnitId,
+                            "destroyed",
                             "Destroyed campaign units do not enter Sea Power.",
-                            member.HostEntityId?.ToString());
+                            member.HostEntityId?.ToString(),
+                            "friendly");
                     }
                     if (member.MaximumFidelity != FidelityState.Tactical)
                     {
                         return new CampaignPlayerTacticalMemberView(
-                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "operational-only",
+                            PlayerTacticalMemberId(state, group.CoalitionId, member),
+                            member.Name,
+                            member.CatalogUnitId,
+                            "operational-only",
                             "This campaign entity has no Tactical fidelity state.",
-                            member.HostEntityId?.ToString());
+                            member.HostEntityId?.ToString(),
+                            isHostile ? "hostile" : "friendly");
                     }
                     return profiles.ContainsKey(member.EntityId)
                         ? new CampaignPlayerTacticalMemberView(
-                            member.EntityId.ToString(), member.Name, member.CatalogUnitId,
-                            member.HostEntityId is null ? "supported" : "supported-hosted",
-                            member.HostEntityId is null
+                            PlayerTacticalMemberId(state, group.CoalitionId, member),
+                            isHostile ? "Confirmed surface contact" : member.Name,
+                            isHostile ? "contact:surface" : member.CatalogUnitId,
+                            isHostile ? "supported-hostile"
+                                : member.HostEntityId is null ? "supported" : "supported-hosted",
+                            isHostile
+                                ? "A coalition-confirmed campaign contact will enter under opposing Sea Power AI."
+                                : member.HostEntityId is null
                                 ? "The connected runtime advertises an exact materialization profile."
                                 : "This aircraft will enter the native flight-deck inventory of its campaign host.",
-                            member.HostEntityId?.ToString())
+                            member.HostEntityId?.ToString(),
+                            isHostile ? "hostile" : "friendly")
                         : new CampaignPlayerTacticalMemberView(
-                            member.EntityId.ToString(), member.Name, member.CatalogUnitId, "unsupported-profile",
+                            PlayerTacticalMemberId(state, group.CoalitionId, member),
+                            isHostile ? "Confirmed surface contact" : member.Name,
+                            isHostile ? "contact:surface" : member.CatalogUnitId,
+                            "unsupported-profile",
                             "The connected runtime does not advertise this catalog unit.",
-                            member.HostEntityId?.ToString());
+                            member.HostEntityId?.ToString(),
+                            isHostile ? "hostile" : "friendly");
                 }).ToArray()),
             worker,
-            availableMembers,
-            profiles);
+            tacticalMembers,
+            profiles,
+            hostileIds);
     }
+
+    private static string PlayerTacticalMemberId(
+        CampaignState state,
+        CoalitionId observerCoalitionId,
+        EntityState entity) =>
+        entity.CoalitionId == observerCoalitionId
+            ? entity.EntityId.ToString()
+            : CampaignProjectionBuilder.ContactTrackId(
+                state.Metadata.CampaignId,
+                new IntelligenceKey(observerCoalitionId, entity.EntityId));
 
     private static GroupState RequirePlayerGroup(
         CampaignState state,
@@ -2254,7 +2395,8 @@ public sealed class CampaignCoordinator(
         CampaignPlayerTacticalEntryView View,
         CampaignSessionSnapshot? Worker,
         IReadOnlyList<EntityState> Members,
-        IReadOnlyDictionary<EntityId, CampaignMaterializationProfile> Profiles);
+        IReadOnlyDictionary<EntityId, CampaignMaterializationProfile> Profiles,
+        IReadOnlySet<EntityId> HostileEntityIds);
 
     private async Task<bool> IsPausedCoreAsync(
         CampaignId campaignId,
@@ -4301,7 +4443,8 @@ public sealed class CampaignCoordinator(
         EntityRevision revision,
         CampaignCommandData data,
         string idempotencyKey,
-        CampaignTime? effectiveAt = null) => new(
+        CampaignTime? effectiveAt = null,
+        InformationScope? scope = null) => new(
             new CommandId(KeyedGuid(state.Metadata.CampaignId.Value, idempotencyKey)),
             new IdempotencyKey(idempotencyKey),
             state.Metadata.CampaignId,
@@ -4310,7 +4453,10 @@ public sealed class CampaignCoordinator(
             revision,
             state.Time,
             effectiveAt ?? state.Time,
-            new InformationScope(ResolveCoalition(state, subject), MayCommand: true, MaySeeClassifiedTruth: true),
+            scope ?? new InformationScope(
+                ResolveCoalition(state, subject),
+                MayCommand: true,
+                MaySeeClassifiedTruth: true),
             data);
 
     private static CoalitionId ResolveCoalition(CampaignState state, CampaignSubject subject) => subject.Kind switch
@@ -5048,7 +5194,11 @@ public sealed class CampaignCoordinator(
                 assignment.BatchId,
                 assignment.BatchSize,
                 destination.ClientInstanceId,
-                assignment.Role),
+                assignment.Role,
+                IsHostile: !string.Equals(
+                    entity.CoalitionId.ToString(),
+                    destination.PlayerCoalitionId,
+                    StringComparison.Ordinal)),
             entity,
             sourceCheckpoint,
             state.Head,
@@ -5067,9 +5217,12 @@ public sealed class CampaignCoordinator(
         AssignmentId = request.AssignmentId,
         EntityId = request.GameEntityId,
         CanonicalEntityId = entity.EntityId.ToString(),
-        DisplayName = entity.Name,
+        DisplayName = request.IsHostile ? "Confirmed surface contact" : entity.Name,
         AuthorityEpoch = request.AuthorityEpoch,
         Role = ToTransportRole(request.Role),
+        Relationship = request.IsHostile
+            ? TacticalRelationship.Hostile
+            : TacticalRelationship.Friendly,
         HandoffCommitPosition = head.Value,
         HandoffTimeQuanta = time.Quanta,
         ExpectedEntityRevision = 0,
@@ -5197,7 +5350,8 @@ public sealed record CampaignHandoffRequest(
     int BatchSize = 1,
     string WorkerClientInstanceId = "",
     CrimeanTom.Campaign.Contracts.AssignmentRole Role = CrimeanTom.Campaign.Contracts.AssignmentRole.Primary,
-    bool FocusAfterActivation = false);
+    bool FocusAfterActivation = false,
+    bool IsHostile = false);
 
 public sealed record CampaignShadowPreparationRequest(
     string CampaignId,

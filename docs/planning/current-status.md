@@ -7,7 +7,10 @@ Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
 first campaign-owned surface, submarine, airborne-helicopter, and native hosted
 helicopter tactical-entry paths. The canonical hosted SH-2F now also survives a
 native flight-deck launch with identity, loadout, ammunition, and fuel intact.
-It is not yet a complete campaign-to-battle loop.
+The service-level North Sea story now includes one coalition-known Soviet
+Krivak under opposing tactical authority without exposing its canonical truth
+to the player. That hostile path is not yet qualified in live Sea Power, so this
+is not a complete campaign-to-battle loop.
 
 The strongest parts are deterministic campaign state, SQLite persistence,
 authority fencing, the Runtime Bridge, a broad Operational model, strategic AI,
@@ -43,7 +46,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
 | Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Combined-arms entry, complete objective progress, packaging, and detailed recovery UX are absent |
-| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and world-object capacity, rejects foreign or stale requests, and prepares the selected group atomically | Live qualification covers the canonical North Sea group as two ships plus two native onboard helicopters, USS Honolulu, and a separate airborne SH-2F/SH-3H group; combined surface/submarine entry, fixed-wing aircraft, and hosted recovery remain open |
+| Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and world-object capacity, rejects foreign or stale requests, and prepares the interaction island atomically; the service story adds one known hostile without revealing canonical truth | Live qualification covers the four friendly members of the canonical North Sea group, USS Honolulu, and a separate airborne SH-2F/SH-3H group; the opposing Krivak, combined surface/submarine entry, fixed-wing aircraft, and hosted recovery remain open |
 | Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
 
@@ -73,6 +76,14 @@ inventory. A fresh full-campaign run launched the SH-2F through Sea Power's
 native deck cycle and retained its campaign identity, host relation, ASW
 loadout, ammunition, and full fuel state.
 
+The broad service story now extends that North Sea entry to five assignments:
+Yorktown, Spruance, both hosted helicopters, and one confirmed Soviet Krivak
+contact. The player preflight receives a stable track ID and generic surface
+classification, while the trusted companion assignment retains the canonical
+identity and exact runtime profile. The companion selects an authored opposing
+task force, and normal exit fences and returns all five assignments together.
+This has not yet been exercised inside Sea Power.
+
 It cannot yet provide a coherent war-to-battle play session because:
 
 1. only Transit and Hold player orders exist; broader commands, task-force
@@ -85,8 +96,8 @@ It cannot yet provide a coherent war-to-battle play session because:
    qualified;
 5. proxy and tactical materialization support does not cover the required
    fixed-wing, broader submarine, ground, and installation families;
-6. no qualified flow commits the fate and expenditure of a campaign-owned
-   hostile after a real battle; and
+6. the service can return a campaign-owned hostile's supported state fields,
+   but no live battle has qualified its fate and expenditure; and
 7. game and service restart recovery has not been proven as a complete live
    player story.
 
@@ -112,9 +123,11 @@ than in the active tree.
 The selected-group transaction, unsupported-member report, one-member submarine
 patrol, and two-member airborne helicopter group work. The canonical North Sea
 group also enters as two native ships plus two helicopters in Yorktown's native
-flight-deck inventory, and its SH-2F completes native launch. Qualify a combined
+flight-deck inventory, and its SH-2F completes native launch. The service story
+also adds one confirmed hostile Krivak under opposing tactical authority.
+Qualify that five-member island in live Sea Power, then qualify a combined
 surface/submarine group, implement hosted recovery and restart reconciliation,
-and then remove the authored mission as the source of player membership.
+and remove the authored mission as the source of player membership.
 
 ### 2. Map and proxy parity
 

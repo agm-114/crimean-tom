@@ -23,20 +23,14 @@ internal static class CampaignTacticalWorkerProjectionHttp
             .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
             .ToArray();
         // Keep the player's coalition-scoped visual theater stable between
-        // tactical assignments. Released assignment history is durable and a
-        // worker is forbidden from crossing coalition boundaries below.
+        // tactical assignments. Released assignment history is durable; an
+        // interaction island may also contain opposing units, but its advertised
+        // player coalition must remain represented in the assignment history.
         var assignmentCoalitions = workerAssignments
             .Select(item => state.Entities[item.EntityId].CoalitionId)
             .Distinct()
             .OrderBy(item => item)
             .ToArray();
-        if (assignmentCoalitions.Length > 1)
-        {
-            throw new CampaignStoreConflict(
-                "worker-multiple-coalitions",
-                "One tactical worker cannot hold live assignments for multiple coalitions.");
-        }
-
         CoalitionId? advertised = null;
         if (!string.IsNullOrWhiteSpace(advertisedCoalitionId))
         {
@@ -50,17 +44,23 @@ internal static class CampaignTacticalWorkerProjectionHttp
             }
             advertised = new CoalitionId(parsed);
         }
+        if (advertised is null && assignmentCoalitions.Length > 1)
+        {
+            throw new CampaignStoreConflict(
+                "worker-player-coalition-required",
+                "A multi-coalition tactical island requires an explicit player coalition.");
+        }
         if (advertised is { } claimed
-            && assignmentCoalitions.Length == 1
-            && assignmentCoalitions[0] != claimed)
+            && assignmentCoalitions.Length > 0
+            && !assignmentCoalitions.Contains(claimed))
         {
             throw new CampaignStoreConflict(
                 "worker-coalition-conflict",
-                "The tactical worker cannot cross its advertised coalition boundary.");
+                "The tactical worker does not hold a player-side assignment for its advertised coalition.");
         }
-        var coalition = assignmentCoalitions.Length == 1
+        var coalition = advertised ?? (assignmentCoalitions.Length == 1
             ? assignmentCoalitions[0]
-            : advertised;
+            : (CoalitionId?)null);
 
         var friendly = coalition is null
             ? []
@@ -80,18 +80,23 @@ internal static class CampaignTacticalWorkerProjectionHttp
                     item.Telegraph,
                     item.HostEntityId?.ToString()))
                 .ToArray();
+        var localTacticalEntityIds = assignments
+            .Select(item => item.EntityId)
+            .ToHashSet();
         var contacts = coalition is null
             ? []
-            : CampaignProjectionBuilder.ForCoalition(state, coalition.Value).Contacts
+            : state.Intelligence.Values
+                .Where(item => item.Key.ObserverCoalitionId == coalition.Value)
                 .Select(item => new CampaignTacticalContactView(
-                    item.TrackId,
+                    CampaignProjectionBuilder.ContactTrackId(state.Metadata.CampaignId, item.Key),
                     item.EstimatedCoordinate.LatitudeMicrodegrees,
                     item.EstimatedCoordinate.LongitudeMicrodegrees,
                     item.Confidence.ToString(),
                     item.UncertaintyRadiusMeters,
                     item.Classification.ToString(),
                     item.ObservedAt.Quanta,
-                    item.Revision.Value))
+                    item.Revision.Value,
+                    localTacticalEntityIds.Contains(item.Key.ContactEntityId)))
                 .OrderBy(item => item.TrackId, StringComparer.Ordinal)
                 .ToArray();
 
@@ -150,4 +155,5 @@ public sealed record CampaignTacticalContactView(
     int UncertaintyRadiusMeters,
     string Classification,
     long ObservedAtQuanta,
-    long Revision);
+    long Revision,
+    bool IsLocallyTactical);

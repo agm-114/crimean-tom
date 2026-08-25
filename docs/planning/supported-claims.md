@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 17.
+Authenticated `GET /supported-claims` mirrors this document at schema version 18.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -33,6 +33,11 @@ update requires renewed qualification.
   profile support for each surviving member. Entry requires the reviewed group
   revision and an idempotency key, rejects foreign or incomplete groups, and
   prepares the whole supported group before activation.
+- The full campaign service story can add one coalition-known hostile surface
+  contact to the North Sea interaction island. The player sees a stable contact
+  track and estimated classification rather than the hostile's canonical ID,
+  name, or catalog profile. The trusted companion assignment carries the exact
+  identity and resolves an authored task force on the opposing Sea Power side.
 - Two coalitions can create strategic objectives, allocate capable groups, keep
   fixed installations in local defense, form bounded multi-role operational
   packages, and replan from coalition intelligence.
@@ -102,7 +107,8 @@ This is a narrow ship, single-profile submarine, two-profile airborne
 helicopter, and two-profile hosted-helicopter entry contract. It does not cover
 hosted-aircraft recovery, complete magazines, sensors, formations, fixed-wing
 aircraft, submerged-state portability, broader submarine families, or every
-ground and installation family.
+ground and installation family. The opposing Krivak path is service-qualified,
+not a live Sea Power claim.
 
 ## Map and presentation
 

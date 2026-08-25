@@ -81,7 +81,7 @@ public static class CampaignProjectionBuilder
         var contacts = state.Intelligence.Values
             .Where(estimate => estimate.Key.ObserverCoalitionId == coalitionId)
             .Select(estimate => new ContactProjection(
-                TrackId(state.Metadata.CampaignId, estimate.Key),
+                ContactTrackId(state.Metadata.CampaignId, estimate.Key),
                 estimate.EstimatedRegionId,
                 estimate.EstimatedCoordinate,
                 estimate.Confidence,
@@ -103,7 +103,7 @@ public static class CampaignProjectionBuilder
             state.Weather.Values.ToArray());
     }
 
-    private static string TrackId(CampaignId campaignId, IntelligenceKey key)
+    public static string ContactTrackId(CampaignId campaignId, IntelligenceKey key)
     {
         var material = $"{campaignId.Value:N}:{key.ObserverCoalitionId.Value:N}:{key.ContactEntityId.Value:N}:contact-track";
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(material));

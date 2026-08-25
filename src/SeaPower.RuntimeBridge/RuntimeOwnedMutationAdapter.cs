@@ -22,6 +22,7 @@ internal static class RuntimeOwnedMutationAdapter
         Profile("usn_ssn_los_angeles", "Variant31"),
         Profile("usn_sh-2f", "Squadron4", "ASW"),
         Profile("usn_sh-3h", "Squadron1", "ASW"),
+        Profile("wp_skr_krivak2", "Default"),
     ];
 
     private static readonly string[] SurfaceRenderProxyUnitTypeIds =
@@ -29,6 +30,7 @@ internal static class RuntimeOwnedMutationAdapter
         "usn_ff_knox_84",
         "usn_cg_ticonderoga",
         "usn_dd_spruance",
+        "wp_skr_krivak2",
     ];
 
     internal static OwnedSurfaceMaterializationProfilePayload[] SupportedProfiles() =>
@@ -547,11 +549,11 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var taskforce = ResolveTaskforce(request.TaskforceId);
-        if (taskforce is null || taskforce != Globals._playerTaskforce)
+        if (taskforce is null || !TaskforceMatchesRelationship(taskforce, request.Relationship))
         {
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "taskforceId must resolve exactly to the current player task force.");
+                "taskforceId must resolve to the declared friendly or opposing task-force side.");
         }
 
         var sourceCheckpointError = ValidateSourceCheckpoint(request);
@@ -1266,11 +1268,15 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var taskforce = ResolveTaskforce(checkpoint.Unit.TaskforceId);
-        if (taskforce is null || taskforce != Globals._playerTaskforce)
+        if (taskforce is null
+            || !string.Equals(
+                checkpoint.Unit.TaskforceId,
+                record.TaskforceId,
+                StringComparison.Ordinal))
         {
             return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "The checkpoint task force must resolve exactly to the current player task force.");
+                "The checkpoint task force must resolve exactly to the task force retained by this owned entity.");
         }
 
         ObjectBase? vessel = record.Unit;
@@ -2372,6 +2378,23 @@ internal static class RuntimeOwnedMutationAdapter
             }
         }
         return null;
+    }
+
+    private static bool TaskforceMatchesRelationship(Taskforce taskforce, string relationship)
+    {
+        var player = Globals._playerTaskforce;
+        if (player is null)
+        {
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(relationship)
+            || string.Equals(relationship, "Friendly", StringComparison.Ordinal))
+        {
+            return taskforce == player;
+        }
+        return string.Equals(relationship, "Hostile", StringComparison.Ordinal)
+            && taskforce != player
+            && taskforce.Side != player.Side;
     }
 
     private static OwnedSurfaceUnitStatePayload Capture(

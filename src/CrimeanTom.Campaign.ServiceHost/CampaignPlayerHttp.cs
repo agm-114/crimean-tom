@@ -240,7 +240,8 @@ public sealed record CampaignPlayerTacticalMemberView(
     string CatalogUnitId,
     string Status,
     string Message,
-    string? HostEntityId = null);
+    string? HostEntityId = null,
+    string Relationship = "friendly");
 
 public sealed record CampaignPlayerTacticalEntryResult(
     string Status,
@@ -269,7 +270,8 @@ public sealed record CampaignPlayerTacticalResultMemberView(
     long FuelMilliunits,
     long StoresMilliunits,
     string AssignmentLifecycle,
-    string? CheckpointSha256);
+    string? CheckpointSha256,
+    string Relationship);
 
 public sealed record CampaignPlayerTacticalExitResult(
     string Status,

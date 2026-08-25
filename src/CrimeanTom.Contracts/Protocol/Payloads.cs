@@ -266,6 +266,7 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public string VariantId { get; set; } = string.Empty;
     public string LoadoutId { get; set; } = "Default";
     public string TaskforceId { get; set; } = string.Empty;
+    public string Relationship { get; set; } = "Friendly";
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double? AltitudeFeet { get; set; }

@@ -252,6 +252,10 @@ focus, and proxy loading.
 - Keep the campaign service running during tactical play. Sea Power holds a
   renewable lease over local entities while unrelated campaign entities keep
   advancing.
+- The authored tactical shell must contain a player task force and at least one
+  task force on the opposing side. The initial North Sea proof prepares five
+  assignments: Yorktown, Spruance, two hosted helicopters, and one
+  coalition-known hostile surface contact.
 - The service marks the companion stale after eight seconds without an eligible
   heartbeat, then keeps the tactical island fenced for 12 more wall-clock
   seconds. `CRIMEAN_TOM_TACTICAL_LEASE_GRACE_MS` may shorten this only in a

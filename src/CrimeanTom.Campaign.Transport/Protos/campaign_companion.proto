@@ -139,6 +139,12 @@ enum AssignmentRole {
   ASSIGNMENT_ROLE_OBSERVER = 3;
 }
 
+enum TacticalRelationship {
+  TACTICAL_RELATIONSHIP_UNSPECIFIED = 0;
+  TACTICAL_RELATIONSHIP_FRIENDLY = 1;
+  TACTICAL_RELATIONSHIP_HOSTILE = 2;
+}
+
 message TacticalAssignment {
   string campaign_id = 1;
   string assignment_id = 2;
@@ -170,6 +176,7 @@ message TacticalAssignment {
   string display_name = 28;
   int32 altitude_feet = 29;
   string host_entity_id = 30;
+  TacticalRelationship relationship = 31;
 }
 
 // Control-plane placement for a Sea-Power-free worker. This is deliberately

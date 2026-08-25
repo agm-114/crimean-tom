@@ -159,7 +159,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(17, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(18, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -176,6 +176,10 @@ public sealed class CompanionControlIntegrationTests
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
                     == "player-selected-supported-group-tactical-entry-with-preflight-idempotency-and-atomic-activation");
+            Assert.Contains(
+                supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
+                item => item.GetString()
+                    == "service-qualified-coalition-known-hostile-entry-under-opposing-taskforce-without-player-truth-leakage");
             Assert.Contains(
                 supportedClaims.RootElement.GetProperty("supported").EnumerateArray(),
                 item => item.GetString()
@@ -285,7 +289,7 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(55, fuldaBootstrap.RootElement.GetProperty("regionCount").GetInt32());
             Assert.Equal(81, fuldaBootstrap.RootElement.GetProperty("baseCount").GetInt32());
             Assert.Equal(4_096, fuldaBootstrap.RootElement.GetProperty("entityCount").GetInt32());
-            Assert.Equal(918, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
+            Assert.Equal(919, fuldaBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
             Assert.Equal(740, fuldaBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
             Assert.Equal(1_329, fuldaBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
             Assert.Equal(491, fuldaBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
@@ -321,11 +325,11 @@ public sealed class CompanionControlIntegrationTests
                 await boundedBootstrapResponse.Content.ReadAsStringAsync(testTimeout.Token));
             Assert.Equal(500, boundedBootstrap.RootElement.GetProperty("entityCount").GetInt32());
             Assert.Equal(369, boundedBootstrap.RootElement.GetProperty("taskForceCount").GetInt32());
-            Assert.Equal(287, boundedBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
-            Assert.Equal(159, boundedBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
+            Assert.Equal(286, boundedBootstrap.RootElement.GetProperty("openingOrderCount").GetInt32());
+            Assert.Equal(160, boundedBootstrap.RootElement.GetProperty("maritimeEntityCount").GetInt32());
             Assert.Equal(63, boundedBootstrap.RootElement.GetProperty("airEntityCount").GetInt32());
             Assert.Equal(15, boundedBootstrap.RootElement.GetProperty("rotaryWingEntityCount").GetInt32());
-            Assert.Equal(50, boundedBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
+            Assert.Equal(49, boundedBootstrap.RootElement.GetProperty("logisticsEntityCount").GetInt32());
             Assert.Equal(213, boundedBootstrap.RootElement.GetProperty("landEntityCount").GetInt32());
             Assert.Equal(128, boundedBootstrap.RootElement.GetProperty("groundUnitCount").GetInt32());
             Assert.Equal(69, boundedBootstrap.RootElement.GetProperty("installationEntityCount").GetInt32());
@@ -442,7 +446,7 @@ public sealed class CompanionControlIntegrationTests
                 .EnumerateArray().ToArray();
             var coalitionStrategies = advancedFuldaView.RootElement.GetProperty("coalitionStrategies")
                 .EnumerateArray().ToArray();
-            Assert.Equal(918, groupCommitments.Length);
+            Assert.Equal(919, groupCommitments.Length);
             Assert.All(groupCommitments, item => Assert.NotNull(item.GetProperty("objectiveId").GetString()));
             Assert.Equal(2, coalitionStrategies.Length);
             Assert.Contains(strategicObjectives, item =>

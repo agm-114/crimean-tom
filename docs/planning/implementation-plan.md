@@ -138,8 +138,11 @@ Yorktown's native flight-deck inventory. A fresh full-campaign run also carried
 the canonical SH-2F through Sea Power's native launch cycle with campaign
 identity, loadout, ammunition, and fuel intact. The milestone remains open for
 combined surface/submarine entry, hosted-aircraft recovery, removal of authored
-placeholder membership, tactical-map interaction parity, and hostile
-participation.
+placeholder membership, tactical-map interaction parity, and live hostile
+qualification. The full campaign service story now includes one confirmed
+Soviet Krivak contact in the North Sea island, masks its canonical truth from
+the player view, assigns it to the opposing Sea Power side, and returns the
+five-member batch through one fence.
 
 Replace the authored placeholder force with campaign membership and make the
 map/proxy system usable.
@@ -154,8 +157,9 @@ map/proxy system usable.
 - Implemented: canonical ship-hosted SH-2F/SH-3H inventory in player entry,
   world-object capacity accounting, Flight Deck UI inspection, native launch
   scheduling, campaign identity adoption after launch, and fuel portability.
-- Remaining: combine the entry paths, replace authored player membership, and
-  implement hosted recovery and restart reconciliation.
+- Remaining: combine the entry paths, qualify the opposing Krivak in live Sea
+  Power, replace authored player membership, and implement hosted recovery and
+  restart reconciliation.
 - Represent every supported available member as a real simulated object or a
   supported native child inventory item.
 - Include required hosted aircraft, helicopters, boats, and child assets when

@@ -535,6 +535,8 @@ public sealed class CampaignCompanionClient(
                 .Where(spec => spec is not null)
                 .Cast<SurfaceRenderProxySpecPayload>()
                 .Concat(contacts
+                    .Where(contact => !contact.TryGetProperty("isLocallyTactical", out var local)
+                        || !local.GetBoolean())
                     .Select(CreateContactRenderProxySpec)
                     .Where(spec => spec is not null)
                     .Cast<SurfaceRenderProxySpecPayload>())
@@ -1070,6 +1072,10 @@ public sealed class CampaignCompanionClient(
                 assignment,
                 serviceToken,
                 cancellationToken);
+            var materializationTaskforceId = await ResolveMaterializationTaskforceIdAsync(
+                assignment,
+                capabilities,
+                cancellationToken);
 
             var inspectionResult = await RequireGameCommandAsync(
                 GameCommandTypes.GetUiInspection,
@@ -1175,7 +1181,10 @@ public sealed class CampaignCompanionClient(
                     UnitTypeId = assignment.UnitTypeId,
                     VariantId = assignment.VariantId,
                     LoadoutId = assignment.LoadoutId,
-                    TaskforceId = assignment.TaskforceId,
+                    TaskforceId = materializationTaskforceId,
+                    Relationship = assignment.Relationship == TacticalRelationship.Hostile
+                        ? "Hostile"
+                        : "Friendly",
                     Latitude = assignment.LatitudeMicrodegrees / 1_000_000d,
                     Longitude = assignment.LongitudeMicrodegrees / 1_000_000d,
                     AltitudeFeet = assignment.AltitudeFeet,
@@ -1293,6 +1302,43 @@ public sealed class CampaignCompanionClient(
                 }
             }
         }
+    }
+
+    private async Task<string> ResolveMaterializationTaskforceIdAsync(
+        TacticalAssignment assignment,
+        CapabilitiesPayload capabilities,
+        CancellationToken cancellationToken)
+    {
+        if (assignment.Relationship != TacticalRelationship.Hostile)
+        {
+            if (string.IsNullOrWhiteSpace(assignment.TaskforceId))
+            {
+                throw new InvalidOperationException("A friendly tactical assignment requires the player task force.");
+            }
+            return assignment.TaskforceId;
+        }
+
+        var result = await RequireGameCommandAsync(
+            GameCommandTypes.GetWorldSnapshot,
+            "{}",
+            cancellationToken);
+        var world = JsonSerializer.Deserialize<WorldSnapshotPayload>(result.ResultJson, JsonOptions)
+            ?? throw new InvalidDataException("Sea Power world inspection was empty.");
+        var player = world.Taskforces.SingleOrDefault(item =>
+            string.Equals(item.Id, capabilities.PlayerTaskforceId, StringComparison.Ordinal));
+        if (player is null || string.IsNullOrWhiteSpace(player.Side))
+        {
+            throw new InvalidOperationException("Sea Power did not report the current player task-force side.");
+        }
+        var opposing = world.Taskforces
+            .Where(item => !item.IsPlayerControlled
+                && !string.IsNullOrWhiteSpace(item.Id)
+                && !string.IsNullOrWhiteSpace(item.Side)
+                && !string.Equals(item.Side, player.Side, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        return opposing?.Id ?? throw new InvalidOperationException(
+            "The tactical mission has no authored opposing task force for a campaign hostile.");
     }
 
     private async Task<TacticalEventProposal> ApplyCommandAsync(

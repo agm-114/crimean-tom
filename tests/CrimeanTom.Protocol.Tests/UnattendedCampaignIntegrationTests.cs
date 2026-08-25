@@ -385,6 +385,12 @@ public sealed class UnattendedCampaignIntegrationTests
                             VariantId = "Squadron1",
                             LoadoutId = "ASW",
                         },
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "wp_skr_krivak2",
+                            VariantId = "Default",
+                            LoadoutId = "Default",
+                        },
                     },
                 },
             });
@@ -403,13 +409,19 @@ public sealed class UnattendedCampaignIntegrationTests
                 Assert.True(readyBody.RootElement.GetProperty("workerConnected").GetBoolean());
                 Assert.True(readyBody.RootElement.GetProperty("canEnter").GetBoolean());
                 tacticalEntryGroupRevision = readyBody.RootElement.GetProperty("groupRevision").GetInt64();
-                Assert.Equal(4, readyBody.RootElement.GetProperty("supportedMemberCount").GetInt32());
+                Assert.Equal(5, readyBody.RootElement.GetProperty("supportedMemberCount").GetInt32());
                 Assert.Equal(7, readyBody.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
                 var readyMembers = readyBody.RootElement.GetProperty("members").EnumerateArray().ToArray();
                 Assert.Equal(2, readyMembers.Count(member =>
                     member.GetProperty("status").GetString() == "supported"));
                 Assert.Equal(2, readyMembers.Count(member =>
                     member.GetProperty("status").GetString() == "supported-hosted"));
+                var readyHostile = Assert.Single(readyMembers, member =>
+                    member.GetProperty("status").GetString() == "supported-hostile"
+                    && member.GetProperty("relationship").GetString() == "hostile");
+                Assert.StartsWith("track:", readyHostile.GetProperty("entityId").GetString());
+                Assert.Equal("Confirmed surface contact", readyHostile.GetProperty("name").GetString());
+                Assert.Equal("contact:surface", readyHostile.GetProperty("catalogUnitId").GetString());
                 Assert.All(
                     readyMembers.Where(member => member.GetProperty("status").GetString() == "supported-hosted"),
                     member => Assert.Equal(yorktownEntityId, member.GetProperty("hostEntityId").GetString()));
@@ -436,32 +448,41 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.StartsWith("player-entry:", requestedEntryBody.RootElement.GetProperty("batchId").GetString());
 
             var queuedEntries = new Dictionary<string, TacticalAssignment>(StringComparer.Ordinal);
-            while (queuedEntries.Count < 4
+            while (queuedEntries.Count < 5
                 && await tacticalCall.ResponseStream.MoveNext(testTimeout.Token))
             {
-                if (tacticalCall.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment
-                    && tacticalEntryEntityIds.Contains(
-                        tacticalCall.ResponseStream.Current.Assignment.CanonicalEntityId,
-                        StringComparer.Ordinal))
+                if (tacticalCall.ResponseStream.Current.PayloadCase == ServiceFrame.PayloadOneofCase.Assignment)
                 {
                     var assignment = tacticalCall.ResponseStream.Current.Assignment;
                     queuedEntries[assignment.CanonicalEntityId] = assignment;
                 }
             }
-            Assert.Equal(4, queuedEntries.Count);
+            Assert.Equal(5, queuedEntries.Count);
             Assert.Equal(
-                new[] { "usn_cg_ticonderoga", "usn_dd_spruance", "usn_sh-2f", "usn_sh-3h" },
+                new[] { "usn_cg_ticonderoga", "usn_dd_spruance", "usn_sh-2f", "usn_sh-3h", "wp_skr_krivak2" },
                 queuedEntries.Values.Select(entry => entry.UnitTypeId).Order(StringComparer.Ordinal));
             Assert.Equal(
                 new[]
                 {
+                    "Confirmed surface contact",
                     "NATO maritime helicopter flight 001",
                     "NATO maritime helicopter flight 002",
                     "USS Spruance",
                     "USS Yorktown",
                 },
                 queuedEntries.Values.Select(entry => entry.DisplayName).Order(StringComparer.Ordinal));
-            Assert.All(queuedEntries.Values, entry => Assert.Equal("taskforce:Blue", entry.TaskforceId));
+            var hostileEntry = Assert.Single(
+                queuedEntries.Values,
+                entry => entry.Relationship == TacticalRelationship.Hostile);
+            Assert.Empty(hostileEntry.TaskforceId);
+            Assert.Equal("wp_skr_krivak2", hostileEntry.UnitTypeId);
+            Assert.All(
+                queuedEntries.Values.Where(entry => entry.Relationship != TacticalRelationship.Hostile),
+                entry =>
+                {
+                    Assert.Equal(TacticalRelationship.Friendly, entry.Relationship);
+                    Assert.Equal("taskforce:Blue", entry.TaskforceId);
+                });
             Assert.Single(queuedEntries.Values, entry => entry.FocusAfterActivation);
             Assert.All(
                 queuedEntries.Values.Where(entry => hostedAircraftEntityIds.Contains(entry.CanonicalEntityId)),
@@ -557,6 +578,19 @@ public sealed class UnattendedCampaignIntegrationTests
                         tacticalEntity.GetProperty("fidelity").GetString()));
                 Assert.False(tacticalGroup.GetProperty("canMove").GetBoolean());
             }
+            using (var workerProjection = await operatorClient.GetAsync(
+                $"/campaigns/{campaignId}/tactical-workers/40000000000000000000000000000004/projection",
+                testTimeout.Token))
+            {
+                workerProjection.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await workerProjection.Content.ReadAsStringAsync(testTimeout.Token));
+                Assert.Equal(playerCoalitionId, body.RootElement.GetProperty("coalitionId").GetString());
+                Assert.Equal(5, body.RootElement.GetProperty("assignments").GetArrayLength());
+                Assert.Single(
+                    body.RootElement.GetProperty("contacts").EnumerateArray(),
+                    contact => contact.GetProperty("isLocallyTactical").GetBoolean());
+            }
 
             long submarineGroupRevision;
             using (var readySubmarineEntry = await playerClient.GetAsync(
@@ -568,7 +602,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     await readySubmarineEntry.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("ready", body.RootElement.GetProperty("state").GetString());
                 Assert.Equal(1, body.RootElement.GetProperty("requiredMemberCount").GetInt32());
-                Assert.Equal(5, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal(4, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
                 Assert.Equal("supported", body.RootElement.GetProperty("members")[0]
                     .GetProperty("status").GetString());
                 submarineGroupRevision = body.RootElement.GetProperty("groupRevision").GetInt64();
@@ -647,7 +681,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     await readyHelicopterEntry.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("ready", body.RootElement.GetProperty("state").GetString());
                 Assert.Equal(2, body.RootElement.GetProperty("requiredMemberCount").GetInt32());
-                Assert.Equal(4, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
+                Assert.Equal(3, body.RootElement.GetProperty("availableTacticalCapacity").GetInt32());
                 Assert.All(
                     body.RootElement.GetProperty("members").EnumerateArray(),
                     member => Assert.Equal("supported", member.GetProperty("status").GetString()));
@@ -782,7 +816,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     await activeExit.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("active", body.RootElement.GetProperty("state").GetString());
                 Assert.True(body.RootElement.GetProperty("canExit").GetBoolean());
-                Assert.Equal(4, body.RootElement.GetProperty("members").GetArrayLength());
+                Assert.Equal(5, body.RootElement.GetProperty("members").GetArrayLength());
             }
             const string tacticalExitKey = "player-exit-connected-0005";
             using (var requestedExit = await playerClient.PostAsJsonAsync(
@@ -814,7 +848,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     exitFences[fence.AssignmentId] = fence;
                 }
             }
-            Assert.Equal(4, exitFences.Count);
+            Assert.Equal(5, exitFences.Count);
             Assert.All(exitFences.Values, fence => Assert.True(fence.ResolveExpectedRevisionFromWorker));
             foreach (var fence in exitFences.Values.OrderBy(item => item.AssignmentId, StringComparer.Ordinal))
             {
@@ -883,7 +917,7 @@ public sealed class UnattendedCampaignIntegrationTests
                     await completedExit.Content.ReadAsStringAsync(testTimeout.Token));
                 Assert.Equal("complete", body.RootElement.GetProperty("state").GetString());
                 Assert.False(body.RootElement.GetProperty("canExit").GetBoolean());
-                Assert.Equal(4, body.RootElement.GetProperty("members").GetArrayLength());
+                Assert.Equal(5, body.RootElement.GetProperty("members").GetArrayLength());
                 Assert.All(
                     body.RootElement.GetProperty("members").EnumerateArray(),
                     member =>
@@ -892,6 +926,10 @@ public sealed class UnattendedCampaignIntegrationTests
                         Assert.Equal("Operational", member.GetProperty("fidelity").GetString());
                         Assert.Equal(64, member.GetProperty("checkpointSha256").GetString()!.Length);
                     });
+                Assert.Single(
+                    body.RootElement.GetProperty("members").EnumerateArray(),
+                    member => member.GetProperty("relationship").GetString() == "hostile"
+                        && member.GetProperty("name").GetString() == "Campaign hostile");
                 Assert.Contains(
                     body.RootElement.GetProperty("unsupportedFields").EnumerateArray(),
                     item => item.GetString() == "hosted-aircraft-recovery");

@@ -107,7 +107,7 @@ internal static partial class FuldaGapCampaignSeed
             Entity(campaignId, "udaloy", "Admiral Zakharov", "wp_bpk_udaloy", red, "barents", 70_100_000, 30_700_000, "severomorsk", "red-northern-sag", SimulationDomain.Maritime),
             Entity(campaignId, "victor", "Victor III patrol", "wp_ssn_victor3", red, "giuk", 64_000_000, -12_800_000, "severomorsk", "red-giuk", SimulationDomain.Maritime),
             Entity(campaignId, "oscar", "Oscar I SSGN patrol", "wp_ssgn_oscar1", red, "giuk", 64_300_000, -11_900_000, "severomorsk", "red-giuk", SimulationDomain.Maritime),
-            Entity(campaignId, "krivak", "Rezkiy", "wp_skr_krivak2", red, "baltic", 55_100_000, 17_800_000, "baltiysk", "red-baltic", SimulationDomain.Maritime),
+            Entity(campaignId, "krivak", "Rezvyy", "wp_skr_krivak2", red, "nsea", 57_180_000, 3_260_000, "baltiysk", "red-north-sea-picket", SimulationDomain.Maritime),
             Entity(campaignId, "osa", "Osa missile boat squadron", "wp_ptg_osa1", red, "baltic", 55_000_000, 17_600_000, "baltiysk", "red-baltic", SimulationDomain.Maritime),
             Entity(campaignId, "eighth-guards", "8th Guards Army (abstract)", "abstract_land_formation", red, "fulda", 50_800_000, 10_300_000, null, "red-fulda", SimulationDomain.LandAbstract, FidelityState.Operational),
             Entity(campaignId, "argentine-sealift", "Argentine-Soviet sealift convoy", "civ_ms_roro_a", red, "patagonia", -38_200_000, -57_100_000, "buenos-aires", "red-argentina-support", SimulationDomain.Logistics),
@@ -270,6 +270,7 @@ internal static partial class FuldaGapCampaignSeed
             .Where(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)
                 || string.Equals(item.Key, "yorktown", StringComparison.Ordinal)
                 || string.Equals(item.Key, "spruance", StringComparison.Ordinal)
+                || string.Equals(item.Key, "krivak", StringComparison.Ordinal)
                 || string.Equals(item.HostEntityKey, "yorktown", StringComparison.Ordinal)
                 || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal))
             .OrderByDescending(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal))
@@ -414,6 +415,7 @@ internal static partial class FuldaGapCampaignSeed
         "blue-baltap" => "BALTAP fast attack group",
         "blue-fulda" => "US V Corps abstract formation",
         "red-northern-sag" => "Northern Fleet surface action group",
+        "red-north-sea-picket" => "Northern Fleet North Sea picket",
         "red-giuk" => "Northern Fleet submarine barrier group",
         "red-baltic" => "Baltic Fleet missile raid group",
         "red-fulda" => "8th Guards Army abstract formation",
