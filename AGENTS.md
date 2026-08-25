@@ -16,15 +16,6 @@ Prioritize getting real features working over expanding test infrastructure.
 Avoid narrow unit tests. Keep a small number of broad integration tests that hit as much of the code as possible.
 
 
-## Hung-command timeouts
-
-Research commands against Sea Power assemblies can look idle or hang, especially
-`ilspycmd --list` piped into `Select-String`. Never wait indefinitely:
-
-- Wrap hang-prone commands with `scripts/invoke-with-timeout.ps1`.
-- Default bounds: 60s for `ilspycmd --list` / `--type`, 600s for full decompile.
-- Set the Shell tool `block_until_ms` to the same bound plus a few seconds.
-- Exit code `124` and `COMMAND_TIMEOUT` mean the process was killed; treat that
-  as failure and narrow the command instead of waiting.
-- Pass `--disable-updatecheck` to `ilspycmd` so the CLI cannot stall on an
-  update prompt.
+Follow the repository's
+[command timeout guidance](docs/development/command-timeouts.md) for assembly
+research and other commands that may hang.
