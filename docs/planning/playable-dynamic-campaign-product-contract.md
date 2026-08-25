@@ -141,6 +141,14 @@ Selecting any visible entity or contact must:
 5. show a bounded loading, unavailable, or failed state until that request
    resolves.
 
+For a friendly campaign entity, this request is entity-scoped. The selected
+entity may be promoted even when the rest of its Operational formation remains
+external. Only dependencies that Sea Power must own with it, such as its native
+host or a live weapon/sensor coupling, join the tactical lease. A visual model
+is acceptable as immediate feedback, but it is not a successful promotion and
+must be replaced by a native simulated object before the player can inspect
+native stores or issue tactical orders.
+
 Selection must not require a local simulated `ObjectBase`. A map-only record is
 a first-class selectable object.
 
@@ -189,6 +197,9 @@ campaign record
 - A visual proxy may use a real installed model, a classification-appropriate
   generic model, or an uncertainty volume. It must have no AI, sensors, weapons,
   collision, damage authority, or campaign publication rights.
+- Promotion is complete only when the matching native object is initialized,
+  controllable when friendly, and carrying its required loadout and movement
+  state. The visual proxy then disappears without changing map identity.
 - Friendly proxies use authorized friendly state. Hostile proxies use only the
   filtered contact estimate and must not instantiate a secret true-state enemy
   merely to hide it visually.
@@ -200,6 +211,13 @@ campaign record
   simulation only after a durable checkpoint or declared fallback decision.
 - Streaming budgets may delay physical realization, but must not remove map
   visibility, selection, or error feedback.
+- Sea Power may hold native objects in only one bounded floating-origin locality
+  at a time. Selecting a distant unit first checkpoints and suspends the current
+  native island, then rebases and promotes the destination island. Theater-wide
+  map records remain visible throughout the handoff.
+- Authored scenario objects obey the same locality rule. They cannot remain
+  active at the scenario origin after the campaign has rebased thousands of
+  kilometers away.
 
 ## Time, leases, and concurrent simulation
 

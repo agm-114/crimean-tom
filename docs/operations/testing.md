@@ -116,6 +116,20 @@ Run this story against the full 4,096-entity campaign:
 13. Repeat with a forced Sea Power termination. Confirm stale authority is
     fenced and no duplicate object or second timeline appears.
 
+During steps 5 through 9, capture projection and control behavior separately:
+
+- start one full projection replay and issue a control command while it applies;
+- confirm the control command completes inside its deadline;
+- confirm the replay reports received and applied generation and revision;
+- repeat one scenario transition with the same idempotency key and confirm it
+  does not run twice;
+- select one distant terrain-backed unit and confirm exactly one relocation;
+- confirm terrain polls do not pause or unpause tactical time;
+- click a native unit near a campaign marker and confirm native selection wins;
+  and
+- restart Sea Power without restarting the service and confirm a full projection
+  replay restores the authorized records.
+
 Record every unsupported field and family. Do not reinterpret a visible proxy
 or a service event as a complete tactical round trip.
 

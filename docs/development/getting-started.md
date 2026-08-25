@@ -214,10 +214,12 @@ After Sea Power reaches its main menu, use typed Runtime Bridge automation:
     -RunDirectory $companionRunDirectory `
     -ScenarioId 'scenario:missions/user_missions/fulda gap gone hot - giuk dynamic campaign window'
 
-& .\scripts\crimean-tom-control.ps1 `
-    dismiss-modal `
-    -RunDirectory $companionRunDirectory
 ```
+
+The control script creates one scenario-start idempotency key and reuses it for
+all retries in that invocation. A direct call to
+`POST /game/automation/scenario/start` must send both `scenarioId` and a unique
+`idempotencyKey` containing at most 128 characters.
 
 The authored mission supplies the tactical shell and some temporary local
 membership. It is not the campaign source of truth. Replacing that placeholder

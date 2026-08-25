@@ -40,9 +40,10 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Tactical lease | Eligible heartbeats keep assignments live; loss starts a 12-second wall-clock grace while unrelated campaign entities advance | Live reconnect during grace and restart latency still need Sea Power qualification |
 | Tactical readback | Changed ship or submarine pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
 | Tactical return | The campaign application can request a clean whole-island exit, receive final checkpoint references, release the island atomically, and show the durable member result | Final ammunition, sensors, formations, hosted-aircraft recovery, launched weapons, and objective effects remain unsupported; live Sea Power qualification is pending |
-| Map projection | All non-destroyed friendlies and coalition-filtered hostile tracks can reach Sea Power map records | The campaign application map and direct interaction parity are not finished |
+| Map projection | One full session/resync snapshot is followed by versioned upserts and removals on the Bulk lane; a game-session change recreates the campaign stream; applies use a 1.5 ms budget and attach at most 384 symbols | The 4,096-record replay, reconnect repair, delta telemetry, and control latency still need live Sea Power proof |
 | Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
-| Visual proxies | Typed friendly selection can load a non-simulating installed model after terrain relocation; hostile selection uses a generic estimate | Live proof covers only a few catalog entries; mouse selection needs requalification |
+| Visual proxies | Selection is an explicit state machine; it preserves native hit precedence, relocates once, polls terrain, then creates and focuses a non-simulating model or hostile estimate | Direct mouse selection, cancellation, failure display, and terrain behavior need live proof across more catalog families |
+| Focused promotion | A native `IMapSelectable` transition requests one campaign entity without requiring its entire Operational group to fit; preparation waits for the leased object to be initialized, active, and player-orderable before checkpoint and focus | Fixed-wing weapons, orderability, naming continuity, and floating-origin behavior are awaiting a clean live qualification |
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
@@ -134,16 +135,39 @@ source of player membership.
 
 ### 2. Map and proxy parity
 
-Finish native-looking mouse selection, labels, overlap handling, contact
-uncertainty, focus, bounded loading feedback, and terrain-safe visual proxies.
-Local and non-local records must be indistinguishable at the map interaction
-level.
+Map-driven promotion is entity-scoped. Explicit entry from the campaign
+application remains a whole-group transaction. The next live gate must prove
+that selecting a non-local fixed-wing entity relocates the tactical origin,
+creates one armed native aircraft, removes the inert proxy, preserves the unit's
+readable identity, and exposes the same status and order controls as an authored
+local aircraft.
 
-For local map debugging, the companion currently asks the operator-only worker
+The working implementation separates Bulk projection traffic from Control,
+tracks game-session generation and revision, sends differential upserts and
+removals after the initial snapshot, applies map records under a frame budget,
+gives native Sea Power objects selection precedence, and refuses to replace an
+in-progress apply. A typed map-selection event reaches one promotion
+orchestrator; a two-second poll exists only for event loss and reconnect repair.
+Same-locality promotion retains current player units. A distant-locality
+preflight starts checkpoint and suspension before the floating-origin rebase.
+
+Live inspection exposed a stronger floating-origin constraint: after focusing a
+Mediterranean aircraft, authored GIUK objects remained active more than 3,000 km
+from the new origin. The architecture now permits only one active native
+locality. The implementation now requests checkpointed old-island suspension
+before distant promotion. Live qualification must still cover authored-object
+unload, selection, terrain polling, camera focus, loadout, orders, and reconnect
+replay.
+
+After that, finish labels, overlap handling, contact uncertainty, failure
+feedback, and terrain-safe visual proxies. Local and non-local records must be
+indistinguishable at the map interaction level.
+
+For local map debugging, the companion may ask the operator-only worker
 projection to reveal every live opposing entity as an exact hostile marker.
 This temporary mode replaces approximate contact markers so contacts are not
-drawn twice. The normal worker projection remains coalition-filtered when the
-explicit debug query is absent; remove the debug request before release.
+drawn twice. The service and companion must both opt in explicitly. The normal
+worker projection remains coalition-filtered when either opt-in is absent.
 
 ### 3. Complete tactical return
 

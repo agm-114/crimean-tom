@@ -148,10 +148,40 @@ return, but not hostile combat damage or complete expenditure portability.
 Replace the authored placeholder force with campaign membership and make the
 map/proxy system usable.
 
+### Runtime projection foundation
+
+Complete this work before adding more symbol or proxy families:
+
+1. Send projection reconciliation through the Bulk lane. Preserve Control for
+   scenario, lease, checkpoint, return, pause, and focus commands. The companion
+   outbound writer must honor the same priority as the bridge inbound queue.
+2. Split materialization relocation from terrain polling. Relocate once, then use
+   a pure readiness probe. Projection work must not change tactical pause state.
+3. Keep scenario start idempotent through a bounded process-lifetime replay record.
+   Add the same contract to briefing continuation and tactical exit. A timed-out
+   caller can repeat a key without repeating the transition.
+4. Implemented: projection generation and revision force one full snapshot on a
+   new game-pipe session or resync, followed by record upserts and removals.
+5. Preserve native Sea Power selection precedence. Direct campaign symbols use
+   Sea Power's `IMapSelectable.Selected` transition; viewport hit candidates are
+   a fallback for presentation wrappers and overlap. Do not scan all campaign
+   records.
+6. Apply accepted projection generations over later frames with a measured time
+   budget. Report received and applied revisions separately.
+
+The working implementation covers items 1, 2, 4, 5, and 6. Direct selection,
+viewport fallback, cached record order, and native precedence are implemented.
+Scenario start covers the first part of item 3. Live Sea Power qualification
+remains open.
+
 ### Tactical preparation
 
 - Implemented for a selected group: derive membership from the campaign save,
   require the whole surviving group to be supported, and prepare it atomically.
+- Implemented in code, awaiting live qualification: Sea Power map selection can
+  request one specific group member. Profile and capacity checks apply to that
+  entity and required dependencies, while the rest of its Operational formation
+  stays external. The inert proxy remains only until a native object is ready.
 - Implemented: qualify a two-member mixed surface-class task force, a separate
   Los Angeles-class submarine patrol, and a separate two-member airborne
   SH-2F/SH-3H group.
@@ -165,7 +195,10 @@ map/proxy system usable.
 - Include required hosted aircraft, helicopters, boats, and child assets when
   their portable-state contract is supported.
 - Implemented: report unsupported members and capacity before activation.
-- Compute and fence the full interaction island under one epoch.
+- Implemented in the service: derive active interaction islands from durable
+  assignments, handoff transactions, host-child links, and unsafe-to-split live
+  coupling. Continue extending entry preflight so dependencies are included
+  before initial activation.
 - Validate terrain and initial placement before showing land objects.
 
 ### Tactical map
@@ -178,6 +211,24 @@ map/proxy system usable.
 - Show uncertainty, confidence, age, and stale state for contacts.
 - Stream a terrain-safe friendly visual proxy after selection without granting
   it simulation authority.
+- Expose materialization state and failure for the selected identity. Receipt of
+  a selection request does not claim that its model or camera focus is ready.
+- Replace the selected proxy with a native, initialized unit using the selected
+  entity's exact catalog profile. Qualify loadout, airborne state, control/order
+  behavior, floating-origin relocation, and identity continuity in Sea Power.
+- Implemented in code, awaiting live qualification: assignment preparation polls
+  the native object until Sea Power reports it initialized, active, and
+  player-orderable. Checkpoint, focus, and assignment readiness occur only after
+  that boundary.
+- Add an active-locality handoff before distant promotion: quiesce and
+  checkpoint the old island, fence it, suspend its native objects, rebase once,
+  then activate the new island. Do not keep authored or campaign-owned native
+  objects on opposite sides of the world.
+- Implemented in code, awaiting live qualification: initial snapshot followed
+  by versioned upserts and removals. Full replay remains the reconnect and
+  resynchronization path.
+- Implemented in code, awaiting live qualification: a game-pipe generation
+  change recreates the campaign stream and forces the next full snapshot.
 
 ### First supported island
 
@@ -199,6 +250,11 @@ From the campaign application, the player selects a task force, enters Sea
 Power, sees the correct campaign-owned members, selects local units, non-local
 friendlies, and hostile contacts with the same interaction model, and observes
 no placeholder X symbols or underground objects.
+
+During this flow, a 4,096-record replay cannot delay a control command past its
+deadline. Repeating a timed-out scenario transition cannot load the scenario a
+second time. Restarting Sea Power creates a new projection generation and
+restores the authorized map without restarting the campaign service.
 
 ## Milestone 4: return the battle to the campaign
 

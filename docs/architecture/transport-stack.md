@@ -29,6 +29,34 @@ on Unity's main thread are not interrupted unsafely. Command and response queues
 are bounded, and their weighted schedule prevents both control starvation and
 permanent bulk starvation.
 
+Projection snapshots and updates use the Bulk lane. Scenario transitions,
+lease activation, checkpoint, return, pause, and explicit focus use the Control
+lane. The companion's outbound writer preserves that priority before bytes enter
+the pipe. A large projection frame cannot take the write lock ahead of an
+already-queued control frame.
+
+Projection receipt and Unity application are separate acknowledgements. Receipt
+reports the accepted projection generation and revision. Applied status reports
+the latest revision visible to the map controller. Control responses continue to
+mean that the requested game mutation completed or failed.
+
+The initial revision in a game session and every resync are full snapshots.
+Later revisions carry record upserts and explicit removals. The bridge reports
+busy while an accepted revision is still applying rather than discarding that
+work for a newer revision. Sea Power map selection travels in the other
+direction as a typed pipe event, so promotion does not wait for a heartbeat or
+projection poll.
+
+A game-pipe generation change also ends the companion's current campaign stream.
+The replacement stream sends a new Hello with the current game-session identity,
+then forces a full projection snapshot. Mutation arming and pending event reads
+therefore cannot leak across a Sea Power restart.
+
+Idempotent control commands carry idempotency keys. If a caller loses the
+response, repeating the same key and payload returns the stored result. Reusing
+the key for a different payload conflicts. Every scenario transition must adopt
+this contract before callers may retry it after a timeout.
+
 ## Why gRPC is the canonical machine protocol
 
 The companion is a .NET application. It needs typed commands, events,

@@ -99,23 +99,40 @@ magazines, sensors, formations, fixed-wing aircraft, broader rotary-wing
 profiles, and broader subsurface ownership still need explicit extraction,
 application, and return contracts.
 
-## Implemented map and proxy path
+## Map and proxy path
 
 An authenticated Sea Power session can receive every non-destroyed friendly
 campaign record and coalition-filtered hostile tracks. Map presence is not tied
 to the tactical materialization allow-list. Records use Sea Power authored unit
 symbols rather than the generic drawing-marker X.
 
-Typed selection can center the map and request a presentation-only model after
-terrain relocation. Friendly proxies use campaign state. Hostile proxies use a
-generic estimate and do not load the hostile catalog model or exact true state.
-A proxy has no game identity, physics, sensors, weapons, velocity, campaign
-authority, or checkpoint rights.
+The companion sends one full projection snapshot at game-session start or
+resynchronization, then sends only changed records and explicit removals through
+the Bulk lane. It suppresses unchanged sources and serializes reconciliation.
+The bridge tracks accepted and applied generation and revision, refuses to
+replace an in-progress apply, updates records in bounded batches, and rebuilds
+the viewport separately. It retains every authorized record while attaching at
+most 384 representative Sea Power symbols. A queued control writer takes
+precedence before a bulk frame starts writing. It cannot interrupt a bulk frame
+already in flight.
+
+Selection uses native Sea Power hit results before the campaign proximity
+fallback. A campaign selection runs one relocation, then polls terrain without
+repeating the pause and camera-detach operation. Scenario start has a bounded
+process-lifetime idempotency record. Briefing continuation and tactical exit
+still need the same protection.
+
+Friendly proxies use campaign state. Hostile proxies use a generic estimate and
+do not load the hostile catalog model or exact true state. A proxy has no game
+identity, physics, sensors, weapons, velocity, campaign authority, or checkpoint
+rights.
 
 Current live qualification is narrow. Generic visual loading has been observed
-for one submarine and one land installation. Direct mouse selection parity,
-full catalog coverage, proper overlap handling, uncertainty glyphs, and a
-campaign-bound default task force remain open.
+for several catalog entries, but an earlier UI binding callback triggered
+unrelated proxies and stole camera focus. That callback is gone. Direct mouse
+selection, one-shot relocation, reconnect replay, the 4,096-record frame budget,
+full catalog coverage, overlap handling, uncertainty glyphs, and a campaign-bound
+default task force still need live proof.
 
 ## Implemented player and operator path
 
@@ -154,6 +171,26 @@ identities cross the service, companion, and Runtime Bridge boundary into native
 Formation Manager and Flight Deck labels. Combined surface/submarine entry,
 broader submarine families, combined-arms entry, and authored-force replacement
 remain open. The opposing Krivak now passes live entry and clean return.
+
+Sea Power map selection emits a typed bridge event and uses the same fenced
+handoff path with a narrower scope:
+the request identifies one member of the campaign group. Support and capacity
+are evaluated for that entity and required dependencies, so an unrelated
+unsupported formation member cannot strand the selected unit as an inert proxy.
+This does not split the campaign group or change its Operational orders.
+
+`CampaignInteractionIslandRegistry` expands active assignments through handoff
+batches, host-child links, and unsafe-to-split runtime coupling. This lets
+separately promoted units return as one complete island without treating one
+batch ID as permanent locality identity. See
+[Interaction islands and locality handoff](interaction-islands.md).
+
+The current relocation path can move the floating origin while authored and
+campaign-owned native objects remain active at the prior locality. That is not a
+supported steady state: live inspection placed objects more than 3,000 km from
+the new origin. The next handoff slice must checkpoint and suspend the old
+native island before a distant rebase. Map records remain theater-wide and are
+not demoted with the native objects.
 
 There is no packaged application, durable player identity, SignalR client, or
 private multiplayer flow yet.

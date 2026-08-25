@@ -57,6 +57,50 @@ The companion isolates the campaign service from Unity lifecycle and thread
 constraints. The Runtime Bridge performs typed game inspection and mutation on
 the correct Unity thread.
 
+## Runtime projection boundary
+
+The companion and Runtime Bridge use separate logical paths for control and
+projection work. They may share one named-pipe connection, but they do not share
+one synchronous execution contract.
+
+Control commands cover scenario transitions, pause, tactical entry, checkpoint,
+return, and explicit player focus. They use priorities, deadlines, command IDs,
+and idempotency keys. Retrying a command after an unknown result must not repeat
+the game mutation.
+
+Projection traffic carries map and presentation state. A game-pipe session starts
+a new projection generation. Its first revision is a full snapshot; later
+revisions contain stable-identity upserts and explicit removals. The bridge
+acknowledges receipt before it finishes every Unity-facing change, then applies
+that revision over later frames. It reports busy rather than replacing unfinished
+projection work. Projection cannot cancel a control command or inherit its
+priority.
+
+The target Runtime Bridge design divides this work into three responsibilities.
+The current code keeps them in one adapter while the behavior settles:
+
+- the projection store retains the latest authorized presentation record for
+  each campaign identity;
+- the map projection controller chooses visible symbols, clusters dense areas,
+  performs hit testing, and changes the Noesis collection under a frame budget;
+  and
+- the local materialization controller owns selection, relocation, terrain
+  readiness, visual-model creation, camera focus, cancellation, and failure.
+
+Sea Power's `InteractionState.MouseAction` selects an `IMapSelectable` by setting
+its `Selected` property. Campaign symbols use that native transition to publish
+one typed selection event. The viewport hit-radius path exists only for Noesis
+wrappers that hide the original symbol item. A typed focus command may start the
+same operation without mouse input.
+
+Each game-pipe session has a generation. A new generation cancels the old
+campaign transport stream, invalidates pending responses, and opens a new stream
+with the new game-session identity. The companion then replays the latest
+projection as a full snapshot before returning to differential updates.
+This rule covers
+game relaunch, bridge reload, companion restart, and a dropped pipe. A periodic
+refresh remains a fallback if the immediate replay fails.
+
 ## State ownership
 
 The campaign service owns canonical campaign truth. Sea Power receives a fenced
@@ -101,6 +145,31 @@ A visual proxy has no AI, sensors, weapons, collision, damage authority, or
 publication rights. Promotion hides the matching proxy before the tactical
 object becomes player-visible. Demotion preserves the map record.
 
+There are two tactical-entry scopes:
+
+- The campaign application may enter a whole selected group as one atomic
+  interaction island. Every required member and coupled dependency must pass
+  profile and capacity checks before that batch activates.
+- Selecting a non-local friendly on Sea Power's map promotes that campaign
+  entity only, plus any host or live coupling dependency required to represent
+  it safely. Other members of its Operational formation do not block the
+  selected entity because they exceed local capacity or lack a runtime profile.
+
+If the selected entity is inside the active tactical locality, promotion adds
+its native object to the current player task force without releasing the units
+already under player control. Only a runtime preflight that identifies a distant
+floating-origin rebase may start the checkpoint, suspension, and locality
+handoff sequence.
+
+The second path is a representation transition, not a campaign regrouping. The
+entity keeps its campaign group, orders, identity, and revision. Its inert model
+can appear immediately, but it must be replaced by a leased native Sea Power
+object before native status, weapons, sensors, AI, or orders are exposed. Native
+creation and native readiness are separate states. The bridge suppresses the
+proxy after the native constructor succeeds while tactical time remains paused;
+the companion does not checkpoint, focus, or declare the assignment ready until
+Sea Power reports the object initialized, active, and player-orderable.
+
 ## Campaign time and tactical leases
 
 One campaign quantum is one simulated second. The default local clock advances
@@ -133,7 +202,24 @@ The interaction island begins with the campaign-owned player task force and
 includes entities coupled by live sensor, weapon, targeting, formation,
 support, or collision relationships. Sea Power receives the whole island under
 one epoch. The service must not split a live weapon or sensor relationship
-between authorities.
+between authorities. The service derives membership through the
+[interaction-island registry](interaction-islands.md). Handoff batches remain
+transaction boundaries; several independently prepared batches can join one
+island through host-child or live coupling relationships.
+
+Sea Power hosts one active native locality inside one floating-origin envelope.
+Campaign map records may span the theater, but native simulation objects may
+not remain active thousands of kilometers from the current origin. Before a
+selection moves the origin outside the current locality, the companion must
+quiesce the old island, capture an accepted checkpoint, fence its epoch, and
+remove or suspend its native objects. It can then relocate the origin and
+promote the new island. A failed handoff keeps the old authority decision and
+the new entity's map record; it must not leave two active localities.
+
+This spatial rule also applies to authored mission objects. They are bootstrap
+content, not permanent campaign residents. An authored object outside the
+active locality must be suspended or removed before a distant rebase, even when
+it is friendly or was present when the scenario loaded.
 
 Strategic radars, high-end air defenses, and ballistic missile systems may
 request persistent Tactical residency after those families are portable. Until
@@ -152,13 +238,44 @@ contact picture. Locality does not control map visibility. Native and non-local
 records must use equivalent Sea Power symbology, hover, selection, labels, and
 focus behavior.
 
-Selecting a non-local friendly can request a terrain-safe visual proxy. Selecting
-a hostile track may create only a classification-appropriate or uncertainty
-proxy at the estimated track position. It must not load secret true-state data.
+Map presentation and physical presentation are independent. Every authorized
+record remains selectable even when level of detail hides its individual symbol
+inside a cluster. Direct symbol clicks follow Sea Power's native
+`IMapSelectable.Selected` path. A viewport candidate list resolves clicks that
+arrive through a presentation wrapper against the last completed viewport pass;
+it does not scan Unity objects. A spatial index can replace that fallback's
+linear scan if measured click latency requires it.
+
+Selecting a non-local friendly starts one entity-scoped materialization
+operation. Its states
+are `idle`, `selected`, `relocating`, `terrain-streaming`, `spawning`,
+`initializing-native`, `focused`, `failed`, and `cancelled`. A newer selection
+cancels the old operation. Repeated selection of the same identity resumes or
+focuses the existing operation rather than creating another model. Terrain-backed
+models stay hidden until placement passes. Relocation runs once for the operation.
+Later terrain checks only probe readiness and never pause the battle, detach the
+camera, or relocate the world again. The camera attaches only after the requested
+model exists.
+
+The bridge pushes a typed map-selection event to the companion. One promotion
+orchestrator owns retries, idempotency, focus, and locality handoff. A slower
+poll repairs missed events and reconnect state. Campaign heartbeats, assignment
+recovery, and bulk projection refresh do not own this control path.
+
+Selecting a hostile track uses the same interaction states but may create only a
+classification-appropriate or uncertainty proxy at the estimated track
+position. It must not load secret true-state data.
 
 Map density is controlled through level-of-detail updates, clustering, and
-bounded refresh rates. Removing a physical object never removes its authorized
-map record.
+bounded refresh rates. The companion assembles campaign snapshots outside the
+game. Noesis collection changes, terrain operations, model loading, and camera
+calls run on the main thread through a measured work budget. Removing a physical
+object never removes its authorized map record.
+
+Projection transport is versioned and differential after the initial snapshot.
+An unchanged source version does not enter the game pipe. Changed records and
+explicit removals are preferred to another 4,096-record snapshot; a full
+snapshot is reserved for initial load and resynchronization.
 
 ## Tactical entry
 
@@ -169,7 +286,8 @@ Tactical entry is a transaction:
 3. The service fences the island and issues an epoch-bound lease.
 4. The companion prepares terrain, campaign-owned objects, map records, and
    portable state.
-5. The bridge validates identity and placement and captures an initial
+5. The bridge validates identity and placement, waits for Sea Power's native
+   initialization and orderability conditions, and captures an initial
    checkpoint.
 6. The service activates the lease, then Sea Power gives control to the player.
 
@@ -257,6 +375,14 @@ See the [threat model](../planning/threat-model.md) for current gaps.
 The design target is a 4,096-entity campaign, not 4,096 Unity objects. Most
 entities remain in the Operational model. The tactical process receives a
 bounded interaction island, map records, and selected visual proxies.
+
+Projection work has its own frame budget. A full 4,096-record snapshot may take
+several frames to appear. A queued control frame takes precedence over bulk
+traffic that has not started writing, but it cannot interrupt a pipe frame
+already in flight. Projection work must not repeat a scenario transition or
+force the game to serialize 4,096 result records. Tests record queue depth,
+control latency, records applied per frame, snapshot-to-map latency, and the
+longest main-thread projection slice.
 
 Qualification records these populations separately:
 
