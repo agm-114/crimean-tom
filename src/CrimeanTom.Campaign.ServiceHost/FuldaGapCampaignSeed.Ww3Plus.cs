@@ -421,7 +421,7 @@ internal static partial class FuldaGapCampaignSeed
             yield return Entity(
                 campaignId,
                 key,
-                $"{package.Name} {ordinal:D3}",
+                GeneratedUnitName(catalogUnitId, package.SimulationDomain, ordinal),
                 catalogUnitId,
                 package.CoalitionId,
                 hostedByYorktown ? "nsea" : package.RegionKey,
@@ -435,6 +435,104 @@ internal static partial class FuldaGapCampaignSeed
                 operationalWeapons: package.OperationalWeapons,
                 hostEntityKey: hostedByYorktown ? "yorktown" : null);
         }
+    }
+
+    private static string GeneratedUnitName(
+        string catalogUnitId,
+        SimulationDomain simulationDomain,
+        int ordinal)
+    {
+        var parts = catalogUnitId.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return $"Campaign unit {ordinal:D3}";
+        }
+
+        var prefix = parts[0] switch
+        {
+            "usn" when simulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing => "USN",
+            "usn" => "USS",
+            "usaf" => "USAF",
+            "usmc" => "USMC",
+            "usa" => "US Army",
+            "rn" => "HMS",
+            "rcn" => "HMCS",
+            "ran" => "HMAS",
+            "fgs" => "FGS",
+            "knm" => "KNM",
+            "jmsdf" => "JMSDF",
+            "jasdf" => "JASDF",
+            "jsdf" => "JSDF",
+            "nato" => "NATO",
+            "raf" => "RAF",
+            "raaf" => "RAAF",
+            "wp" => "Soviet",
+            "pla" => "PLA",
+            "plan" => "PLAN",
+            "iaf" => "IAF",
+            "iriaf" => "IRIAF",
+            "irina" => "IRINA",
+            "iqaf" => "IQAF",
+            "iqa" => "Iraqi Army",
+            "fr" => "French",
+            "fin" => "Finnish",
+            "swe" => "Swedish",
+            "nv" => "Norwegian",
+            "civ" => "Civilian",
+            "port" => string.Empty,
+            "tgt" => string.Empty,
+            _ => HumanizeCatalogPart(parts[0]),
+        };
+        var roleParts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "aaa", "aoe", "apc", "bb", "bdk", "bpk", "car", "cg", "cgn", "clg",
+            "cv", "cvn", "dd", "ddg", "em", "ff", "ffg", "fv", "lha", "lpd",
+            "fcr", "launcher", "lt", "mbt", "ms", "ptg", "radar", "rkr", "sam",
+            "site", "skr", "spaag", "ss", "ssbn", "ssgn", "ssn", "tel", "vt",
+        };
+        var start = 1;
+        while (start < parts.Length - 1 && roleParts.Contains(parts[start]))
+        {
+            start++;
+        }
+        var platformParts = parts.Skip(start).ToList();
+        if (simulationDomain == SimulationDomain.Maritime
+            && platformParts.Count > 1
+            && platformParts[^1].All(char.IsDigit))
+        {
+            platformParts.RemoveAt(platformParts.Count - 1);
+        }
+        var platform = string.Join(' ', platformParts.Select(HumanizeCatalogPart));
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            platform = string.Join(' ', parts.Skip(1).Select(HumanizeCatalogPart));
+        }
+        if (string.Equals(parts[0], "port", StringComparison.OrdinalIgnoreCase))
+        {
+            platform = $"{platform} Port";
+        }
+        return string.Join(' ', new[] { prefix, platform, ordinal.ToString("D3") }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string HumanizeCatalogPart(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Any(char.IsDigit))
+        {
+            return trimmed.ToUpperInvariant();
+        }
+        var normalized = trimmed.Replace('-', ' ');
+        if (normalized.Length == 0)
+        {
+            return normalized;
+        }
+        if (normalized is "asw" or "cap" or "ewr" or "fcr" or "gbad" or "tel")
+        {
+            return normalized.ToUpperInvariant();
+        }
+        return string.Join(' ', normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
     }
 
     private static int GroupCount(Ww3PlusPackage package) =>

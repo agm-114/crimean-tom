@@ -38,6 +38,13 @@ param(
         else { '' }
     ),
 
+    [bool]$DebugRevealAllEnemies = $(
+        if ($env:CRIMEAN_TOM_DEBUG_REVEAL_ALL_ENEMIES) {
+            [bool]::Parse($env:CRIMEAN_TOM_DEBUG_REVEAL_ALL_ENEMIES)
+        }
+        else { $true }
+    ),
+
     [string]$CampaignTokenFile = $(
         if ($env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE) { $env:CRIMEAN_TOM_CAMPAIGN_TOKEN_FILE }
         else { '' }
@@ -317,6 +324,10 @@ function Start-Companion {
         [Environment]::SetEnvironmentVariable(
             'CRIMEAN_TOM_PLAYER_COALITION_ID',
             $PlayerCoalitionId,
+            'Process')
+        [Environment]::SetEnvironmentVariable(
+            'CRIMEAN_TOM_DEBUG_REVEAL_ALL_ENEMIES',
+            $DebugRevealAllEnemies.ToString().ToLowerInvariant(),
             'Process')
     }
     $process = $null
@@ -688,6 +699,7 @@ switch ($Action) {
         if ([string]::IsNullOrWhiteSpace($ScenarioId)) {
             throw '-ScenarioId is required for start-scenario.'
         }
+        $scenarioIdempotencyKey = "manual-start-scenario-$([guid]::NewGuid().ToString('N'))"
         $result = $null
         $lastError = $null
         for ($attempt = 1; $attempt -le 100 -and $null -eq $result; $attempt++) {
@@ -695,7 +707,10 @@ switch ($Action) {
                 $result = Invoke-ControlRequest `
                     '/game/automation/scenario/start' `
                     'Post' `
-                    ([pscustomobject]@{ scenarioId = $ScenarioId })
+                    ([pscustomobject]@{
+                        scenarioId = $ScenarioId
+                        idempotencyKey = $scenarioIdempotencyKey
+                    })
             }
             catch {
                 $lastError = $_

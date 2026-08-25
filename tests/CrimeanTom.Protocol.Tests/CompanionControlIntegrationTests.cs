@@ -390,24 +390,28 @@ public sealed class CompanionControlIntegrationTests
             var fuldaEntityNames = fuldaEntities
                 .Select(item => item.GetProperty("name").GetString()!)
                 .ToArray();
-            Assert.Contains(fuldaEntityNames, name => name.Contains("US Atlantic carrier", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("US Pacific carrier", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Cuban air-defense site", StringComparison.Ordinal));
+            var fuldaCatalogUnitIds = fuldaEntities
+                .Select(item => item.GetProperty("catalogUnitId").GetString()!)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.Contains("USS America 001", fuldaEntityNames);
+            Assert.Contains("USS Enterprise 001", fuldaEntityNames);
+            Assert.Contains("Soviet Orel 002", fuldaEntityNames);
+            Assert.Contains("USS Iowa 001", fuldaEntityNames);
+            Assert.Contains("USS Alaska 001", fuldaEntityNames);
+            Assert.Contains("USN SH-2F 003", fuldaEntityNames);
+            Assert.Contains("JASDF F-1 001", fuldaEntityNames);
+            Assert.Contains("IQAF MD500 001", fuldaEntityNames);
+            Assert.Contains("Civilian C7S68 001", fuldaEntityNames);
+            Assert.DoesNotContain(
+                fuldaEntityNames,
+                name => name.Contains("fixed-wing squadron", StringComparison.Ordinal));
+            Assert.Contains("wp_sam_site_sa-2_modernized", fuldaCatalogUnitIds);
             Assert.Contains(fuldaEntityNames, name => name.Contains("San Antonio de los Banos GBAD", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Western transatlantic merchant", StringComparison.Ordinal));
             Assert.Contains(fuldaEntityNames, name => name.Contains("physical armor target", StringComparison.Ordinal));
             Assert.Contains(fuldaEntityNames, name => name.Contains("physical low-altitude GBAD target", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("attack or lift helicopter", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("ballistic-missile TEL visual proxy", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Orel hypothetical carrier", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Iowa battleship", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Alaska-class CGN hypothetical", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Black Sea aviation cruiser", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("JGSDF armor", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("PLA armor", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Chinese strategic air-defense", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("JASDF or JMSDF fixed-wing", StringComparison.Ordinal));
-            Assert.Contains(fuldaEntityNames, name => name.Contains("Iranian or Iraqi helicopter", StringComparison.Ordinal));
+            Assert.Contains("jsdf_mbt_type74", fuldaCatalogUnitIds);
+            Assert.Contains("pla_apc_type63", fuldaCatalogUnitIds);
+            Assert.Contains("wp_p-14_radar", fuldaCatalogUnitIds);
             Assert.Equal(
                 542,
                 fuldaEntities
@@ -490,11 +494,11 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(
                 "coalition-filtered; no-classified-truth; render-proxy-is-not-a-contact",
                 blueProjection.RootElement.GetProperty("trustBoundary").GetString());
-            var redNames = advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray()
+            var redEntityIds = advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray()
                 .Where(item => item.GetProperty("coalitionId").GetString() == redCoalitionId)
-                .Select(item => item.GetProperty("name").GetString()!)
+                .Select(item => item.GetProperty("entityId").GetString()!)
                 .ToArray();
-            Assert.NotEmpty(redNames);
+            Assert.NotEmpty(redEntityIds);
             var blueFriendly = blueProjection.RootElement.GetProperty("friendlyEntities").EnumerateArray().ToArray();
             Assert.NotEmpty(blueFriendly);
             var blueNames = advancedFuldaView.RootElement.GetProperty("entities").EnumerateArray()
@@ -505,7 +509,12 @@ public sealed class CompanionControlIntegrationTests
                 blueFriendly,
                 item => Assert.Contains(item.GetProperty("name").GetString()!, blueNames));
             var blueProjectionJson = blueProjection.RootElement.GetRawText();
-            Assert.All(redNames, name => Assert.DoesNotContain(name, blueProjectionJson, StringComparison.Ordinal));
+            Assert.All(
+                redEntityIds,
+                entityId => Assert.DoesNotContain(
+                    entityId,
+                    blueProjectionJson,
+                    StringComparison.Ordinal));
             Assert.DoesNotContain("ClassifiedTruth", blueProjectionJson, StringComparison.OrdinalIgnoreCase);
             using var issuedSessionResponse = await campaignClient.PostAsJsonAsync(
                 "/control/player-sessions",

@@ -58,6 +58,8 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
 
     private void Update()
     {
+        RuntimeCampaignMapSelectionAdapter.TryInstallViewportHook();
+        RuntimeVisualRenderProxyAdapter.Tick();
         var logged = 0;
         while (logged < MaximumLogMessagesPerFrame && _logMessages.TryDequeue(out var message))
         {

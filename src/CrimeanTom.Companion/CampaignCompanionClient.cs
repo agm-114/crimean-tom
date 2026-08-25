@@ -26,7 +26,7 @@ public sealed class CampaignCompanionClient(
     private static readonly TimeSpan TerrainStreamingPollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan TerrainStreamingTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TacticalStateSyncInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RenderProxySyncInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PlayerFocusQuietPeriod = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan PlayerFocusRetryInterval = TimeSpan.FromMilliseconds(200);
     private const int PlayerFocusAttempts = 4;

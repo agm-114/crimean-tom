@@ -14,10 +14,32 @@ namespace SeaPowerRuntimeBridge;
 internal static class RuntimeVisualRenderProxyAdapter
 {
     private const int MaximumProxyCount = 4_096;
+    private const int MaximumAttachedMapMarkers = 384;
+    private const float MapClusterCellPixels = 42f;
+    private const float ViewportRefreshIntervalSeconds = 0.15f;
+    private const float PhysicalProxyRetryIntervalSeconds = 0.25f;
+    private const float PhysicalProxyRetryTimeoutSeconds = 15f;
     private const string CampaignEntityPrefix = "unit:crimean-tom:";
     private const string CampaignContactPrefix = "contact:crimean-tom:";
     private static readonly Dictionary<string, VisualProxyRecord> Records =
         new(StringComparer.Ordinal);
+    private static MapBase? _activeMap;
+    private static VisualProxyRecord? _pendingPhysicalProxy;
+    private static float _lastViewportRefreshAt = float.NegativeInfinity;
+
+    public static bool HasActiveMapViewport => _activeMap is not null;
+
+    public static void Tick()
+    {
+        if (_pendingPhysicalProxy is not { } pending)
+        {
+            return;
+        }
+        if (pending.ContinuePhysicalProxyRequest())
+        {
+            _pendingPhysicalProxy = null;
+        }
+    }
 
     public static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload> Reconcile(
         ReconcileSurfaceRenderProxiesRequestPayload request,
@@ -74,6 +96,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             }
         }
         Records.Clear();
+        _pendingPhysicalProxy = null;
     }
 
     public static SurfaceRenderProxySnapshotPayload Capture() => new()
@@ -135,6 +158,8 @@ internal static class RuntimeVisualRenderProxyAdapter
             return false;
         }
 
+        RefreshMapViewport(map);
+
         var direct = Records.Values.FirstOrDefault(record => record.IsMapMarker(hitObject));
         if (direct is not null)
         {
@@ -142,22 +167,12 @@ internal static class RuntimeVisualRenderProxyAdapter
             return true;
         }
 
-        // Preserve Sea Power's native selection path when its hit test found a
-        // real selectable object. The proximity fallback only exists because
-        // passive authored-symbol elements are not returned by that hit test.
-        if (hitObject is IMapSelectable)
-        {
-            foreach (var record in Records.Values)
-            {
-                record.ClearSelectionAndHideWorldModel();
-            }
-            return false;
-        }
-
         var mousePoint = map.LocationToView(mousePosition);
         VisualProxyRecord? nearest = null;
         var nearestDistanceSquared = selectionRadiusPixels * selectionRadiusPixels;
-        foreach (var record in Records.Values.Where(item => item.MapMarkerIsVisible))
+        // The renderer only attaches a bounded representative set. Keep every
+        // authorized record selectable through its exact screen-space position.
+        foreach (var record in Records.Values)
         {
             var markerPoint = map.LocationToView(record.MapPosition);
             var deltaX = markerPoint.X - mousePoint.X;
@@ -183,6 +198,91 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         nearest.RequestPhysicalProxy(out _);
         return true;
+    }
+
+    public static void RefreshMapViewport(MapBase map, bool force = false)
+    {
+        _activeMap = map;
+        var now = Time.realtimeSinceStartup;
+        if (!force && now - _lastViewportRefreshAt < ViewportRefreshIntervalSeconds)
+        {
+            return;
+        }
+        _lastViewportRefreshAt = now;
+
+        var width = Math.Max(1f, map.ActualWidth);
+        var height = Math.Max(1f, map.ActualHeight);
+        var clusters = new Dictionary<(int X, int Y), MapCluster>();
+        foreach (var pair in Records.OrderBy(item => item.Key, StringComparer.Ordinal))
+        {
+            var record = pair.Value;
+            var point = map.LocationToView(record.MapPosition);
+            if (!double.IsFinite(point.X)
+                || !double.IsFinite(point.Y)
+                || point.X < -MapClusterCellPixels
+                || point.X > width + MapClusterCellPixels
+                || point.Y < -MapClusterCellPixels
+                || point.Y > height + MapClusterCellPixels)
+            {
+                continue;
+            }
+
+            var key = (
+                (int)Math.Floor(point.X / MapClusterCellPixels),
+                (int)Math.Floor(point.Y / MapClusterCellPixels));
+            if (!clusters.TryGetValue(key, out var cluster))
+            {
+                clusters[key] = new MapCluster(record, point.X, point.Y, 1);
+                continue;
+            }
+
+            var centerX = (key.Item1 + 0.5d) * MapClusterCellPixels;
+            var centerY = (key.Item2 + 0.5d) * MapClusterCellPixels;
+            var candidateDistance = SquaredDistance(point.X, point.Y, centerX, centerY);
+            var currentDistance = SquaredDistance(
+                cluster.ScreenX,
+                cluster.ScreenY,
+                centerX,
+                centerY);
+            var useCandidate = record.IsSelected
+                || !cluster.Representative.IsSelected && candidateDistance < currentDistance;
+            clusters[key] = new MapCluster(
+                useCandidate ? record : cluster.Representative,
+                useCandidate ? point.X : cluster.ScreenX,
+                useCandidate ? point.Y : cluster.ScreenY,
+                cluster.Count + 1);
+        }
+
+        var desired = clusters.Values
+            .OrderByDescending(item => item.Representative.IsSelected)
+            .ThenBy(item => SquaredDistance(
+                item.ScreenX,
+                item.ScreenY,
+                width / 2d,
+                height / 2d))
+            .Take(MaximumAttachedMapMarkers)
+            .ToDictionary(item => item.Representative, item => item.Count);
+        foreach (var selected in Records.Values.Where(item => item.IsSelected))
+        {
+            desired[selected] = 1;
+        }
+        foreach (var record in Records.Values)
+        {
+            record.SetMapMarkerAttached(
+                desired.TryGetValue(record, out var clusterCount),
+                clusterCount);
+        }
+    }
+
+    private static double SquaredDistance(
+        double x,
+        double y,
+        double targetX,
+        double targetY)
+    {
+        var deltaX = x - targetX;
+        var deltaY = y - targetY;
+        return deltaX * deltaX + deltaY * deltaY;
     }
 
     private static MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload>
@@ -233,7 +333,7 @@ internal static class RuntimeVisualRenderProxyAdapter
 
             if (!Records.TryGetValue(spec.EntityId, out var record))
             {
-                record = VisualProxyRecord.Create(request.CampaignId, spec, Records.Count + 1);
+                record = VisualProxyRecord.Create(request.CampaignId, Records.Count + 1);
                 Records[spec.EntityId] = record;
                 createdCount++;
             }
@@ -242,6 +342,11 @@ internal static class RuntimeVisualRenderProxyAdapter
                 updatedCount++;
             }
             record.Apply(spec);
+        }
+
+        if (_activeMap is not null)
+        {
+            RefreshMapViewport(_activeMap, force: true);
         }
 
         return MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload>.Success(new()
@@ -257,6 +362,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             ExcludedOwnedEntityCount = excludedOwnedEntities.Count,
             Proxies = Records
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
+                .Where(item => item.Value.WorldModelVisible || item.Value.MapMarkerIsVisible)
                 .Select(item => item.Value.Capture(item.Key))
                 .ToArray(),
         });
@@ -360,6 +466,12 @@ internal static class RuntimeVisualRenderProxyAdapter
         string message) =>
         MutationAdapterResult<ReconcileSurfaceRenderProxiesResultPayload>.Failure(code, message);
 
+    private sealed record MapCluster(
+        VisualProxyRecord Representative,
+        double ScreenX,
+        double ScreenY,
+        int Count);
+
     private sealed class VisualProxyRecord : IDisposable
     {
         private ObjectBaseParameters? _parameters;
@@ -370,6 +482,8 @@ internal static class RuntimeVisualRenderProxyAdapter
         private bool _selected;
         private bool _physicalProxyRequested;
         private string _physicalProxyError = string.Empty;
+        private float _nextPhysicalProxyAttemptAt;
+        private float _physicalProxyDeadlineAt;
         private string _name = string.Empty;
         private string _relationship = string.Empty;
         private string _classification = string.Empty;
@@ -396,12 +510,9 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         public static VisualProxyRecord Create(
             string campaignId,
-            SurfaceRenderProxySpecPayload spec,
             int proxyNumber)
         {
-            var record = new VisualProxyRecord(campaignId, proxyNumber);
-            record.Apply(spec);
-            return record;
+            return new VisualProxyRecord(campaignId, proxyNumber);
         }
 
         public void Apply(SurfaceRenderProxySpecPayload spec)
@@ -433,7 +544,6 @@ internal static class RuntimeVisualRenderProxyAdapter
                     ApplyWorldTransform(position);
                 }
             }
-            EnsureMapAnnotations(position);
         }
 
         public bool Suspend()
@@ -500,6 +610,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         }
 
         internal bool WorldModelVisible => !_disposed && _root?.activeSelf == true;
+        internal bool IsSelected => _selected;
         internal bool MapMarkerIsVisible => MapMarkerVisible;
         internal GeoPosition MapPosition => PresentationPosition();
 
@@ -509,7 +620,21 @@ internal static class RuntimeVisualRenderProxyAdapter
             && _mapMarker is not null
             && Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements.Contains(_mapMarker) == true;
 
-        private void EnsureMapAnnotations(GeoPosition position)
+        internal void SetMapMarkerAttached(bool attached, int clusterCount)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            if (!attached)
+            {
+                RemoveMapAnnotations();
+                return;
+            }
+            EnsureMapAnnotations(PresentationPosition(), Math.Max(1, clusterCount));
+        }
+
+        private void EnsureMapAnnotations(GeoPosition position, int clusterCount)
         {
             var map = Globals._mainGameViewModel?.Map;
             var foreground = map?.DisplayMap?.ForegroundElements;
@@ -518,7 +643,7 @@ internal static class RuntimeVisualRenderProxyAdapter
                 return;
             }
 
-            _mapMarker ??= new CampaignMapSymbolItem(RequestPhysicalProxy)
+            _mapMarker ??= new CampaignMapSymbolItem
             {
                 SectionName = $"CrimeanTom_{_proxyNumber}",
                 ShowInMission = true,
@@ -537,7 +662,11 @@ internal static class RuntimeVisualRenderProxyAdapter
             _mapMarker.Bearing = _headingDegrees.ToString(
                 "0.###",
                 System.Globalization.CultureInfo.InvariantCulture);
-            _mapMarker.SetLabel(_selected ? _name : string.Empty);
+            _mapMarker.SetLabel(_selected
+                ? _name
+                : clusterCount > 1
+                    ? $"{clusterCount} units"
+                    : string.Empty);
             _mapMarker.PlaceAt(position);
             if (!foreground.Contains(_mapMarker))
             {
@@ -568,39 +697,19 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 displayMap.Center = PresentationPosition();
             }
-            if (_physicalProxyRequested)
+            if (!_physicalProxyRequested)
             {
-                var preparation = RuntimeTacticalLocationAdapter.PrepareForLocalMapSelection(
-                    _latitude,
-                    _longitude);
-                if (!preparation.Succeeded)
-                {
-                    _physicalProxyError = preparation.ErrorMessage;
-                }
-                else if (UsesTerrainSurface()
-                    && preparation.Payload?.Terrain.PlacementReady != true)
-                {
-                    _physicalProxyError =
-                        string.Equals(
-                            preparation.Payload?.Terrain.Postcondition,
-                            "terrain-sample-is-water",
-                            StringComparison.Ordinal)
-                            ? "target position does not resolve to land terrain"
-                            : "target terrain is still streaming; select the campaign unit again when terrain is ready";
-                }
-                else
-                {
-                    if (string.Equals(_relationship, "HostileContact", StringComparison.Ordinal))
-                    {
-                        EnsureContactEstimateProxy();
-                    }
-                    else
-                    {
-                        EnsureWorldModel();
-                    }
-                }
+                _physicalProxyError = "campaign relationship cannot create a local visual proxy";
+                error = _physicalProxyError;
+                return false;
             }
-            EnsureMapAnnotations(PresentationPosition());
+
+            _physicalProxyError = "preparing tactical location";
+            _nextPhysicalProxyAttemptAt = Time.realtimeSinceStartup;
+            _physicalProxyDeadlineAt = Time.realtimeSinceStartup + PhysicalProxyRetryTimeoutSeconds;
+            _pendingPhysicalProxy = this;
+            ContinuePhysicalProxyRequest();
+            EnsureMapAnnotations(PresentationPosition(), 1);
             if (!WorldModelVisible)
             {
                 error = string.IsNullOrWhiteSpace(_physicalProxyError)
@@ -611,6 +720,71 @@ internal static class RuntimeVisualRenderProxyAdapter
 
             error = string.Empty;
             return true;
+        }
+
+        internal bool ContinuePhysicalProxyRequest()
+        {
+            if (_disposed || !_selected || !_physicalProxyRequested || WorldModelVisible)
+            {
+                return true;
+            }
+
+            var now = Time.realtimeSinceStartup;
+            if (now < _nextPhysicalProxyAttemptAt)
+            {
+                return false;
+            }
+            _nextPhysicalProxyAttemptAt = now + PhysicalProxyRetryIntervalSeconds;
+
+            var preparation = RuntimeTacticalLocationAdapter.PrepareForLocalMapSelection(
+                _latitude,
+                _longitude);
+            if (!preparation.Succeeded)
+            {
+                _physicalProxyError = preparation.ErrorMessage;
+                return now >= _physicalProxyDeadlineAt;
+            }
+            if (UsesTerrainSurface()
+                && preparation.Payload?.Terrain.PlacementReady != true)
+            {
+                _physicalProxyError = string.Equals(
+                        preparation.Payload?.Terrain.Postcondition,
+                        "terrain-sample-is-water",
+                        StringComparison.Ordinal)
+                    ? "target position does not resolve to land terrain"
+                    : "target terrain is streaming";
+                return now >= _physicalProxyDeadlineAt;
+            }
+
+            if (string.Equals(_relationship, "HostileContact", StringComparison.Ordinal))
+            {
+                EnsureContactEstimateProxy();
+            }
+            else
+            {
+                EnsureWorldModel();
+            }
+            if (!WorldModelVisible)
+            {
+                return now >= _physicalProxyDeadlineAt;
+            }
+
+            FocusWorldModel();
+            Debug.Log(
+                $"[Sea Power Runtime Bridge] selected campaign proxy '{_name}' and focused its local visual model.");
+            return true;
+        }
+
+        private void FocusWorldModel()
+        {
+            if (_root is null || !Singleton<RenderPosition>.InstanceExists())
+            {
+                return;
+            }
+
+            var renderPosition = Singleton<RenderPosition>.Instance;
+            renderPosition.setGlobalPosition(PresentationPosition());
+            renderPosition.switchToPivot(_root);
         }
 
         private void EnsureContactEstimateProxy()
@@ -921,13 +1095,7 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         private sealed class CampaignMapSymbolItem : MissionEditorMapSymbolItem, IMapSelectable
         {
-            private readonly Action _onSelected;
             private bool _selected;
-
-            public CampaignMapSymbolItem(Action onSelected)
-            {
-                _onSelected = onSelected;
-            }
 
             public void SetLabel(string label)
             {
@@ -942,14 +1110,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             public bool Selected
             {
                 get => _selected;
-                set
-                {
-                    _selected = value;
-                    if (value)
-                    {
-                        _onSelected();
-                    }
-                }
+                set => _selected = value;
             }
         }
     }

@@ -156,7 +156,7 @@ public sealed class UnattendedCampaignIntegrationTests
             var submarineGroupId = submarineGroup.GetProperty("groupId").GetString()!;
             var helicopterEntityIds = root.GetProperty("friendlyEntities").EnumerateArray()
                 .Where(item => item.GetProperty("name").GetString()
-                    is "NATO maritime helicopter flight 003" or "NATO maritime helicopter flight 004")
+                    is "USN SH-2F 003" or "USN SH-3H 004")
                 .ToDictionary(
                     item => item.GetProperty("name").GetString()!,
                     item => item.GetProperty("entityId").GetString()!,
@@ -465,8 +465,8 @@ public sealed class UnattendedCampaignIntegrationTests
                 new[]
                 {
                     "Confirmed surface contact",
-                    "NATO maritime helicopter flight 001",
-                    "NATO maritime helicopter flight 002",
+                    "USN SH-2F 001",
+                    "USN SH-3H 002",
                     "USS Spruance",
                     "USS Yorktown",
                 },
