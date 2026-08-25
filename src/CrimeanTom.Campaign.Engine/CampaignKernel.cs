@@ -469,12 +469,8 @@ public static class CampaignKernel
             (AssignmentLifecycle.Quiescing, AssignmentLifecycle.Quiesced) => true,
             (AssignmentLifecycle.Preparing, AssignmentLifecycle.Released) => true,
             (AssignmentLifecycle.Prepared, AssignmentLifecycle.Released) => true,
-            (AssignmentLifecycle.Quiesced, AssignmentLifecycle.Released)
-                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
-                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
-            (AssignmentLifecycle.Active, AssignmentLifecycle.Released)
-                when value.EffectiveAt.Quanta >= assignment.EffectiveAt.Quanta
-                    + CampaignSchema.MaximumTacticalAssignmentQuanta => true,
+            (AssignmentLifecycle.Quiesced, AssignmentLifecycle.Released) => true,
+            (AssignmentLifecycle.Active, AssignmentLifecycle.Released) => true,
             _ => false,
         };
         if (!validTransition)

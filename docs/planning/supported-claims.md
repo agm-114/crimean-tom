@@ -42,8 +42,10 @@ or complete Sea Power parity.
 
 ## Authority and local synchronization
 
-- A healthy companion heartbeat renews one tactical assignment lease while the
-  campaign service advances unrelated entities.
+- An eligible companion heartbeat keeps a tactical assignment lease live while
+  the campaign service advances unrelated entities. Eight seconds without an
+  eligible heartbeat starts a 12-second wall-clock grace period. The assignment
+  remains fenced until reconnect or grace expiry.
 - Stale assignment epochs are rejected. Expired authority can return to the
   accepted checkpoint or Operational fallback.
 - The owned ship/submarine proof of concept can publish changed readbacks for pose,

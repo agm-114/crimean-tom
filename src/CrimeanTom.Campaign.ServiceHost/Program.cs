@@ -296,6 +296,7 @@ app.MapGet("/health", (CampaignSessionRegistry sessions) => Results.Ok(new
     status = "ok",
     protocolVersion = 1,
     grpcUrl = grpcUri.ToString(),
+    tacticalLeasePolicy = sessions.TacticalLeasePolicy,
     session = sessions.Snapshot(),
     sessions = sessions.Snapshots(),
 }));

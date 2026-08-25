@@ -9,6 +9,10 @@ public sealed class CampaignSessionRegistry
     private readonly object _gate = new();
     private readonly Dictionary<string, CampaignCompanionSession> _activeByClient =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<TacticalLeaseKey, DateTimeOffset> _tacticalLeaseGraceDeadlines = [];
+    private readonly CampaignTacticalLeasePolicy _tacticalLeasePolicy = CampaignTacticalLeasePolicy.Load();
+
+    public CampaignTacticalLeasePolicy TacticalLeasePolicy => _tacticalLeasePolicy;
 
     public CampaignCompanionSession Open(CompanionHello hello)
     {
@@ -18,7 +22,7 @@ public sealed class CampaignSessionRegistry
             {
                 prior.Complete("client-session-replaced");
             }
-            var session = new CampaignCompanionSession(hello);
+            var session = new CampaignCompanionSession(hello, _tacticalLeasePolicy);
             _activeByClient.Add(hello.ClientInstanceId, session);
             return session;
         }
@@ -32,6 +36,7 @@ public sealed class CampaignSessionRegistry
                 && ReferenceEquals(active, session))
             {
                 _activeByClient.Remove(session.Hello.ClientInstanceId);
+                StartTacticalLeaseGrace(session.Hello, DateTimeOffset.UtcNow);
             }
             session.Complete("session-closed");
         }
@@ -46,6 +51,7 @@ public sealed class CampaignSessionRegistry
                 return false;
             }
 
+            StartTacticalLeaseGrace(session.Hello, DateTimeOffset.UtcNow);
             session.Complete(reason);
             return true;
         }
@@ -87,29 +93,56 @@ public sealed class CampaignSessionRegistry
         }
     }
 
-    public bool HasLiveTacticalLease(string campaignId, string clientInstanceId)
+    public CampaignTacticalLeaseState TacticalLeaseState(
+        string campaignId,
+        string clientInstanceId)
     {
         if (string.IsNullOrWhiteSpace(campaignId) || string.IsNullOrWhiteSpace(clientInstanceId))
         {
-            return false;
+            return CampaignTacticalLeaseState.Expired;
         }
 
         lock (_gate)
         {
-            if (!_activeByClient.TryGetValue(clientInstanceId, out var session)
-                || !string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal))
+            var key = new TacticalLeaseKey(campaignId, clientInstanceId);
+            if (_activeByClient.TryGetValue(clientInstanceId, out var session)
+                && string.Equals(session.Hello.CampaignId, campaignId, StringComparison.Ordinal)
+                && IsLiveTacticalLease(session.Snapshot()))
             {
-                return false;
+                _tacticalLeaseGraceDeadlines.Remove(key);
+                return new CampaignTacticalLeaseState(
+                    Live: true,
+                    InGrace: false,
+                    GraceExpiresAt: null,
+                    _tacticalLeasePolicy.HeartbeatStaleAfter,
+                    _tacticalLeasePolicy.GracePeriod);
             }
 
-            var snapshot = session.Snapshot();
-            var health = CampaignWorkerHealth.NormalizeHealth(snapshot.Health);
-            return snapshot.PlayerSessionBound
-                && !string.IsNullOrWhiteSpace(snapshot.GameSessionId)
-                && health is CampaignWorkerHealth.Healthy
-                    or CampaignWorkerHealth.Pressured
-                    or CampaignWorkerHealth.Overloaded
-                    or CampaignWorkerHealth.Draining;
+            var now = DateTimeOffset.UtcNow;
+            if (!_tacticalLeaseGraceDeadlines.TryGetValue(key, out var deadline))
+            {
+                deadline = now + _tacticalLeasePolicy.GracePeriod;
+                _tacticalLeaseGraceDeadlines.Add(key, deadline);
+            }
+            var inGrace = now < deadline;
+            return new CampaignTacticalLeaseState(
+                Live: false,
+                InGrace: inGrace,
+                GraceExpiresAt: deadline,
+                _tacticalLeasePolicy.HeartbeatStaleAfter,
+                _tacticalLeasePolicy.GracePeriod);
+        }
+    }
+
+    public void CompleteTacticalLease(string campaignId, string clientInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(campaignId) || string.IsNullOrWhiteSpace(clientInstanceId))
+        {
+            return;
+        }
+        lock (_gate)
+        {
+            _tacticalLeaseGraceDeadlines.Remove(new TacticalLeaseKey(campaignId, clientInstanceId));
         }
     }
 
@@ -176,6 +209,7 @@ public sealed class CampaignSessionRegistry
                     && ReferenceEquals(active, session))
                 {
                     _activeByClient.Remove(session.Hello.ClientInstanceId);
+                    StartTacticalLeaseGrace(session.Hello, DateTimeOffset.UtcNow);
                 }
                 session.Complete("campaign-event-backpressure");
             }
@@ -198,6 +232,64 @@ public sealed class CampaignSessionRegistry
             .Select(item => item.Session)
             .FirstOrDefault();
     }
+
+    private static bool IsLiveTacticalLease(CampaignSessionSnapshot snapshot)
+    {
+        var health = CampaignWorkerHealth.NormalizeHealth(snapshot.Health);
+        return snapshot.PlayerSessionBound
+            && !string.IsNullOrWhiteSpace(snapshot.GameSessionId)
+            && health is CampaignWorkerHealth.Healthy
+                or CampaignWorkerHealth.Pressured
+                or CampaignWorkerHealth.Overloaded
+                or CampaignWorkerHealth.Draining;
+    }
+
+    private void StartTacticalLeaseGrace(CompanionHello hello, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(hello.CampaignId)
+            || string.IsNullOrWhiteSpace(hello.ClientInstanceId))
+        {
+            return;
+        }
+        var key = new TacticalLeaseKey(hello.CampaignId, hello.ClientInstanceId);
+        _tacticalLeaseGraceDeadlines.TryAdd(key, now + _tacticalLeasePolicy.GracePeriod);
+    }
+
+    private readonly record struct TacticalLeaseKey(string CampaignId, string ClientInstanceId);
+}
+
+public sealed record CampaignTacticalLeasePolicy(
+    TimeSpan HeartbeatStaleAfter,
+    TimeSpan GracePeriod)
+{
+    public static CampaignTacticalLeasePolicy Load() => new(
+        TimeSpan.FromSeconds(8),
+        TimeSpan.FromMilliseconds(ParseGraceMilliseconds()));
+
+    private static int ParseGraceMilliseconds()
+    {
+        var value = Environment.GetEnvironmentVariable("CRIMEAN_TOM_TACTICAL_LEASE_GRACE_MS");
+        return int.TryParse(value, out var parsed) && parsed is >= 100 and <= 300_000
+            ? parsed
+            : 12_000;
+    }
+}
+
+public sealed record CampaignTacticalLeaseState(
+    bool Live,
+    bool InGrace,
+    DateTimeOffset? GraceExpiresAt,
+    TimeSpan HeartbeatStaleAfter,
+    TimeSpan GracePeriod)
+{
+    public bool HoldsAuthority => Live || InGrace;
+
+    public static CampaignTacticalLeaseState Expired { get; } = new(
+        Live: false,
+        InGrace: false,
+        GraceExpiresAt: null,
+        HeartbeatStaleAfter: TimeSpan.Zero,
+        GracePeriod: TimeSpan.Zero);
 }
 
 public sealed record CampaignBroadcastResult(int MatchedSessionCount, int QueuedSessionCount)
@@ -208,7 +300,7 @@ public sealed record CampaignBroadcastResult(int MatchedSessionCount, int Queued
 
 public sealed class CampaignCompanionSession
 {
-    private static readonly TimeSpan HeartbeatStaleAfter = TimeSpan.FromSeconds(8);
+    private readonly CampaignTacticalLeasePolicy _tacticalLeasePolicy;
     private readonly object _capabilityGate = new();
     private readonly Channel<ServiceFrame> _outgoing = Channel.CreateBounded<ServiceFrame>(new BoundedChannelOptions(256)
     {
@@ -242,9 +334,12 @@ public sealed class CampaignCompanionSession
     private Dictionary<string, ObservedCouplingRelationship> _couplingRelationships =
         new(StringComparer.Ordinal);
 
-    public CampaignCompanionSession(CompanionHello hello)
+    public CampaignCompanionSession(
+        CompanionHello hello,
+        CampaignTacticalLeasePolicy tacticalLeasePolicy)
     {
         Hello = hello.Clone();
+        _tacticalLeasePolicy = tacticalLeasePolicy;
         SessionId = Guid.NewGuid().ToString("N");
         ConnectedAt = DateTimeOffset.UtcNow;
         _lastHeartbeatAt = ConnectedAt;
@@ -406,7 +501,7 @@ public sealed class CampaignCompanionSession
             var health = _health;
             var eligibility = _eligibility;
             if (_lastHeartbeatAt != default
-                && DateTimeOffset.UtcNow - _lastHeartbeatAt > HeartbeatStaleAfter)
+                && DateTimeOffset.UtcNow - _lastHeartbeatAt > _tacticalLeasePolicy.HeartbeatStaleAfter)
             {
                 health = CampaignWorkerHealth.Offline;
                 eligibility = CampaignWorkerHealth.Disabled;

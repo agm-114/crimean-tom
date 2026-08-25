@@ -107,9 +107,11 @@ Campaign time advances in fixed logical quanta at a declared tempo. Sea Power
 may use its supported native fixed timestep inside the tactical process.
 
 A tactical session sends heartbeats. Healthy heartbeats renew the island lease.
-The rest of the campaign continues in parallel. A missed heartbeat starts a
-grace period; it does not transfer authority immediately. After the service
-fences the stale epoch, recovery uses the last accepted checkpoint or an
+The rest of the campaign continues in parallel. The service marks a session
+stale after eight seconds without an eligible heartbeat, then keeps its island
+fenced for a 12-second wall-clock grace period. Reconnecting with the same
+campaign and client identity during grace restores the live lease. After grace,
+the service fences the stale epoch and uses the last accepted checkpoint or an
 explicit Operational fallback.
 
 Loading and inspecting a campaign never advances it. A new or restored campaign

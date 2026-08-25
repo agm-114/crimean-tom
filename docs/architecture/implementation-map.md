@@ -53,10 +53,12 @@ orders. All Operational ticks still execute in the service process.
 
 ## Implemented Sea Power path
 
-The service assigns and fences interaction islands. Companion heartbeats renew
-the local tactical lease while the service advances unrelated entities. When
-the heartbeat expires, the system can release stale authority and fall back to
-the accepted checkpoint or Operational state.
+The service assigns and fences interaction islands. Eligible companion
+heartbeats keep the local tactical lease live while the service advances
+unrelated entities. Eight seconds without an eligible heartbeat starts a
+12-second wall-clock grace period. The island stays fenced during grace. A
+reconnect clears it; expiry releases stale authority and falls back to the
+accepted checkpoint or Operational state.
 
 The bridge can materialize allow-listed owned ship, submarine, and airborne
 helicopter profiles, plus several terrain-gated ground or installation

@@ -29,6 +29,7 @@ public sealed class CompanionControlIntegrationTests
         new Dictionary<string, string>
         {
             ["CRIMEAN_TOM_MIGRATION_COOLDOWN_QUANTA"] = MigrationCooldownEnvironmentValue,
+            ["CRIMEAN_TOM_TACTICAL_LEASE_GRACE_MS"] = "2000",
         };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -2507,14 +2508,43 @@ public sealed class CompanionControlIntegrationTests
                 skipBuild: true,
                 stopBeforeFallback.Token);
             Assert.True(stoppedCompanion.ExitCode == 0, stoppedCompanion.FormatFailure("stop-before-fallback"));
-            using var fallbackResponse = await campaignClient.PostAsync(
+            using var graceResponse = await campaignClient.PostAsync(
                 $"/control/campaigns/{campaignId}/resolve-expired/270",
+                content: null,
+                testTimeout.Token);
+            graceResponse.EnsureSuccessStatusCode();
+            using (var grace = JsonDocument.Parse(
+                await graceResponse.Content.ReadAsStringAsync(testTimeout.Token)))
+            {
+                Assert.Equal(270, grace.RootElement.GetProperty("timeQuanta").GetInt64());
+                Assert.Empty(grace.RootElement.GetProperty("assignments").EnumerateArray());
+            }
+            using (var graceViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token))
+            {
+                graceViewResponse.EnsureSuccessStatusCode();
+                using var graceView = JsonDocument.Parse(
+                    await graceViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+                var graceAssignment = Assert.Single(
+                    graceView.RootElement.GetProperty("assignments").EnumerateArray(),
+                    item => item.GetProperty("assignmentId").GetString()
+                        == fallbackAssignmentId["assignment:".Length..]);
+                Assert.Equal("Active", graceAssignment.GetProperty("lifecycle").GetString());
+                Assert.False(graceAssignment.GetProperty("leaseLive").GetBoolean());
+                Assert.True(graceAssignment.GetProperty("leaseInGrace").GetBoolean());
+                Assert.Equal(JsonValueKind.String, graceAssignment.GetProperty("leaseGraceExpiresAt").ValueKind);
+            }
+
+            await Task.Delay(2_200, testTimeout.Token);
+            using var fallbackResponse = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/resolve-expired/280",
                 content: null,
                 testTimeout.Token);
             fallbackResponse.EnsureSuccessStatusCode();
             using var fallback = JsonDocument.Parse(
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(270, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Equal(280, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
             var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
             Assert.Single(fallbackAssignments);
             var fallbackAssignment = Assert.Single(fallbackAssignments, item =>

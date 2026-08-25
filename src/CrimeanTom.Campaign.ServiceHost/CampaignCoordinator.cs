@@ -1222,20 +1222,29 @@ public sealed class CampaignCoordinator(
                 item.NextDirectorAt.Quanta,
                 item.Epoch,
                 item.Revision.Value)).ToArray(),
-            state.Assignments.Values.Select(item => new CampaignAssignmentView(
-                item.AssignmentId.ToString(),
-                item.EntityId.ToString(),
-                item.AuthorityEpoch.Value,
-                item.Role.ToString(),
-                item.Lifecycle.ToString(),
-                item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
-                item.Revision.Value,
-                item.BatchId,
-                item.BatchSize,
-                item.WorkerClientInstanceId,
-                sessions.HasLiveTacticalLease(
-                    state.Metadata.CampaignId.ToString(),
-                    item.WorkerClientInstanceId))).ToArray(),
+            state.Assignments.Values.Select(item =>
+            {
+                var lease = item.Lifecycle == AssignmentLifecycle.Released
+                    || CampaignAssignmentKinds.IsOperationalSim(item)
+                        ? CampaignTacticalLeaseState.Expired
+                        : sessions.TacticalLeaseState(
+                            state.Metadata.CampaignId.ToString(),
+                            item.WorkerClientInstanceId);
+                return new CampaignAssignmentView(
+                    item.AssignmentId.ToString(),
+                    item.EntityId.ToString(),
+                    item.AuthorityEpoch.Value,
+                    item.Role.ToString(),
+                    item.Lifecycle.ToString(),
+                    CampaignSchema.MaximumTacticalRollbackQuanta,
+                    item.Revision.Value,
+                    item.BatchId,
+                    item.BatchSize,
+                    item.WorkerClientInstanceId,
+                    lease.Live,
+                    lease.InGrace,
+                    lease.GraceExpiresAt);
+            }).ToArray(),
             state.RecentOperationalOutcomes.Select(item => new CampaignOperationalOutcomeView(
                 item.OutcomeId,
                 item.OccurredAt.Quanta,
@@ -3422,81 +3431,73 @@ public sealed class CampaignCoordinator(
                 throw new CampaignStoreConflict("fallback-time-stale", "Fallback cannot run before campaign time.");
             }
             var reports = new List<CampaignFallbackAssignment>();
-            while (true)
+            var pending = state.Assignments.Values
+                .Where(item => item.Lifecycle != AssignmentLifecycle.Released
+                    && !CampaignAssignmentKinds.IsOperationalSim(item))
+                .Select(item => new
+                {
+                    Assignment = item,
+                    Lease = sessions.TacticalLeaseState(
+                        campaignId.ToString(),
+                        item.WorkerClientInstanceId),
+                })
+                .Where(item => !item.Lease.HoldsAuthority)
+                .OrderBy(item => item.Assignment.AssignmentId.Value)
+                .ToArray();
+            foreach (var due in pending)
             {
-                var pending = state.Assignments.Values
-                    .Where(item => item.Lifecycle != AssignmentLifecycle.Released
-                        && !CampaignAssignmentKinds.IsOperationalSim(item)
-                        && !sessions.HasLiveTacticalLease(
-                            campaignId.ToString(),
-                            item.WorkerClientInstanceId))
-                    .Select(item => new
-                    {
-                        Assignment = item,
-                        Deadline = item.EffectiveAt.Quanta + CampaignSchema.MaximumTacticalAssignmentQuanta,
-                    })
-                    .Where(item => item.Deadline <= target.Quanta)
-                    .OrderBy(item => item.Deadline)
-                    .ThenBy(item => item.Assignment.AssignmentId.Value)
-                    .ToArray();
-                if (pending.Length == 0)
-                {
-                    break;
-                }
-                var deadline = pending[0].Deadline;
-                if (state.Time.Quanta < deadline)
+                var assignment = state.Assignments[due.Assignment.AssignmentId];
+                state = await CommitAsync(state, Command(
+                    state,
+                    CampaignSubject.Assignment(assignment.AssignmentId),
+                    assignment.Revision,
+                    new SetAssignmentLifecycleCommand(
+                        assignment.AssignmentId,
+                        assignment.AuthorityEpoch,
+                        AssignmentLifecycle.Released,
+                        state.Time),
+                    $"fallback-release-{assignment.AssignmentId}-{state.Time.Quanta}"), cancellationToken);
+                var entity = state.Entities[assignment.EntityId];
+                var stillFenced = state.Assignments.Values.Any(item =>
+                    item.EntityId == entity.EntityId
+                    && !CampaignAssignmentKinds.IsOperationalSim(item)
+                    && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
+                        or AssignmentLifecycle.Quiesced);
+                if (entity.Fidelity != FidelityState.Operational && !stillFenced)
                 {
                     state = await CommitAsync(state, Command(
                         state,
-                        CampaignSubject.Campaign(campaignId),
-                        state.CampaignRevision,
-                        new SimulateCampaignCommand(new CampaignTime(deadline)),
-                        $"fallback-advance-{deadline}",
-                        new CampaignTime(deadline)), cancellationToken);
+                        CampaignSubject.Entity(entity.EntityId),
+                        entity.Revision,
+                        new ChangeFidelityCommand(entity.EntityId, FidelityState.Operational),
+                        $"fallback-operational-{assignment.AssignmentId}-{state.Time.Quanta}"), cancellationToken);
                 }
-                foreach (var due in pending.Where(item => item.Deadline == deadline))
+                var checkpoint = await journal.ReadLatestBlobReferenceAsync(
+                    campaignId,
+                    CampaignBlobPurpose.TacticalCheckpoint,
+                    $"assignment:{assignment.AssignmentId}/",
+                    cancellationToken);
+                reports.Add(new CampaignFallbackAssignment(
+                    $"assignment:{assignment.AssignmentId}",
+                    assignment.EntityId.ToString(),
+                    state.Time.Quanta,
+                    CampaignSchema.MaximumTacticalRollbackQuanta,
+                    checkpoint?.CommitPosition.Value,
+                    checkpoint?.Sha256,
+                    checkpoint is null
+                        ? "operational-resolution-without-worker-checkpoint"
+                        : "operational-resolution-from-last-committed-checkpoint"));
+                if (!state.Assignments.Values.Any(item =>
+                    item.Lifecycle != AssignmentLifecycle.Released
+                    && !CampaignAssignmentKinds.IsOperationalSim(item)
+                    && string.Equals(
+                        item.WorkerClientInstanceId,
+                        assignment.WorkerClientInstanceId,
+                        StringComparison.Ordinal)))
                 {
-                    var assignment = state.Assignments[due.Assignment.AssignmentId];
-                    state = await CommitAsync(state, Command(
-                        state,
-                        CampaignSubject.Assignment(assignment.AssignmentId),
-                        assignment.Revision,
-                        new SetAssignmentLifecycleCommand(
-                            assignment.AssignmentId,
-                            assignment.AuthorityEpoch,
-                            AssignmentLifecycle.Released,
-                            state.Time),
-                        $"fallback-release-{assignment.AssignmentId}-{deadline}"), cancellationToken);
-                    var entity = state.Entities[assignment.EntityId];
-                    var stillFenced = state.Assignments.Values.Any(item =>
-                        item.EntityId == entity.EntityId
-                        && !CampaignAssignmentKinds.IsOperationalSim(item)
-                        && item.Lifecycle is AssignmentLifecycle.Active or AssignmentLifecycle.Quiescing
-                            or AssignmentLifecycle.Quiesced);
-                    if (entity.Fidelity != FidelityState.Operational && !stillFenced)
-                    {
-                        state = await CommitAsync(state, Command(
-                            state,
-                            CampaignSubject.Entity(entity.EntityId),
-                            entity.Revision,
-                            new ChangeFidelityCommand(entity.EntityId, FidelityState.Operational),
-                            $"fallback-operational-{assignment.AssignmentId}-{deadline}"), cancellationToken);
-                    }
-                    var checkpoint = await journal.ReadLatestBlobReferenceAsync(
-                        campaignId,
-                        CampaignBlobPurpose.TacticalCheckpoint,
-                        $"assignment:{assignment.AssignmentId}/",
-                        cancellationToken);
-                    reports.Add(new CampaignFallbackAssignment(
-                        $"assignment:{assignment.AssignmentId}",
-                        assignment.EntityId.ToString(),
-                        deadline,
-                        CampaignSchema.MaximumTacticalAssignmentQuanta,
-                        checkpoint?.CommitPosition.Value,
-                        checkpoint?.Sha256,
-                        checkpoint is null
-                            ? "operational-resolution-without-worker-checkpoint"
-                            : "operational-resolution-from-last-committed-checkpoint"));
+                    sessions.CompleteTacticalLease(
+                        campaignId.ToString(),
+                        assignment.WorkerClientInstanceId);
                 }
             }
             if (state.Time.Quanta < target.Quanta)
@@ -5210,12 +5211,14 @@ public sealed record CampaignAssignmentView(
     long AuthorityEpoch,
     string Role,
     string Lifecycle,
-    long ResolveByQuanta,
+    long MaximumRollbackQuanta,
     long Revision,
     string BatchId,
     int BatchSize,
     string WorkerClientInstanceId,
-    bool LeaseLive);
+    bool LeaseLive,
+    bool LeaseInGrace,
+    DateTimeOffset? LeaseGraceExpiresAt);
 
 public sealed record CampaignFallbackResult(
     long CommitPosition,
