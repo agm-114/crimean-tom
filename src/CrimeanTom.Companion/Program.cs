@@ -165,6 +165,26 @@ app.MapGet("/game/memory", (GamePipeBroker broker, CancellationToken cancellatio
         CommandPriorities.Bulk,
         cancellationToken));
 
+app.MapGet("/game/position-watch", (
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandAsync(
+        broker,
+        GameCommandTypes.GetPositionWatch,
+        CommandPriorities.Bulk,
+        cancellationToken));
+
+app.MapPost("/game/position-watch", (
+    PositionWatchRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+    SendCommandWithPayloadAsync(
+        broker,
+        GameCommandTypes.SetPositionWatch,
+        JsonSerializer.Serialize(request, wireJsonOptions),
+        CommandPriorities.Control,
+        cancellationToken));
+
 app.MapPost("/game/terrain/probe", (
     TerrainPlacementProbeRequestPayload request,
     GamePipeBroker broker,
@@ -706,12 +726,28 @@ app.MapPost("/game/mutations/surface/recovery/release", (
     GamePipeBroker broker,
     CancellationToken cancellationToken) =>
 {
-    var validationError = ValidateOwnedRecoveryReleaseRequest(request, broker);
+    var validationError = ValidateOwnedEntityFenceRequest(request, broker);
     return validationError is not null
         ? Task.FromResult(validationError)
         : SendCommandWithPayloadAsync(
             broker,
             GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery,
+            JsonSerializer.Serialize(request, wireJsonOptions),
+            CommandPriorities.Control,
+            cancellationToken);
+});
+
+app.MapPost("/game/mutations/surface/materialization/rollback", (
+    OwnedSurfaceEntityRequestPayload request,
+    GamePipeBroker broker,
+    CancellationToken cancellationToken) =>
+{
+    var validationError = ValidateOwnedEntityFenceRequest(request, broker);
+    return validationError is not null
+        ? Task.FromResult(validationError)
+        : SendCommandWithPayloadAsync(
+            broker,
+            GameCommandTypes.RollbackIncompleteOwnedMaterialization,
             JsonSerializer.Serialize(request, wireJsonOptions),
             CommandPriorities.Control,
             cancellationToken);
@@ -1135,7 +1171,7 @@ static IResult? ValidateOwnedLifecycleRequest(
     return null;
 }
 
-static IResult? ValidateOwnedRecoveryReleaseRequest(
+static IResult? ValidateOwnedEntityFenceRequest(
     OwnedSurfaceEntityRequestPayload request,
     GamePipeBroker broker)
 {
@@ -1145,7 +1181,7 @@ static IResult? ValidateOwnedRecoveryReleaseRequest(
         return Results.Json(new
         {
             error = ProtocolErrorCodes.InvalidMessage,
-            message = "The detached recovery release context is required.",
+            message = "The owned entity mutation context is required.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     var sessionError = ValidateMutationSession(context.SessionId, broker);
@@ -1167,7 +1203,7 @@ static IResult? ValidateOwnedRecoveryReleaseRequest(
         return Results.Json(new
         {
             error = ProtocolErrorCodes.InvalidMessage,
-            message = "The detached recovery release identity or fence is invalid.",
+            message = "The owned entity mutation identity or fence is invalid.",
         }, statusCode: StatusCodes.Status400BadRequest);
     }
     return null;

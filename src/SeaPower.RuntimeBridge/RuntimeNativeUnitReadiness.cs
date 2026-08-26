@@ -10,7 +10,7 @@ internal static class RuntimeNativeUnitReadiness
         AccessTools.Field(typeof(ObjectBase), "_canUpdate");
 
     public static bool IsInitialized(ObjectBase? unit) =>
-        unit is not null
+        unit != null
         && unit._obp is not null
         && CanUpdateField?.GetValue(unit) is true;
 
@@ -24,4 +24,32 @@ internal static class RuntimeNativeUnitReadiness
         }
         && unit.AcceptsOrdersFromPlayer
         && unit._userRoot is not null;
+
+    public static bool HasInitializedStores(ObjectBase? unit)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+        if (unit._obp is null || unit._obp._weaponSystems.Count == 0)
+        {
+            return true;
+        }
+
+        return unit.AmmunitionAmountDictionary.Values.Any(quantity => quantity > 0);
+    }
+
+    public static bool AirborneRequirementSatisfied(ObjectBase? unit)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+        return unit switch
+        {
+            Aircraft aircraft => aircraft._isInFlight,
+            Helicopter helicopter => helicopter._isInFlight,
+            _ => true,
+        };
+    }
 }

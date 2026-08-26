@@ -426,7 +426,7 @@ public sealed class StageOwnedSurfaceCheckpointRequestPayload
 
 public sealed class OwnedSurfaceResourceStatePayload
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 6;
     public int OwnedRecordCount { get; set; }
     public int ActiveObjectCount { get; set; }
     public int SuspendedRetainedObjectCount { get; set; }
@@ -449,10 +449,24 @@ public sealed class OwnedSurfaceResourceEntryPayload
     public string LifecycleState { get; set; } = string.Empty;
     public bool HasCheckpoint { get; set; }
     public bool RecoveryRequired { get; set; }
+    public bool MaterializationRollbackPending { get; set; }
     public bool NativeInitialized { get; set; }
     public bool AcceptsPlayerOrders { get; set; }
+    public bool HasNativeControl { get; set; }
+    public bool NativeStoresInitialized { get; set; }
+    public bool IsAircraftInFlight { get; set; }
+    public string UnitTypeId { get; set; } = string.Empty;
+    public string VariantId { get; set; } = string.Empty;
+    public string LoadoutId { get; set; } = string.Empty;
+    public long AmmunitionQuantity { get; set; }
     public int? GameUniqueId { get; set; }
     public string? HostEntityId { get; set; }
+    public bool HasPosition { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double HeadingDegrees { get; set; }
+    public double HorizontalDistanceFromOriginMeters { get; set; }
+    public bool IsSelectedByPlayer { get; set; }
 }
 
 public sealed class ReconcileSurfaceRenderProxiesRequestPayload
@@ -543,7 +557,7 @@ public sealed class SurfaceRenderProxyStatePayload
 
 public sealed class SurfaceRenderProxySnapshotPayload
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public string RepresentationProvider { get; set; } = string.Empty;
     public long AppliedProjectionGeneration { get; set; }
     public long AppliedProjectionRevision { get; set; }
@@ -553,6 +567,13 @@ public sealed class SurfaceRenderProxySnapshotPayload
     public long MaximumProjectionSliceMicroseconds { get; set; }
     public int LastProjectionUpsertCount { get; set; }
     public int LastProjectionRemovalCount { get; set; }
+    public int LastViewportTotalRecordCount { get; set; }
+    public int LastViewportPrefilteredRecordCount { get; set; }
+    public int LastViewportHitCandidateCount { get; set; }
+    public int LastViewportAttachedMarkerCount { get; set; }
+    public long LastViewportRefreshMicroseconds { get; set; }
+    public long LastViewportMaximumSliceMicroseconds { get; set; }
+    public long MaximumViewportSliceMicroseconds { get; set; }
     public SurfaceRenderProxyStatePayload[] Proxies { get; set; } =
         Array.Empty<SurfaceRenderProxyStatePayload>();
 }
@@ -568,6 +589,36 @@ public sealed class OwnedSurfaceRecoveryReleaseResultPayload
     public long Revision { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public bool IdempotentReplay { get; set; }
+}
+
+public sealed class RollbackIncompleteOwnedMaterializationResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool IdempotentReplay { get; set; }
+    public bool NativeObjectRemoved { get; set; }
+    public long SynchronousDurationMicroseconds { get; set; }
+}
+
+public sealed class ReleaseCommittedOwnedResourceResultPayload
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Outcome { get; set; } = string.Empty;
+    public string Postcondition { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string AssignmentId { get; set; } = string.Empty;
+    public long AuthorityEpoch { get; set; }
+    public long Revision { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public bool IdempotentReplay { get; set; }
+    public bool NativeObjectRemoved { get; set; }
+    public long SynchronousDurationMicroseconds { get; set; }
 }
 
 public sealed class OwnedSurfaceCheckpointPayload
@@ -922,6 +973,176 @@ public sealed class RuntimeMemoryLargeAssetPayload
     public string Name { get; set; } = string.Empty;
 
     public long EstimatedRuntimeBytes { get; set; }
+}
+
+public sealed class PositionWatchRequestPayload
+{
+    public bool Enabled { get; set; }
+
+    public string[] EntityIds { get; set; } = Array.Empty<string>();
+
+    public bool UseSelectedEntity { get; set; } = true;
+
+    public bool ClearSamples { get; set; } = true;
+
+    public int MaximumSamples { get; set; } = 2_000;
+
+    public bool EmitPlayerLog { get; set; }
+
+    public string[] Phases { get; set; } = Array.Empty<string>();
+}
+
+public sealed class PositionWatchStatePayload
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public bool Enabled { get; set; }
+
+    public long StartedAtUnixMilliseconds { get; set; }
+
+    public long CapturedAtUnixMilliseconds { get; set; }
+
+    public int MaximumSamples { get; set; }
+
+    public int DroppedSampleCount { get; set; }
+
+    public bool EmitPlayerLog { get; set; }
+
+    public string[] AvailablePhases { get; set; } = Array.Empty<string>();
+
+    public string[] ActivePhases { get; set; } = Array.Empty<string>();
+
+    public string[] RequestedEntityIds { get; set; } = Array.Empty<string>();
+
+    public string[] ResolvedEntityIds { get; set; } = Array.Empty<string>();
+
+    public string[] UnresolvedEntityIds { get; set; } = Array.Empty<string>();
+
+    public PositionWatchSamplePayload[] Samples { get; set; }
+        = Array.Empty<PositionWatchSamplePayload>();
+}
+
+public sealed class PositionWatchSamplePayload
+{
+    public long Sequence { get; set; }
+
+    public string Phase { get; set; } = string.Empty;
+
+    public int FrameCount { get; set; }
+
+    public double RealtimeSeconds { get; set; }
+
+    public double? SimulationTimeSeconds { get; set; }
+
+    public string EntityId { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public string ObjectType { get; set; } = string.Empty;
+
+    public bool IsSelected { get; set; }
+
+    public int CenterTileX { get; set; }
+
+    public int CenterTileY { get; set; }
+
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    public double Height { get; set; }
+
+    public double UnityX { get; set; }
+
+    public double UnityY { get; set; }
+
+    public double UnityZ { get; set; }
+
+    public double GeoUnityX { get; set; }
+
+    public double GeoUnityY { get; set; }
+
+    public double GeoUnityZ { get; set; }
+
+    public double GeoUnityError { get; set; }
+
+    public double RenderPivotX { get; set; }
+
+    public double RenderPivotY { get; set; }
+
+    public double RenderPivotZ { get; set; }
+
+    public double RenderPivotError { get; set; }
+
+    public double CameraX { get; set; }
+
+    public double CameraY { get; set; }
+
+    public double CameraZ { get; set; }
+
+    public double CameraToPivotX { get; set; }
+
+    public double CameraToPivotY { get; set; }
+
+    public double CameraToPivotZ { get; set; }
+
+    public double VisibleX { get; set; }
+
+    public double VisibleY { get; set; }
+
+    public double VisibleZ { get; set; }
+
+    public double VisibleLocalX { get; set; }
+
+    public double VisibleLocalY { get; set; }
+
+    public double VisibleLocalZ { get; set; }
+
+    public double VisibleToUnityError { get; set; }
+
+    public double LodX { get; set; }
+
+    public double LodY { get; set; }
+
+    public double LodZ { get; set; }
+
+    public double LodToUnityError { get; set; }
+
+    public double ResourceRootX { get; set; }
+
+    public double ResourceRootY { get; set; }
+
+    public double ResourceRootZ { get; set; }
+
+    public double ResourceRootToUnityError { get; set; }
+
+    public bool HasRigidbody { get; set; }
+
+    public double RigidbodyX { get; set; }
+
+    public double RigidbodyY { get; set; }
+
+    public double RigidbodyZ { get; set; }
+
+    public double RigidbodyToUnityError { get; set; }
+
+    public double UnitScreenX { get; set; }
+
+    public double UnitScreenY { get; set; }
+
+    public double UnitScreenDepth { get; set; }
+
+    public double VisibleScreenX { get; set; }
+
+    public double VisibleScreenY { get; set; }
+
+    public double VisibleScreenDepth { get; set; }
+
+    public double PitchDegrees { get; set; }
+
+    public double HeadingDegrees { get; set; }
+
+    public double RollDegrees { get; set; }
 }
 
 public sealed class TacticalCouplingStatePayload

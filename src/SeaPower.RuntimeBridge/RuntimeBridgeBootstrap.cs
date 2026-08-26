@@ -8,7 +8,7 @@ internal static class RuntimeBridgeBootstrap
 
     public static void EnsureCreated()
     {
-        if (UnityEngine.Object.FindAnyObjectByType<RuntimeBridgeBehaviour>() is not null)
+        if (UnityEngine.Object.FindAnyObjectByType<RuntimeBridgeBehaviour>() != null)
         {
             return;
         }

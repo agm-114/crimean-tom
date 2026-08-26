@@ -161,7 +161,7 @@ public sealed class CompanionControlIntegrationTests
             supportedClaimsResponse.EnsureSuccessStatusCode();
             using var supportedClaims = JsonDocument.Parse(
                 await supportedClaimsResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(19, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(21, supportedClaims.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 durabilityPolicy.RootElement.GetProperty("failoverClaim").GetString(),
                 supportedClaims.RootElement.GetProperty("failoverClaim").GetString());
@@ -1013,13 +1013,22 @@ public sealed class CompanionControlIntegrationTests
             AssertAnonymousPipeAccessDenied(gamePipeName);
             var couplingState = new FakeTacticalCouplingState();
             var tacticalCheckpointState = new FakeTacticalCheckpointState();
+            var ownedSurfaceResources = new FakeOwnedSurfaceResourceState();
             var gamePeer = RunGamePeerAsync(
                 gamePipeName,
                 probeSavePath,
                 couplingState,
+                ownedSurfaceResources,
+                runtimeFingerprintSha256: new string('a', 64),
+                catalogFingerprintSha256: "integration-catalog-sha256",
                 testTimeout.Token,
-                tacticalCheckpointState);
-            await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+                tacticalCheckpointState,
+                completionCheckpointIdempotencyKey: "fallback-materialize-1-checkpoint");
+            await WaitForConnectedGameOrPeerFailureAsync(
+                client,
+                token,
+                gamePeer,
+                testTimeout.Token);
             var firstCampaignSession = await WaitForCampaignSessionAsync(campaignClient, null, testTimeout.Token);
             using var initialCampaignView = await WaitForCampaignViewAsync(
                 campaignClient,
@@ -1409,6 +1418,27 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal("Eligible", recoveredScheduler.RootElement.GetProperty("scheduler").GetProperty("eligibility").GetString());
             Assert.Equal(1, recoveredScheduler.RootElement.GetProperty("scheduler").GetProperty("stableSampleCount").GetInt32());
 
+            Assert.True(ownedSurfaceResources.DetachAfterSceneLoss(gameEntityId));
+            using (var detachedResources = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/game/mutations/surface/resources",
+                testTimeout.Token))
+            {
+                var detachedResource = Assert.Single(
+                    detachedResources.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == gameEntityId);
+                Assert.Equal(
+                    "detached-after-scene-loss",
+                    detachedResource.GetProperty("lifecycleState").GetString());
+                Assert.False(detachedResource.GetProperty("nativeInitialized").GetBoolean());
+                Assert.False(detachedResource.GetProperty("acceptsPlayerOrders").GetBoolean());
+                Assert.False(detachedResource.GetProperty("hasNativeControl").GetBoolean());
+                Assert.False(detachedResource.GetProperty("nativeStoresInitialized").GetBoolean());
+                Assert.Equal(string.Empty, detachedResource.GetProperty("unitTypeId").GetString());
+                Assert.Equal(0, detachedResource.GetProperty("ammunitionQuantity").GetInt64());
+            }
+            var pauseCommandsBeforeDetachedFence = ownedSurfaceResources.ExperimentalPauseCommandCount;
             using var queuedQuiesce = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
                 new
@@ -1437,6 +1467,9 @@ public sealed class CompanionControlIntegrationTests
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.TacticalEvent
                 && item.TacticalEvent.AssignmentId == assignmentId
                 && item.TacticalEvent.Kind == TacticalEventKind.Checkpoint);
+            Assert.Equal(
+                pauseCommandsBeforeDetachedFence,
+                ownedSurfaceResources.ExperimentalPauseCommandCount);
             using var releasedView = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,
@@ -1461,11 +1494,12 @@ public sealed class CompanionControlIntegrationTests
             Assert.Equal(250_000, releasedPrimary.GetProperty("damageMilliunits").GetInt32());
             await WaitForCampaignResourceCountsAsync(
                 campaignClient,
-                materialized: 1,
+                materialized: 0,
                 active: 0,
-                retainedSuspended: 1,
+                retainedSuspended: 0,
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
+            ownedSurfaceResources.RestoreTacticalScene();
 
             using var batchPromotion = await campaignClient.PostAsJsonAsync(
                 $"/control/campaigns/{campaignId}/schedule",
@@ -1500,9 +1534,9 @@ public sealed class CompanionControlIntegrationTests
             Assert.All(activeBatchAssignments, item => Assert.Equal(2, item.GetProperty("batchSize").GetInt32()));
             await WaitForCampaignResourceCountsAsync(
                 campaignClient,
-                materialized: 3,
+                materialized: 2,
                 active: 2,
-                retainedSuspended: 1,
+                retainedSuspended: 0,
                 recoveryRequired: 0,
                 cancellationToken: testTimeout.Token);
             var activeBatchEntities = activeBatchView.RootElement.GetProperty("entities").EnumerateArray().ToArray();
@@ -1559,7 +1593,8 @@ public sealed class CompanionControlIntegrationTests
                     controlledEntityIds = Array.Empty<string>(),
                     health = "Healthy",
                     eligibility = "Eligible",
-                    tacticalEntityCapacity = 3,
+                    tacticalEntityCapacity = 4,
+                    tacticalReserveCapacity = 2,
                     backlogDepth = 0,
                 },
                 testTimeout.Token);
@@ -1592,19 +1627,18 @@ public sealed class CompanionControlIntegrationTests
                 },
                 testTimeout.Token);
             confirmedBatchInterestLoss.EnsureSuccessStatusCode();
-            using var reserveLoadShed = JsonDocument.Parse(
+            using var confirmedInterestLoss = JsonDocument.Parse(
                 await confirmedBatchInterestLoss.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(4, reserveLoadShed.RootElement.GetProperty("tacticalEntityCapacity").GetInt32());
-            Assert.Equal(2, reserveLoadShed.RootElement.GetProperty("tacticalReserveCapacity").GetInt32());
-            Assert.Equal(3, reserveLoadShed.RootElement.GetProperty("occupiedTacticalEntityCount").GetInt32());
-            Assert.Equal(2, reserveLoadShed.RootElement.GetProperty("activeTacticalEntityCount").GetInt32());
-            Assert.Equal(1, reserveLoadShed.RootElement.GetProperty("retainedSuspendedTacticalEntityCount").GetInt32());
-            Assert.Equal(0, reserveLoadShed.RootElement.GetProperty("availableTacticalEntityCapacity").GetInt32());
-            Assert.Equal("demote-whole-islands-before-tempo",
-                reserveLoadShed.RootElement.GetProperty("loadAction").GetString());
-            Assert.Contains(reserveLoadShed.RootElement.GetProperty("islands").EnumerateArray(), item =>
+            Assert.Equal(4, confirmedInterestLoss.RootElement.GetProperty("tacticalEntityCapacity").GetInt32());
+            Assert.Equal(2, confirmedInterestLoss.RootElement.GetProperty("tacticalReserveCapacity").GetInt32());
+            Assert.Equal(2, confirmedInterestLoss.RootElement.GetProperty("occupiedTacticalEntityCount").GetInt32());
+            Assert.Equal(2, confirmedInterestLoss.RootElement.GetProperty("activeTacticalEntityCount").GetInt32());
+            Assert.Equal(0, confirmedInterestLoss.RootElement.GetProperty("retainedSuspendedTacticalEntityCount").GetInt32());
+            Assert.Equal(0, confirmedInterestLoss.RootElement.GetProperty("availableTacticalEntityCapacity").GetInt32());
+            Assert.Equal("normal", confirmedInterestLoss.RootElement.GetProperty("loadAction").GetString());
+            Assert.Contains(confirmedInterestLoss.RootElement.GetProperty("islands").EnumerateArray(), item =>
                 item.GetProperty("entityIds").EnumerateArray().Any(id => id.GetString() == batchLeadEntityId)
-                && item.GetProperty("reason").GetString() == "tactical-reserve-load-shed");
+                && item.GetProperty("reason").GetString() == "active-island-outside-player-interest");
             using var releasedBatchView = await WaitForCampaignViewAsync(
                 campaignClient,
                 campaignId,
@@ -1638,7 +1672,10 @@ public sealed class CompanionControlIntegrationTests
                 },
                 JsonOptions,
                 testTimeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, mismatchHandoff.StatusCode);
+            Assert.True(
+                mismatchHandoff.StatusCode == HttpStatusCode.Accepted,
+                $"Catalog-mismatch handoff was not accepted: {mismatchHandoff.StatusCode} "
+                + await mismatchHandoff.Content.ReadAsStringAsync(testTimeout.Token));
             var mismatchFrames = await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 1,
@@ -1648,7 +1685,11 @@ public sealed class CompanionControlIntegrationTests
             var rejectedMismatch = Assert.Single(mismatchFrames, item =>
                 item.PayloadCase == CompanionFrame.PayloadOneofCase.AssignmentPrepared
                 && item.AssignmentPrepared.AssignmentId == mismatchAssignmentId).AssignmentPrepared;
-            Assert.False(rejectedMismatch.Ready);
+            if (rejectedMismatch.Ready)
+            {
+                throw new InvalidOperationException(
+                    $"Catalog-mismatch assignment unexpectedly prepared: {rejectedMismatch}");
+            }
             Assert.Equal("assignment-preparation-failed", rejectedMismatch.ErrorCode);
             using var rejectedMismatchView = await WaitForCampaignViewAsync(
                 campaignClient,
@@ -1680,7 +1721,10 @@ public sealed class CompanionControlIntegrationTests
                 },
                 JsonOptions,
                 testTimeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, combatHandoff.StatusCode);
+            Assert.True(
+                combatHandoff.StatusCode == HttpStatusCode.Accepted,
+                $"Combat handoff was not accepted: {combatHandoff.StatusCode} "
+                + await combatHandoff.Content.ReadAsStringAsync(testTimeout.Token));
             await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 1,
@@ -1721,8 +1765,11 @@ public sealed class CompanionControlIntegrationTests
                 capabilities.RootElement
                     .GetProperty("supportedUiAutomationCommands")[0]
                     .GetString());
-            Assert.False(
-                capabilities.RootElement.GetProperty("mutatingCommandsEnabled").GetBoolean());
+            if (capabilities.RootElement.GetProperty("mutatingCommandsEnabled").GetBoolean())
+            {
+                throw new InvalidOperationException(
+                    "The fake game capability surface must begin with mutation mode disabled.");
+            }
 
             using var scene = await GetAuthorizedJsonAsync(
                 client,
@@ -2077,6 +2124,92 @@ public sealed class CompanionControlIntegrationTests
                 "owned-mutations-armed-for-current-session",
                 armedMutations.RootElement.GetProperty("postcondition").GetString());
 
+            var rollbackMaterializationRequest = new MaterializeOwnedSurfaceUnitRequestPayload
+            {
+                Context = new OwnedMutationContextPayload
+                {
+                    SessionId = sessionId,
+                    AssignmentId = "assignment:integration-rollback",
+                    AuthorityEpoch = 6,
+                    ExpectedRevision = 0,
+                    IdempotencyKey = "integration-rollback-materialize-1",
+                },
+                EntityId = "unit:crimean-tom:integration-rollback-1",
+                DisplayName = "Rollback probe Knox",
+                UnitTypeId = "usn_ff_knox_84",
+                VariantId = "Variant43",
+                LoadoutId = "Default",
+                TaskforceId = "taskforce:Blue",
+                Latitude = 12.5,
+                Longitude = 44.75,
+                HeadingDegrees = 80,
+                Telegraph = 0,
+            };
+            using (var firstRollbackProbe = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/materialize",
+                JsonSerializer.Serialize(rollbackMaterializationRequest, JsonOptions),
+                testTimeout.Token))
+            {
+                Assert.Equal(1, firstRollbackProbe.RootElement.GetProperty("revision").GetInt64());
+            }
+            using (var firstRollback = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/materialization/rollback",
+                JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-rollback",
+                        AuthorityEpoch = 6,
+                        ExpectedRevision = 1,
+                        IdempotencyKey = "integration-rollback-1",
+                    },
+                    EntityId = rollbackMaterializationRequest.EntityId,
+                }, JsonOptions),
+                testTimeout.Token))
+            {
+                Assert.Equal("rolled-back", firstRollback.RootElement.GetProperty("outcome").GetString());
+                Assert.True(firstRollback.RootElement.GetProperty("nativeObjectRemoved").GetBoolean());
+            }
+            using (var retriedRollbackProbe = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/materialize",
+                JsonSerializer.Serialize(rollbackMaterializationRequest, JsonOptions),
+                testTimeout.Token))
+            {
+                Assert.Equal(
+                    rollbackMaterializationRequest.EntityId,
+                    retriedRollbackProbe.RootElement
+                        .GetProperty("realizedUnit")
+                        .GetProperty("entityId")
+                        .GetString());
+            }
+            using (var secondRollback = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/surface/materialization/rollback",
+                JsonSerializer.Serialize(new OwnedSurfaceEntityRequestPayload
+                {
+                    Context = new OwnedMutationContextPayload
+                    {
+                        SessionId = sessionId,
+                        AssignmentId = "assignment:integration-rollback",
+                        AuthorityEpoch = 6,
+                        ExpectedRevision = 1,
+                        IdempotencyKey = "integration-rollback-1",
+                    },
+                    EntityId = rollbackMaterializationRequest.EntityId,
+                }, JsonOptions),
+                testTimeout.Token))
+            {
+                Assert.Equal("rolled-back", secondRollback.RootElement.GetProperty("outcome").GetString());
+            }
+
             using var materializedSurface = await PostAuthorizedJsonWithBodyAsync(
                 client,
                 token,
@@ -2220,7 +2353,7 @@ public sealed class CompanionControlIntegrationTests
                 "/game/mutations/surface/resources",
                 testTimeout.Token);
             Assert.Equal(2, ownedResources.RootElement.GetProperty("activeObjectCount").GetInt32());
-            Assert.False(
+            Assert.True(
                 ownedResources.RootElement.GetProperty("memoryReclamationSupported").GetBoolean());
 
             using var renderProxyState = await GetAuthorizedJsonAsync(
@@ -2428,7 +2561,10 @@ public sealed class CompanionControlIntegrationTests
                 },
                 JsonOptions,
                 testTimeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, combatQuiesce.StatusCode);
+            Assert.True(
+                combatQuiesce.StatusCode == HttpStatusCode.Accepted,
+                $"Combat quiesce was not accepted: {combatQuiesce.StatusCode} "
+                + await combatQuiesce.Content.ReadAsStringAsync(testTimeout.Token));
             await WaitForInboundFramesAsync(
                 campaignServiceRunDirectory,
                 count: 1,
@@ -2604,15 +2740,22 @@ public sealed class CompanionControlIntegrationTests
                 skipBuild: true,
                 stopBeforeFallback.Token);
             Assert.True(stoppedCompanion.ExitCode == 0, stoppedCompanion.FormatFailure("stop-before-fallback"));
+            using var preRecoveryViewResponse = await campaignClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token);
+            preRecoveryViewResponse.EnsureSuccessStatusCode();
+            using var preRecoveryView = JsonDocument.Parse(
+                await preRecoveryViewResponse.Content.ReadAsStringAsync(testTimeout.Token));
+            var recoveryQuanta = preRecoveryView.RootElement.GetProperty("timeQuanta").GetInt64();
             using var graceResponse = await campaignClient.PostAsync(
-                $"/control/campaigns/{campaignId}/resolve-expired/270",
+                $"/control/campaigns/{campaignId}/resolve-expired/{recoveryQuanta}",
                 content: null,
                 testTimeout.Token);
             graceResponse.EnsureSuccessStatusCode();
             using (var grace = JsonDocument.Parse(
                 await graceResponse.Content.ReadAsStringAsync(testTimeout.Token)))
             {
-                Assert.Equal(270, grace.RootElement.GetProperty("timeQuanta").GetInt64());
+                Assert.Equal(recoveryQuanta, grace.RootElement.GetProperty("timeQuanta").GetInt64());
                 Assert.Empty(grace.RootElement.GetProperty("assignments").EnumerateArray());
             }
             using (var graceViewResponse = await campaignClient.GetAsync(
@@ -2632,20 +2775,27 @@ public sealed class CompanionControlIntegrationTests
                 Assert.Equal(JsonValueKind.String, graceAssignment.GetProperty("leaseGraceExpiresAt").ValueKind);
             }
 
+            using (var pauseBeforeFallback = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/pause",
+                content: null,
+                testTimeout.Token))
+            {
+                pauseBeforeFallback.EnsureSuccessStatusCode();
+            }
             await Task.Delay(2_200, testTimeout.Token);
             using var fallbackResponse = await campaignClient.PostAsync(
-                $"/control/campaigns/{campaignId}/resolve-expired/280",
+                $"/control/campaigns/{campaignId}/resolve-expired/{recoveryQuanta}",
                 content: null,
                 testTimeout.Token);
             fallbackResponse.EnsureSuccessStatusCode();
             using var fallback = JsonDocument.Parse(
                 await fallbackResponse.Content.ReadAsStringAsync(testTimeout.Token));
-            Assert.Equal(280, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
+            Assert.Equal(recoveryQuanta, fallback.RootElement.GetProperty("timeQuanta").GetInt64());
             var fallbackAssignments = fallback.RootElement.GetProperty("assignments").EnumerateArray().ToArray();
             Assert.Single(fallbackAssignments);
             var fallbackAssignment = Assert.Single(fallbackAssignments, item =>
                 item.GetProperty("assignmentId").GetString() == fallbackAssignmentId);
-            Assert.Equal(270, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
+            Assert.Equal(recoveryQuanta, fallbackAssignment.GetProperty("resolvedAtQuanta").GetInt64());
             Assert.Equal(120, fallbackAssignment.GetProperty("maximumLossQuanta").GetInt64());
             Assert.Equal(
                 "operational-resolution-from-last-committed-checkpoint",
@@ -2670,6 +2820,13 @@ public sealed class CompanionControlIntegrationTests
                     fallbackView.RootElement.GetProperty("entities").EnumerateArray(),
                     item => item.GetProperty("entityId").GetString() == fallbackEntityId)
                     .GetProperty("fidelity").GetString());
+            using (var resumeAfterFallback = await campaignClient.PostAsync(
+                $"/control/campaigns/{campaignId}/resume",
+                content: null,
+                testTimeout.Token))
+            {
+                resumeAfterFallback.EnsureSuccessStatusCode();
+            }
 
             var restartedCompanion = await RunControlScriptAsync(
                 scriptPath,
@@ -2695,7 +2852,8 @@ public sealed class CompanionControlIntegrationTests
                 gamePipeName,
                 probeSavePath,
                 couplingState,
-                testTimeout.Token);
+                testTimeout.Token,
+                completeOnFallbackCheckpoint: false);
             _ = migrateGamePeer.ContinueWith(
                 static task => _ = task.Exception,
                 CancellationToken.None,
@@ -2705,7 +2863,11 @@ public sealed class CompanionControlIntegrationTests
                 campaignClient,
                 sessionBeforeCompanionRestart,
                 testTimeout.Token);
-            await WaitForConnectedGameAsync(client, token, testTimeout.Token);
+            await WaitForConnectedGameOrPeerFailureAsync(
+                client,
+                token,
+                migrateGamePeer,
+                testTimeout.Token);
             await ProveOperationalIslandPinnedSourcePreparationAfterGhostReleaseAsync(
                 campaignClient,
                 campaignHttpUrl,
@@ -2862,6 +3024,163 @@ public sealed class CompanionControlIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task CompanionControlApiRollsBackAndRetriesOneMaterializationEffect()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var repositoryRoot = FindRepositoryRoot();
+        var scriptPath = Path.Combine(repositoryRoot, "scripts", "crimean-tom-control.ps1");
+        var runDirectory = CreateTemporaryDirectory();
+        var controlUrl = $"http://127.0.0.1:{GetUnusedLoopbackPort()}";
+        var gamePipeName = $"CrimeanTom.Tests.Rollback.{Guid.NewGuid():N}";
+        var probeSavePath = Path.Combine(runDirectory, "_RollbackProbe.sav");
+        var tokenPath = Path.Combine(runDirectory, "control.token");
+        var started = await RunControlScriptAsync(
+            scriptPath,
+            "start",
+            runDirectory,
+            controlUrl,
+            gamePipeName,
+            skipBuild: true,
+            timeout.Token);
+        Assert.True(started.ExitCode == 0, started.FormatFailure("rollback-start"));
+
+        using var peerCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var resources = new FakeOwnedSurfaceResourceState();
+        var peer = RunGamePeerAsync(
+            gamePipeName,
+            probeSavePath,
+            new FakeTacticalCouplingState(),
+            resources,
+            peerCancellation.Token);
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false })
+            {
+                BaseAddress = new Uri(controlUrl),
+                Timeout = TimeSpan.FromSeconds(10),
+            };
+            var token = (await File.ReadAllTextAsync(tokenPath, timeout.Token)).Trim();
+            await WaitForConnectedGameAsync(client, token, timeout.Token);
+            using var health = await GetAuthorizedJsonAsync(client, token, "/health", timeout.Token);
+            var sessionId = health.RootElement.GetProperty("sessionId").GetString()!;
+            using var armed = await PostAuthorizedJsonWithBodyAsync(
+                client,
+                token,
+                "/game/mutations/arm",
+                JsonSerializer.Serialize(new ArmOwnedMutationModeRequestPayload
+                {
+                    SessionId = sessionId,
+                    RuntimeFingerprintSha256 = new string('a', 64),
+                    Confirmation = "enable-owned-mutations",
+                    DurationSeconds = 60,
+                }, JsonOptions),
+                timeout.Token);
+            Assert.Equal(
+                "owned-mutations-armed-for-current-session",
+                armed.RootElement.GetProperty("postcondition").GetString());
+
+            var materialization = new MaterializeOwnedSurfaceUnitRequestPayload
+            {
+                Context = new OwnedMutationContextPayload
+                {
+                    SessionId = sessionId,
+                    AssignmentId = "assignment:rollback-story",
+                    AuthorityEpoch = 3,
+                    ExpectedRevision = 0,
+                    IdempotencyKey = "rollback-story-materialize",
+                },
+                EntityId = "unit:crimean-tom:rollback-story-knox",
+                DisplayName = "Rollback story Knox",
+                UnitTypeId = "usn_ff_knox_84",
+                VariantId = "Variant43",
+                LoadoutId = "Default",
+                TaskforceId = "taskforce:Blue",
+                Latitude = 54.1,
+                Longitude = 9.4,
+                HeadingDegrees = 180,
+            };
+            var rollback = new OwnedSurfaceEntityRequestPayload
+            {
+                Context = new OwnedMutationContextPayload
+                {
+                    SessionId = sessionId,
+                    AssignmentId = materialization.Context.AssignmentId,
+                    AuthorityEpoch = materialization.Context.AuthorityEpoch,
+                    ExpectedRevision = 1,
+                    IdempotencyKey = "rollback-story-abort",
+                },
+                EntityId = materialization.EntityId,
+            };
+
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                using var materialized = await PostAuthorizedJsonWithBodyAsync(
+                    client,
+                    token,
+                    "/game/mutations/surface/materialize",
+                    JsonSerializer.Serialize(materialization, JsonOptions),
+                    timeout.Token);
+                Assert.Equal(1, materialized.RootElement.GetProperty("revision").GetInt64());
+                using var active = await GetAuthorizedJsonAsync(
+                    client,
+                    token,
+                    "/game/mutations/surface/resources",
+                    timeout.Token);
+                var activeResource = Assert.Single(
+                    active.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == materialization.EntityId);
+                Assert.True(activeResource.GetProperty("materializationRollbackPending").GetBoolean());
+                Assert.False(activeResource.GetProperty("hasCheckpoint").GetBoolean());
+
+                using var rolledBack = await PostAuthorizedJsonWithBodyAsync(
+                    client,
+                    token,
+                    "/game/mutations/surface/materialization/rollback",
+                    JsonSerializer.Serialize(rollback, JsonOptions),
+                    timeout.Token);
+                Assert.Equal("rolled-back", rolledBack.RootElement.GetProperty("outcome").GetString());
+                Assert.Equal(
+                    rollback.Context.IdempotencyKey,
+                    rolledBack.RootElement.GetProperty("idempotencyKey").GetString());
+                using var released = await GetAuthorizedJsonAsync(
+                    client,
+                    token,
+                    "/game/mutations/surface/resources",
+                    timeout.Token);
+                Assert.DoesNotContain(
+                    released.RootElement.GetProperty("entities").EnumerateArray(),
+                    item => item.GetProperty("entityId").GetString() == materialization.EntityId);
+            }
+        }
+        finally
+        {
+            peerCancellation.Cancel();
+            try
+            {
+                await peer;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var stopped = await RunControlScriptAsync(
+                scriptPath,
+                "stop",
+                runDirectory,
+                controlUrl,
+                gamePipeName,
+                skipBuild: true,
+                cleanupTimeout.Token);
+            Assert.True(stopped.ExitCode == 0, stopped.FormatFailure("rollback-stop"));
+        }
+    }
+
     [DllImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ImpersonateAnonymousToken(IntPtr threadHandle);
@@ -2878,7 +3197,8 @@ public sealed class CompanionControlIntegrationTests
         string probeSavePath,
         FakeTacticalCouplingState couplingState,
         CancellationToken cancellationToken,
-        FakeTacticalCheckpointState? tacticalCheckpointState = null) =>
+        FakeTacticalCheckpointState? tacticalCheckpointState = null,
+        bool completeOnFallbackCheckpoint = true) =>
         RunGamePeerAsync(
             pipeName,
             probeSavePath,
@@ -2887,7 +3207,8 @@ public sealed class CompanionControlIntegrationTests
             runtimeFingerprintSha256: new string('a', 64),
             catalogFingerprintSha256: "integration-catalog-sha256",
             cancellationToken,
-            tacticalCheckpointState);
+            tacticalCheckpointState,
+            completeOnFallbackCheckpoint ? "fallback-materialize-1-checkpoint" : null);
 
     private static async Task RunGamePeerAsync(
         string pipeName,
@@ -2912,7 +3233,8 @@ public sealed class CompanionControlIntegrationTests
         string runtimeFingerprintSha256,
         string catalogFingerprintSha256,
         CancellationToken cancellationToken,
-        FakeTacticalCheckpointState? tacticalCheckpointState = null)
+        FakeTacticalCheckpointState? tacticalCheckpointState = null,
+        string? completionCheckpointIdempotencyKey = null)
     {
         using var pipe = new NamedPipeClientStream(
             ".",
@@ -2958,7 +3280,7 @@ public sealed class CompanionControlIntegrationTests
             var completesPrimaryPeer = command.MessageType == GameCommandTypes.CaptureOwnedSurfaceCheckpoint
                 && JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
                     command.PayloadJson,
-                    JsonOptions)?.Context.IdempotencyKey == "fallback-materialize-1-checkpoint";
+                    JsonOptions)?.Context.IdempotencyKey == completionCheckpointIdempotencyKey;
             if (command.MessageType == GameCommandTypes.OpenTaskForceBuilder)
             {
                 builderLoaded = true;
@@ -3028,7 +3350,9 @@ public sealed class CompanionControlIntegrationTests
                     CommandCancellationSupported = true,
                     SupportedPriorities = CommandPriorities.Supported,
                     ExecutionThreadGuardSelfTest = "passed",
-                    PlayerTaskforceId = "taskforce:Blue",
+                    PlayerTaskforceId = ownedResources.TacticalSceneAvailable
+                        ? "taskforce:Blue"
+                        : string.Empty,
                     OwnedSurfaceMaterializationProfiles =
                     [
                         new OwnedSurfaceMaterializationProfilePayload
@@ -3241,32 +3565,7 @@ public sealed class CompanionControlIntegrationTests
                     },
                     JsonOptions),
                 GameCommandTypes.MaterializeOwnedSurfaceUnit => JsonSerializer.Serialize(
-                    new MaterializeOwnedSurfaceUnitResultPayload
-                    {
-                        Outcome = "materialized",
-                        Postcondition = "owned-surface-unit-materialized-and-read-back",
-                        AssignmentId = "assignment:integration-surface",
-                        AuthorityEpoch = 7,
-                        Revision = 1,
-                        IdempotencyKey = "integration-knox-1",
-                        RecoverableOwnedObject = true,
-                        SynchronousDurationMicroseconds = 4200,
-                        RealizedUnit = new OwnedSurfaceUnitStatePayload
-                        {
-                            StableUnitId =
-                                "campaign-unit:unit:crimean-tom:integration-knox-1",
-                            GameUniqueId = 44,
-                            EntityId = "unit:crimean-tom:integration-knox-1",
-                            UnitTypeId = "usn_ff_knox_84",
-                            VariantId = "Variant43",
-                            LoadoutId = "Default",
-                            TaskforceId = "taskforce:Blue",
-                            Latitude = 12.25,
-                            Longitude = 44.5,
-                            HeadingDegrees = 90,
-                            Telegraph = 0,
-                        },
-                    },
+                    CreateSurfaceMaterialization(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.RegisterOwnedHostedAircraft => JsonSerializer.Serialize(
                     new RegisterOwnedHostedAircraftResultPayload
@@ -3347,7 +3646,9 @@ public sealed class CompanionControlIntegrationTests
                     },
                     JsonOptions),
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
-                    tacticalCheckpointState.Capture(command.PayloadJson),
+                    ownedResources.NormalizeCheckpointForRetainedSuspension(
+                        command.PayloadJson,
+                        tacticalCheckpointState.Capture(command.PayloadJson)),
                     JsonOptions),
                 GameCommandTypes.UpdateOwnedSurfaceUnit => JsonSerializer.Serialize(
                     CreateLifecycleResult(command.PayloadJson, "updated", 2, disabled: false),
@@ -3373,8 +3674,17 @@ public sealed class CompanionControlIntegrationTests
                         HasSelection = false,
                     },
                     JsonOptions),
+                GameCommandTypes.PrepareTacticalLocation => JsonSerializer.Serialize(
+                    CreateTacticalLocationPreparation(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.ReconcileSurfaceRenderProxies => JsonSerializer.Serialize(
                     tacticalCheckpointState.ReconcileRenderProxies(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.RollbackIncompleteOwnedMaterialization => JsonSerializer.Serialize(
+                    CreateMaterializationRollback(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.ReleaseCommittedOwnedResource => JsonSerializer.Serialize(
+                    CreateCommittedRelease(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery => JsonSerializer.Serialize(
                     new OwnedSurfaceRecoveryReleaseResultPayload
@@ -3447,10 +3757,21 @@ public sealed class CompanionControlIntegrationTests
             accepted.PayloadJson,
             JsonOptions)!;
         Assert.True(handshake.Accepted);
+        var ownedResources = new FakeOwnedSurfaceResourceState();
 
         while (true)
         {
             var command = await ReadEnvelopeAsync(pipe, cancellationToken);
+            if (command.MessageType == GameCommandTypes.ArmOwnedMutationMode)
+            {
+                ownedResources.Arm(handshake.SessionId!);
+            }
+            if (command.MessageType is GameCommandTypes.MaterializeOwnedSurfaceUnit
+                or GameCommandTypes.RollbackIncompleteOwnedMaterialization
+                or GameCommandTypes.ReleaseCommittedOwnedResource)
+            {
+                ownedResources.Observe(command, handshake.SessionId!);
+            }
             if (command.MessageType == GameCommandTypes.UpdateOwnedSurfaceUnit)
             {
                 var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
@@ -3512,12 +3833,7 @@ public sealed class CompanionControlIntegrationTests
                     },
                     JsonOptions),
                 GameCommandTypes.GetOwnedSurfaceResourceState => JsonSerializer.Serialize(
-                    new OwnedSurfaceResourceStatePayload
-                    {
-                        MemoryReclamationSupported = false,
-                        SchedulerPolicy =
-                            "active-and-suspended-retained-objects-consume-materialized-capacity",
-                    },
+                    ownedResources.Capture(),
                     JsonOptions),
                 GameCommandTypes.GetUiInspection => JsonSerializer.Serialize(
                     new UiInspectionPayload
@@ -3529,6 +3845,9 @@ public sealed class CompanionControlIntegrationTests
                         IsPaused = false,
                         PlayerTaskforceId = "taskforce:Blue",
                     },
+                    JsonOptions),
+                GameCommandTypes.PrepareTacticalLocation => JsonSerializer.Serialize(
+                    CreateTacticalLocationPreparation(command.PayloadJson),
                     JsonOptions),
                 GameCommandTypes.SetExperimentalPauseState => JsonSerializer.Serialize(
                     CreateExperimentalPauseResult(command.PayloadJson),
@@ -3547,6 +3866,12 @@ public sealed class CompanionControlIntegrationTests
                     JsonOptions),
                 GameCommandTypes.MaterializeOwnedSurfaceUnit => CreateCrashPeerMaterialization(
                     command.PayloadJson),
+                GameCommandTypes.RollbackIncompleteOwnedMaterialization => JsonSerializer.Serialize(
+                    CreateMaterializationRollback(command.PayloadJson),
+                    JsonOptions),
+                GameCommandTypes.ReleaseCommittedOwnedResource => JsonSerializer.Serialize(
+                    CreateCommittedRelease(command.PayloadJson),
+                    JsonOptions),
                 GameCommandTypes.CaptureOwnedSurfaceCheckpoint => JsonSerializer.Serialize(
                     CreateOwnedSurfaceCheckpoint(command.PayloadJson),
                     JsonOptions),
@@ -4290,6 +4615,35 @@ public sealed class CompanionControlIntegrationTests
                     "connected",
                     health.RootElement.GetProperty("connectionState").GetString());
                 Assert.True(health.RootElement.GetProperty("sessionGeneration").GetInt64() >= 1);
+                return;
+            }
+
+            await Task.Delay(50, cancellationToken);
+        }
+    }
+
+    private static async Task WaitForConnectedGameOrPeerFailureAsync(
+        HttpClient client,
+        string token,
+        Task gamePeer,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            if (gamePeer.IsCompleted)
+            {
+                await gamePeer;
+                throw new InvalidOperationException(
+                    "The fake Sea Power peer disconnected before the companion reported it connected.");
+            }
+
+            using var health = await GetAuthorizedJsonAsync(
+                client,
+                token,
+                "/health",
+                cancellationToken);
+            if (health.RootElement.GetProperty("gameConnected").GetBoolean())
+            {
                 return;
             }
 
@@ -6199,15 +6553,18 @@ public sealed class CompanionControlIntegrationTests
         int active,
         int retainedSuspended,
         int recoveryRequired,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [CallerLineNumber] int callerLine = 0)
     {
+        var timeout = Stopwatch.StartNew();
+        string lastHealth = "No successful /health response.";
         while (true)
         {
             using var response = await client.GetAsync("/health", cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                using var document = JsonDocument.Parse(
-                    await response.Content.ReadAsStringAsync(cancellationToken));
+                lastHealth = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var document = JsonDocument.Parse(lastHealth);
                 if (document.RootElement.TryGetProperty("session", out var session)
                     && session.ValueKind == JsonValueKind.Object
                     && session.GetProperty("ownedMaterializedEntityCount").GetInt32() == materialized
@@ -6217,6 +6574,19 @@ public sealed class CompanionControlIntegrationTests
                 {
                     return;
                 }
+            }
+            else
+            {
+                lastHealth = $"/health returned {(int)response.StatusCode} {response.ReasonPhrase}.";
+            }
+
+            if (timeout.Elapsed >= TimeSpan.FromSeconds(30))
+            {
+                throw new TimeoutException(
+                    $"Campaign resource counts did not converge at caller line {callerLine}. "
+                    + $"Expected materialized={materialized}, active={active}, "
+                    + $"retainedSuspended={retainedSuspended}, recoveryRequired={recoveryRequired}. "
+                    + $"Last health: {lastHealth}");
             }
             await Task.Delay(25, cancellationToken);
         }
@@ -6535,12 +6905,32 @@ public sealed class CompanionControlIntegrationTests
         private bool _lastSuspensionWasIdempotentReplay;
         private string? _armedSessionId;
 
+        public int ExperimentalPauseCommandCount { get; private set; }
+        public bool TacticalSceneAvailable { get; private set; } = true;
+
         public void ResetRuntime()
         {
             _entities.Clear();
             _armedSessionId = null;
             _lastSuspensionWasIdempotentReplay = false;
+            ExperimentalPauseCommandCount = 0;
+            TacticalSceneAvailable = true;
         }
+
+        public bool DetachAfterSceneLoss(string entityId)
+        {
+            if (!_entities.TryGetValue(entityId, out var existing)
+                || !existing.HasCheckpoint)
+            {
+                return false;
+            }
+
+            _entities[entityId] = existing with { IsDetached = true };
+            TacticalSceneAvailable = false;
+            return true;
+        }
+
+        public void RestoreTacticalScene() => TacticalSceneAvailable = true;
 
         public void Arm(string sessionId) => _armedSessionId = sessionId;
 
@@ -6592,6 +6982,8 @@ public sealed class CompanionControlIntegrationTests
                 or GameCommandTypes.SetOwnedSurfaceSuspension
                 or GameCommandTypes.RestoreOwnedSurfaceCheckpoint
                 or GameCommandTypes.StageOwnedSurfaceCheckpoint
+                or GameCommandTypes.RollbackIncompleteOwnedMaterialization
+                or GameCommandTypes.ReleaseCommittedOwnedResource
                 or GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery;
 
         public CommandResponsePayload? TryObserveSuspension(string payloadJson, string sessionId)
@@ -6624,18 +7016,10 @@ public sealed class CompanionControlIntegrationTests
             }
 
             _lastSuspensionWasIdempotentReplay = false;
-            if (!request.IsSuspended
-                && _entities.TryGetValue(request.EntityId, out var existing)
+            if (_entities.TryGetValue(request.EntityId, out var existing)
                 && string.Equals(existing.AssignmentId, request.Context.AssignmentId, StringComparison.Ordinal)
                 && existing.AuthorityEpoch == request.Context.AuthorityEpoch)
             {
-                if (!existing.IsSuspended
-                    && existing.Revision == request.Context.ExpectedRevision)
-                {
-                    _lastSuspensionWasIdempotentReplay = true;
-                    return null;
-                }
-
                 if (existing.Revision != request.Context.ExpectedRevision)
                 {
                     return new CommandResponsePayload
@@ -6646,13 +7030,24 @@ public sealed class CompanionControlIntegrationTests
                             $"Expected entity revision {existing.Revision}, received {request.Context.ExpectedRevision}.",
                     };
                 }
+
+                if (!request.IsSuspended && !existing.IsSuspended)
+                {
+                    _lastSuspensionWasIdempotentReplay = true;
+                    return null;
+                }
             }
 
+            _entities.TryGetValue(request.EntityId, out var prior);
             _entities[request.EntityId] = new FakeOwnedSurfaceResource(
                 request.Context.AssignmentId,
                 request.Context.AuthorityEpoch,
                 request.Context.ExpectedRevision + 1,
-                request.IsSuspended);
+                request.IsSuspended,
+                prior?.UnitTypeId ?? "usn_ff_knox_84",
+                prior?.VariantId ?? "Variant43",
+                prior?.LoadoutId ?? "Default",
+                prior?.HasCheckpoint ?? false);
             return null;
         }
 
@@ -6698,6 +7093,11 @@ public sealed class CompanionControlIntegrationTests
                 return;
             }
 
+            if (command.MessageType == GameCommandTypes.SetExperimentalPauseState)
+            {
+                ExperimentalPauseCommandCount++;
+            }
+
             switch (command.MessageType)
             {
                 case GameCommandTypes.MaterializeOwnedSurfaceUnit:
@@ -6708,8 +7108,11 @@ public sealed class CompanionControlIntegrationTests
                     _entities[request.EntityId] = new FakeOwnedSurfaceResource(
                         request.Context.AssignmentId,
                         request.Context.AuthorityEpoch,
-                        1,
-                        IsSuspended: false);
+                        request.Context.ExpectedRevision + 1,
+                        IsSuspended: false,
+                        UnitTypeId: request.UnitTypeId,
+                        VariantId: request.VariantId,
+                        LoadoutId: request.LoadoutId);
                     break;
                 }
                 case GameCommandTypes.RestoreOwnedSurfaceCheckpoint:
@@ -6733,10 +7136,44 @@ public sealed class CompanionControlIntegrationTests
                         request.Context.AssignmentId,
                         request.Context.AuthorityEpoch,
                         request.Context.ExpectedRevision + 1,
-                        IsSuspended: true);
+                        IsSuspended: true,
+                        HasCheckpoint: true);
+                    break;
+                }
+                case GameCommandTypes.CaptureOwnedSurfaceCheckpoint:
+                {
+                    var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    if (_entities.TryGetValue(request.EntityId, out var existing))
+                    {
+                        _entities[request.EntityId] = existing with { HasCheckpoint = true };
+                    }
+                    break;
+                }
+                case GameCommandTypes.UpdateOwnedSurfaceUnit:
+                {
+                    var request = JsonSerializer.Deserialize<UpdateOwnedSurfaceUnitRequestPayload>(
+                        command.PayloadJson,
+                        JsonOptions)!;
+                    if (_entities.TryGetValue(request.EntityId, out var existing)
+                        && string.Equals(
+                            existing.AssignmentId,
+                            request.Context.AssignmentId,
+                            StringComparison.Ordinal)
+                        && existing.AuthorityEpoch == request.Context.AuthorityEpoch
+                        && existing.Revision == request.Context.ExpectedRevision)
+                    {
+                        _entities[request.EntityId] = existing with
+                        {
+                            Revision = request.Context.ExpectedRevision + 1,
+                        };
+                    }
                     break;
                 }
                 case GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery:
+                case GameCommandTypes.RollbackIncompleteOwnedMaterialization:
+                case GameCommandTypes.ReleaseCommittedOwnedResource:
                 {
                     var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
                         command.PayloadJson,
@@ -6757,32 +7194,173 @@ public sealed class CompanionControlIntegrationTests
                     AssignmentId = pair.Value.AssignmentId,
                     AuthorityEpoch = pair.Value.AuthorityEpoch,
                     Revision = pair.Value.Revision,
-                    LifecycleState = pair.Value.IsSuspended ? "suspended-retained" : "active",
-                    NativeInitialized = true,
-                    AcceptsPlayerOrders = !pair.Value.IsSuspended,
-                    GameUniqueId = 44 + index,
+                    LifecycleState = pair.Value.IsDetached
+                        ? "detached-after-scene-loss"
+                        : pair.Value.IsSuspended
+                            ? "suspended-retained"
+                            : "active",
+                    HasCheckpoint = pair.Value.HasCheckpoint,
+                    MaterializationRollbackPending = !pair.Value.HasCheckpoint,
+                    NativeInitialized = !pair.Value.IsDetached,
+                    AcceptsPlayerOrders = !pair.Value.IsSuspended && !pair.Value.IsDetached,
+                    HasNativeControl = !pair.Value.IsSuspended && !pair.Value.IsDetached,
+                    NativeStoresInitialized = !pair.Value.IsDetached,
+                    IsAircraftInFlight = true,
+                    UnitTypeId = pair.Value.IsDetached ? string.Empty : pair.Value.UnitTypeId,
+                    VariantId = pair.Value.IsDetached ? string.Empty : pair.Value.VariantId,
+                    LoadoutId = pair.Value.IsDetached ? string.Empty : pair.Value.LoadoutId,
+                    AmmunitionQuantity = pair.Value.IsDetached ? 0 : 1,
+                    GameUniqueId = pair.Value.IsDetached ? null : 44 + index,
                 })
                 .ToArray();
             var active = entries.Count(item => item.LifecycleState == "active");
-            var suspended = entries.Length - active;
+            var suspended = entries.Count(item => item.LifecycleState == "suspended-retained");
+            var detached = entries.Count(item => item.LifecycleState == "detached-after-scene-loss");
             return new OwnedSurfaceResourceStatePayload
             {
                 OwnedRecordCount = entries.Length,
                 ActiveObjectCount = active,
                 SuspendedRetainedObjectCount = suspended,
-                RetainedConstructedObjectCount = entries.Length,
-                MemoryReclamationSupported = false,
+                DetachedObjectCount = detached,
+                DetachedCheckpointCount = entries.Count(item =>
+                    item.LifecycleState == "detached-after-scene-loss" && item.HasCheckpoint),
+                RetainedConstructedObjectCount = entries.Length - detached,
+                MemoryReclamationSupported = true,
                 SchedulerPolicy =
-                    "active-and-suspended-retained-objects-consume-materialized-capacity",
+                    "active-objects-consume-capacity; committed-suspended-objects-are-reclaimed",
                 Entities = entries,
             };
+        }
+
+        public OwnedSurfaceCheckpointPayload NormalizeCheckpointForRetainedSuspension(
+            string payloadJson,
+            OwnedSurfaceCheckpointPayload checkpoint)
+        {
+            var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+                payloadJson,
+                JsonOptions)!;
+            if (_entities.TryGetValue(request.EntityId, out var existing)
+                && existing.IsSuspended
+                && existing.HasCheckpoint
+                && existing.Revision == request.Context.ExpectedRevision)
+            {
+                checkpoint.Revision = existing.Revision - 1;
+            }
+            return checkpoint;
         }
 
         private sealed record FakeOwnedSurfaceResource(
             string AssignmentId,
             long AuthorityEpoch,
             long Revision,
-            bool IsSuspended);
+            bool IsSuspended,
+            string UnitTypeId = "usn_ff_knox_84",
+            string VariantId = "Variant43",
+            string LoadoutId = "Default",
+            bool HasCheckpoint = false,
+            bool IsDetached = false);
+    }
+
+    private static RollbackIncompleteOwnedMaterializationResultPayload
+        CreateMaterializationRollback(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new RollbackIncompleteOwnedMaterializationResultPayload
+        {
+            Outcome = "rolled-back",
+            Postcondition = "uncommitted-native-object-removed-and-owned-record-released",
+            EntityId = request.EntityId,
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            NativeObjectRemoved = true,
+        };
+    }
+
+    private static ReleaseCommittedOwnedResourceResultPayload CreateCommittedRelease(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new ReleaseCommittedOwnedResourceResultPayload
+        {
+            Outcome = "released",
+            Postcondition = "committed-native-object-removed-and-owned-record-released",
+            EntityId = request.EntityId,
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            NativeObjectRemoved = true,
+        };
+    }
+
+    private static MaterializeOwnedSurfaceUnitResultPayload CreateSurfaceMaterialization(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<MaterializeOwnedSurfaceUnitRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new MaterializeOwnedSurfaceUnitResultPayload
+        {
+            Outcome = "materialized",
+            Postcondition = "owned-surface-unit-materialized-and-read-back",
+            AssignmentId = request.Context.AssignmentId,
+            AuthorityEpoch = request.Context.AuthorityEpoch,
+            Revision = request.Context.ExpectedRevision + 1,
+            IdempotencyKey = request.Context.IdempotencyKey,
+            RecoverableOwnedObject = true,
+            SynchronousDurationMicroseconds = 4200,
+            RealizedUnit = new OwnedSurfaceUnitStatePayload
+            {
+                StableUnitId = $"campaign-unit:{request.EntityId}",
+                GameUniqueId = 44,
+                EntityId = request.EntityId,
+                UnitTypeId = request.UnitTypeId,
+                VariantId = request.VariantId,
+                LoadoutId = request.LoadoutId,
+                TaskforceId = request.TaskforceId,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                HeadingDegrees = request.HeadingDegrees,
+                Telegraph = request.Telegraph,
+            },
+        };
+    }
+
+    private static PrepareTacticalLocationResultPayload CreateTacticalLocationPreparation(
+        string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<PrepareTacticalLocationRequestPayload>(
+            payloadJson,
+            JsonOptions)!;
+        return new PrepareTacticalLocationResultPayload
+        {
+            Outcome = "relocated",
+            Postcondition = "tactical-location-relocated-and-terrain-ready",
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            CurrentCenterTileX = (int)Math.Floor(request.Longitude),
+            CurrentCenterTileY = (int)Math.Floor(request.Latitude),
+            Relocated = true,
+            SynchronousDurationMicroseconds = 1_000,
+            Terrain = new TerrainPlacementProbeResultPayload
+            {
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                TerrainManagerAvailable = true,
+                InitialTerrainLoadingDone = true,
+                TileLoaded = true,
+                TileFinalized = true,
+                FlatteningFinishedForLandUnits = true,
+                PlacementReady = true,
+                Postcondition = "terrain-placement-ready",
+            },
+        };
     }
 
     private sealed class FakeTacticalCouplingState

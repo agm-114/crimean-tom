@@ -94,6 +94,10 @@ internal static partial class GameCommandDispatcher
                     GameCommandTypes.GetWorldSnapshot => Success(GetWorldSnapshot()),
                     GameCommandTypes.GetRuntimeMemoryState => Success(
                         RuntimeMemoryDiagnostics.Capture()),
+                    GameCommandTypes.GetPositionWatch => Success(
+                        RuntimePositionWatch.Capture()),
+                    GameCommandTypes.SetPositionWatch => SetPositionWatch(
+                        command.PayloadJson),
                     GameCommandTypes.ProbeTerrainPlacement => Success(ProbeTerrainPlacement(
                         command.PayloadJson)),
                     GameCommandTypes.PrepareTacticalLocation =>
@@ -164,6 +168,14 @@ internal static partial class GameCommandDispatcher
                         StageOwnedSurfaceCheckpoint(command.PayloadJson, command.SessionId),
                     GameCommandTypes.ReconcileSurfaceRenderProxies =>
                         ReconcileSurfaceRenderProxies(command.PayloadJson, command.SessionId),
+                    GameCommandTypes.RollbackIncompleteOwnedMaterialization =>
+                        RollbackIncompleteOwnedMaterialization(
+                            command.PayloadJson,
+                            command.SessionId),
+                    GameCommandTypes.ReleaseCommittedOwnedResource =>
+                        ReleaseCommittedOwnedResource(
+                            command.PayloadJson,
+                            command.SessionId),
                     GameCommandTypes.ReleaseDetachedOwnedSurfaceRecovery =>
                         ReleaseDetachedOwnedSurfaceRecovery(
                             command.PayloadJson,
@@ -292,9 +304,9 @@ internal static partial class GameCommandDispatcher
                 surface.RecoveryRequiredCount + land.RecoveryRequiredCount,
             RetainedConstructedObjectCount =
                 surface.RetainedConstructedObjectCount + land.RetainedConstructedObjectCount,
-            MemoryReclamationSupported = false,
+            MemoryReclamationSupported = true,
             SchedulerPolicy =
-                "active-and-suspended-retained-objects-consume-materialized-capacity",
+                "active-objects-consume-capacity; committed-suspended-objects-are-reclaimed",
             Entities = surface.Entities
                 .Concat(land.Entities)
                 .OrderBy(item => item.EntityId, StringComparer.Ordinal)
@@ -345,12 +357,13 @@ internal static partial class GameCommandDispatcher
         var taskforceIds = BuildTaskforceIds(taskforces);
 
         var units = allObjects
-            .Where(unit => unit is not null && unit.isUnit())
+            .Where(unit => unit != null && unit.isUnit())
             .Select(unit => CaptureUnit(unit, taskforceIds))
             .OrderBy(unit => unit.GameUniqueId)
             .ToArray();
         var weapons = allObjects
             .OfType<WeaponBase>()
+            .Where(weapon => weapon != null)
             .Select(CaptureWeapon)
             .OrderBy(weapon => weapon.GameUniqueId)
             .ToArray();
@@ -403,7 +416,7 @@ internal static partial class GameCommandDispatcher
                     IsAiControlled = taskforce.IsAIControlled,
                     IsPlayerControlled = ReferenceEquals(taskforce, Globals._playerTaskforce),
                     UnitIds = taskforce._taskforceUnits
-                        .Where(unit => unit is not null && unit.isUnit())
+                        .Where(unit => unit != null && unit.isUnit())
                         .Select(StableUnitId)
                         .OrderBy(id => id, StringComparer.Ordinal)
                         .ToArray(),
@@ -423,12 +436,20 @@ internal static partial class GameCommandDispatcher
         return snapshot;
     }
 
+    private static CommandResponsePayload SetPositionWatch(string payloadJson)
+    {
+        var request = JsonSerializer.Deserialize<PositionWatchRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new PositionWatchRequestPayload();
+        return Success(RuntimePositionWatch.Configure(request));
+    }
+
     private static TacticalCouplingStatePayload GetTacticalCouplingState()
     {
         var captureTimer = Stopwatch.StartNew();
         var allObjects = Singleton<ObjectsManager>.InstanceExists()
             ? Singleton<ObjectsManager>.Instance._listOfAllObjects
-                .Where(item => item is not null)
+                .Where(item => item != null)
                 .ToArray()
             : [];
         var activeWeapons = allObjects
@@ -486,22 +507,24 @@ internal static partial class GameCommandDispatcher
             .ToArray();
         foreach (var unit in units)
         {
-            if (unit._homeBase is { } homeBase && !ReferenceEquals(unit, homeBase))
+            var homeBase = unit._homeBase;
+            if (homeBase != null && !ReferenceEquals(unit, homeBase))
             {
                 Add("host-dependency", unit, homeBase, $"host:{StableUnitId(unit)}", "home-base");
             }
 
             var leader = unit.Formation?.LeaderStation?.UnitObject;
-            if (unit.FollowingFormation && leader is not null && !ReferenceEquals(unit, leader))
+            if (unit.FollowingFormation && leader != null && !ReferenceEquals(unit, leader))
             {
                 Add("runtime-formation", unit, leader, $"formation:{StableUnitId(unit)}", "follow-leader");
             }
 
             if (unit is Aircraft aircraft
                 && aircraft.HasTemporaryFormationReference
-                && aircraft.TemporaryFormationLeader is { } temporaryLeader
-                && !ReferenceEquals(unit, temporaryLeader))
+                && aircraft.TemporaryFormationLeader != null
+                && !ReferenceEquals(unit, aircraft.TemporaryFormationLeader))
             {
+                var temporaryLeader = aircraft.TemporaryFormationLeader;
                 var detail = AerialRefuelingEquipment.TryGetCompatibleSystem(
                     temporaryLeader,
                     aircraft,
@@ -516,8 +539,8 @@ internal static partial class GameCommandDispatcher
                     detail);
             }
 
-            if (unit.CollisionAvoidance?.UnitToAvoid is { } collisionThreat
-                && !ReferenceEquals(unit, collisionThreat))
+            var collisionThreat = unit.CollisionAvoidance?.UnitToAvoid;
+            if (collisionThreat != null && !ReferenceEquals(unit, collisionThreat))
             {
                 Add(
                     "physical-dependency",
@@ -537,13 +560,13 @@ internal static partial class GameCommandDispatcher
                 var detail = sensor.GetType().Name;
                 foreach (var target in sensor._associatedTargets
                     .Concat([sensor._targetObject, sensor._preLaunchTargetObject])
-                    .Where(item => item is not null)
+                    .Where(item => item != null)
                     .Distinct())
                 {
                     Add("sensor-track", unit, target, evidenceId, detail);
                 }
                 foreach (var weapon in sensor._associatedWeapons
-                    .Where(item => item is not null)
+                    .Where(item => item != null)
                     .Distinct())
                 {
                     Add("sensor-guidance", unit, weapon, evidenceId, detail);
@@ -614,7 +637,7 @@ internal static partial class GameCommandDispatcher
         const double terrainChunkSizeUnity = 330.71396;
         var origin = Utils.worldPositionFromUnityToLongLat(Vector3.zero, Globals._currentCenterTile);
         var candidates = objects
-            .Where(candidate => candidate is not null)
+            .Where(candidate => candidate != null)
             .Select(candidate => new
             {
                 Object = candidate,
@@ -1688,9 +1711,47 @@ internal static partial class GameCommandDispatcher
         var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
             string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
             JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
-        var result = RuntimeOwnedMutationAdapter.ReleaseDetachedRecovery(
-            request,
-            commandSessionId);
+        var result = RuntimeOwnedLandMutationAdapter.CanHandleRecoveryRelease(request)
+            ? RuntimeOwnedLandMutationAdapter.ReleaseDetachedRecovery(request, commandSessionId)
+            : RuntimeOwnedMutationAdapter.ReleaseDetachedRecovery(request, commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload RollbackIncompleteOwnedMaterialization(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
+        var result = RuntimeOwnedLandMutationAdapter.CanHandleMaterializationRollback(request)
+            ? RuntimeOwnedLandMutationAdapter.RollbackIncompleteMaterialization(
+                request,
+                commandSessionId)
+            : RuntimeOwnedMutationAdapter.RollbackIncompleteMaterialization(
+                request,
+                commandSessionId);
+        return result.Succeeded
+            ? Success(result.Payload)
+            : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
+    }
+
+    private static CommandResponsePayload ReleaseCommittedOwnedResource(
+        string payloadJson,
+        string commandSessionId)
+    {
+        var request = JsonSerializer.Deserialize<OwnedSurfaceEntityRequestPayload>(
+            string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            JsonOptions) ?? new OwnedSurfaceEntityRequestPayload();
+        var result = RuntimeOwnedLandMutationAdapter.CanHandleCommittedRelease(request)
+            ? RuntimeOwnedLandMutationAdapter.ReleaseCommittedResource(
+                request,
+                commandSessionId)
+            : RuntimeOwnedMutationAdapter.ReleaseCommittedResource(
+                request,
+                commandSessionId);
         return result.Succeeded
             ? Success(result.Payload)
             : Failure(result.ErrorCode, result.ErrorMessage, result.ErrorId);
@@ -1762,7 +1823,7 @@ internal static partial class GameCommandDispatcher
             FormationManagerVisible = main?.ShowFormationManager ?? false,
             FlightDeckVisible = selectedViewModel?.ObjectFlightDeck?.FlightDeckVisible ?? false,
             EventLogAvailable = main?.EventLog is not null,
-            SelectedUnitId = selected is not null && selected.isUnit()
+            SelectedUnitId = selected != null && selected.isUnit()
                 ? StableUnitId(selected)
                 : string.Empty,
             ScreenWidth = Screen.width,
@@ -1900,7 +1961,7 @@ internal static partial class GameCommandDispatcher
         }
 
         var matches = Singleton<ObjectsManager>.Instance._listOfAllObjects
-            .Where(item => item is not null && item.isUnit())
+            .Where(item => item != null && item.isUnit())
             .Where(item => string.Equals(StableUnitId(item), requestedId, StringComparison.Ordinal)
                 || string.Equals(UnitId(item.UniqueID), requestedId, StringComparison.Ordinal)
                 || string.Equals($"object:{item.UniqueID}", requestedId, StringComparison.Ordinal))
@@ -1986,7 +2047,7 @@ internal static partial class GameCommandDispatcher
                 performSmoothMove: false,
                 checkAirLeader: false);
             var selected = nativeRenderPosition.getSelectedObject();
-            var selectedId = selected is not null && selected.isUnit()
+            var selectedId = selected != null && selected.isUnit()
                 ? StableUnitId(selected)
                 : string.Empty;
             if (!string.Equals(selectedId, StableUnitId(target), StringComparison.Ordinal))
@@ -2005,6 +2066,10 @@ internal static partial class GameCommandDispatcher
                 followObjectAlreadySelected: true,
                 forceSwitch: true);
             nativeRenderPosition.setGlobalPosition(target.getGeoPosition());
+            if (Globals._mainGameViewModel?.Map?.DisplayMap is { } displayMap)
+            {
+                displayMap.Center = target.getGeoPosition();
+            }
             cameraManager.setDistanceToPivot(target.getDefaultCameraDistanceToTarget());
             if (target is LandUnit)
             {
@@ -2306,6 +2371,7 @@ internal static partial class GameCommandDispatcher
                 ? Finite(overallDamage.Value / totalDamage.Value)
                 : null;
         var flightDeck = parameters?._flightDeck;
+        var currentOrderTarget = unit.CurrentOrder.Value?.TargetUnit;
 
         var snapshot = new UnitSnapshotPayload
         {
@@ -2330,8 +2396,8 @@ internal static partial class GameCommandDispatcher
             HeadingDegrees = Finite(unit.getHeading()),
             SpeedKnots = Finite(unit.getVelocityInKnots()),
             CurrentOrder = unit.CurrentOrder.Value?.OrderType.ToString() ?? string.Empty,
-            CurrentOrderTargetId = unit.CurrentOrder.Value?.TargetUnit is { } orderTarget
-                ? StableUnitId(orderTarget)
+            CurrentOrderTargetId = currentOrderTarget != null
+                ? StableUnitId(currentOrderTarget)
                 : null,
             Waypoints = unit.ExportWaypoints()
                 .Select((waypoint, index) => CaptureWaypoint(waypoint, index))
@@ -2578,7 +2644,7 @@ internal static partial class GameCommandDispatcher
             HeightState = waypoint._heightState.ToString(),
             IsRelative = waypoint._isRelative,
             IsReachable = waypoint._reachable,
-            ParentUnitId = waypoint._parentObject is null
+            ParentUnitId = waypoint._parentObject == null
                 ? null
                 : StableUnitId(waypoint._parentObject),
             SetCourse = waypoint._setCourse,
@@ -2588,7 +2654,7 @@ internal static partial class GameCommandDispatcher
             TimeToFollowSeconds = Finite(waypoint._timeToFollow),
             IsAutogenerated = waypoint._isAutogenerated,
             EngagementAmmunitionId = waypoint._ammunitionForEngage ?? string.Empty,
-            EngagementTargetId = waypoint._targetObject is null
+            EngagementTargetId = waypoint._targetObject == null
                 ? null
                 : StableUnitId(waypoint._targetObject),
             Salvo = waypoint._salvo,

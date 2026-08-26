@@ -88,6 +88,8 @@ public static class GameCommandTypes
     public const string GetSceneState = "get-scene-state";
     public const string GetWorldSnapshot = "get-world-snapshot";
     public const string GetRuntimeMemoryState = "get-runtime-memory-state";
+    public const string GetPositionWatch = "get-position-watch";
+    public const string SetPositionWatch = "set-position-watch";
     public const string ProbeTerrainPlacement = "probe-terrain-placement";
     public const string PrepareTacticalLocation = "prepare-tactical-location";
     public const string MaterializeOwnedLandUnit = "materialize-owned-land-unit";
@@ -124,6 +126,10 @@ public static class GameCommandTypes
     public const string GetSurfaceRenderProxyState = "get-surface-render-proxy-state";
     public const string GetSelectedSurfaceRenderProxy = "get-selected-surface-render-proxy";
     public const string ReconcileSurfaceRenderProxies = "reconcile-surface-render-proxies";
+    public const string RollbackIncompleteOwnedMaterialization =
+        "rollback-incomplete-owned-materialization";
+    public const string ReleaseCommittedOwnedResource =
+        "release-committed-owned-resource";
     public const string ReleaseDetachedOwnedSurfaceRecovery =
         "release-detached-owned-surface-recovery";
 
@@ -134,6 +140,7 @@ public static class GameCommandTypes
         GetSceneState,
         GetWorldSnapshot,
         GetRuntimeMemoryState,
+        GetPositionWatch,
         ProbeTerrainPlacement,
         GetTacticalCouplingState,
         GetOwnedSurfaceResourceState,
@@ -165,6 +172,7 @@ public static class GameCommandTypes
     {
         SetExperimentalPauseState,
         SetExperimentalTimeCompression,
+        SetPositionWatch,
     };
 
     public static readonly string[] MutationControlCommands =
@@ -185,6 +193,8 @@ public static class GameCommandTypes
         RestoreOwnedSurfaceCheckpoint,
         StageOwnedSurfaceCheckpoint,
         ReconcileSurfaceRenderProxies,
+        RollbackIncompleteOwnedMaterialization,
+        ReleaseCommittedOwnedResource,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
 
@@ -195,6 +205,7 @@ public static class GameCommandTypes
         GetSceneState,
         GetWorldSnapshot,
         GetRuntimeMemoryState,
+        GetPositionWatch,
         ProbeTerrainPlacement,
         PrepareTacticalLocation,
         GetTacticalCouplingState,
@@ -217,6 +228,7 @@ public static class GameCommandTypes
         ExitTacticalSession,
         SetExperimentalPauseState,
         SetExperimentalTimeCompression,
+        SetPositionWatch,
         ArmOwnedMutationMode,
         MaterializeOwnedSurfaceUnit,
         RegisterOwnedHostedAircraft,
@@ -231,6 +243,8 @@ public static class GameCommandTypes
         GetSurfaceRenderProxyState,
         GetSelectedSurfaceRenderProxy,
         ReconcileSurfaceRenderProxies,
+        RollbackIncompleteOwnedMaterialization,
+        ReleaseCommittedOwnedResource,
         ReleaseDetachedOwnedSurfaceRecovery,
     };
 }

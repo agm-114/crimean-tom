@@ -25,6 +25,7 @@ internal static class RuntimeVisualRenderProxyAdapter
     private const double ProjectionWorkBudgetMilliseconds = 1.5d;
     private const float PhysicalProxyRetryIntervalSeconds = 0.25f;
     private const float PhysicalProxyRetryTimeoutSeconds = 15f;
+    private const float HeadingVectorPixels = 13f;
     private static readonly Dictionary<string, VisualProxyRecord> Records =
         new(StringComparer.Ordinal);
     private static readonly Dictionary<object, VisualProxyRecord> MapMarkerRecords =
@@ -36,6 +37,8 @@ internal static class RuntimeVisualRenderProxyAdapter
     private static bool _viewportRefreshRequested;
     private static ProjectionApplyWork? _projectionApplyWork;
     private static MapBase? _activeMap;
+    private static MissionEditorMapSymbolItem? _floatingOriginMarker;
+    private static Vector2 _floatingOriginTile = new(float.NaN, float.NaN);
     private static VisualProxyRecord? _selectedRecord;
     private static VisualProxyRecord? _pendingPhysicalProxy;
     private static float _lastViewportRefreshAt = float.NegativeInfinity;
@@ -51,6 +54,13 @@ internal static class RuntimeVisualRenderProxyAdapter
     private static long _maximumProjectionSliceMicroseconds;
     private static int _lastProjectionUpsertCount;
     private static int _lastProjectionRemovalCount;
+    private static int _lastViewportTotalRecordCount;
+    private static int _lastViewportPrefilteredRecordCount;
+    private static int _lastViewportHitCandidateCount;
+    private static int _lastViewportAttachedMarkerCount;
+    private static long _lastViewportRefreshMicroseconds;
+    private static long _lastViewportMaximumSliceMicroseconds;
+    private static long _maximumViewportSliceMicroseconds;
 
     public static bool HasActiveMapViewport => _activeMap is not null;
 
@@ -59,6 +69,7 @@ internal static class RuntimeVisualRenderProxyAdapter
 
     public static void Tick()
     {
+        UpdateFloatingOriginMarker();
         if (_pendingPhysicalProxy is { } pending
             && pending.ContinuePhysicalProxyRequest())
         {
@@ -202,6 +213,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         _viewportRefreshWork = null;
         _viewportRefreshRequested = false;
         _projectionApplyWork = null;
+        ReleaseFloatingOriginMarker();
         _activeMap = null;
         _lastViewportRefreshAt = float.NegativeInfinity;
     }
@@ -217,6 +229,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         _viewportHitCandidates = [];
         _viewportRefreshWork = null;
         _viewportRefreshRequested = false;
+        ReleaseFloatingOriginMarker();
         _activeMap = null;
         _lastViewportRefreshAt = float.NegativeInfinity;
     }
@@ -235,6 +248,13 @@ internal static class RuntimeVisualRenderProxyAdapter
         MaximumProjectionSliceMicroseconds = _maximumProjectionSliceMicroseconds,
         LastProjectionUpsertCount = _lastProjectionUpsertCount,
         LastProjectionRemovalCount = _lastProjectionRemovalCount,
+        LastViewportTotalRecordCount = _lastViewportTotalRecordCount,
+        LastViewportPrefilteredRecordCount = _lastViewportPrefilteredRecordCount,
+        LastViewportHitCandidateCount = _lastViewportHitCandidateCount,
+        LastViewportAttachedMarkerCount = _lastViewportAttachedMarkerCount,
+        LastViewportRefreshMicroseconds = _lastViewportRefreshMicroseconds,
+        LastViewportMaximumSliceMicroseconds = _lastViewportMaximumSliceMicroseconds,
+        MaximumViewportSliceMicroseconds = _maximumViewportSliceMicroseconds,
     };
 
     public static SelectedSurfaceRenderProxyPayload CaptureSelected()
@@ -312,13 +332,13 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         RefreshMapViewport(map);
 
-        if (MapMarkerRecords.ContainsKey(hitObject))
+        if (MapMarkerRecords.TryGetValue(hitObject, out var direct))
         {
-            // Let Sea Power's InteractionState apply IMapSelectable.Selected.
-            // CampaignMapSymbolItem turns that native selection transition into
-            // a promotion request. The proximity path below remains a fallback
-            // for Noesis presentation wrappers that hide the original data item.
-            return false;
+            // Authored map-symbol items are presentation records, not native
+            // units. Sea Power can mark one Selected without opening the
+            // campaign promotion path, so consume the hit here and publish the
+            // same physical-proxy request used by the proximity fallback.
+            return direct.RequestPhysicalProxy(out _);
         }
 
         // Sea Power's native unit, formation, and waypoint records always win.
@@ -363,6 +383,7 @@ internal static class RuntimeVisualRenderProxyAdapter
     public static void RefreshMapViewport(MapBase map, bool force = false)
     {
         _activeMap = map;
+        UpdateFloatingOriginMarker(force: true);
         if (_viewportRefreshWork is not null)
         {
             _viewportRefreshRequested = true;
@@ -371,15 +392,91 @@ internal static class RuntimeVisualRenderProxyAdapter
         var now = Time.realtimeSinceStartup;
         if (!force && now - _lastViewportRefreshAt < ViewportRefreshIntervalSeconds)
         {
+            _viewportRefreshRequested = true;
             return;
         }
-        _viewportRefreshWork = new ViewportRefreshWork(
+        var width = Math.Max(1f, map.ActualWidth);
+        var height = Math.Max(1f, map.ActualHeight);
+        var preparationTimer = System.Diagnostics.Stopwatch.StartNew();
+        var allRecords = OrderedRecords()
+            .Select(item => item.Value)
+            .ToArray();
+        var hasViewportBounds = TryGetViewportBounds(
             map,
-            Math.Max(1f, map.ActualWidth),
-            Math.Max(1f, map.ActualHeight),
-            OrderedRecords()
-                .Select(item => item.Value)
-                .ToArray());
+            width,
+            height,
+            out var viewportBounds);
+        var work = new ViewportRefreshWork(
+            map,
+            width,
+            height,
+            allRecords.Length,
+            allRecords,
+            hasViewportBounds,
+            viewportBounds);
+        preparationTimer.Stop();
+        work.ElapsedMicroseconds = ElapsedMicroseconds(preparationTimer);
+        work.MaximumSliceMicroseconds = work.ElapsedMicroseconds;
+        _maximumViewportSliceMicroseconds = Math.Max(
+            _maximumViewportSliceMicroseconds,
+            work.ElapsedMicroseconds);
+        _viewportRefreshWork = work;
+    }
+
+    private static void UpdateFloatingOriginMarker(bool force = false)
+    {
+        if (_activeMap is null)
+        {
+            return;
+        }
+
+        var foreground = Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements;
+        if (foreground is null)
+        {
+            return;
+        }
+
+        var tile = Globals._currentCenterTile;
+        if (!force
+            && tile == _floatingOriginTile
+            && _floatingOriginMarker is not null
+            && foreground.Contains(_floatingOriginMarker))
+        {
+            return;
+        }
+
+        _floatingOriginMarker ??= new MissionEditorMapSymbolItem
+        {
+            SectionName = "CrimeanTom_FloatingOrigin",
+            Kind = MissionEditorMapSymbolKind.Label,
+            ShowInMission = true,
+            ColorPreset = DrawingColorPreset.Yellow,
+            FontPreset = DrawingFontPreset.Type,
+            FontSize = 14f,
+            Label = "+ Floating origin",
+        };
+
+        var origin = Utils.worldPositionFromUnityToLongLat(
+            Vector3.zero,
+            tile);
+        origin._height = 0d;
+        _floatingOriginMarker.PlaceAt(origin);
+        if (!foreground.Contains(_floatingOriginMarker))
+        {
+            foreground.Add(_floatingOriginMarker);
+        }
+        _floatingOriginTile = tile;
+    }
+
+    private static void ReleaseFloatingOriginMarker()
+    {
+        if (_floatingOriginMarker is not null)
+        {
+            Globals._mainGameViewModel?.Map?.DisplayMap?.ForegroundElements
+                ?.Remove(_floatingOriginMarker);
+        }
+        _floatingOriginMarker = null;
+        _floatingOriginTile = new Vector2(float.NaN, float.NaN);
     }
 
     private static void ProcessViewportRefresh()
@@ -393,101 +490,167 @@ internal static class RuntimeVisualRenderProxyAdapter
         var processed = 0;
         try
         {
-            while (work.NextRecordIndex < work.Records.Length
-                && processed < MaximumViewportRecordsPerFrame
-                && (processed == 0
-                    || stopwatch.Elapsed.TotalMilliseconds < ViewportWorkBudgetMilliseconds))
+            if (work.Phase == ViewportRefreshPhase.PrefilterRecords)
             {
-                var record = work.Records[work.NextRecordIndex++];
-                if (record.IsDisposed)
+                while (work.NextSourceRecordIndex < work.SourceRecords.Length
+                    && processed < MaximumViewportRecordsPerFrame
+                    && (processed == 0
+                        || stopwatch.Elapsed.TotalMilliseconds < ViewportWorkBudgetMilliseconds))
                 {
+                    var record = work.SourceRecords[work.NextSourceRecordIndex++];
+                    if (!record.IsDisposed && IsInside(work.ViewportBounds, record.MapPosition))
+                    {
+                        work.PrefilteredRecords.Add(record);
+                    }
                     processed++;
-                    continue;
                 }
-                var point = work.Map.LocationToView(record.MapPosition);
-                processed++;
-                if (!double.IsFinite(point.X)
-                    || !double.IsFinite(point.Y)
-                    || point.X < -MapClusterCellPixels
-                    || point.X > work.Width + MapClusterCellPixels
-                    || point.Y < -MapClusterCellPixels
-                    || point.Y > work.Height + MapClusterCellPixels)
+                if (work.NextSourceRecordIndex < work.SourceRecords.Length)
                 {
-                    continue;
-                }
-                work.HitCandidates.Add(new ViewportHitCandidate(record, point.X, point.Y));
-
-                var key = (
-                    (int)Math.Floor(point.X / MapClusterCellPixels),
-                    (int)Math.Floor(point.Y / MapClusterCellPixels));
-                if (!work.Clusters.TryGetValue(key, out var cluster))
-                {
-                    work.Clusters[key] = new MapCluster(
-                        record,
-                        point.X,
-                        point.Y,
-                        1,
-                        record.GroupId,
-                        record.GroupName,
-                        false);
-                    continue;
+                    RecordViewportSlice(work, stopwatch);
+                    return;
                 }
 
-                var centerX = (key.Item1 + 0.5d) * MapClusterCellPixels;
-                var centerY = (key.Item2 + 0.5d) * MapClusterCellPixels;
-                var candidateDistance = SquaredDistance(point.X, point.Y, centerX, centerY);
-                var currentDistance = SquaredDistance(
-                    cluster.ScreenX,
-                    cluster.ScreenY,
-                    centerX,
-                    centerY);
-                var useCandidate = record.IsSelected
-                    || !cluster.Representative.IsSelected && candidateDistance < currentDistance;
-                work.Clusters[key] = new MapCluster(
-                    useCandidate ? record : cluster.Representative,
-                    useCandidate ? point.X : cluster.ScreenX,
-                    useCandidate ? point.Y : cluster.ScreenY,
-                    cluster.Count + 1,
-                    cluster.GroupId,
-                    cluster.GroupName,
-                    cluster.MixedGroups
-                        || !string.Equals(
-                            cluster.GroupId,
-                            record.GroupId,
-                            StringComparison.Ordinal));
-            }
-
-            if (work.NextRecordIndex < work.Records.Length)
-            {
+                work.CompletePrefilter();
+                RecordViewportSlice(work, stopwatch);
                 return;
             }
 
-            var desired = work.Clusters.Values
-                .OrderByDescending(item => item.Representative.IsSelected)
-                .ThenBy(item => SquaredDistance(
-                    item.ScreenX,
-                    item.ScreenY,
-                    work.Width / 2d,
-                    work.Height / 2d))
-                .Take(MaximumAttachedMapMarkers)
-                .ToDictionary(
-                    item => item.Representative,
-                    item => new MapMarkerAttachment(ClusterLabel(item)));
-            if (_selectedRecord is { IsDisposed: false, IsSelected: true } selected)
+            if (work.Phase == ViewportRefreshPhase.ScanRecords)
             {
-                desired[selected] = new MapMarkerAttachment(selected.MapLabel);
+                while (work.NextRecordIndex < work.Records.Length
+                    && processed < MaximumViewportRecordsPerFrame
+                    && (processed == 0
+                        || stopwatch.Elapsed.TotalMilliseconds < ViewportWorkBudgetMilliseconds))
+                {
+                    var record = work.Records[work.NextRecordIndex++];
+                    if (record.IsDisposed)
+                    {
+                        processed++;
+                        continue;
+                    }
+                    var point = work.Map.LocationToView(record.MapPosition);
+                    processed++;
+                    if (!double.IsFinite(point.X)
+                        || !double.IsFinite(point.Y)
+                        || point.X < -MapClusterCellPixels
+                        || point.X > work.Width + MapClusterCellPixels
+                        || point.Y < -MapClusterCellPixels
+                        || point.Y > work.Height + MapClusterCellPixels)
+                    {
+                        continue;
+                    }
+                    work.HitCandidates.Add(new ViewportHitCandidate(record, point.X, point.Y));
+
+                    var key = (
+                        (int)Math.Floor(point.X / MapClusterCellPixels),
+                        (int)Math.Floor(point.Y / MapClusterCellPixels));
+                    if (!work.Clusters.TryGetValue(key, out var cluster))
+                    {
+                        work.Clusters[key] = new MapCluster(
+                            record,
+                            point.X,
+                            point.Y,
+                            1,
+                            record.GroupId,
+                            record.GroupName,
+                            false);
+                        continue;
+                    }
+
+                    var centerX = (key.Item1 + 0.5d) * MapClusterCellPixels;
+                    var centerY = (key.Item2 + 0.5d) * MapClusterCellPixels;
+                    var candidateDistance = SquaredDistance(point.X, point.Y, centerX, centerY);
+                    var currentDistance = SquaredDistance(
+                        cluster.ScreenX,
+                        cluster.ScreenY,
+                        centerX,
+                        centerY);
+                    var useCandidate = record.IsSelected
+                        || !cluster.Representative.IsSelected && candidateDistance < currentDistance;
+                    work.Clusters[key] = new MapCluster(
+                        useCandidate ? record : cluster.Representative,
+                        useCandidate ? point.X : cluster.ScreenX,
+                        useCandidate ? point.Y : cluster.ScreenY,
+                        cluster.Count + 1,
+                        cluster.GroupId,
+                        cluster.GroupName,
+                        cluster.MixedGroups
+                            || !string.Equals(
+                                cluster.GroupId,
+                                record.GroupId,
+                                StringComparison.Ordinal));
+                }
+
+                if (work.NextRecordIndex < work.Records.Length)
+                {
+                    RecordViewportSlice(work, stopwatch);
+                    return;
+                }
+
+                work.Phase = ViewportRefreshPhase.PrepareAttachments;
+                RecordViewportSlice(work, stopwatch);
+                return;
             }
-            foreach (var record in _attachedMapRecords.Where(record => !desired.ContainsKey(record)))
+
+            if (work.Phase == ViewportRefreshPhase.PrepareAttachments)
             {
-                record.SetMapMarkerAttached(false);
+                work.PrepareAttachments(_attachedMapRecords, _selectedRecord);
+                work.Phase = ViewportRefreshPhase.DetachMarkers;
+                RecordViewportSlice(work, stopwatch);
+                return;
             }
-            foreach (var pair in desired)
+
+            if (work.Phase == ViewportRefreshPhase.DetachMarkers)
             {
-                pair.Key.SetMapMarkerAttached(true, pair.Value.Label);
+                while (work.NextDetachedIndex < work.DetachedRecords.Length
+                    && processed < MaximumViewportRecordsPerFrame
+                    && (processed == 0
+                        || stopwatch.Elapsed.TotalMilliseconds < ViewportWorkBudgetMilliseconds))
+                {
+                    work.DetachedRecords[work.NextDetachedIndex++].SetMapMarkerAttached(false);
+                    processed++;
+                }
+                if (work.NextDetachedIndex < work.DetachedRecords.Length)
+                {
+                    RecordViewportSlice(work, stopwatch);
+                    return;
+                }
+                work.Phase = ViewportRefreshPhase.AttachMarkers;
+                RecordViewportSlice(work, stopwatch);
+                return;
             }
-            _attachedMapRecords = desired.Keys.ToHashSet();
+
+            if (work.Phase == ViewportRefreshPhase.AttachMarkers)
+            {
+                while (work.NextAttachmentIndex < work.Attachments.Length
+                    && processed < MaximumViewportRecordsPerFrame
+                    && (processed == 0
+                        || stopwatch.Elapsed.TotalMilliseconds < ViewportWorkBudgetMilliseconds))
+                {
+                    var pair = work.Attachments[work.NextAttachmentIndex++];
+                    pair.Key.SetMapMarkerAttached(true, pair.Value.Label);
+                    processed++;
+                }
+                if (work.NextAttachmentIndex < work.Attachments.Length)
+                {
+                    RecordViewportSlice(work, stopwatch);
+                    return;
+                }
+                work.Phase = ViewportRefreshPhase.Complete;
+                RecordViewportSlice(work, stopwatch);
+                return;
+            }
+
+            _attachedMapRecords = work.Desired.Keys.ToHashSet();
             _viewportHitCandidates = work.HitCandidates.ToArray();
             _lastViewportRefreshAt = Time.realtimeSinceStartup;
+            RecordViewportSlice(work, stopwatch);
+            _lastViewportTotalRecordCount = work.TotalRecordCount;
+            _lastViewportPrefilteredRecordCount = work.Records.Length;
+            _lastViewportHitCandidateCount = work.HitCandidates.Count;
+            _lastViewportAttachedMarkerCount = work.Desired.Count;
+            _lastViewportRefreshMicroseconds = work.ElapsedMicroseconds;
+            _lastViewportMaximumSliceMicroseconds = work.MaximumSliceMicroseconds;
             _viewportRefreshWork = null;
             // Viewport changes can arrive every frame while the player pans or
             // zooms. Keep one trailing refresh request, but let Tick debounce it
@@ -501,6 +664,96 @@ internal static class RuntimeVisualRenderProxyAdapter
                 "[Sea Power Runtime Bridge] campaign map viewport refresh failed: "
                 + $"{exception.GetType().Name}: {exception.Message}");
         }
+    }
+
+    private static bool TryGetViewportBounds(
+        MapBase map,
+        double width,
+        double height,
+        out BoundingBox bounds)
+    {
+        bounds = default!;
+        try
+        {
+            var padding = MapClusterCellPixels;
+            const double metresPerDegree = 111_319.49079327358d;
+            var paddedWidth = width + 2d * padding;
+            var paddedHeight = height + 2d * padding;
+            var paddedDiagonal = Math.Sqrt(
+                paddedWidth * paddedWidth + paddedHeight * paddedHeight);
+            var viewScale = map.ViewTransform.Scale;
+            if (!double.IsFinite(viewScale) || viewScale <= 0d)
+            {
+                return false;
+            }
+            var longitudeSpanUpperBound = paddedDiagonal
+                / (viewScale * metresPerDegree);
+            if (!double.IsFinite(longitudeSpanUpperBound)
+                || longitudeSpanUpperBound >= 359.5d)
+            {
+                return false;
+            }
+            bounds = map.ViewRectToBoundingBox(new Noesis.Rect(
+                -padding,
+                -padding,
+                (float)width + 2f * padding,
+                (float)height + 2f * padding));
+            if (!double.IsFinite(bounds.West)
+                || !double.IsFinite(bounds.East)
+                || !double.IsFinite(bounds.South)
+                || !double.IsFinite(bounds.North)
+                || bounds.Width >= 359.5d)
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            // A map can report a transient invalid transform while it opens or
+            // changes layout. The existing screen-space test remains the safe
+            // fallback for that refresh.
+            bounds = default!;
+            return false;
+        }
+    }
+
+    private static bool IsInside(BoundingBox bounds, GeoPosition position)
+    {
+        if (position.Latitude < bounds.South || position.Latitude > bounds.North)
+        {
+            return false;
+        }
+        if (bounds.Width >= 359.5d)
+        {
+            return true;
+        }
+
+        for (var offset = -720d; offset <= 720d; offset += 360d)
+        {
+            var longitude = position.Longitude + offset;
+            if (longitude >= bounds.West && longitude <= bounds.East)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void RecordViewportSlice(
+        ViewportRefreshWork work,
+        System.Diagnostics.Stopwatch stopwatch)
+    {
+        stopwatch.Stop();
+        var elapsedMicroseconds = ElapsedMicroseconds(stopwatch);
+        work.ElapsedMicroseconds = checked(work.ElapsedMicroseconds + elapsedMicroseconds);
+        work.MaximumSliceMicroseconds = Math.Max(
+            work.MaximumSliceMicroseconds,
+            elapsedMicroseconds);
+        _maximumViewportSliceMicroseconds = Math.Max(
+            _maximumViewportSliceMicroseconds,
+            elapsedMicroseconds);
     }
 
     private static double SquaredDistance(
@@ -833,6 +1086,16 @@ internal static class RuntimeVisualRenderProxyAdapter
         double ScreenX,
         double ScreenY);
 
+    private enum ViewportRefreshPhase
+    {
+        PrefilterRecords,
+        ScanRecords,
+        PrepareAttachments,
+        DetachMarkers,
+        AttachMarkers,
+        Complete,
+    }
+
     private sealed class ReferenceObjectComparer : IEqualityComparer<object>
     {
         public static readonly ReferenceObjectComparer Instance = new();
@@ -846,15 +1109,66 @@ internal static class RuntimeVisualRenderProxyAdapter
         MapBase map,
         double width,
         double height,
-        VisualProxyRecord[] records)
+        int totalRecordCount,
+        VisualProxyRecord[] sourceRecords,
+        bool hasViewportBounds,
+        BoundingBox viewportBounds)
     {
         public MapBase Map { get; } = map;
         public double Width { get; } = width;
         public double Height { get; } = height;
-        public VisualProxyRecord[] Records { get; } = records;
+        public int TotalRecordCount { get; } = totalRecordCount;
+        public VisualProxyRecord[] SourceRecords { get; } = sourceRecords;
+        public BoundingBox ViewportBounds { get; } = viewportBounds;
+        public List<VisualProxyRecord> PrefilteredRecords { get; } = [];
+        public VisualProxyRecord[] Records { get; private set; } = hasViewportBounds
+            ? []
+            : sourceRecords;
+        public ViewportRefreshPhase Phase { get; set; } = hasViewportBounds
+            ? ViewportRefreshPhase.PrefilterRecords
+            : ViewportRefreshPhase.ScanRecords;
+        public int NextSourceRecordIndex { get; set; }
         public int NextRecordIndex { get; set; }
+        public int NextDetachedIndex { get; set; }
+        public int NextAttachmentIndex { get; set; }
+        public long ElapsedMicroseconds { get; set; }
+        public long MaximumSliceMicroseconds { get; set; }
         public Dictionary<(int X, int Y), MapCluster> Clusters { get; } = [];
         public List<ViewportHitCandidate> HitCandidates { get; } = [];
+        public Dictionary<VisualProxyRecord, MapMarkerAttachment> Desired { get; private set; } = [];
+        public VisualProxyRecord[] DetachedRecords { get; private set; } = [];
+        public KeyValuePair<VisualProxyRecord, MapMarkerAttachment>[] Attachments { get; private set; } = [];
+
+        public void CompletePrefilter()
+        {
+            Records = PrefilteredRecords.ToArray();
+            Phase = ViewportRefreshPhase.ScanRecords;
+        }
+
+        public void PrepareAttachments(
+            IEnumerable<VisualProxyRecord> attachedRecords,
+            VisualProxyRecord? selectedRecord)
+        {
+            Desired = Clusters.Values
+                .OrderByDescending(item => item.Representative.IsSelected)
+                .ThenBy(item => SquaredDistance(
+                    item.ScreenX,
+                    item.ScreenY,
+                    Width / 2d,
+                    Height / 2d))
+                .Take(MaximumAttachedMapMarkers)
+                .ToDictionary(
+                    item => item.Representative,
+                    item => new MapMarkerAttachment(ClusterLabel(item)));
+            if (selectedRecord is { IsDisposed: false, IsSelected: true })
+            {
+                Desired[selectedRecord] = new MapMarkerAttachment(selectedRecord.MapLabel);
+            }
+            DetachedRecords = attachedRecords
+                .Where(record => !Desired.ContainsKey(record))
+                .ToArray();
+            Attachments = Desired.ToArray();
+        }
     }
 
     private sealed class ProjectionApplyWork
@@ -892,6 +1206,8 @@ internal static class RuntimeVisualRenderProxyAdapter
         private ObjectBaseParameters? _parameters;
         private GameObject? _root;
         private CampaignMapSymbolItem? _mapMarker;
+        private MapPolyline? _headingLine;
+        private double _headingMarkerScale = double.NaN;
         private bool _mapMarkerAttached;
         private bool _mapAnnotationDirty = true;
         private string _attachedMapLabel = string.Empty;
@@ -978,7 +1294,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             _headingDegrees = NormalizeHeading(spec.HeadingDegrees);
             _campaignTelegraph = spec.CampaignTelegraph;
             var position = PresentationPosition();
-            if (_root is not null)
+            if (_root != null)
             {
                 _root.SetActive(_selected);
                 if (_selected)
@@ -994,8 +1310,11 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 return false;
             }
-            var changed = _root?.activeSelf == true || MapMarkerVisible;
-            _root?.SetActive(false);
+            var changed = _root != null && _root.activeSelf || MapMarkerVisible;
+            if (_root != null)
+            {
+                _root.SetActive(false);
+            }
             RemoveMapAnnotations();
             return changed;
         }
@@ -1054,7 +1373,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 Cleanup(_parameters);
             }
-            else if (_root is not null)
+            else if (_root != null)
             {
                 UnityEngine.Object.Destroy(_root);
             }
@@ -1062,7 +1381,7 @@ internal static class RuntimeVisualRenderProxyAdapter
             _root = null;
         }
 
-        internal bool WorldModelVisible => !_disposed && _root?.activeSelf == true;
+        internal bool WorldModelVisible => !_disposed && _root != null && _root.activeSelf;
         internal bool IsDisposed => _disposed;
         internal bool IsSelected => _selected;
         internal bool MapMarkerIsVisible => MapMarkerVisible;
@@ -1090,6 +1409,10 @@ internal static class RuntimeVisualRenderProxyAdapter
                 && !_mapAnnotationDirty
                 && string.Equals(_attachedMapLabel, label, StringComparison.Ordinal))
             {
+                if (_activeMap is not null)
+                {
+                    UpdateHeadingMarkerGeometry(_activeMap, PresentationPosition());
+                }
                 return;
             }
             EnsureMapAnnotations(PresentationPosition(), label);
@@ -1103,13 +1426,14 @@ internal static class RuntimeVisualRenderProxyAdapter
                 MapMarkerRecords.Remove(_mapMarker);
             }
             _mapMarker = null;
+            _headingLine = null;
             try
             {
                 if (_parameters is not null)
                 {
                     Cleanup(_parameters);
                 }
-                else if (_root is not null)
+                else if (_root != null)
                 {
                     UnityEngine.Object.Destroy(_root);
                 }
@@ -1158,12 +1482,29 @@ internal static class RuntimeVisualRenderProxyAdapter
                 };
                 MapMarkerRecords[_mapMarker] = this;
             }
+            if (_headingLine is null && _activeMap is not null)
+            {
+                _headingLine = new MapPolyline
+                {
+                    ParentMap = _activeMap,
+                    StrokeThickness = 1.5f,
+                };
+            }
+            else if (_headingLine is not null && _activeMap is not null)
+            {
+                _headingLine.ParentMap = _activeMap;
+            }
             _mapMarker.Kind = MissionEditorMapSymbolKind.UnitIcon;
             _mapMarker.Domain = MapSymbolDomain();
             _mapMarker.Side = _relationship == "HostileContact" ? "Hostile" : "Friendly";
             _mapMarker.ColorPreset = _relationship == "HostileContact"
                 ? DrawingColorPreset.Red
                 : DrawingColorPreset.Blue;
+            if (_headingLine is not null && _activeMap is not null)
+            {
+                _headingLine.Stroke = _mapMarker.UnitColorBrush;
+                UpdateHeadingMarkerGeometry(_activeMap, position, force: true);
+            }
             _mapMarker.Bearing = _headingDegrees.ToString(
                 "0.###",
                 System.Globalization.CultureInfo.InvariantCulture);
@@ -1171,6 +1512,10 @@ internal static class RuntimeVisualRenderProxyAdapter
                 ? BuildNativeMapLabel()
                 : label);
             _mapMarker.PlaceAt(position);
+            if (_headingLine is not null && !foreground.Contains(_headingLine))
+            {
+                foreground.Add(_headingLine);
+            }
             if (!foreground.Contains(_mapMarker))
             {
                 foreground.Add(_mapMarker);
@@ -1178,6 +1523,38 @@ internal static class RuntimeVisualRenderProxyAdapter
             _mapMarkerAttached = true;
             _mapAnnotationDirty = false;
             _attachedMapLabel = label;
+        }
+
+        private void UpdateHeadingMarkerGeometry(
+            MapBase map,
+            GeoPosition position,
+            bool force = false)
+        {
+            if (_headingLine is null || position.IsInvalid())
+            {
+                return;
+            }
+
+            var scale = map.ViewTransform.Scale;
+            if (!force
+                && double.IsFinite(_headingMarkerScale)
+                && Math.Abs(_headingMarkerScale - scale) < 0.000001d)
+            {
+                return;
+            }
+
+            var origin = map.LocationToView(position);
+            var headingRadians = _headingDegrees * Math.PI / 180d;
+            var endpoint = map.ViewToGeoPosition(new Noesis.Point(
+                (float)(origin.X + Math.Sin(headingRadians) * HeadingVectorPixels),
+                (float)(origin.Y - Math.Cos(headingRadians) * HeadingVectorPixels)));
+            if (endpoint.IsInvalid())
+            {
+                return;
+            }
+
+            _headingLine.Locations = new[] { position, endpoint };
+            _headingMarkerScale = scale;
         }
 
         internal bool RequestPhysicalProxy(out string error)
@@ -1360,7 +1737,7 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         private void FocusWorldModel()
         {
-            if (_root is null || !Singleton<RenderPosition>.InstanceExists())
+            if (_root == null || !Singleton<RenderPosition>.InstanceExists())
             {
                 return;
             }
@@ -1385,17 +1762,23 @@ internal static class RuntimeVisualRenderProxyAdapter
             _physicalProxyRequested = false;
             _relocationPrepared = false;
             _requiresLocalityHandoff = false;
-            if (_root is not null)
+            if (_parameters is not null)
             {
-                _root.SetActive(false);
+                Cleanup(_parameters);
             }
+            else if (_root != null)
+            {
+                UnityEngine.Object.Destroy(_root);
+            }
+            _parameters = null;
+            _root = null;
             _mapMarker?.SetSelection(false);
             _mapMarker?.SetLabel(string.Empty);
         }
 
         private void EnsureWorldModel()
         {
-            if (_root is not null)
+            if (_root != null)
             {
                 _root.SetActive(true);
                 ApplyWorldTransform(PresentationPosition());
@@ -1425,7 +1808,7 @@ internal static class RuntimeVisualRenderProxyAdapter
                         Singleton<SceneCreator>.Instance.GeoCenterPosition,
                         PresentationPosition(),
                         nationOverride: string.Empty)
-                        || parameters._rootGameObject is null)
+                        || parameters._rootGameObject == null)
                     {
                         Cleanup(parameters);
                         continue;
@@ -1462,7 +1845,7 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         private void ApplyWorldTransform(GeoPosition position)
         {
-            if (_root is null)
+            if (_root == null)
             {
                 return;
             }
@@ -1571,6 +1954,14 @@ internal static class RuntimeVisualRenderProxyAdapter
 
         private string BuildNativeMapLabel()
         {
+            if (string.Equals(_relationship, "Friendly", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(_name))
+            {
+                // Vanilla player objects label the map from their authored short
+                // name, without a contact number or class prefix.
+                return _name.Trim();
+            }
+
             var trackId = 1_000 + _proxyNumber;
             if (trackId % 10 == 0)
             {
@@ -1636,15 +2027,6 @@ internal static class RuntimeVisualRenderProxyAdapter
             }.Any(token => authoredName.Contains(token, StringComparison.OrdinalIgnoreCase));
             if (!operationalDescription && !string.IsNullOrWhiteSpace(authoredName))
             {
-                var firstSpace = authoredName.IndexOf(' ');
-                if (firstSpace > 0 && new[]
-                    {
-                        "USS", "USNS", "HMS", "HMAS", "HMCS", "FGS", "JDS", "JS",
-                        "NRP", "PNS", "INS", "ROKS", "ROCN", "RNoN",
-                    }.Contains(authoredName[..firstSpace], StringComparer.OrdinalIgnoreCase))
-                {
-                    return authoredName[(firstSpace + 1)..].Trim();
-                }
                 return authoredName;
             }
             return FirstNonEmpty(catalogName, authoredName);
@@ -1694,6 +2076,11 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 foreground?.Remove(_mapMarker);
             }
+            if (_headingLine is not null)
+            {
+                foreground?.Remove(_headingLine);
+                _headingLine.ParentMap = null;
+            }
             _mapMarkerAttached = false;
             _attachedMapLabel = string.Empty;
         }
@@ -1721,8 +2108,14 @@ internal static class RuntimeVisualRenderProxyAdapter
             {
                 parameters._meshesObject[index].SetActive(index == 0);
             }
-            parameters._damageObjectParent?.SetActive(false);
-            parameters._collidersObject?.SetActive(false);
+            if (parameters._damageObjectParent != null)
+            {
+                parameters._damageObjectParent.SetActive(false);
+            }
+            if (parameters._collidersObject != null)
+            {
+                parameters._collidersObject.SetActive(false);
+            }
         }
 
         private static void Cleanup(ObjectBaseParameters parameters)
@@ -1737,14 +2130,14 @@ internal static class RuntimeVisualRenderProxyAdapter
                     parameters._objectVariantReference,
                     parameters._objectSerialNumber);
             }
-            if (parameters._rootGameObject is not null)
+            if (parameters._rootGameObject != null)
             {
                 UnityEngine.Object.Destroy(parameters._rootGameObject);
             }
             foreach (var material in parameters._materialsDictionary?.Values.Distinct()
                 ?? Enumerable.Empty<Material>())
             {
-                if (material is not null)
+                if (material != null)
                 {
                     UnityEngine.Object.Destroy(material);
                 }

@@ -124,6 +124,10 @@ internal static class RuntimeTacticalLocationAdapter
                     "The current campaign-owned tactical locality must be checkpointed and suspended before a distant floating-origin rebase.");
             }
             var renderPosition = Singleton<RenderPosition>.Instance;
+            var selectedCampaignUnit = renderPosition.getSelectedObject() is { } selected
+                && !string.IsNullOrWhiteSpace(selected._campaignTag)
+                ? selected
+                : null;
             var localBeforeRelocation = Utils.longLatToLocalV3(
                 target,
                 previousCenter);
@@ -147,6 +151,18 @@ internal static class RuntimeTacticalLocationAdapter
             {
                 unit.gameObject.SetActive(false);
                 suspendedAuthoredUnitCount++;
+            }
+
+            if (selectedCampaignUnit is not null
+                && selectedCampaignUnit.gameObject.activeInHierarchy
+                && HorizontalDistanceSquared(
+                    selectedCampaignUnit._geoPosition,
+                    Globals._currentCenterTile) <= Globals._rebaseToOriginSq)
+            {
+                renderPosition.switchToObject(
+                    selectedCampaignUnit,
+                    performSmoothMove: false,
+                    checkAirLeader: false);
             }
 
             timer.Stop();
@@ -204,7 +220,7 @@ internal static class RuntimeTacticalLocationAdapter
     private static IEnumerable<ObjectBase> ActiveUnits() =>
         Singleton<ObjectsManager>.InstanceExists()
             ? Singleton<ObjectsManager>.Instance._listOfAllObjects
-                .Where(unit => unit is not null
+                .Where(unit => unit != null
                     && unit.isUnit()
                     && unit.gameObject.activeInHierarchy)
             : [];

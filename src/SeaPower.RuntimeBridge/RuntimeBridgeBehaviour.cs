@@ -26,6 +26,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
         _mainThreadId = Environment.CurrentManagedThreadId;
         SceneManager.activeSceneChanged += OnActiveSceneChanged;
         RuntimeCampaignMapSelectionAdapter.Install();
+        RuntimePositionWatch.Install();
         _fileFingerprintProvider = RuntimeFileFingerprintProvider.Start();
         _executionThreadGuardSelfTest.Start(_mainThreadId, _fileFingerprintProvider);
 
@@ -113,6 +114,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     private void OnDestroy()
     {
         SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+        RuntimePositionWatch.Reset();
         RuntimeEventPublisher.Unbind();
         _pipeClient?.Dispose();
         _pipeClient = null;
@@ -122,6 +124,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
     {
         RuntimeVisualRenderProxyAdapter.ReleaseScenePresentation();
         RuntimeCampaignMapSelectionAdapter.ResetSceneViewport();
+        RuntimePositionWatch.Reset();
     }
 
     private void QueueLogMessage(string message, bool isWarning)
@@ -145,6 +148,7 @@ public sealed class RuntimeBridgeBehaviour : MonoBehaviour
         RuntimeOwnedLandMutationAdapter.EndSession(sessionId);
         RuntimeVisualRenderProxyAdapter.ClearAll();
         RuntimeCampaignMapSelectionAdapter.ResetSceneViewport();
+        RuntimePositionWatch.Reset();
         var removed = _commands.RemoveSession(sessionId);
         if (removed > 0)
         {

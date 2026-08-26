@@ -26,6 +26,7 @@ internal static class RuntimeOwnedMutationAdapter
     ];
 
     private static OwnedSurfaceMaterializationProfilePayload[]? _catalogProfiles;
+    private static int _catalogProfileSourceCount = -1;
 
     private static readonly string[] SurfaceRenderProxyUnitTypeIds =
     [
@@ -46,15 +47,15 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static OwnedSurfaceMaterializationProfilePayload[] CatalogProfiles()
     {
-        if (_catalogProfiles is { Length: > 0 })
-        {
-            return _catalogProfiles;
-        }
-
         var unitData = Singleton<UnitMetadataProvider>.Instance?.UnitData;
         if (unitData is null || unitData.Count == 0)
         {
             return PinnedProfiles;
+        }
+        if (_catalogProfiles is { Length: > 0 }
+            && _catalogProfileSourceCount == unitData.Count)
+        {
+            return _catalogProfiles;
         }
 
         var profiles = new List<OwnedSurfaceMaterializationProfilePayload>(PinnedProfiles);
@@ -93,6 +94,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         _catalogProfiles = profiles.ToArray();
+        _catalogProfileSourceCount = unitData.Count;
         return _catalogProfiles;
     }
 
@@ -160,6 +162,10 @@ internal static class RuntimeOwnedMutationAdapter
         LifecycleIdempotencyRecords = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, RecoveryReleaseIdempotencyRecord>
         RecoveryReleaseIdempotencyRecords = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, MaterializationRollbackIdempotencyRecord>
+        MaterializationRollbackIdempotencyRecords = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, CommittedReleaseIdempotencyRecord>
+        CommittedReleaseIdempotencyRecords = new(StringComparer.Ordinal);
 
     private static string _armedSessionId = string.Empty;
     private static long _expiresAtUnixMilliseconds;
@@ -179,7 +185,8 @@ internal static class RuntimeOwnedMutationAdapter
 
     internal static bool HasActiveOwnedEntity(string entityId) =>
         OwnedEntities.TryGetValue(entityId, out var record)
-        && record.Unit is { Disabled: false };
+        && record.Unit != null
+        && !record.Unit.Disabled;
 
     public static MutationAdapterResult<ArmOwnedMutationModeResultPayload> Arm(
         ArmOwnedMutationModeRequestPayload request,
@@ -239,6 +246,9 @@ internal static class RuntimeOwnedMutationAdapter
     public static OwnedSurfaceResourceStatePayload CaptureResourceState()
     {
         ReconcileLaunchedHostedAircraft();
+        var selected = Singleton<RenderPosition>.InstanceExists()
+            ? Singleton<RenderPosition>.Instance.getSelectedObject()
+            : null;
         var materializedEntries = OwnedEntities
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .Select(pair =>
@@ -261,10 +271,27 @@ internal static class RuntimeOwnedMutationAdapter
                     LifecycleState = lifecycleState,
                     HasCheckpoint = record.Checkpoint is not null,
                     RecoveryRequired = record.RecoveryRequired,
+                    MaterializationRollbackPending =
+                        record.RollbackMode != MaterializationRollbackMode.None,
                     NativeInitialized = RuntimeNativeUnitReadiness.IsInitialized(vessel),
                     AcceptsPlayerOrders = RuntimeNativeUnitReadiness.AcceptsPlayerOrders(vessel),
+                    HasNativeControl = vessel != null && vessel._hasControl,
+                    NativeStoresInitialized = RuntimeNativeUnitReadiness.HasInitializedStores(vessel),
+                    IsAircraftInFlight = RuntimeNativeUnitReadiness.AirborneRequirementSatisfied(vessel),
+                    UnitTypeId = vessel == null ? string.Empty : vessel._obp?._objectIniName ?? string.Empty,
+                    VariantId = vessel == null ? string.Empty : vessel._obp?._objectVariantReference ?? string.Empty,
+                    LoadoutId = vessel == null ? string.Empty : vessel._obp?._loadoutVariant ?? string.Empty,
+                    AmmunitionQuantity = vessel == null ? 0 : StoreQuantity(vessel),
                     GameUniqueId = vessel == null ? null : vessel.UniqueID,
                     HostEntityId = record.HostEntityId,
+                    HasPosition = vessel is not null,
+                    Latitude = vessel?._geoPosition._latitude ?? 0d,
+                    Longitude = vessel?._geoPosition._longitude ?? 0d,
+                    HeadingDegrees = vessel?.getHeading() ?? 0d,
+                    HorizontalDistanceFromOriginMeters = vessel is null
+                        ? 0d
+                        : HorizontalDistanceFromOriginMeters(vessel),
+                    IsSelectedByPlayer = vessel is not null && ReferenceEquals(selected, vessel),
                 };
             })
             .ToArray();
@@ -278,6 +305,10 @@ internal static class RuntimeOwnedMutationAdapter
                 Revision = pair.Value.Revision,
                 LifecycleState = "hosted-on-board",
                 NativeInitialized = true,
+                NativeStoresInitialized = true,
+                UnitTypeId = pair.Value.UnitTypeId,
+                VariantId = pair.Value.VariantId,
+                LoadoutId = pair.Value.LoadoutId,
                 HostEntityId = pair.Value.HostEntityId,
             });
         var entries = materializedEntries.Concat(hostedEntries).ToArray();
@@ -295,8 +326,8 @@ internal static class RuntimeOwnedMutationAdapter
                 entry.LifecycleState == "detached-after-scene-loss" && entry.HasCheckpoint),
             RecoveryRequiredCount = entries.Count(entry => entry.RecoveryRequired),
             RetainedConstructedObjectCount = active + suspended,
-            MemoryReclamationSupported = false,
-            SchedulerPolicy = "active-and-suspended-retained-objects-consume-materialized-capacity",
+            MemoryReclamationSupported = true,
+            SchedulerPolicy = "active-objects-consume-capacity; committed-suspended-objects-are-reclaimed",
             Entities = entries,
         };
     }
@@ -548,17 +579,16 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.StaleRevision,
                 $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
         }
-        if (record.Unit != null
-            || !record.RecoveryRequired
-            || record.Checkpoint is not null)
+        if (record.Unit != null || record.Checkpoint is not null)
         {
             return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "Recovery release requires a detached partial-materialization record with no checkpoint.");
+                "Recovery release requires a detached owned record with no checkpoint.");
         }
 
         OwnedEntities.Remove(request.EntityId);
         EvictIdempotencyForAssignment(record.AssignmentId);
+        EvictTerminalReceiptsForEntity(request.EntityId);
         var result = new OwnedSurfaceRecoveryReleaseResultPayload
         {
             Outcome = "released",
@@ -573,6 +603,349 @@ internal static class RuntimeOwnedMutationAdapter
             key,
             new(requestJson, CloneRecoveryRelease(result)));
         return MutationAdapterResult<OwnedSurfaceRecoveryReleaseResultPayload>.Success(result);
+    }
+
+    private static double HorizontalDistanceFromOriginMeters(ObjectBase unit)
+    {
+        const double metersPerUnityUnit = 67.2d;
+        var position = unit.transform.position;
+        return Math.Sqrt(position.x * position.x + position.z * position.z)
+            * metersPerUnityUnit;
+    }
+
+    public static MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>
+        ReleaseCommittedResource(
+            OwnedSurfaceEntityRequestPayload request,
+            string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        var context = request.Context;
+        if (context is null
+            || !string.Equals(context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The committed-resource release session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.EntityId, "unit:crimean-tom:")
+            || !ValidScopedId(context.AssignmentId, "assignment:")
+            || context.AuthorityEpoch < 1
+            || context.ExpectedRevision < 0
+            || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+            || context.IdempotencyKey.Length > 128)
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The committed-resource release identity or fence is invalid.");
+        }
+
+        var key = LifecycleKey(GameCommandTypes.ReleaseCommittedOwnedResource, context);
+        var requestJson = IdempotencyRequestJson(request, context);
+        if (CommittedReleaseIdempotencyRecords.TryGetValue(key, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with a different committed-resource release payload.");
+            }
+            var replay = CloneCommittedRelease(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Success(replay);
+        }
+
+        if (HostedEntities.TryGetValue(request.EntityId, out var hosted))
+        {
+            if (!string.Equals(hosted.AssignmentId, context.AssignmentId, StringComparison.Ordinal)
+                || hosted.AuthorityEpoch != context.AuthorityEpoch
+                || hosted.Revision != context.ExpectedRevision)
+            {
+                return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                    ProtocolErrorCodes.MutationPreconditionFailed,
+                    "The committed hosted-aircraft record does not match the requested authority fence.");
+            }
+            HostedEntities.Remove(request.EntityId);
+            HostedLaunchPending.Remove(request.EntityId);
+            EvictIdempotencyForAssignment(hosted.AssignmentId);
+            EvictTerminalReceiptsForEntity(request.EntityId);
+            var hostedResult = new ReleaseCommittedOwnedResourceResultPayload
+            {
+                Outcome = "released",
+                Postcondition = "committed-hosted-aircraft-metadata-released",
+                EntityId = request.EntityId,
+                AssignmentId = hosted.AssignmentId,
+                AuthorityEpoch = hosted.AuthorityEpoch,
+                Revision = hosted.Revision,
+                IdempotencyKey = context.IdempotencyKey,
+            };
+            CommittedReleaseIdempotencyRecords.Add(
+                key,
+                new(requestJson, CloneCommittedRelease(hostedResult)));
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Success(
+                hostedResult);
+        }
+
+        if (!OwnedEntities.TryGetValue(request.EntityId, out var record))
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "No bridge-owned surface record matches the committed-resource release.");
+        }
+        if (!string.Equals(record.AssignmentId, context.AssignmentId, StringComparison.Ordinal)
+            || record.AuthorityEpoch != context.AuthorityEpoch
+            || record.Revision != context.ExpectedRevision)
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The committed owned-surface record does not match the requested authority fence.");
+        }
+        if (record.RecoveryRequired
+            || record.Checkpoint is null
+            || record.RollbackMode != MaterializationRollbackMode.None
+            || record.Unit != null && !record.Unit.Disabled)
+        {
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Committed release requires a healthy suspended or detached owned record with an authoritative checkpoint.");
+        }
+
+        var unit = record.Unit;
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            var nativeObjectRemoved = unit != null;
+            if (unit != null)
+            {
+                unit._campaignTag = string.Empty;
+                if (!unit.IsDestroyed)
+                {
+                    var taskforce = unit._taskforce;
+                    unit.destroyObject(
+                        keepInFlightEffectAlive: false,
+                        score: false,
+                        TacView.TCEvent.LeftArea);
+                    taskforce?._taskforceDisabledUnits?.RemoveAll(candidate =>
+                        ReferenceEquals(candidate, unit));
+                }
+                record.Unit = null;
+            }
+            OwnedEntities.Remove(request.EntityId);
+            EvictIdempotencyForAssignment(record.AssignmentId);
+            EvictTerminalReceiptsForEntity(request.EntityId);
+            timer.Stop();
+            var result = new ReleaseCommittedOwnedResourceResultPayload
+            {
+                Outcome = "released",
+                Postcondition = nativeObjectRemoved
+                    ? "committed-native-object-removed-and-owned-record-released"
+                    : "committed-detached-owned-record-released",
+                EntityId = request.EntityId,
+                AssignmentId = record.AssignmentId,
+                AuthorityEpoch = record.AuthorityEpoch,
+                Revision = record.Revision,
+                IdempotencyKey = context.IdempotencyKey,
+                NativeObjectRemoved = nativeObjectRemoved,
+                SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
+            };
+            CommittedReleaseIdempotencyRecords.Add(
+                key,
+                new(requestJson, CloneCommittedRelease(result)));
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            if (unit != null && !unit.IsDestroyed)
+            {
+                unit._campaignTag = request.EntityId;
+                record.Unit = unit;
+                if (!unit.Disabled)
+                {
+                    unit.Disable();
+                }
+            }
+            return MutationAdapterResult<ReleaseCommittedOwnedResourceResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "operation=release-committed-owned-resource; recovery=suspended-owned-object-retained; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
+    }
+
+    public static MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>
+        RollbackIncompleteMaterialization(
+            OwnedSurfaceEntityRequestPayload request,
+            string commandSessionId)
+    {
+        if (!IsArmedFor(commandSessionId))
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationDisabled,
+                "Owned mutations are not armed for the current pipe session.");
+        }
+        var context = request.Context;
+        if (context is null
+            || !string.Equals(context.SessionId, commandSessionId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.InvalidSession,
+                "The materialization rollback session does not match the executing pipe session.");
+        }
+        if (!ValidScopedId(request.EntityId, "unit:crimean-tom:")
+            || !ValidScopedId(context.AssignmentId, "assignment:")
+            || context.AuthorityEpoch < 1
+            || context.ExpectedRevision < 0
+            || string.IsNullOrWhiteSpace(context.IdempotencyKey)
+            || context.IdempotencyKey.Length > 128)
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The incomplete materialization identity or fence is invalid.");
+        }
+
+        var key = LifecycleKey(GameCommandTypes.RollbackIncompleteOwnedMaterialization, context);
+        var requestJson = IdempotencyRequestJson(request, context);
+        if (MaterializationRollbackIdempotencyRecords.TryGetValue(key, out var prior))
+        {
+            if (!string.Equals(prior.RequestJson, requestJson, StringComparison.Ordinal))
+            {
+                return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                    ProtocolErrorCodes.IdempotencyConflict,
+                    "The idempotency key was already used with a different materialization rollback payload.");
+            }
+            var replay = CloneMaterializationRollback(prior.Result);
+            replay.IdempotentReplay = true;
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Success(replay);
+        }
+
+        if (!OwnedEntities.TryGetValue(request.EntityId, out var record))
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "No bridge-owned materialization record matches the requested entity.");
+        }
+        if (!string.Equals(record.AssignmentId, context.AssignmentId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "The mutation assignment does not own this materialization record.");
+        }
+        if (record.AuthorityEpoch != context.AuthorityEpoch)
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.StaleAuthorityEpoch,
+                $"Expected authority epoch {record.AuthorityEpoch}, received {context.AuthorityEpoch}.");
+        }
+        if (record.Revision != context.ExpectedRevision)
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.StaleRevision,
+                $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
+        }
+        if (record.RollbackMode == MaterializationRollbackMode.None
+            || record.Unit == null
+            || !string.Equals(record.Unit._campaignTag, request.EntityId, StringComparison.Ordinal))
+        {
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "Only an uncommitted materialization bearing the exact ownership tag can be rolled back.");
+        }
+
+        var timer = Stopwatch.StartNew();
+        var failedAssignmentId = record.AssignmentId;
+        var failedAuthorityEpoch = record.AuthorityEpoch;
+        var failedRevision = record.Revision;
+        var unit = record.Unit;
+        var rollbackMode = record.RollbackMode;
+        var removed = false;
+        var postcondition = string.Empty;
+        try
+        {
+            if (record.RollbackMode == MaterializationRollbackMode.RestoreRetainedPredecessor)
+            {
+                var checkpoint = record.Checkpoint
+                    ?? throw new InvalidOperationException(
+                        "The retained predecessor has no portable checkpoint to restore.");
+                ApplyPortableState(unit, checkpoint.Unit);
+                if (!unit.Disabled)
+                {
+                    unit.Disable();
+                }
+                record.AssignmentId = checkpoint.AssignmentId;
+                record.AuthorityEpoch = checkpoint.AuthorityEpoch;
+                record.Revision = checkpoint.Revision;
+                record.TaskforceId = checkpoint.Unit.TaskforceId;
+                record.RecoveryRequired = false;
+                record.RollbackMode = MaterializationRollbackMode.None;
+                postcondition = "retained-predecessor-restored-and-suspended";
+            }
+            else
+            {
+                unit._campaignTag = string.Empty;
+                if (!unit.IsDestroyed)
+                {
+                    var taskforce = unit._taskforce;
+                    unit.destroyObject(
+                        keepInFlightEffectAlive: false,
+                        score: false,
+                        TacView.TCEvent.LeftArea);
+                    taskforce?._taskforceDisabledUnits?.RemoveAll(candidate =>
+                        ReferenceEquals(candidate, unit));
+                }
+                record.Unit = null;
+                OwnedEntities.Remove(request.EntityId);
+                removed = true;
+                postcondition = "uncommitted-native-object-removed-and-owned-record-released";
+            }
+
+            EvictIdempotencyForAssignment(failedAssignmentId);
+            timer.Stop();
+            var result = new RollbackIncompleteOwnedMaterializationResultPayload
+            {
+                Outcome = "rolled-back",
+                Postcondition = postcondition,
+                EntityId = request.EntityId,
+                AssignmentId = failedAssignmentId,
+                AuthorityEpoch = failedAuthorityEpoch,
+                Revision = failedRevision,
+                IdempotencyKey = context.IdempotencyKey,
+                NativeObjectRemoved = removed,
+                SynchronousDurationMicroseconds = ElapsedMicroseconds(timer),
+            };
+            MaterializationRollbackIdempotencyRecords.Add(
+                key,
+                new(requestJson, CloneMaterializationRollback(result)));
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Success(result);
+        }
+        catch (Exception exception)
+        {
+            if (unit != null && !unit.IsDestroyed)
+            {
+                unit._campaignTag = request.EntityId;
+                record.RecoveryRequired = true;
+                record.RollbackMode = rollbackMode;
+                if (!unit.Disabled)
+                {
+                    unit.Disable();
+                }
+            }
+            return MutationAdapterResult<RollbackIncompleteOwnedMaterializationResultPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "operation=rollback-incomplete-materialization; "
+                + "recovery=recoverable-suspended-owned-object; "
+                + $"failure={exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            timer.Stop();
+        }
     }
 
     public static MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload> Materialize(
@@ -626,7 +999,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         if (Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
-                candidate is not null
+                candidate != null
                 && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal)))
         {
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
@@ -684,7 +1057,7 @@ internal static class RuntimeOwnedMutationAdapter
                 predicted.Telegraph,
                 heading,
                 taskforce);
-            if (created is null)
+            if (created == null)
             {
                 return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
                     ProtocolErrorCodes.MutationPreconditionFailed,
@@ -747,20 +1120,24 @@ internal static class RuntimeOwnedMutationAdapter
                 created,
                 initialStoresQuantity);
             ownedRecord.Checkpoint = sourceCheckpoint;
+            ownedRecord.RollbackMode = MaterializationRollbackMode.DestroyNewObject;
             OwnedEntities.Add(request.EntityId, ownedRecord);
             InjectFailure(request.FaultInjectionStep, "after-registry-add");
             stopwatch.Stop();
             result.SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch);
+            EvictMaterializationRollbackForAssignment(request.Context.AssignmentId);
             IdempotencyRecords.Add(idempotencyRecordKey, new(requestJson, Clone(result)));
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(result);
         }
         catch (Exception exception)
         {
-            if (created is not null
-                && string.Equals(created._campaignTag, request.EntityId, StringComparison.Ordinal)
-                && !created.Disabled)
+            if (created != null
+                && string.Equals(created._campaignTag, request.EntityId, StringComparison.Ordinal))
             {
-                created.Disable();
+                if (!created.Disabled)
+                {
+                    created.Disable();
+                }
                 OwnedEntities[request.EntityId] = new(
                     request.Context.AssignmentId,
                     request.Context.AuthorityEpoch,
@@ -770,6 +1147,8 @@ internal static class RuntimeOwnedMutationAdapter
                     created,
                     StoreQuantity(created),
                     recoveryRequired: true);
+                OwnedEntities[request.EntityId].RollbackMode =
+                    MaterializationRollbackMode.DestroyNewObject;
             }
             var injected = exception as InjectedMutationFailureException;
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Failure(
@@ -797,7 +1176,7 @@ internal static class RuntimeOwnedMutationAdapter
         var vessel = record.Unit;
         var checkpoint = record.Checkpoint;
         if (record.RecoveryRequired
-            || vessel is null
+            || vessel == null
             || !vessel.Disabled
             || checkpoint?.Unit is null
             || checkpoint.Unit.IsDisabled
@@ -884,6 +1263,7 @@ internal static class RuntimeOwnedMutationAdapter
             record.Revision = revision;
             record.TaskforceId = request.TaskforceId;
             record.RecoveryRequired = false;
+            record.RollbackMode = MaterializationRollbackMode.RestoreRetainedPredecessor;
             stopwatch.Stop();
             var result = new MaterializeOwnedSurfaceUnitResultPayload
             {
@@ -898,6 +1278,7 @@ internal static class RuntimeOwnedMutationAdapter
                 SynchronousDurationMicroseconds = ElapsedMicroseconds(stopwatch),
                 UnsupportedFields = UnsupportedFields(),
             };
+            EvictMaterializationRollbackForAssignment(request.Context.AssignmentId);
             IdempotencyRecords.Add(idempotencyRecordKey, new(requestJson, Clone(result)));
             return MutationAdapterResult<MaterializeOwnedSurfaceUnitResultPayload>.Success(result);
         }
@@ -936,7 +1317,7 @@ internal static class RuntimeOwnedMutationAdapter
         OwnedSurfaceEntityRequestPayload request,
         string commandSessionId)
     {
-        var resolved = ResolveOwned<OwnedSurfaceCheckpointPayload>(
+        var resolved = ResolveRecord<OwnedSurfaceCheckpointPayload>(
             request.Context,
             request.EntityId,
             commandSessionId,
@@ -947,18 +1328,40 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var record = resolved.Record!;
-        var vessel = record.Unit!;
         if (record.RecoveryRequired)
         {
             return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
                 "A partial materialization object cannot produce an authoritative checkpoint.");
         }
-        if (vessel.Disabled)
+        if (record.Unit == null)
         {
+            if (record.Checkpoint is { } detachedCheckpoint
+                && detachedCheckpoint.AssignmentId == record.AssignmentId
+                && detachedCheckpoint.AuthorityEpoch == record.AuthorityEpoch
+                && detachedCheckpoint.Revision == record.Revision)
+            {
+                return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Success(
+                    detachedCheckpoint);
+            }
             return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
                 ProtocolErrorCodes.MutationPreconditionFailed,
-                "Portable checkpoints may only be captured from an active owned surface unit.");
+                "A detached owned surface record has no checkpoint for its current active revision.");
+        }
+        var vessel = record.Unit;
+        if (vessel.Disabled)
+        {
+            if (record.Checkpoint is { } retainedCheckpoint
+                && retainedCheckpoint.AssignmentId == record.AssignmentId
+                && retainedCheckpoint.AuthorityEpoch == record.AuthorityEpoch
+                && retainedCheckpoint.Revision == record.Revision - 1)
+            {
+                return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Success(
+                    retainedCheckpoint);
+            }
+            return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Failure(
+                ProtocolErrorCodes.MutationPreconditionFailed,
+                "A suspended owned surface unit has no checkpoint for its immediately preceding active revision.");
         }
         var unit = Capture(vessel, record.TaskforceId, record.InitialStoresQuantity);
         var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -979,6 +1382,7 @@ internal static class RuntimeOwnedMutationAdapter
             UnsupportedFields = UnsupportedFields(),
         };
         record.Checkpoint = checkpoint;
+        record.RollbackMode = MaterializationRollbackMode.None;
         return MutationAdapterResult<OwnedSurfaceCheckpointPayload>.Success(checkpoint);
     }
 
@@ -1376,7 +1780,7 @@ internal static class RuntimeOwnedMutationAdapter
                     checkpoint.Unit.Telegraph,
                     heading,
                     taskforce);
-                if (vessel is null)
+                if (vessel == null)
                 {
                     return MutationAdapterResult<OwnedSurfaceLifecycleResultPayload>.Failure(
                         ProtocolErrorCodes.MutationPreconditionFailed,
@@ -1669,12 +2073,19 @@ internal static class RuntimeOwnedMutationAdapter
                 ProtocolErrorCodes.StaleRevision,
                 $"Expected entity revision {record.Revision}, received {context.ExpectedRevision}.");
         }
-        if (!Singleton<GameMain>.InstanceExists()
-            || !Singleton<SceneCreator>.InstanceExists()
-            || !Singleton<ObjectsManager>.InstanceExists()
-            || !Singleton<TaskforceManager>.InstanceExists()
-            || !Singleton<SceneCreator>.Instance.IsLoadingDone
-            || requirePaused && !GameTime.IsPaused())
+        var detachedCheckpointRead = !requirePaused
+            && record.Unit == null
+            && record.Checkpoint is { } detachedCheckpoint
+            && detachedCheckpoint.AssignmentId == record.AssignmentId
+            && detachedCheckpoint.AuthorityEpoch == record.AuthorityEpoch
+            && detachedCheckpoint.Revision == record.Revision;
+        if (!detachedCheckpointRead
+            && (!Singleton<GameMain>.InstanceExists()
+                || !Singleton<SceneCreator>.InstanceExists()
+                || !Singleton<ObjectsManager>.InstanceExists()
+                || !Singleton<TaskforceManager>.InstanceExists()
+                || !Singleton<SceneCreator>.Instance.IsLoadingDone
+                || requirePaused && !GameTime.IsPaused()))
         {
             return OwnedResolution<T>.Fail(
                 ProtocolErrorCodes.MutationPreconditionFailed,
@@ -1763,7 +2174,31 @@ internal static class RuntimeOwnedMutationAdapter
         RemoveWhere(
             LifecycleIdempotencyRecords,
             item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+        RemoveWhere(
+            CommittedReleaseIdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
+        RemoveWhere(
+            RecoveryReleaseIdempotencyRecords,
+            item => string.Equals(item.Result.AssignmentId, assignmentId, StringComparison.Ordinal));
     }
+
+    private static void EvictTerminalReceiptsForEntity(string entityId)
+    {
+        RemoveWhere(
+            CommittedReleaseIdempotencyRecords,
+            item => string.Equals(item.Result.EntityId, entityId, StringComparison.Ordinal));
+        RemoveWhere(
+            RecoveryReleaseIdempotencyRecords,
+            item => string.Equals(item.Result.EntityId, entityId, StringComparison.Ordinal));
+    }
+
+    private static void EvictMaterializationRollbackForAssignment(string assignmentId) =>
+        RemoveWhere(
+            MaterializationRollbackIdempotencyRecords,
+            item => string.Equals(
+                item.Result.AssignmentId,
+                assignmentId,
+                StringComparison.Ordinal));
 
     private static void RemoveWhere<T>(
         Dictionary<string, T> records,
@@ -1814,6 +2249,33 @@ internal static class RuntimeOwnedMutationAdapter
         vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
         ApplyFuel(vessel, state.FuelFractionMilliunits);
         Physics.SyncTransforms();
+
+        // getHeightInFeet() applies Sea Power's public domain offset (notably
+        // a submarine's center-to-keel distance), while GeoPosition height is
+        // the raw transform height. Correct from native readback so public
+        // altitude or depth round-trips.
+        if (state.AltitudeFeet is double expectedAltitudeFeet)
+        {
+            var realizedAltitudeFeet = vessel.getHeightInFeet();
+            var correctionFeet = expectedAltitudeFeet - realizedAltitudeFeet;
+            if (double.IsFinite(correctionFeet)
+                && Math.Abs(correctionFeet) > 0.001d)
+            {
+                position = new GeoPosition(
+                    state.Latitude.Value,
+                    state.Longitude.Value,
+                    position._height + FeetToUnityHeight(correctionFeet));
+                vessel.transform.position = Utils.longLatToLocalV3(
+                    position,
+                    Globals._currentCenterTile);
+                vessel._geoPosition = position;
+                Physics.SyncTransforms();
+            }
+        }
+        if (state.AltitudeFeet > 0d)
+        {
+            ApplyAirborneConfiguration(vessel, position);
+        }
     }
 
     private static void ApplyFuel(ObjectBase vessel, long? fuelFractionMilliunits)
@@ -2117,8 +2579,9 @@ internal static class RuntimeOwnedMutationAdapter
             return InvalidHosted("A fully loaded, paused tactical mission is required.");
         }
         if (!OwnedEntities.TryGetValue(request.HostEntityId, out var host)
-            || host.Unit is not { Disabled: false } hostUnit
-            || hostUnit._obp?._flightDeck is not { } flightDeck)
+            || host.Unit == null
+            || host.Unit.Disabled
+            || host.Unit._obp?._flightDeck is not { } flightDeck)
         {
             return InvalidHosted("The requested host is not an active bridge-owned unit with a native flight deck.");
         }
@@ -2196,8 +2659,9 @@ internal static class RuntimeOwnedMutationAdapter
             return InvalidLaunch("This hosted aircraft already has a pending native launch task.");
         }
         if (!OwnedEntities.TryGetValue(hosted.HostEntityId, out var host)
-            || host.Unit is not { Disabled: false } hostUnit
-            || hostUnit._obp?._flightDeck is not { } flightDeck)
+            || host.Unit == null
+            || host.Unit.Disabled
+            || host.Unit._obp?._flightDeck is not { } flightDeck)
         {
             return InvalidLaunch("The hosted aircraft no longer has an active bridge-owned flight deck.");
         }
@@ -2242,7 +2706,7 @@ internal static class RuntimeOwnedMutationAdapter
         return OwnedEntities.ContainsKey(request.EntityId)
             || HostedEntities.ContainsKey(request.EntityId)
             || Singleton<ObjectsManager>.Instance._listOfAllObjects.Any(candidate =>
-                candidate is not null
+                candidate != null
                 && string.Equals(candidate._campaignTag, request.EntityId, StringComparison.Ordinal))
             || flightDeck._campaignUnitsOnBoard.Any(item =>
                 string.Equals(item.CampaignTag, request.EntityId, StringComparison.Ordinal))
@@ -2291,11 +2755,11 @@ internal static class RuntimeOwnedMutationAdapter
         foreach (var (entityId, hosted) in HostedEntities.ToArray())
         {
             var launched = Singleton<ObjectsManager>.Instance._listOfAllObjects.FirstOrDefault(candidate =>
-                candidate is not null
+                candidate != null
                 && !candidate.Disabled
                 && candidate._obp is not null
                 && string.Equals(candidate._campaignTag, entityId, StringComparison.Ordinal));
-            if (launched is null)
+            if (launched == null)
             {
                 continue;
             }
@@ -2442,15 +2906,39 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static void InitializeAirborneState(ObjectBase unit, GeoPosition position)
     {
+        ApplyAirborneConfiguration(unit, position);
         if (unit is Aircraft aircraft)
         {
-            aircraft.DesiredAltitude.Value = (float)position._height;
-            if (aircraft._obp?._codeAnimations.TryGetValue("Gear_Extend", out var gear) == true)
-            {
-                gear.setClosedState();
-            }
-            aircraft.ImmediateStartEngines();
             aircraft.giveControl(aircraft._velocityInKnots, resetAltitude: false);
+        }
+        else if (unit is Helicopter helicopter)
+        {
+            helicopter.GiveControl(0f);
+        }
+    }
+
+    private static void ApplyAirborneConfiguration(ObjectBase unit, GeoPosition position)
+    {
+        if (unit is Aircraft aircraft)
+        {
+            aircraft._isInFlight = true;
+            aircraft.DesiredAltitude.Value = (float)position._height;
+            aircraft.AircraftAnimation.setAnimsForFlight();
+            // Sea Power aircraft use either an Extend animation, where closed is
+            // stowed, or a Retract animation, where open is stowed. Some catalog
+            // aircraft only define the latter. Set both forms to their airborne
+            // endpoint so an in-flight materialization never inherits taxi gear.
+            aircraft.SetCodeAnim("Gear_Extend", setOpen: false);
+            aircraft.SetCodeAnim("Gear_Retract", setOpen: true);
+            aircraft.SetCodeAnim("Flaps_Takeoff_Retract", setOpen: true);
+            aircraft.ImmediateStartEngines();
+        }
+        else if (unit is Helicopter helicopter)
+        {
+            helicopter._isInFlight = true;
+            helicopter.DesiredAltitude.Value = (float)position._height;
+            helicopter._helicopterAnimation.setAnimsForFlight();
+            helicopter.gearsUp();
         }
     }
 
@@ -2513,9 +3001,21 @@ internal static class RuntimeOwnedMutationAdapter
 
     private static void ApplyDisplayName(ObjectBase vessel, string displayName)
     {
-        if (!string.IsNullOrWhiteSpace(displayName))
+        var normalized = displayName?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(normalized))
         {
-            vessel.setName(displayName);
+            vessel.setName(normalized);
+
+            // Sea Power's tactical-map label uses ObjectBaseParameters._shortName for
+            // player objects rather than ObjectBase.Name. Vanilla scenario loading sets
+            // both name overrides to the authored unit name, so mirror that path here.
+            if (vessel._obp is not null)
+            {
+                vessel._obp._objectName = normalized;
+                vessel._obp._shortName = normalized;
+                vessel._obp._nameOverride = true;
+                vessel._obp._shortNameOverride = true;
+            }
         }
     }
 
@@ -2716,27 +3216,44 @@ internal static class RuntimeOwnedMutationAdapter
         OwnedSurfaceUnitStatePayload realized,
         bool expectedDisabled)
     {
-        if (!string.Equals(realized.StableUnitId, expected.StableUnitId, StringComparison.Ordinal)
-            || !string.Equals(realized.EntityId, expected.EntityId, StringComparison.Ordinal)
-            || !string.Equals(realized.UnitTypeId, expected.UnitTypeId, StringComparison.Ordinal)
-            || !string.Equals(realized.VariantId, expected.VariantId, StringComparison.Ordinal)
-            || !string.Equals(realized.LoadoutId, expected.LoadoutId, StringComparison.Ordinal)
-            || !string.Equals(realized.TaskforceId, expected.TaskforceId, StringComparison.Ordinal)
-            || !Within(realized.Latitude, expected.Latitude, PositionToleranceDegrees)
-            || !Within(realized.Longitude, expected.Longitude, PositionToleranceDegrees)
-            || !Within(realized.AltitudeFeet, expected.AltitudeFeet, AltitudeToleranceFeet)
-            || !Within(realized.HeadingDegrees, expected.HeadingDegrees, HeadingToleranceDegrees)
-            || !Within(realized.SpeedKnots, expected.SpeedKnots, SpeedToleranceKnots)
-            || realized.Telegraph != expected.Telegraph
-            || !WithinOptionalMilliunits(
+        var mismatches = new List<string>();
+        IdentityMismatch(mismatches, "stable-unit", expected.StableUnitId, realized.StableUnitId);
+        IdentityMismatch(mismatches, "entity", expected.EntityId, realized.EntityId);
+        IdentityMismatch(mismatches, "unit-type", expected.UnitTypeId, realized.UnitTypeId);
+        IdentityMismatch(mismatches, "variant", expected.VariantId, realized.VariantId);
+        IdentityMismatch(mismatches, "loadout", expected.LoadoutId, realized.LoadoutId);
+        IdentityMismatch(mismatches, "taskforce", expected.TaskforceId, realized.TaskforceId);
+        PositionMismatch(mismatches, "latitude", expected.Latitude, realized.Latitude, PositionToleranceDegrees);
+        PositionMismatch(mismatches, "longitude", expected.Longitude, realized.Longitude, PositionToleranceDegrees);
+        PositionMismatch(mismatches, "altitude-feet", expected.AltitudeFeet, realized.AltitudeFeet, AltitudeToleranceFeet);
+        PositionMismatch(mismatches, "heading", expected.HeadingDegrees, realized.HeadingDegrees, HeadingToleranceDegrees);
+        PositionMismatch(mismatches, "speed-knots", expected.SpeedKnots, realized.SpeedKnots, SpeedToleranceKnots);
+        if (realized.Telegraph != expected.Telegraph)
+        {
+            mismatches.Add($"telegraph expected={expected.Telegraph} actual={realized.Telegraph}");
+        }
+        if (!WithinOptionalMilliunits(
                 realized.FuelFractionMilliunits,
                 expected.FuelFractionMilliunits,
-                FuelFractionToleranceMilliunits)
-            || realized.IsDestroyed
-            || realized.IsDisabled != expectedDisabled)
+                FuelFractionToleranceMilliunits))
+        {
+            mismatches.Add(
+                $"fuel-milliunits expected={expected.FuelFractionMilliunits} "
+                + $"actual={realized.FuelFractionMilliunits} "
+                + $"tolerance={FuelFractionToleranceMilliunits}");
+        }
+        if (realized.IsDestroyed)
+        {
+            mismatches.Add("destroyed=true");
+        }
+        if (realized.IsDisabled != expectedDisabled)
+        {
+            mismatches.Add($"disabled expected={expectedDisabled} actual={realized.IsDisabled}");
+        }
+        if (mismatches.Count > 0)
         {
             throw new InvalidOperationException(
-                "Sea Power did not restore every supported checkpoint field within tolerance.");
+                $"Sea Power did not restore every supported checkpoint field: {string.Join("; ", mismatches)}.");
         }
     }
 
@@ -2788,6 +3305,21 @@ internal static class RuntimeOwnedMutationAdapter
             JsonSerializer.Serialize(value, JsonOptions),
             JsonOptions) ?? throw new InvalidOperationException(
                 "Could not clone recovery release result.");
+
+    private static RollbackIncompleteOwnedMaterializationResultPayload
+        CloneMaterializationRollback(
+            RollbackIncompleteOwnedMaterializationResultPayload value) =>
+        JsonSerializer.Deserialize<RollbackIncompleteOwnedMaterializationResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException(
+                "Could not clone materialization rollback result.");
+
+    private static ReleaseCommittedOwnedResourceResultPayload CloneCommittedRelease(
+        ReleaseCommittedOwnedResourceResultPayload value) =>
+        JsonSerializer.Deserialize<ReleaseCommittedOwnedResourceResultPayload>(
+            JsonSerializer.Serialize(value, JsonOptions),
+            JsonOptions) ?? throw new InvalidOperationException(
+                "Could not clone committed resource release result.");
 
     private static string[] UnsupportedFields() =>
     [
@@ -2887,6 +3419,14 @@ internal static class RuntimeOwnedMutationAdapter
         public OwnedSurfaceCheckpointPayload? Checkpoint { get; set; }
         public bool RecoveryRequired { get; set; } = recoveryRequired;
         public string? HostEntityId { get; } = hostEntityId;
+        public MaterializationRollbackMode RollbackMode { get; set; }
+    }
+
+    private enum MaterializationRollbackMode
+    {
+        None,
+        DestroyNewObject,
+        RestoreRetainedPredecessor,
     }
 
     private sealed record IdempotencyRecord(
@@ -2900,6 +3440,10 @@ internal static class RuntimeOwnedMutationAdapter
     private sealed record HostedLaunchIdempotencyRecord(
         string RequestJson,
         LaunchOwnedHostedAircraftResultPayload Result);
+
+    private sealed record MaterializationRollbackIdempotencyRecord(
+        string RequestJson,
+        RollbackIncompleteOwnedMaterializationResultPayload Result);
 
     private sealed record HostedEntityRecord(
         string AssignmentId,
@@ -2920,6 +3464,10 @@ internal static class RuntimeOwnedMutationAdapter
     private sealed record RecoveryReleaseIdempotencyRecord(
         string RequestJson,
         OwnedSurfaceRecoveryReleaseResultPayload Result);
+
+    private sealed record CommittedReleaseIdempotencyRecord(
+        string RequestJson,
+        ReleaseCommittedOwnedResourceResultPayload Result);
 
     private sealed class InjectedMutationFailureException(string step)
         : Exception($"Controlled owned-mutation failure injected at '{step}'.")

@@ -102,7 +102,7 @@ internal static class RuntimeRenderProxyAdapter
             }
 
             if (Records.TryGetValue(spec.EntityId, out var retained)
-                && retained.Vessel is not null)
+                && retained.Vessel != null)
             {
                 if (retained.Vessel.Disabled)
                 {
@@ -129,7 +129,7 @@ internal static class RuntimeRenderProxyAdapter
                     new Vector3(0f, (float)NormalizeHeading(spec.HeadingDegrees), 0f),
                     taskforce,
                     loadAsync: false);
-                if (created is null)
+                if (created == null)
                 {
                     return Failure(
                         ProtocolErrorCodes.MutationPreconditionFailed,
@@ -146,7 +146,7 @@ internal static class RuntimeRenderProxyAdapter
             }
             catch (Exception exception)
             {
-                if (created is not null && !created.Disabled)
+                if (created != null && !created.Disabled)
                 {
                     created.Disable();
                 }
@@ -261,7 +261,7 @@ internal static class RuntimeRenderProxyAdapter
     private static bool Suspend(RenderProxyRecord record)
     {
         var vessel = record.Vessel;
-        if (vessel is null || vessel.Disabled)
+        if (vessel == null || vessel.Disabled)
         {
             return false;
         }
@@ -274,20 +274,21 @@ internal static class RuntimeRenderProxyAdapter
         RenderProxyRecord record)
     {
         var vessel = record.Vessel;
+        var hasVessel = vessel != null;
         return new SurfaceRenderProxyStatePayload
         {
             EntityId = entityId,
             StableUnitId = $"campaign-unit:{ProxyCampaignTag(record.CampaignId, entityId)}",
-            GameUniqueId = vessel is null ? null : vessel.UniqueID,
-            IsVisible = vessel is not null && !vessel.Disabled,
+            GameUniqueId = hasVessel ? vessel!.UniqueID : null,
+            IsVisible = hasVessel && !vessel!.Disabled,
             IsSimulated = false,
             RepresentationKind = "fenced-native-vessel-fallback",
-            HasNativeSimulationObject = vessel is not null,
-            WorldModelVisible = vessel is not null && !vessel.Disabled,
-            MapMarkerVisible = vessel is not null && !vessel.Disabled,
-            Latitude = vessel is null ? 0d : vessel._geoPosition._latitude,
-            Longitude = vessel is null ? 0d : vessel._geoPosition._longitude,
-            HeadingDegrees = vessel is null ? 0d : vessel.getHeading(),
+            HasNativeSimulationObject = hasVessel,
+            WorldModelVisible = hasVessel && !vessel!.Disabled,
+            MapMarkerVisible = hasVessel && !vessel!.Disabled,
+            Latitude = hasVessel ? vessel!._geoPosition._latitude : 0d,
+            Longitude = hasVessel ? vessel!._geoPosition._longitude : 0d,
+            HeadingDegrees = hasVessel ? vessel!.getHeading() : 0d,
             CampaignTelegraph = record.CampaignTelegraph,
         };
     }

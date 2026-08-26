@@ -34,7 +34,7 @@ internal static class RuntimeTerrainPlacementAdapter
         var manager = Singleton<TerrainManager>.Instance;
         result.InitialTerrainLoadingDone = manager.IsInitialLoadingDone;
         result.TileLoaded = manager.TerrainChunkDictionary.TryGetValue(tile, out var chunk)
-            && chunk is not null;
+            && chunk != null;
         result.TileFinalized = result.TileLoaded && chunk!._isFinalized;
         result.FlatteningFinishedForLandUnits = result.TileLoaded
             && chunk!.FlatteningFinishedForLandUnits;

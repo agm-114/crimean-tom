@@ -49,7 +49,7 @@ internal static class RuntimeColliderCatalog
         var objects = Singleton<ObjectsManager>.Instance._listOfAllObjects;
         foreach (var unit in objects)
         {
-            if (unit is null)
+            if (unit == null)
             {
                 continue;
             }
@@ -245,7 +245,7 @@ internal static class RuntimeColliderCatalog
         var primitives = new List<ColliderPrimitivePayload>(colliders.Length);
         foreach (var collider in colliders)
         {
-            if (collider is null
+            if (collider == null
                 || string.Equals(collider.GetType().Name, "TerrainCollider", StringComparison.Ordinal))
             {
                 continue;
@@ -338,7 +338,7 @@ internal static class RuntimeColliderCatalog
     private static ColliderPrimitivePayload MeshBounds(Transform root, MeshCollider mesh)
     {
         var shared = mesh.sharedMesh;
-        if (shared is null)
+        if (shared == null)
         {
             return WorldBounds(root, mesh);
         }

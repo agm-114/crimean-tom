@@ -23,7 +23,7 @@ internal static class RuntimeMemoryDiagnostics
         var audioClips = Resources.FindObjectsOfTypeAll<AudioClip>();
         var gameObjects = Resources.FindObjectsOfTypeAll<GameObject>();
         var proxyRoots = gameObjects
-            .Where(item => item is not null
+            .Where(item => item != null
                 && item.name.StartsWith(ProxyRootPrefix, StringComparison.Ordinal))
             .ToArray();
 
@@ -39,6 +39,7 @@ internal static class RuntimeMemoryDiagnostics
             .Concat(meshes)
             .Concat(materials)
             .Concat(audioClips)
+            .Where(item => item != null)
             .Select(item => new RuntimeMemoryLargeAssetPayload
             {
                 Kind = item.GetType().Name,
@@ -85,7 +86,7 @@ internal static class RuntimeMemoryDiagnostics
     {
         try
         {
-            return item is null ? 0 : Profiler.GetRuntimeMemorySizeLong(item);
+            return item == null ? 0 : Profiler.GetRuntimeMemorySizeLong(item);
         }
         catch
         {
