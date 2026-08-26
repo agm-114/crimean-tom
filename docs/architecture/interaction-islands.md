@@ -47,6 +47,21 @@ permanently resident merely because it was loaded first. A failed handoff keeps
 the old authority decision and the selected map record; it must not leave two
 active native localities.
 
+Suspension is the rollback boundary, not the steady-state unload policy. After
+the service durably accepts the final checkpoint and releases the assignment,
+its worker projection retains the latest `Released` assignment as a positive
+cleanup receipt. Only that receipt permits the companion to issue an idempotent
+committed-resource release. Omission from a short or recovering projection is
+not release authority. The bridge then removes its tagged object from Sea
+Power's disabled-task-force ledger, destroys it as a clean area departure
+without scoring, and removes its local ledger record. A failure before service
+commit retains the suspended object and checkpoint for recovery. A failure
+after commit retries cleanup from the retained release receipt. Hosted-aircraft
+records follow the same rule even when no separate native object exists.
+If a disconnect leaves an uncheckpointed materialization behind, the same
+positive receipt authorizes its transactional rollback. A detached record with
+no checkpoint can then release its ledger entry without a Unity mutation.
+
 ## Authority and pause invariants
 
 - A campaign entity has at most one active primary tactical publisher.
@@ -59,6 +74,9 @@ active native localities.
   safe point. Mutation arming never leaves the battle paused.
 - Eligible heartbeats renew the tactical lease. Campaign pause and tactical
   pause remain separate controls.
+- Tactical leases expire on wall clock. If the campaign is paused, unattended
+  maintenance may resolve an expired lease at the current campaign quantum; it
+  must not advance campaign time to do so.
 
 ## Selection and projection
 
@@ -68,6 +86,13 @@ companion. The viewport hit-radius hook handles presentation wrappers only. One
 promotion orchestrator owns retry, idempotency, native-readiness gating, focus,
 and locality-handoff state. A slow reconciliation poll exists only to repair a
 lost event or reconnect.
+
+Promotion does not commit when the native constructor returns. It commits after
+the object becomes initialized, active, and player-orderable and the companion
+captures its first checkpoint. A readiness failure rolls back the uncommitted
+transaction. New objects are removed without campaign scoring. Reused retained
+objects return to their predecessor checkpoint and suspended state. The same
+promotion may then retry without replaying the failed native object.
 
 Projection generations are scoped to a game-pipe session. The first revision
 and any resynchronization use a full snapshot. Normal revisions contain only

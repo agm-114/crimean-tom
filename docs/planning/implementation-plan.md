@@ -168,17 +168,21 @@ Complete this work before adding more symbol or proxy families:
    records.
 6. Apply accepted projection generations over later frames with a measured time
    budget. Report received and applied revisions separately.
+7. Prefilter viewport work by geographic bounds before Sea Power screen
+   projection. Report total, prefiltered, selectable, attached, full-refresh,
+   and worst-slice measurements.
 
-The working implementation covers items 1, 2, 4, 5, and 6. Direct selection,
+The working implementation covers items 1, 2, 4, 5, 6, and 7. Typed selection,
 viewport fallback, cached record order, and native precedence are implemented.
 Scenario start covers the first part of item 3. Live Sea Power qualification
-remains open.
+covers a 4,096-record replay, native focus, and one full-world viewport pass;
+direct mouse selection and reconnect repair remain open.
 
 ### Tactical preparation
 
 - Implemented for a selected group: derive membership from the campaign save,
   require the whole surviving group to be supported, and prepare it atomically.
-- Implemented in code, awaiting live qualification: Sea Power map selection can
+- Implemented and live-qualified for USS Honolulu: Sea Power map selection can
   request one specific group member. Profile and capacity checks apply to that
   entity and required dependencies, while the rest of its Operational formation
   stays external. The inert proxy remains only until a native object is ready.
@@ -216,10 +220,16 @@ remains open.
 - Replace the selected proxy with a native, initialized unit using the selected
   entity's exact catalog profile. Qualify loadout, airborne state, control/order
   behavior, floating-origin relocation, and identity continuity in Sea Power.
-- Implemented in code, awaiting live qualification: assignment preparation polls
-  the native object until Sea Power reports it initialized, active, and
-  player-orderable. Checkpoint, focus, and assignment readiness occur only after
-  that boundary.
+- Implemented and live-qualified for a CAS F-5E and a campaign-selected USS
+  Honolulu: assignment preparation polls the native object until Sea Power
+  reports it initialized, active, and player-orderable. Exact catalog profile,
+  initialized stores, friendly native control, and airborne state are also
+  required where applicable. Checkpoint, focus, and assignment readiness occur
+  only after that boundary. Variant preference follows the Runtime Bridge's
+  advertised order, and portable altitude is corrected against native readback.
+- Implemented in code, awaiting live qualification: a readiness failure before
+  the first checkpoint rolls back the native object or restores a reused
+  predecessor, reconciles the map projection, and permits an idempotent retry.
 - Add an active-locality handoff before distant promotion: quiesce and
   checkpoint the old island, fence it, suspend its native objects, rebase once,
   then activate the new island. Do not keep authored or campaign-owned native
@@ -229,6 +239,23 @@ remains open.
   resynchronization path.
 - Implemented in code, awaiting live qualification: a game-pipe generation
   change recreates the campaign stream and forces the next full snapshot.
+- Implemented and protocol-qualified: a game-pipe generation change blocks new
+  authority work, lets the in-flight handler or state capture stage its result
+  under a separate 15-second disk bound, then cancels the old campaign stream.
+  The full-host story disconnects immediately after the native checkpoint and
+  still receives the checkpoint and ready assignment. Abrupt live-process loss
+  remains to be qualified in Sea Power.
+- Implemented and qualified with two back-to-back islands: once a final
+  checkpoint is durably committed, retain the latest `Released` assignment as
+  a positive reclamation receipt and reclaim only the matching suspended
+  bridge-owned object and ledger record. Absence is not release authority.
+  Cleanup is idempotent; an uncommitted or recovery-required object is retained.
+- Implemented and live-qualified for USS Honolulu: if the Sea Power scene
+  disappears before campaign return, a detached bridge record with its current
+  checkpoint fences without tactical pause, publishes at the unchanged
+  revision, and is reclaimed only after the matching release receipt. Surface
+  and land ledgers use the same rule. Land-family qualification and abrupt
+  process-loss recovery remain part of the recovery milestone.
 
 ### First supported island
 

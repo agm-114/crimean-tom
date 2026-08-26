@@ -2,7 +2,7 @@
 
 ## Summary
 
-Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 24 August
+Reviewed against the repository and Sea Power `0.8.2-23444+s358` on 26 August
 2026. Crimean Tom has a durable local campaign lifecycle, player map, and its
 first campaign-owned surface, submarine, airborne-helicopter, and native hosted
 helicopter tactical-entry paths. The canonical hosted SH-2F now also survives a
@@ -37,13 +37,13 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |
 | Strategic AI | Two coalitions create objectives, allocate capable groups, keep fixed defenses in place, form multi-role packages, and replan | No route or capacity deconfliction, deception, or human-level command claim |
 | Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, collider capture, and native hosted-helicopter registration and launch | Pinned game build, narrow portable-state allow-list, and no hosted-aircraft recovery contract |
-| Tactical lease | Eligible heartbeats keep assignments live; loss starts a 12-second wall-clock grace while unrelated campaign entities advance | Live reconnect during grace and restart latency still need Sea Power qualification |
+| Tactical lease | Eligible heartbeats keep assignments live; loss starts a 12-second wall-clock grace while unrelated campaign entities advance; game-session loss blocks new authority work and drains the current result into a bounded durable outbox before fencing the old stream | Live reconnect during grace, abrupt process loss, and restart latency still need Sea Power qualification |
 | Tactical readback | Changed ship or submarine pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
-| Tactical return | The campaign application can request a clean whole-island exit, receive final checkpoint references, release the island atomically, and show the durable member result | Final ammunition, sensors, formations, hosted-aircraft recovery, launched weapons, and objective effects remain unsupported; live Sea Power qualification is pending |
-| Map projection | One full session/resync snapshot is followed by versioned upserts and removals on the Bulk lane; a game-session change recreates the campaign stream; applies use a 1.5 ms budget and attach at most 384 symbols | The 4,096-record replay, reconnect repair, delta telemetry, and control latency still need live Sea Power proof |
+| Tactical return | The campaign application can request a clean whole-island exit, receive final checkpoint references, release the island atomically, show the durable member result, and idempotently reclaim matching bridge-owned objects from positive release receipts; a scene-lost checkpointed record can fence without tactical pause at its unchanged revision | Final ammunition, sensors, formations, hosted-aircraft recovery, launched weapons, and objective effects remain unsupported; detached return is live-qualified for one submarine profile |
+| Map projection | One full session/resync snapshot is followed by versioned upserts and removals on the Bulk lane; a game-session change recreates the campaign stream; projection and viewport work both run in frame-budgeted phases | Live 4,096-record runs applied in about 330-692 ms; the latest apply took 330.271 ms with a 1.584 ms worst slice. A full-world viewport pass considered 3,711 candidates, attached 97 markers, completed in 3.292 ms, and used a 0.404 ms worst slice; the cold-session maximum was 3.851 ms. Reconnect repair, delta telemetry, and concurrent control latency remain open |
 | Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
 | Visual proxies | Selection is an explicit state machine; it preserves native hit precedence, relocates once, polls terrain, then creates and focuses a non-simulating model or hostile estimate | Direct mouse selection, cancellation, failure display, and terrain behavior need live proof across more catalog families |
-| Focused promotion | A native `IMapSelectable` transition requests one campaign entity without requiring its entire Operational group to fit; preparation waits for the leased object to be initialized, active, and player-orderable before checkpoint and focus | Fixed-wing weapons, orderability, naming continuity, and floating-origin behavior are awaiting a clean live qualification |
+| Focused promotion | A native `IMapSelectable` transition requests one campaign entity without requiring its entire Operational group to fit; preparation requires the selected entity's exact runtime-advertised profile, native initialization, stores, airborne state where required, and friendly control before checkpoint and focus; public altitude/depth is corrected against native readback; pre-checkpoint failure rolls back and permits retry | A live CAS F-5E proved weapons, gear-up airborne state, native selection, status, and orders; a full-campaign USS Honolulu promotion proved exact Variant31 identity, initialized stores, native control, status, and camera focus; rollback and broader families still need live qualification |
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
@@ -86,7 +86,12 @@ identity and exact runtime profile. The companion selects an authored opposing
 task force, and normal exit fences and returns all five assignments together.
 The live run reported five owned resources, three world objects, no duplicate
 stable IDs, and no remaining generic hostile proxy. It held about 60 FPS with a
-16.667 ms fixed step and internal dilation 1.
+16.667 ms fixed step and internal dilation 1. A later bounded run started the
+same five-member island, exited it, then started and exited the one-member USS
+Honolulu island without restarting Sea Power. Both exits returned every
+assignment and reduced the bridge-owned resource ledger to zero. The companion
+explicitly reclaimed five committed resources after the first exit and one
+after the second.
 
 It cannot yet provide a coherent war-to-battle play session because:
 
@@ -136,17 +141,23 @@ source of player membership.
 ### 2. Map and proxy parity
 
 Map-driven promotion is entity-scoped. Explicit entry from the campaign
-application remains a whole-group transaction. The next live gate must prove
-that selecting a non-local fixed-wing entity relocates the tactical origin,
-creates one armed native aircraft, removes the inert proxy, preserves the unit's
-readable identity, and exposes the same status and order controls as an authored
-local aircraft.
+application remains a whole-group transaction. One fixed-wing path now has a
+live proof: a campaign-selected RoCAF F-5E used the requested CAS loadout,
+spawned airborne with gear retracted, exposed native orders and status, and
+retained ammunition. The 3D follow camera centered on the unit. A later full-
+campaign run applied all 4,096 projection records, focused USS Spruance, opened
+Sea Power's full-screen tactical map, and found the viewport centered on that
+unit. Direct mouse selection and overlap behavior remain open.
 
 The working implementation separates Bulk projection traffic from Control,
 tracks game-session generation and revision, sends differential upserts and
 removals after the initial snapshot, applies map records under a frame budget,
 gives native Sea Power objects selection precedence, and refuses to replace an
-in-progress apply. A typed map-selection event reaches one promotion
+in-progress apply. Viewport refreshes now discard records outside the current
+geographic bounds before calling Sea Power's more expensive screen projection,
+and report total, prefiltered, selectable, attached, total-time, and worst-slice
+counts for live tuning. Views spanning a full globe bypass geographic culling
+because Sea Power normalizes their corner longitudes. A typed map-selection event reaches one promotion
 orchestrator; a two-second poll exists only for event loss and reconnect repair.
 Same-locality promotion retains current player units. A distant-locality
 preflight starts checkpoint and suspension before the floating-origin rebase.
@@ -159,15 +170,21 @@ before distant promotion. Live qualification must still cover authored-object
 unload, selection, terrain polling, camera focus, loadout, orders, and reconnect
 replay.
 
-After that, finish labels, overlap handling, contact uncertainty, failure
-feedback, and terrain-safe visual proxies. Local and non-local records must be
+After that, finish overlap handling, contact uncertainty, failure feedback, and
+terrain-safe visual proxies. The native name-override path is now applied to
+promoted objects, and non-local friendlies no longer receive contact-number or
+class prefixes, so both paths use the authored campaign unit name. That
+correction still needs a live run. Local and non-local records must be
 indistinguishable at the map interaction level.
 
-For local map debugging, the companion may ask the operator-only worker
+For local map debugging, the companion may ask the authenticated worker
 projection to reveal every live opposing entity as an exact hostile marker.
 This temporary mode replaces approximate contact markers so contacts are not
-drawn twice. The service and companion must both opt in explicitly. The normal
-worker projection remains coalition-filtered when either opt-in is absent.
+drawn twice. Local service runs allow it by default and can disable it
+with the literal value `false`; any other non-Boolean value fails startup. If
+the service denies the debug view, the companion latches that denial and uses
+ordinary coalition-filtered projections instead of dropping friendly map sync
+or retrying a forbidden request every cycle.
 
 ### 3. Complete tactical return
 
@@ -252,6 +269,38 @@ Campaign time advanced from T+0 to T+30 while the tactical assignment remained
 Active. This proves one submarine profile and parallel campaign advancement,
 not combined entry, submerged-state portability, combat return, or restart
 recovery.
+
+A later map-driven run repeated USS Honolulu from the full campaign rather than
+the explicit group-entry path. The first inert representation was replaced by
+a native `usn_ssn_los_angeles / Variant31 / Default` object. Runtime readback
+reported native initialization, player orders and control, initialized stores,
+52 rounds of ammunition, no recovery flag, and one active owned record. Sea
+Power's map, Formation Manager, and selected-unit HUD all showed USS Honolulu.
+This run also exposed and corrected two exact-state defects: profile sorting had
+selected a fallback ahead of canonical `Variant31`, and Sea Power's submarine
+center-to-keel offset had shifted public altitude by roughly 15 feet. It proves
+the map-selection promotion boundary for this submarine profile, not the full
+order UI.
+
+A final recovery run selected and materialized the same USS Honolulu from a
+fresh 4,096-entity campaign, then left Sea Power before requesting campaign
+return. Unity had destroyed the native object but retained its managed wrapper.
+The bridge classified the record as `detached-after-scene-loss`, reported native
+readiness and control as false, reused the current revision-1 checkpoint, and
+completed the fence without a tactical-pause command. The campaign committed the
+result and released the assignment. On companion reconnect, the matching
+positive receipt reclaimed the detached ledger record without loading another
+tactical scene; the bridge then reported zero owned or detached records. This
+qualifies detached return and post-commit reclamation for one submarine profile,
+not arbitrary process termination or every portable family.
+
+A follow-up code audit applied the same Unity destroyed-wrapper rule to world
+snapshots, camera focus, tactical-location scans, collider and memory
+diagnostics, hosted-aircraft lookup, and both visual-proxy implementations. It
+also releases a deselected inert model and its materials while retaining the map
+record. The broad integration suite and runtime build cover these changes; the
+expanded diagnostic and repeated-selection paths have not had another live Sea
+Power pass yet.
 
 A fourth full-application run entered the two-member NATO Atlantic maritime
 helicopter group from the 4,096-entity campaign. Sea Power created a native

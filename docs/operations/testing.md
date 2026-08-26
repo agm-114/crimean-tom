@@ -107,7 +107,9 @@ Run this story against the full 4,096-entity campaign:
 8. Select each kind through the player input path. Confirm native symbology,
    labels, focus, and bounded loading feedback.
 9. Select a distant friendly and confirm one non-simulating visual proxy appears
-   above valid terrain without creating a duplicate.
+   above valid terrain without creating a duplicate. Deselect it, sample memory
+   diagnostics, and repeat across several units; hidden proxy roots and loaded
+   materials must not accumulate.
 10. Fight one campaign-owned hostile for at least 15 unpaused minutes while the
     campaign service advances unrelated entities.
 11. Exit normally and confirm hostile fate, player damage, fuel, stores,
@@ -126,9 +128,37 @@ During steps 5 through 9, capture projection and control behavior separately:
 - select one distant terrain-backed unit and confirm exactly one relocation;
 - confirm terrain polls do not pause or unpause tactical time;
 - click a native unit near a campaign marker and confirm native selection wins;
-  and
+- force one promoted unit to miss native readiness, confirm no owned object or
+  capacity leak remains, confirm its map projection returns, then retry the same
+  materialization effect and roll it back again;
+- disconnect the game pipe immediately after native checkpoint capture but
+  before the companion publishes `AssignmentPrepared`; confirm the checkpoint
+  and ready assignment reach the service, the assignment activates, and no
+  cancellation-derived failure frame appears;
+- pause the campaign after a tactical worker disappears, let its wall-clock
+  lease grace expire, and confirm fallback releases authority at the unchanged
+  campaign quantum; and
 - restart Sea Power without restarting the service and confirm a full projection
   replay restores the authorized records.
+
+Also exit the Sea Power scene before requesting campaign return. The bridge
+record should become `detached-after-scene-loss`, retain its current checkpoint,
+complete the fence without issuing a tactical-pause command, and release at the
+checkpoint revision. Confirm destroyed Unity wrappers report native readiness,
+stores, orders, and control as false, and that snapshot, collider, memory,
+focus, and projection scans do not dereference those wrappers. Restart the
+companion while Sea Power is still outside a tactical scene and confirm the
+positive release receipt removes the ledger record without trying to pause.
+Repeat for one land or installation profile once that family is live-qualified.
+
+After a normal exit, confirm the worker projection carries the exact released
+assignment receipt before native reclamation. A successful projection that
+omits the assignment must not authorize destruction. Confirm reclaimed units
+are absent from Sea Power's active and disabled task-force collections, do not
+appear in a subsequent save, and are recorded as leaving the area rather than
+being destroyed. Repeat the exit after disconnecting between native creation
+and the first checkpoint; the positive receipt must roll back the incomplete
+object or release an already detached ledger entry.
 
 Record every unsupported field and family. Do not reinterpret a visible proxy
 or a service event as a complete tactical round trip.
@@ -185,6 +215,9 @@ pairing, warm-up, duration, and time controls. Record:
 - campaign advances and work units per wall second;
 - native simulated objects, map records, visual proxies, Operational entities,
   contacts, weapons, and terrain-backed objects;
+- viewport total records, geographic-prefilter records, selectable candidates,
+  attached markers, complete refresh time including ordering and prefiltering,
+  and worst main-thread slice;
 - tactical-entry and selected-proxy latency; and
 - checkpoint size and result-commit latency.
 
@@ -231,3 +264,9 @@ Store raw captures, logs, screenshots, and environment details with the run
 artifacts or release record. Keep durable conclusions in current status and
 supported claims. Do not add dated evidence pages, handoff diaries, or temporary
 review documents to `docs/`.
+
+When testing the temporary exact-enemy debug projection, the local campaign
+service permits it by default. Set
+`CRIMEAN_TOM_ALLOW_DEBUG_REVEAL_ALL_ENEMIES=false` to exercise the denied path.
+The companion must then retain ordinary friendly and coalition-contact
+projection rather than treating the optional debug denial as a sync failure.

@@ -38,7 +38,7 @@ interpreting any Unity transform.
 | `FileManager` | `Seapower/FileManager.cs` | Search directories, Workshop, enable/order persistence, overrides. |
 | `IniHandler` | `Seapower/IniHandler.cs` | INI parsing, writing, caching, special files. |
 | `ObjectsManager` | `Seapower/ObjectsManager.cs` | Live registries and factories. |
-| `ObjectBase` | `Seapower/ObjectBase.cs` | Common tactical unit state, scene-local `UniqueID`, and `_campaignTag`. |
+| `ObjectBase` | `Seapower/ObjectBase.cs` | Common tactical unit state, scene-local `UniqueID`, `_campaignTag`, Unity destroyed-object checks, and public height conversion including the submarine center-to-keel offset. |
 | `LandUnit` | `Seapower/LandUnit.cs` | Tactical land `ObjectBase`: fire, mobile `Rigidbody` motion, disable path. |
 | `LandUnitParameters` | `Seapower/LandUnitParameters.cs` | `LandUnitSubType` (AirBase, SAM, Port, …). |
 | `ObjectBaseLoader` | `Seapower/ObjectBaseLoader.cs` | Mesh/system/damage/weapon/sensor construction. |

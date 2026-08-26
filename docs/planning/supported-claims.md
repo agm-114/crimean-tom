@@ -1,6 +1,6 @@
 # Supported claims
 
-Authenticated `GET /supported-claims` mirrors this document at schema version 19.
+Authenticated `GET /supported-claims` mirrors this document at schema version 21.
 Where either source is narrower, use the narrower statement and fix the drift.
 
 The supported game build is Sea Power `0.8.2-23444+s358`. Runtime and catalog
@@ -59,11 +59,19 @@ or complete Sea Power parity.
   service queues final-checkpoint fences together, releases the island only
   after every member responds, and returns the committed member result plus the
   fields that are still unsupported.
+- The worker projection retains the latest released assignment per entity as a
+  positive reclamation receipt. Omission from a projection can suspend stale
+  local authority but cannot destroy a checkpointed native object.
 - The owned ship/submarine proof of concept can publish changed readbacks for pose,
   telegraph, fuel or stores fractions, damage, and destruction during unpaused
   play.
 - Ordered lifecycle mutations temporarily pause Sea Power and restore its prior
   play state.
+- A checkpointed bridge record that becomes detached after scene loss can fence
+  at its unchanged revision without trying to pause a nonexistent tactical
+  mission. A live USS Honolulu run left the Sea Power scene first, reused the
+  current checkpoint, committed release, and reclaimed the detached ledger entry
+  on companion reconnect without loading another tactical scene.
 - A `RenderProxy` cannot receive simulation authority or publish campaign
   outcomes.
 - Live qualification on the pinned build atomically loaded the selected
@@ -77,6 +85,12 @@ or complete Sea Power parity.
   native Los Angeles-class submarine with its exact `Variant31` profile,
   campaign name, stable tag, player task-force membership, and GIUK coordinate.
   The assignment remained Active while campaign time advanced from T+0 to T+30.
+- A later full-campaign map selection promoted USS Honolulu from its non-local
+  representation into a native `usn_ssn_los_angeles / Variant31 / Default`
+  object. Readback reported native initialization, player orders and control,
+  initialized stores, 52 rounds, no recovery flag, and one active owned record.
+  Sea Power's map, Formation Manager, and selected-unit HUD preserved the
+  campaign identity.
 - A live 4,096-entity run atomically loaded a two-member maritime helicopter
   group as native SH-2F and SH-3H objects. Sea Power preserved the exact
   `Squadron4 / ASW` and `Squadron1 / ASW` profiles, campaign names, stable tags,
@@ -110,6 +124,28 @@ or complete Sea Power parity.
   stable IDs or remaining generic hostile proxy. Normal exit checkpointed and
   released all five assignments together. Sea Power held about 60 FPS, a
   16.667 ms fixed step, and internal time dilation 1.
+- A later run applied all 4,096 authorized projection records in about 521 ms
+  of frame-budgeted work with a 4.631 ms worst slice. Typed focus on USS
+  Spruance centered Sea Power's full-screen tactical map on that native object.
+  This qualifies initial replay and native focus, not direct mouse selection or
+  reconnect repair.
+- After viewport prefiltering, clustering, attachment preparation, detach, and
+  attach became separate frame-budgeted phases, a fresh full-world pass examined
+  3,711 candidates, attached 97 native-style markers, completed in 3.292 ms of
+  aggregate work, and used a 0.404 ms worst slice. The process-wide cold maximum
+  was 3.851 ms. The associated 4,096-record projection applied in 330.271 ms with
+  a 1.584 ms worst slice. This is one machine and one map state, not a frame-time
+  guarantee.
+- The same Sea Power process entered and exited the five-member North Sea
+  island, then entered and exited the one-member USS Honolulu island. The
+  companion reclaimed five committed resources after the first exit and one
+  after the second. The bridge reported zero owned, active, suspended,
+  detached, or recovery-required records after each cleanup.
+- A fresh 4,096-entity run left Sea Power before campaign return with USS
+  Honolulu materialized. The bridge exposed the destroyed Unity wrapper as a
+  detached, checkpointed record with native readiness and control false. Return
+  completed at revision 1, and companion reconnect reclaimed the post-commit
+  ledger entry without a tactical scene. The final owned-resource count was zero.
 
 This is a narrow ship, single-profile submarine, two-profile airborne
 helicopter, and two-profile hosted-helicopter entry contract. It does not cover

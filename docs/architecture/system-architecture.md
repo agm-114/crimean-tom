@@ -116,6 +116,17 @@ revision, authority-epoch, and idempotency fields. The service accepts a tactica
 result once or rejects it. Transport delivery may repeat without repeating the
 campaign effect.
 
+Authority results enter the companion's durable outbox before the companion
+writes them to the campaign stream. A Sea Power game-session change first stops
+new authority work, then gives the current service-frame handler or periodic
+state capture up to 15 seconds to finish and stage its result. Only then does it
+cancel the old campaign stream. The outbox write has its own 15-second disk
+timeout and does not inherit game-session cancellation. A failed wire write can
+therefore replay the staged frame, while a stuck handler still reaches a bounded
+fence. Session cancellation is transport control flow. It must not become an
+`AssignmentPrepared` or `FinalCheckpointStaged` failure for an effect that may
+already have reached Sea Power.
+
 The player API derives coalition authority from the durable local player
 profile. A client does not select its own coalition or command scope in an order
 request. Each player order names a friendly group, expected group revision, and
@@ -143,7 +154,9 @@ campaign record
 
 A visual proxy has no AI, sensors, weapons, collision, damage authority, or
 publication rights. Promotion hides the matching proxy before the tactical
-object becomes player-visible. Demotion preserves the map record.
+object becomes player-visible. Demotion preserves the map record. Only the
+currently selected inert world model is retained; deselection releases its
+loaded model and materials while leaving the lightweight map record available.
 
 There are two tactical-entry scopes:
 
@@ -169,6 +182,55 @@ creation and native readiness are separate states. The bridge suppresses the
 proxy after the native constructor succeeds while tactical time remains paused;
 the companion does not checkpoint, focus, or declare the assignment ready until
 Sea Power reports the object initialized, active, and player-orderable.
+
+The assignment pins the exact unit type, variant, and loadout used for native
+construction. Until campaign saves carry an explicit variant for every entity,
+the Runtime Bridge advertises compatible materialization profiles in canonical
+preference order and the service selects the first exact unit/loadout match.
+Sorting that list is not presentation cleanup: it can silently select a
+different variant and make checkpoint identity impossible to restore.
+
+Portable pose is defined through Sea Power's public position, altitude, and
+depth behavior, not raw transform height. Applying a checkpoint may require one
+raw-height correction after native readback; for example, Sea Power subtracts a
+submarine's center-to-keel distance in `ObjectBase.getHeight()`. The final public
+readback must match before activation.
+
+Materialization is transactional through that readiness boundary. If readiness
+fails before the first destination checkpoint, the companion sends a rollback
+under the same assignment, authority epoch, and realized revision. The bridge
+removes a newly constructed object through Sea Power's native destruction path
+with scoring disabled. If the transaction reused a suspended predecessor, the
+bridge restores its prior portable checkpoint and suspension instead. A
+successful rollback removes the failed materialization receipt so the same
+assignment effect can be attempted again, then forces projection reconciliation.
+Capturing the first destination checkpoint closes this rollback window.
+
+Normal unload also requires positive evidence. The tactical-worker projection
+keeps the latest released assignment per entity as a reclamation receipt. The
+companion may suspend a local object when current authority is absent, but it
+may destroy a checkpointed object only when its exact assignment ID appears as
+`Released`. Destruction removes Sea Power's disabled-task-force reference and
+uses the native clean-departure event so the unit is neither saved nor recorded
+as a combat loss. A released pre-checkpoint remnant follows the rollback path;
+a detached uncheckpointed record releases only its bridge ledger entry.
+
+Scene loss is also an unload state. A bridge-owned record whose native object
+has disappeared remains `detached-after-scene-loss` when it holds the current
+authoritative checkpoint. Fencing that record reuses the checkpoint at its
+existing revision and does not attempt to pause a tactical mission that no
+longer exists. The campaign can then commit and positively authorize ledger
+reclamation. A detached record without a matching checkpoint cannot publish a
+result and follows explicit recovery or rollback instead.
+
+Unity object references require Unity equality checks at this boundary. A
+destroyed `UnityEngine.Object` can retain a non-null managed wrapper while
+comparing equal to null. Readiness, control, checkpoint capture, release,
+resource reporting, projection scans, and diagnostics must therefore treat
+`object == null` as detached; ordinary C# pattern-null checks can expose stale
+stores and control state or dereference destroyed scene objects. Detached
+post-commit ledger reclamation is not scene-bound and must not enter the
+tactical-pause guard.
 
 ## Campaign time and tactical leases
 
@@ -267,10 +329,12 @@ classification-appropriate or uncertainty proxy at the estimated track
 position. It must not load secret true-state data.
 
 Map density is controlled through level-of-detail updates, clustering, and
-bounded refresh rates. The companion assembles campaign snapshots outside the
-game. Noesis collection changes, terrain operations, model loading, and camera
-calls run on the main thread through a measured work budget. Removing a physical
-object never removes its authorized map record.
+bounded refresh rates. Viewport work first filters records against the visible
+geographic bounds, then calls Sea Power's screen projection only for the
+remaining records. The companion assembles campaign snapshots outside the game.
+Noesis collection changes, terrain operations, model loading, and camera calls
+run on the main thread through a measured work budget. Removing a physical object
+never removes its authorized map record.
 
 Projection transport is versioned and differential after the initial snapshot.
 An unchanged source version does not enter the game pipe. Changed records and
