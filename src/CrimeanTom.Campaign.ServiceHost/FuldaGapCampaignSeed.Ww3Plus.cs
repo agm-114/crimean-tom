@@ -488,6 +488,10 @@ internal static partial class FuldaGapCampaignSeed
                         "blue-atlantic-rotary",
                         StringComparison.Ordinal)
                     && ordinal <= 2;
+                var usesAswLoadout = string.Equals(
+                    package.Key,
+                    "blue-atlantic-rotary",
+                    StringComparison.Ordinal);
                 yield return Entity(
                     campaignId,
                     key,
@@ -501,7 +505,7 @@ internal static partial class FuldaGapCampaignSeed
                     hostedByYorktown ? "blue-north-sea" : PackageGroupKey(package, groupIndex),
                     package.SimulationDomain,
                     package.MaximumFidelity,
-                    catalogLoadoutId: hostedByYorktown ? "ASW" : "Default",
+                    catalogLoadoutId: usesAswLoadout ? "ASW" : "Default",
                     operationalWeapons: package.OperationalWeapons,
                     hostEntityKey: hostedByYorktown ? "yorktown" : null);
             }

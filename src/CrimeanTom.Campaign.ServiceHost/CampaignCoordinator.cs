@@ -25,6 +25,8 @@ public sealed class CampaignCoordinator(
 {
     private static readonly JsonSerializerOptions CheckpointJsonOptions = new(JsonSerializerDefaults.Web);
     private const long SnapshotIntervalCommits = 100;
+    private const long TacticalVisualNeighborhoodMeters = 20_000;
+    private const double MeanEarthRadiusMeters = 6_371_000d;
     private static readonly CoordinatorId ServiceCoordinator = new(
         Guid.Parse("c4000000-0000-0000-0000-000000000001"));
     private static readonly PlayerId ServicePlayer = new(
@@ -569,10 +571,12 @@ public sealed class CampaignCoordinator(
             foreach (var memberId in island.EntityIds.OrderBy(item => item))
             {
                 var entity = state.Entities[memberId];
-                var profile = selectedDestination.MaterializationProfiles.First(item => string.Equals(
-                    item.UnitTypeId,
-                    entity.CatalogUnitId,
-                    StringComparison.Ordinal));
+                var profile = CampaignMaterializationProfileResolver.Resolve(
+                    selectedDestination.MaterializationProfiles,
+                    entity) ?? throw new CampaignStoreConflict(
+                        "shadow-destination-incompatible",
+                        $"The destination worker does not advertise the requested {entity.CatalogUnitId}/"
+                        + $"{entity.CatalogLoadoutId} materialization profile.");
                 var attempt = state.Assignments.Values.Count(item => item.EntityId == memberId) + 1;
                 var assignmentGuid = KeyedGuid(
                     campaignId.Value,
@@ -835,10 +839,12 @@ public sealed class CampaignCoordinator(
             foreach (var memberId in island.EntityIds.OrderBy(item => item))
             {
                 var memberEntity = state.Entities[memberId];
-                var profile = preferredWorker.MaterializationProfiles.First(item => string.Equals(
-                    item.UnitTypeId,
-                    memberEntity.CatalogUnitId,
-                    StringComparison.Ordinal));
+                var profile = CampaignMaterializationProfileResolver.Resolve(
+                    preferredWorker.MaterializationProfiles,
+                    memberEntity) ?? throw new CampaignStoreConflict(
+                        "source-worker-incompatible",
+                        $"The source worker does not advertise the requested {memberEntity.CatalogUnitId}/"
+                        + $"{memberEntity.CatalogLoadoutId} materialization profile.");
                 var attempt = state.Assignments.Values.Count(item => item.EntityId == memberId) + 1;
                 var assignmentGuid = KeyedGuid(
                     campaignId.Value,
@@ -1296,12 +1302,21 @@ public sealed class CampaignCoordinator(
         return state.Time.Quanta;
     }
 
-    internal async Task<(CampaignTime Time, int EntityCount)> ReadUnattendedSimulationStateAsync(
+    internal async Task<(
+        CampaignTime Time,
+        int EntityCount,
+        bool RequiresExpiredTacticalLeaseRecovery)> ReadUnattendedSimulationStateAsync(
         CampaignId campaignId,
         CancellationToken cancellationToken)
     {
         var state = await RecoverStateAsync(campaignId, cancellationToken);
-        return (state.Time, state.Entities.Count);
+        var requiresExpiredTacticalLeaseRecovery = state.Assignments.Values.Any(assignment =>
+            assignment.Lifecycle != AssignmentLifecycle.Released
+            && !CampaignAssignmentKinds.IsOperationalSim(assignment)
+            && !sessions.TacticalLeaseState(
+                campaignId.ToString(),
+                assignment.WorkerClientInstanceId).HoldsAuthority);
+        return (state.Time, state.Entities.Count, requiresExpiredTacticalLeaseRecovery);
     }
 
     public async Task<CampaignCoalitionProjectionView> ProjectCoalitionAsync(
@@ -1991,7 +2006,7 @@ public sealed class CampaignCoordinator(
         CampaignState state,
         CoalitionId coalitionId,
         IReadOnlyCollection<EntityState> friendlyMembers,
-        IReadOnlyDictionary<string, CampaignMaterializationProfile> profilesByCatalog)
+        IReadOnlyList<CampaignMaterializationProfile> materializationProfiles)
     {
         if (friendlyMembers.Count(item => item.SimulationDomain == SimulationDomain.Maritime
                 && item.HostEntityId is null) < 2
@@ -2024,7 +2039,7 @@ public sealed class CampaignCoordinator(
                 && item.SimulationDomain == SimulationDomain.Maritime
                 && item.HostEntityId is null
                 && !assignedEntityIds.Contains(item.EntityId)
-                && profilesByCatalog.ContainsKey(item.CatalogUnitId))
+                && CampaignMaterializationProfileResolver.Resolve(materializationProfiles, item) is not null)
             .FirstOrDefault();
     }
 
@@ -2169,29 +2184,6 @@ public sealed class CampaignCoordinator(
                 HostileEntityIds: new HashSet<EntityId>());
         }
 
-        var profilesByCatalog = worker.MaterializationProfiles
-            .GroupBy(item => item.UnitTypeId, StringComparer.Ordinal)
-            .ToDictionary(item => item.Key, item => item.First(), StringComparer.Ordinal);
-        var knownHostile = SelectKnownTacticalHostile(
-            state,
-            group.CoalitionId,
-            availableMembers,
-            profilesByCatalog);
-        var hostileIds = knownHostile is null
-            ? new HashSet<EntityId>()
-            : new HashSet<EntityId> { knownHostile.EntityId };
-        var tacticalMembers = knownHostile is null
-            ? availableMembers
-            : [.. availableMembers, knownHostile];
-        var profiles = new Dictionary<EntityId, CampaignMaterializationProfile>();
-        foreach (var member in tacticalMembers)
-        {
-            if (member.MaximumFidelity == FidelityState.Tactical
-                && profilesByCatalog.TryGetValue(member.CatalogUnitId, out var materializationProfile))
-            {
-                profiles[member.EntityId] = materializationProfile;
-            }
-        }
         var occupied = Math.Max(
             worker.OwnedMaterializedEntityCount,
             state.Assignments.Values
@@ -2204,6 +2196,73 @@ public sealed class CampaignCoordinator(
         var availableCapacity = Math.Max(
             0,
             worker.TacticalEntityCapacity - worker.TacticalReserveCapacity - occupied);
+        EntityState[] tacticalMembers;
+        HashSet<EntityId> hostileIds;
+        if (selectedEntityId is { } focusedEntityId)
+        {
+            var focusedEntity = state.Entities[focusedEntityId];
+            var alreadyAssigned = state.Assignments.Values
+                .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+                .Select(item => item.EntityId)
+                .ToHashSet();
+            var remainingWorldObjectCapacity = Math.Max(
+                0,
+                availableCapacity - availableMembers.Count(item => item.HostEntityId is null));
+            var nearby = state.Entities.Values
+                .Where(item => item.EntityId != focusedEntityId
+                    && item.HostEntityId is null
+                    && item.Lifecycle is not EntityLifecycle.Destroyed and not EntityLifecycle.Retired
+                    && item.MaximumFidelity == FidelityState.Tactical
+                    && !alreadyAssigned.Contains(item.EntityId))
+                .Select(item => new
+                {
+                    Entity = item,
+                    DistanceMeters = GreatCircleDistanceMeters(
+                        focusedEntity.Coordinate,
+                        item.Coordinate),
+                })
+                .Where(item => item.DistanceMeters <= TacticalVisualNeighborhoodMeters
+                    && CampaignMaterializationProfileResolver.Resolve(
+                        worker.MaterializationProfiles,
+                        item.Entity) is not null)
+                .OrderBy(item => item.DistanceMeters)
+                .ThenBy(item => item.Entity.CoalitionId == group.CoalitionId ? 0 : 1)
+                .ThenBy(item => item.Entity.EntityId)
+                .Take(remainingWorldObjectCapacity)
+                .Select(item => item.Entity)
+                .ToArray();
+            tacticalMembers = [.. availableMembers, .. nearby];
+            hostileIds = tacticalMembers
+                .Where(item => item.CoalitionId != group.CoalitionId)
+                .Select(item => item.EntityId)
+                .ToHashSet();
+        }
+        else
+        {
+            var knownHostile = SelectKnownTacticalHostile(
+                state,
+                group.CoalitionId,
+                availableMembers,
+                worker.MaterializationProfiles);
+            hostileIds = knownHostile is null
+                ? []
+                : [knownHostile.EntityId];
+            tacticalMembers = knownHostile is null
+                ? availableMembers
+                : [.. availableMembers, knownHostile];
+        }
+        var profiles = new Dictionary<EntityId, CampaignMaterializationProfile>();
+        foreach (var member in tacticalMembers)
+        {
+            var materializationProfile = CampaignMaterializationProfileResolver.Resolve(
+                worker.MaterializationProfiles,
+                member);
+            if (member.MaximumFidelity == FidelityState.Tactical
+                && materializationProfile is not null)
+            {
+                profiles[member.EntityId] = materializationProfile;
+            }
+        }
         var requiredMaterializedCapacity = tacticalMembers.Count(item => item.HostEntityId is null);
         var everyMemberSupported = tacticalMembers.Length > 0 && profiles.Count == tacticalMembers.Length;
         var everyHostedMemberHasItsHost = tacticalMembers
@@ -2236,7 +2295,7 @@ public sealed class CampaignCoordinator(
                 availableCapacity,
                 worker.ClientInstanceId,
                 worker.PlayerTaskforceId,
-                members.Concat(knownHostile is null ? [] : [knownHostile]).Select(member =>
+                tacticalMembers.Select(member =>
                 {
                     var isHostile = hostileIds.Contains(member.EntityId);
                     if (member.Lifecycle == EntityLifecycle.Destroyed)
@@ -2288,6 +2347,26 @@ public sealed class CampaignCoordinator(
             tacticalMembers,
             profiles,
             hostileIds);
+    }
+
+    private static long GreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
+    {
+        var originLatitude = origin.LatitudeMicrodegrees / 1_000_000d * Math.PI / 180d;
+        var destinationLatitude = destination.LatitudeMicrodegrees / 1_000_000d * Math.PI / 180d;
+        var deltaLatitude = destinationLatitude - originLatitude;
+        var deltaLongitude = (destination.LongitudeMicrodegrees - origin.LongitudeMicrodegrees)
+            / 1_000_000d * Math.PI / 180d;
+        var sinLatitude = Math.Sin(deltaLatitude / 2d);
+        var sinLongitude = Math.Sin(deltaLongitude / 2d);
+        var haversine = sinLatitude * sinLatitude
+            + Math.Cos(originLatitude) * Math.Cos(destinationLatitude)
+            * sinLongitude * sinLongitude;
+        var angularDistance = 2d * Math.Atan2(
+            Math.Sqrt(Math.Clamp(haversine, 0d, 1d)),
+            Math.Sqrt(Math.Max(0d, 1d - haversine)));
+        return (long)Math.Round(
+            MeanEarthRadiusMeters * angularDistance,
+            MidpointRounding.AwayFromZero);
     }
 
     private static string PlayerTacticalMemberId(
@@ -2778,10 +2857,9 @@ public sealed class CampaignCoordinator(
                             continue;
                         }
                         var entity = state.Entities[entityId];
-                        var profile = islandWorker.MaterializationProfiles.FirstOrDefault(item => string.Equals(
-                            item.UnitTypeId,
-                            entity.CatalogUnitId,
-                            StringComparison.Ordinal));
+                        var profile = CampaignMaterializationProfileResolver.Resolve(
+                            islandWorker.MaterializationProfiles,
+                            entity);
                         if (profile is null)
                         {
                             continue;
@@ -3820,13 +3898,14 @@ public sealed class CampaignCoordinator(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (await IsPausedCoreAsync(campaignId, cancellationToken))
+            var state = await RecoverStateAsync(campaignId, cancellationToken);
+            if (await IsPausedCoreAsync(campaignId, cancellationToken)
+                && target.Quanta > state.Time.Quanta)
             {
                 throw new CampaignStoreConflict(
                     "campaign-paused",
-                    "Campaign pause is in effect; campaign time does not advance until resume.");
+                    "Campaign pause is in effect; lease recovery may run at the current campaign time, but campaign time cannot advance until resume.");
             }
-            var state = await RecoverStateAsync(campaignId, cancellationToken);
             if (target.Quanta < state.Time.Quanta)
             {
                 throw new CampaignStoreConflict("fallback-time-stale", "Fallback cannot run before campaign time.");
@@ -4954,10 +5033,9 @@ public sealed class CampaignCoordinator(
                     ? CampaignWorkerHealth.CanReceiveNewAssignments(worker)
                     : !CampaignWorkerHealth.MustEvacuate(worker))
                 && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
-                && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
-                    profile.UnitTypeId,
-                    state.Entities[entityId].CatalogUnitId,
-                    StringComparison.Ordinal))))
+                && islandEntityIds.All(entityId => CampaignMaterializationProfileResolver.Supports(
+                    worker,
+                    state.Entities[entityId])))
             .Select(worker => new
             {
                 Worker = worker,
@@ -4988,10 +5066,9 @@ public sealed class CampaignCoordinator(
             || preferredWorker.TacticalEntityCapacity <= 0
             || preferredWorker.OwnedRecoveryRequiredEntityCount > 0
             || !CampaignWorkerHealth.CanReceiveNewAssignments(preferredWorker)
-            || !islandEntityIds.All(entityId => preferredWorker.MaterializationProfiles.Any(profile => string.Equals(
-                profile.UnitTypeId,
-                state.Entities[entityId].CatalogUnitId,
-                StringComparison.Ordinal))))
+            || !islandEntityIds.All(entityId => CampaignMaterializationProfileResolver.Supports(
+                preferredWorker,
+                state.Entities[entityId])))
         {
             throw new CampaignStoreConflict(
                 "source-worker-ineligible",
@@ -5073,10 +5150,9 @@ public sealed class CampaignCoordinator(
             || !CampaignWorkerHealth.CanReceiveShadow(worker)
             || worker.TacticalEntityCapacity <= 0
             || worker.OwnedRecoveryRequiredEntityCount > 0
-            || !islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
-                profile.UnitTypeId,
-                state.Entities[entityId].CatalogUnitId,
-                StringComparison.Ordinal))))
+            || !islandEntityIds.All(entityId => CampaignMaterializationProfileResolver.Supports(
+                worker,
+                state.Entities[entityId])))
         {
             throw new CampaignStoreConflict(
                 "shadow-destination-ineligible",
@@ -5117,10 +5193,9 @@ public sealed class CampaignCoordinator(
 
         var compatible = connected.Where(worker =>
             !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
-            && islandEntityIds.All(entityId => worker.MaterializationProfiles.Any(profile => string.Equals(
-                profile.UnitTypeId,
-                state.Entities[entityId].CatalogUnitId,
-                StringComparison.Ordinal)))).ToArray();
+            && islandEntityIds.All(entityId => CampaignMaterializationProfileResolver.Supports(
+                worker,
+                state.Entities[entityId]))).ToArray();
         if (compatible.Length == 0)
         {
             throw new CampaignStoreConflict(
@@ -5168,10 +5243,12 @@ public sealed class CampaignCoordinator(
         CampaignBlobReference? sourceCheckpoint)
     {
         var entity = state.Entities[assignment.EntityId];
-        var profile = destination.MaterializationProfiles.First(item => string.Equals(
-            item.UnitTypeId,
-            entity.CatalogUnitId,
-            StringComparison.Ordinal));
+        var profile = CampaignMaterializationProfileResolver.Resolve(
+            destination.MaterializationProfiles,
+            entity) ?? throw new CampaignStoreConflict(
+                "worker-materialization-profile-mismatch",
+                $"The destination worker does not advertise the requested {entity.CatalogUnitId}/"
+                + $"{entity.CatalogLoadoutId} materialization profile.");
         return ToTacticalAssignment(
             state.Metadata.CampaignId,
             new CampaignHandoffRequest(

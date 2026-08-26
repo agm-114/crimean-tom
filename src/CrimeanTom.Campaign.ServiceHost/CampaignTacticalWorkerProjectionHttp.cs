@@ -22,7 +22,20 @@ internal static class CampaignTacticalWorkerProjectionHttp
             .ToArray();
         var assignments = workerAssignments
             .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
+            .Concat(workerAssignments
+                .Where(item => item.Lifecycle == AssignmentLifecycle.Released)
+                .GroupBy(item => item.EntityId)
+                .Select(group => group
+                    .OrderByDescending(item => item.AuthorityEpoch.Value)
+                    .ThenByDescending(item => item.Revision.Value)
+                    .ThenByDescending(item => item.AssignmentId.Value)
+                    .First()))
+            .OrderBy(item => item.AssignmentId.Value)
             .ToArray();
+        // A released assignment is a positive reclamation receipt. Keep the
+        // latest one per entity in the worker projection so a companion may
+        // destroy a checkpointed native object without interpreting a short or
+        // recovering projection as release authority.
         // Keep the player's coalition-scoped visual theater stable between
         // tactical assignments. Released assignment history is durable; an
         // interaction island may also contain opposing units, but its advertised
@@ -94,6 +107,7 @@ internal static class CampaignTacticalWorkerProjectionHttp
                 })
                 .ToArray();
         var localTacticalEntityIds = assignments
+            .Where(item => item.Lifecycle != AssignmentLifecycle.Released)
             .Select(item => item.EntityId)
             .ToHashSet();
         var contacts = coalition is null

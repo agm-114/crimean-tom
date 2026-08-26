@@ -48,11 +48,13 @@ var runDirectory = Path.GetFullPath(
     ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_CAMPAIGN_RUN_DIRECTORY")
     ?? Path.Combine(repositoryRoot ?? workingDirectory, ".run", "campaign-service"));
 var token = CampaignServiceToken.LoadOrCreate(Path.Combine(runDirectory, "service.token"));
-var allowDebugRevealAllEnemies = bool.TryParse(
-    builder.Configuration["AllowDebugRevealAllEnemies"]
-        ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_ALLOW_DEBUG_REVEAL_ALL_ENEMIES"),
-    out var allowDebugEnemyProjection)
-    && allowDebugEnemyProjection;
+var debugRevealSetting = builder.Configuration["AllowDebugRevealAllEnemies"]
+    ?? Environment.GetEnvironmentVariable("CRIMEAN_TOM_ALLOW_DEBUG_REVEAL_ALL_ENEMIES");
+var allowDebugRevealAllEnemies = string.IsNullOrWhiteSpace(debugRevealSetting)
+    || (bool.TryParse(debugRevealSetting, out var allowDebugEnemyProjection)
+        ? allowDebugEnemyProjection
+        : throw new InvalidOperationException(
+            "AllowDebugRevealAllEnemies must be 'true' or 'false'."));
 var monitorSession = new CampaignMonitorSession();
 var unattendedSimulation = CampaignUnattendedSimulationOptions.Load();
 var journal = new SqliteCampaignJournal(

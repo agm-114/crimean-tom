@@ -225,10 +225,9 @@ internal static class CampaignFidelityScheduler
                 !CampaignWorkerKind.IsOperational(worker.WorkerKind)
                 && CampaignWorkerHealth.CanReceiveNewAssignments(worker)
                 && !string.IsNullOrWhiteSpace(worker.PlayerTaskforceId)
-                && island.EntityIds.All(id => worker.MaterializationProfiles.Any(profile => string.Equals(
-                    profile.UnitTypeId,
-                    state.Entities[id].CatalogUnitId,
-                    StringComparison.Ordinal)))).ToArray();
+                && island.EntityIds.All(id => CampaignMaterializationProfileResolver.Supports(
+                    worker,
+                    state.Entities[id]))).ToArray();
             var workerCanMaterializeIsland = compatibleWorkers.Length > 0;
             var workerCanAdmitIsland = compatibleWorkers.Any(worker =>
                 CampaignWorkerAdmissionPolicy.Calculate(state, worker, safeTacticalCapacity)

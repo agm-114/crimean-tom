@@ -3,7 +3,7 @@ namespace CrimeanTom.Campaign.ServiceHost;
 public static class CampaignSupportedClaims
 {
     public static CampaignSupportedClaimsView Current { get; } = new(
-        SchemaVersion: 19,
+        SchemaVersion: 21,
         GameBuild: "0.8.2-23444+s358",
         TrustModel: CampaignDurabilityPolicy.Current.DeploymentTrustModel,
         FailoverClaim: CampaignDurabilityPolicy.Current.FailoverClaim,
@@ -41,6 +41,10 @@ public static class CampaignSupportedClaims
             "heartbeat-renewed-tactical-ownership-while-unrelated-campaign-state-advances",
             "owned-surface-periodic-state-sync-during-unpaused-play",
             "coalition-map-projection-and-selected-visual-proxies-without-simulation-authority",
+            "live-full-4096-record-sea-power-projection-with-frame-budgeted-apply-and-native-map-focus",
+            "live-idempotent-postcommit-resource-reclamation-across-back-to-back-interaction-islands",
+            "live-detached-checkpoint-fence-and-postcommit-ledger-reclamation-without-live-tactical-scene",
+            "live-map-selected-los-angeles-native-promotion-with-exact-profile-control-and-stores",
             "fresh-player-session-explicit-coalition-bound-friendly-projection",
             "unattended-kernel-simulation-without-sea-power-or-client",
         ],

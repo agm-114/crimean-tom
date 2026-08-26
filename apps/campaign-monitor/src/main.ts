@@ -605,11 +605,25 @@ async function submitTacticalExit(): Promise<void> {
   tacticalMessage = "REQUESTING FINAL TACTICAL CHECKPOINTS";
   renderTacticalPanel();
   try {
-    const result = await request<TacticalExitResult>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-exit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedGroupRevision: exit.groupRevision, idempotencyKey: crypto.randomUUID() }),
-    });
+    const route = `/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-exit`;
+    const idempotencyKey = crypto.randomUUID();
+    let candidate = exit;
+    let result: TacticalExitResult | null = null;
+    for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+      try {
+        result = await request<TacticalExitResult>(route, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedGroupRevision: candidate.groupRevision, idempotencyKey }),
+        });
+      } catch (error) {
+        if (attempt !== 0 || !isGroupRevisionConflict(error)) throw error;
+        candidate = await request<TacticalExit>(route);
+        tacticalExit = candidate;
+        if (!candidate.canExit) throw new Error(candidate.message);
+      }
+    }
+    if (!result) throw new Error("TACTICAL EXIT DID NOT RETURN A RESULT");
     if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
     tacticalExit = result.exit;
     tacticalMessage = result.exit.message;
@@ -631,11 +645,25 @@ async function submitTacticalEntry(): Promise<void> {
   tacticalMessage = "PREPARING SELECTED GROUP";
   renderTacticalPanel();
   try {
-    const result = await request<TacticalEntryResult>(`/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedGroupRevision: entry.groupRevision, idempotencyKey: crypto.randomUUID() }),
-    });
+    const route = `/player/campaigns/${activeCampaign.campaignId}/groups/${group.groupId}/tactical-entry`;
+    const idempotencyKey = crypto.randomUUID();
+    let candidate = entry;
+    let result: TacticalEntryResult | null = null;
+    for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+      try {
+        result = await request<TacticalEntryResult>(route, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedGroupRevision: candidate.groupRevision, idempotencyKey }),
+        });
+      } catch (error) {
+        if (attempt !== 0 || !isGroupRevisionConflict(error)) throw error;
+        candidate = await request<TacticalEntry>(route);
+        tacticalEntry = candidate;
+        if (!candidate.canEnter) throw new Error(candidate.message);
+      }
+    }
+    if (!result) throw new Error("TACTICAL ENTRY DID NOT RETURN A RESULT");
     if (campaign?.campaignId !== activeCampaign.campaignId || orderGroupId !== group.groupId) return;
     tacticalEntry = result.entry;
     tacticalMessage = `${result.status.toUpperCase()} // BATCH ${result.batchId.slice(0, 8).toUpperCase()}`;
@@ -674,13 +702,28 @@ function detail(title: string, subtitle: string, rows: string[][]): string {
   return `<div class="p-2"><h2 class="text-[12px] text-[#e2e2e2]">${escapeHtml(title.toUpperCase())}</h2><div class="mb-3 text-[9px] text-[#626262]">${escapeHtml(subtitle.toUpperCase())}</div>${rows.map(([label, value]) => `<div class="detail-row"><span>${escapeHtml(label.toUpperCase())}</span><strong>${escapeHtml(value.toUpperCase())}</strong></div>`).join("")}</div>`;
 }
 
+class HttpRequestError extends Error {
+  constructor(readonly status: number, readonly detail: string) {
+    super(`${status} ${detail}`);
+  }
+}
+
+function isGroupRevisionConflict(error: unknown): error is HttpRequestError {
+  if (!(error instanceof HttpRequestError) || error.status !== 409) return false;
+  try {
+    return (JSON.parse(error.detail) as { error?: unknown }).error === "group-revision-conflict";
+  } catch {
+    return false;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
   if (response.status === 401 && !retried) {
     const renewed = await fetch("/monitor/session", { credentials: "same-origin" });
     if (renewed.ok) return request<T>(path, init, true);
   }
-  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  if (!response.ok) throw new HttpRequestError(response.status, await response.text());
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 

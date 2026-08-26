@@ -49,6 +49,10 @@ internal sealed class CampaignUnattendedSimulationHostedService(
     CampaignUnattendedSimulationOptions options,
     ILogger<CampaignUnattendedSimulationHostedService> logger) : BackgroundService
 {
+    private static readonly TimeSpan FailureRetryDelay = TimeSpan.FromMinutes(5);
+    private readonly Dictionary<string, DateTimeOffset> _failureRetryAfter =
+        new(StringComparer.Ordinal);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.Enabled)
@@ -81,25 +85,36 @@ internal sealed class CampaignUnattendedSimulationHostedService(
                 {
                     continue;
                 }
-
-                var campaignId = new CampaignId(parsed);
-                if (await coordinator.IsPausedAsync(campaignId, stoppingToken))
+                if (_failureRetryAfter.TryGetValue(campaign.CampaignId, out var retryAfter)
+                    && DateTimeOffset.UtcNow < retryAfter)
                 {
                     continue;
                 }
 
+                var campaignId = new CampaignId(parsed);
                 try
                 {
+                    var paused = await coordinator.IsPausedAsync(campaignId, stoppingToken);
                     var simulation = await coordinator.ReadUnattendedSimulationStateAsync(
                         campaignId,
                         stoppingToken);
+                    _failureRetryAfter.Remove(campaign.CampaignId);
                     if (simulation.EntityCount == 0)
                     {
                         continue;
                     }
+                    if (paused && !simulation.RequiresExpiredTacticalLeaseRecovery)
+                    {
+                        continue;
+                    }
 
-                    var target = new CampaignTime(
-                        checked(simulation.Time.Quanta + options.QuantaPerTick));
+                    // Tactical leases expire on wall clock, independently of campaign
+                    // time. A paused campaign must therefore release expired authority
+                    // at its current quantum without advancing unrelated simulation.
+                    var target = paused
+                        ? simulation.Time
+                        : new CampaignTime(
+                            checked(simulation.Time.Quanta + options.QuantaPerTick));
                     _ = await coordinator.ResolveExpiredAssignmentsAsync(
                         campaignId,
                         target,
@@ -114,10 +129,13 @@ internal sealed class CampaignUnattendedSimulationHostedService(
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
+                    var retryAt = DateTimeOffset.UtcNow + FailureRetryDelay;
+                    _failureRetryAfter[campaign.CampaignId] = retryAt;
                     logger.LogWarning(
                         exception,
-                        "Unattended simulation failed for campaign {CampaignId}.",
-                        campaign.CampaignId);
+                        "Unattended simulation failed for campaign {CampaignId}; retry deferred until {RetryAt}.",
+                        campaign.CampaignId,
+                        retryAt);
                 }
             }
         }

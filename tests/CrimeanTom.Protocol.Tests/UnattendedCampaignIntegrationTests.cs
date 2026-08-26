@@ -396,6 +396,22 @@ public sealed class UnattendedCampaignIntegrationTests
                             VariantId = "Variant31",
                             LoadoutId = "Default",
                         },
+                        // A runtime may support several variants for one campaign
+                        // catalog identity. Its first advertised match is the
+                        // canonical materialization profile and must remain stable
+                        // across exit and re-entry checkpoint restoration.
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_ssn_los_angeles",
+                            VariantId = "Default",
+                            LoadoutId = "Default",
+                        },
+                        new TacticalMaterializationProfile
+                        {
+                            UnitTypeId = "usn_sh-2f",
+                            VariantId = "Squadron4",
+                            LoadoutId = "Default",
+                        },
                         new TacticalMaterializationProfile
                         {
                             UnitTypeId = "usn_sh-2f",
