@@ -177,6 +177,16 @@ message TacticalAssignment {
   int32 altitude_feet = 29;
   string host_entity_id = 30;
   TacticalRelationship relationship = 31;
+  // Rounds per ammunition id the campaign expects this unit to enter with.
+  // The aggregate stores figure cannot say which magazine is empty, so a
+  // partly expended loadout needs these to cross the boundary without loss.
+  repeated MagazineStock magazines = 32;
+}
+
+// One native magazine: Sea Power's ammunition name and its whole round count.
+message MagazineStock {
+  string ammunition_id = 1;
+  int32 rounds = 2;
 }
 
 // Control-plane placement for a Sea-Power-free worker. This is deliberately
@@ -251,6 +261,9 @@ message TacticalEventProposal {
   bool destroyed = 15;
   string checkpoint_sha256 = 16;
   int32 telegraph = 17;
+  // Current rounds for the campaign-tracked magazines. Checkpoint and state
+  // sync proposals use this to return tactical expenditure to canonical state.
+  repeated MagazineStock magazines = 18;
 }
 
 message CheckpointPublished {

@@ -79,6 +79,7 @@ public static class CampaignStateValidator
                     throw Invalid("entity-operational-weapon", "An entity operational weapon capability is invalid.");
                 }
             }
+            ValidateMagazines(entity);
             _ = HeadingMilliDegrees.FromMilliDegrees(entity.Heading.Value);
             if (entity.Telegraph is < -1 or > 5
                 || entity.ReadinessMilliUnits is < 0 or > 1_000
@@ -451,6 +452,28 @@ public static class CampaignStateValidator
         if (resources.Any(item => !Enum.IsDefined(item.Key) || item.Value.MilliUnits < 0))
         {
             throw Invalid("resource", "A resource kind or amount is invalid.");
+        }
+    }
+
+    private static void ValidateMagazines(EntityState entity)
+    {
+        var capacities = entity.OperationalWeapons
+            .Where(weapon => weapon.MagazineCapacityRounds > 0)
+            .GroupBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Max(weapon => weapon.MagazineCapacityRounds),
+                StringComparer.Ordinal);
+        if (entity.Magazines.Count != capacities.Count
+            || entity.Magazines.Any(item =>
+                string.IsNullOrWhiteSpace(item.Key)
+                || item.Value < 0
+                || !capacities.TryGetValue(item.Key, out var capacity)
+                || item.Value > capacity))
+        {
+            throw Invalid(
+                "entity-magazine",
+                "Entity magazines must exactly match the catalog-counted ammunition and remain within capacity.");
         }
     }
 

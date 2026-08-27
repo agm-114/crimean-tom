@@ -15,7 +15,16 @@ public sealed record SeaPowerCatalogWeapon(
     long SeekerRangeMeters,
     int LaunchReliabilityMilliUnits,
     int KillProbabilityMilliUnits,
-    int WarheadPower);
+    int WarheadPower,
+    /// <summary>
+    /// Rounds of this ammunition the unit and loadout carry, counted with Sea
+    /// Power's own loadout rule. Zero means the game's rule declares no
+    /// countable stock for this ammunition on this platform, which is not the
+    /// same as an empty magazine: a gun or CIWS mount without an associated
+    /// magazine carries rounds that the catalog never enumerates. Treat zero as
+    /// "not magazine-limited by the catalog" rather than "out of ammunition".
+    /// </summary>
+    long MagazineRounds = 0);
 
 public sealed class SeaPowerOperationalCatalog
 {
@@ -23,6 +32,14 @@ public sealed class SeaPowerOperationalCatalog
     private readonly string _originalRoot;
     private readonly object _sync = new();
     private readonly Dictionary<(string Unit, string Loadout), IReadOnlyList<SeaPowerCatalogWeapon>> _cache = new();
+    private readonly Lazy<IniDocument> _weaponSystems;
+
+    /// <summary>
+    /// Shared weapon-system definitions. Launcher capacity lives here rather
+    /// than in the unit file: a unit names a system and a container count, and
+    /// this file says how many rounds one container of that system holds.
+    /// </summary>
+    private IniDocument WeaponSystems => _weaponSystems.Value;
 
     public SeaPowerOperationalCatalog(string originalStreamingAssetsRoot)
     {
@@ -31,6 +48,9 @@ public sealed class SeaPowerOperationalCatalog
         {
             throw new DirectoryNotFoundException($"Sea Power original catalog was not found beneath {_originalRoot}.");
         }
+        _weaponSystems = new Lazy<IniDocument>(() =>
+            IniDocument.TryLoad(Path.Combine(_originalRoot, "systems", "weapons.ini"))
+                ?? IniDocument.None);
     }
 
     public static SeaPowerOperationalCatalog? TryCreateFromEnvironment()
@@ -80,6 +100,14 @@ public sealed class SeaPowerOperationalCatalog
 
         var unit = IniDocument.Load(unitPath);
         var ammunitionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Rounds are counted with Sea Power's own loadout rule
+        // (SimpleObjectParameters.ReadAmmoFromWeaponSystem and
+        // ReadAmmoFromHardpointSystem) so the server starts an engagement with
+        // the same magazine contents the game would give the same unit and
+        // loadout. Keys use the game's ammunition names.
+        var rounds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var processedMagazines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var systemCount = unit.Integer("WeaponSystems", "NumberOfWeaponSystems");
         for (var index = 1; index <= systemCount; index++)
         {
@@ -90,34 +118,63 @@ public sealed class SeaPowerOperationalCatalog
                 var loadoutSection = unit.HasSection(baseSection + loadoutId)
                     ? baseSection + loadoutId
                     : baseSection + "Default";
-                foreach (var station in unit.Section(loadoutSection)
-                    .Where(item => Regex.IsMatch(item.Key, "^Station[0-9]+$", RegexOptions.IgnoreCase)))
-                {
-                    AddResolvedAmmunition(ammunitionIds, station.Value, unit, scenarioYear);
-                }
+                ReadHardpointStations(
+                    unit, baseSection, loadoutSection, scenarioYear, ammunitionIds, rounds);
                 continue;
             }
 
             AddResolvedAmmunition(ammunitionIds, unit.Value(baseSection, "Ammunition"), unit, scenarioYear);
             var magazine = unit.Value(baseSection, "AssociatedMagazine");
-            var ammunitionCount = unit.Integer(magazine, "NumberOfAmmunitionTypes");
-            for (var ammunitionIndex = 1; ammunitionIndex <= ammunitionCount; ammunitionIndex++)
+            if (magazine.Length > 0)
             {
-                if (unit.Integer(magazine, $"Ammunition{ammunitionIndex}_Count") != 0)
+                // Two mounts can share one magazine. Sea Power counts such a
+                // magazine once, so a twin torpedo installation does not report
+                // double its real stock.
+                if (!processedMagazines.Add(magazine))
                 {
-                    AddResolvedAmmunition(
+                    continue;
+                }
+                var ammunitionCount = unit.Integer(magazine, "NumberOfAmmunitionTypes");
+                for (var ammunitionIndex = 1; ammunitionIndex <= ammunitionCount; ammunitionIndex++)
+                {
+                    var declared = unit.Integer(magazine, $"Ammunition{ammunitionIndex}_Count");
+                    var resolved = AddResolvedAmmunition(
                         ammunitionIds,
                         unit.Value(magazine, $"Ammunition{ammunitionIndex}"),
                         unit,
-                        scenarioYear);
+                        scenarioYear,
+                        include: declared != 0);
+                    AddRounds(rounds, resolved, declared);
                 }
+                continue;
             }
+
+            // A gun or CIWS mount without a magazine has no catalog-countable
+            // stock. Sea Power skips it here, so the server records no rounds
+            // rather than inventing a number.
+            if (string.Equals(type, "Gun", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "CIWS", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var systemName = unit.Value(baseSection, "SystemName");
+            var containers = unit.IntegerOrDefault(baseSection, "NumberOfContainers", 1);
+            var attachments = WeaponSystems.IntegerOrDefault(systemName, "NumberOfAttachments", 1);
+            AddRounds(
+                rounds,
+                ResolveAmmunitionId(unit.Value(baseSection, "Ammunition"), unit, scenarioYear),
+                checked(containers * attachments));
         }
 
         var result = ammunitionIds
             .SelectMany(ResolveAmmunition)
             .GroupBy(item => (item.AmmunitionId, item.TargetType), new WeaponKeyComparer())
             .Select(group => group.OrderByDescending(item => item.MaximumRangeMeters).First())
+            .Select(item => item with
+            {
+                MagazineRounds = rounds.TryGetValue(item.AmmunitionId, out var stock) ? stock : 0,
+            })
             .OrderBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .ThenBy(item => item.TargetType, StringComparer.Ordinal)
             .ToArray();
@@ -125,6 +182,86 @@ public sealed class SeaPowerOperationalCatalog
         {
             return _cache[key] = result;
         }
+    }
+
+    /// <summary>
+    /// Counts one hardpoint system's stations the way Sea Power's
+    /// <c>ReadAmmoFromHardpointSystem</c> does. A bare station carries one
+    /// round. A station naming an attachment group carries one round per
+    /// position in that group, which is how a single sonobuoy station holds a
+    /// full rack. A station carrying a container contributes the container's
+    /// own contents instead of the container itself.
+    /// </summary>
+    private void ReadHardpointStations(
+        IniDocument unit,
+        string systemSection,
+        string loadoutSection,
+        int scenarioYear,
+        ISet<string> ammunitionIds,
+        IDictionary<string, long> rounds)
+    {
+        var stationCount = unit.Integer(systemSection, "NumberOfStations");
+        for (var index = 1; index <= stationCount; index++)
+        {
+            var raw = unit.Value(loadoutSection, $"Station{index}");
+            if (raw.Length == 0)
+            {
+                continue;
+            }
+
+            var parts = raw.Split('|');
+            var resolved = AddResolvedAmmunition(ammunitionIds, raw, unit, scenarioYear);
+            if (resolved.Length == 0)
+            {
+                continue;
+            }
+
+            var positions = 1L;
+            if (parts.Length > 1)
+            {
+                var group = unit.Value(systemSection, parts[1].Trim() + "Positions");
+                positions = group.Length == 0
+                    ? 1L
+                    : group.Split('|', StringSplitOptions.RemoveEmptyEntries).Length;
+            }
+
+            var ammunition = IniDocument.TryLoad(
+                Path.Combine(_originalRoot, "ammunition", $"{resolved}.ini"));
+            if (ammunition is null)
+            {
+                continue;
+            }
+            if (string.Equals(
+                ammunition.Value("General", "Type"), "Container", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!ammunition.HasSection("Ammunition"))
+                {
+                    continue;
+                }
+                AddRounds(
+                    rounds,
+                    ammunition.Value("Ammunition", "Ammunition"),
+                    checked(ammunition.IntegerOrDefault("Ammunition", "NumberOfAttachments", 1) * positions));
+                continue;
+            }
+
+            AddRounds(rounds, resolved, positions);
+        }
+    }
+
+    /// <summary>
+    /// Accumulates rounds the way Sea Power's <c>AddAmmo</c> does, including
+    /// its rule that a count below one contributes nothing.
+    /// </summary>
+    private static void AddRounds(IDictionary<string, long> rounds, string ammunitionId, long count)
+    {
+        if (ammunitionId.Length == 0 || count < 1)
+        {
+            return;
+        }
+        rounds[ammunitionId] = rounds.TryGetValue(ammunitionId, out var existing)
+            ? checked(existing + count)
+            : count;
     }
 
     private IEnumerable<SeaPowerCatalogWeapon> ResolveAmmunition(string ammunitionId)
@@ -272,17 +409,19 @@ public sealed class SeaPowerOperationalCatalog
         }
     }
 
-    private void AddResolvedAmmunition(
+    private string AddResolvedAmmunition(
         ISet<string> destination,
         string raw,
         IniDocument unit,
-        int scenarioYear)
+        int scenarioYear,
+        bool include = true)
     {
         var resolved = ResolveAmmunitionId(raw, unit, scenarioYear);
-        if (resolved.Length > 0)
+        if (resolved.Length > 0 && include)
         {
             destination.Add(resolved);
         }
+        return resolved;
     }
 
     private string ResolveAmmunitionId(
@@ -341,6 +480,11 @@ public sealed class SeaPowerOperationalCatalog
         private readonly Dictionary<string, Dictionary<string, string>> _sections =
             new(StringComparer.OrdinalIgnoreCase);
 
+        public static readonly IniDocument None = new();
+
+        public static IniDocument? TryLoad(string path) =>
+            File.Exists(path) ? Load(path) : null;
+
         public static IniDocument Load(string path)
         {
             var result = new IniDocument();
@@ -387,6 +531,10 @@ public sealed class SeaPowerOperationalCatalog
         public int Integer(string section, string key) =>
             int.TryParse(Value(section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
                 ? value : 0;
+
+        public int IntegerOrDefault(string section, string key, int fallback) =>
+            int.TryParse(Value(section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value : fallback;
 
         public double Number(string section, string key) =>
             double.TryParse(Value(section, key), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)

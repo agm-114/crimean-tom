@@ -2301,6 +2301,16 @@ public sealed class CampaignCompanionClient(
                     HeadingDegrees = assignment.HeadingMillidegrees / 1_000d,
                     Telegraph = assignment.Telegraph,
                     FuelFractionMilliunits = assignment.InitialFuelMilliunits,
+                    DamageFractionMilliunits = assignment.InitialDamageMilliunits,
+                    Magazines = assignment.Magazines.Count == 0
+                        ? null
+                        : assignment.Magazines
+                            .Select(magazine => new AmmunitionStoreSnapshotPayload
+                            {
+                                AmmunitionId = magazine.AmmunitionId,
+                                Quantity = magazine.Rounds,
+                            })
+                            .ToArray(),
                     SourceCheckpoint = sourceCheckpoint,
                 }, JsonOptions),
                 cancellationToken);
@@ -2656,6 +2666,10 @@ public sealed class CampaignCompanionClient(
                         unit.IsDestroyed),
                     Destroyed = unit.IsDestroyed,
                     CheckpointSha256 = checkpoint.CheckpointSha256,
+                    Magazines =
+                    {
+                        CampaignMagazineReadback(assignment, unit.Magazines),
+                    },
                 });
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -2911,6 +2925,10 @@ public sealed class CampaignCompanionClient(
                     unit.IsDestroyed),
                 Destroyed = unit.IsDestroyed,
                 CheckpointSha256 = checkpointHash,
+                Magazines =
+                {
+                    CampaignMagazineReadback(assignment, unit.Magazines),
+                },
             },
             new CheckpointPublished
             {
@@ -4104,6 +4122,28 @@ public sealed class CampaignCompanionClient(
 
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
+
+    private static IEnumerable<MagazineStock> CampaignMagazineReadback(
+        TacticalAssignment assignment,
+        AmmunitionStoreSnapshotPayload[]? captured)
+    {
+        if (assignment.Magazines.Count == 0 || captured is null || captured.Length == 0)
+        {
+            yield break;
+        }
+
+        var tracked = assignment.Magazines
+            .Select(magazine => magazine.AmmunitionId)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var magazine in captured.Where(item => tracked.Contains(item.AmmunitionId)))
+        {
+            yield return new MagazineStock
+            {
+                AmmunitionId = magazine.AmmunitionId,
+                Rounds = magazine.Quantity,
+            };
+        }
+    }
 
     private static long ResolveFuelResource(long baseline, long? nativeFractionMilliunits) =>
         Math.Clamp(nativeFractionMilliunits ?? baseline, 0, 1_000_000);

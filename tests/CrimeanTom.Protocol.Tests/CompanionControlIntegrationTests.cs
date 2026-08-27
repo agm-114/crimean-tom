@@ -3082,6 +3082,7 @@ public sealed class CompanionControlIntegrationTests
                 Latitude = 54.1,
                 Longitude = 9.4,
                 HeadingDegrees = 180,
+                DamageFractionMilliunits = 400_000,
             };
             var rollback = new OwnedSurfaceEntityRequestPayload
             {
@@ -3105,6 +3106,10 @@ public sealed class CompanionControlIntegrationTests
                     JsonSerializer.Serialize(materialization, JsonOptions),
                     timeout.Token);
                 Assert.Equal(1, materialized.RootElement.GetProperty("revision").GetInt64());
+                Assert.Equal(
+                    materialization.DamageFractionMilliunits,
+                    materialized.RootElement.GetProperty("realizedUnit")
+                        .GetProperty("damageFractionMilliunits").GetInt64());
                 using var active = await GetAuthorizedJsonAsync(
                     client,
                     token,
@@ -7306,6 +7311,8 @@ public sealed class CompanionControlIntegrationTests
                 Longitude = request.Longitude,
                 HeadingDegrees = request.HeadingDegrees,
                 Telegraph = request.Telegraph,
+                FuelFractionMilliunits = request.FuelFractionMilliunits,
+                DamageFractionMilliunits = request.DamageFractionMilliunits,
             },
         };
     }

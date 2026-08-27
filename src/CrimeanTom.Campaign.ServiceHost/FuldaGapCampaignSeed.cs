@@ -315,7 +315,8 @@ internal static partial class FuldaGapCampaignSeed
                 item.LaunchReliabilityMilliUnits,
                 item.KillProbabilityMilliUnits,
                 item.WarheadPower,
-                MechanicsSourceFor(item.OrdnanceType, item.SpeedMetersPerSecond)))
+                MechanicsSourceFor(item.OrdnanceType, item.SpeedMetersPerSecond),
+                checked((int)Math.Clamp(item.MagazineRounds, 0, int.MaxValue))))
             .ToArray() ?? [];
     }
 

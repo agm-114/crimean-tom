@@ -143,6 +143,7 @@ internal static class RuntimeOwnedMutationAdapter
     private const double AltitudeToleranceFeet = 5d;
     private const double SpeedToleranceKnots = 0.001d;
     private const long FuelFractionToleranceMilliunits = 2_000;
+    private const long DamageFractionToleranceMilliunits = 2_000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -1043,6 +1044,9 @@ internal static class RuntimeOwnedMutationAdapter
             Telegraph = sourceUnit?.Telegraph ?? request.Telegraph,
             FuelFractionMilliunits = sourceUnit?.FuelFractionMilliunits
                 ?? request.FuelFractionMilliunits,
+            DamageFractionMilliunits = sourceUnit?.DamageFractionMilliunits
+                ?? request.DamageFractionMilliunits,
+            Magazines = sourceUnit?.Magazines ?? request.Magazines,
         };
         if (request.Context.DryRun)
         {
@@ -1098,6 +1102,8 @@ internal static class RuntimeOwnedMutationAdapter
                 created._velocityInKnots = SpeedForTelegraph(created, request.Telegraph);
                 created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
                 ApplyFuel(created, predicted.FuelFractionMilliunits);
+                ApplyDamage(created, predicted.DamageFractionMilliunits);
+                ApplyMagazines(created, predicted.Magazines);
                 InitializeAirborneState(created, position);
                 Physics.SyncTransforms();
             }
@@ -2276,6 +2282,8 @@ internal static class RuntimeOwnedMutationAdapter
         vessel._velocityInKnots = (float)state.SpeedKnots!.Value;
         vessel._velocityInUnity = vessel._velocityInKnots * 0.0076554087f;
         ApplyFuel(vessel, state.FuelFractionMilliunits);
+        ApplyDamage(vessel, state.DamageFractionMilliunits);
+        ApplyMagazines(vessel, state.Magazines);
         Physics.SyncTransforms();
 
         // getHeightInFeet() applies Sea Power's public domain offset (notably
@@ -2352,6 +2360,88 @@ internal static class RuntimeOwnedMutationAdapter
             helicopter.RangeInKm.Value = range;
             helicopter.ActualRangeInKm.Value = range;
             helicopter.RangeOnMap.Value = range * 1000f * 0.0148809375f;
+        }
+    }
+
+    private static void ApplyDamage(ObjectBase vessel, long? damageFractionMilliunits)
+    {
+        if (damageFractionMilliunits is not long damage)
+        {
+            return;
+        }
+
+        var systems = vessel._obp?._systems;
+        if (systems is null || systems.Count == 0 || vessel._totalDamagePoints <= 0f)
+        {
+            // A unit with no native systems or damage capacity cannot express
+            // campaign damage. Zero campaign damage is still consistent with
+            // that state; nonzero campaign damage cannot be represented.
+            if (damage > 0)
+            {
+                throw new InvalidOperationException(
+                    "The owned unit has no native damage capacity to restore.");
+            }
+            return;
+        }
+
+        // ObjectBase.OnLazyUpdate recomputes _overallDamage every tick as the
+        // summed integrity deficit across _obp._systems: it is not a settable
+        // aggregate. Reduce every system's CurrentIntegrity by the requested
+        // fraction of its own capacity so the native recomputation reproduces
+        // the same aggregate fraction, then set _overallDamage directly so an
+        // immediate readback matches before the next lazy update runs.
+        var fraction = (float)Math.Clamp(damage / 1_000_000d, 0d, 1d);
+        foreach (var system in systems)
+        {
+            if (system is null)
+            {
+                continue;
+            }
+
+            system.CurrentIntegrity = system._maxIntegrity * (1f - fraction);
+        }
+
+        vessel._overallDamage = fraction * vessel._totalDamagePoints;
+    }
+
+    /// <summary>
+    /// Restores per-ammunition rounds on a materialized unit.
+    ///
+    /// Sea Power exposes <c>setAmmunitionAmount</c>, and its own weapon systems
+    /// read the same dictionary when deciding what they may employ, so writing
+    /// it puts the object in the state the campaign handed over. Only
+    /// ammunition the spawned loadout already knows about may be set: an id the
+    /// native unit does not carry has no weapon system behind it, so accepting
+    /// it would create rounds that nothing can fire. That is rejected rather
+    /// than silently dropped, because a rejected handoff is recoverable and a
+    /// silently wrong magazine is not.
+    /// </summary>
+    private static void ApplyMagazines(
+        ObjectBase vessel,
+        AmmunitionStoreSnapshotPayload[]? magazines)
+    {
+        if (magazines is null || magazines.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var magazine in magazines)
+        {
+            if (string.IsNullOrWhiteSpace(magazine.AmmunitionId) || magazine.Quantity < 0)
+            {
+                throw new InvalidOperationException(
+                    "A requested magazine is missing an ammunition id or holds a negative count.");
+            }
+            if (!vessel.AmmunitionAmountDictionary.ContainsKey(magazine.AmmunitionId))
+            {
+                throw new InvalidOperationException(
+                    $"The owned unit carries no native magazine for '{magazine.AmmunitionId}'.");
+            }
+        }
+
+        foreach (var magazine in magazines)
+        {
+            vessel.setAmmunitionAmount(magazine.AmmunitionId, magazine.Quantity);
         }
     }
 
@@ -2540,6 +2630,7 @@ internal static class RuntimeOwnedMutationAdapter
             || !double.IsFinite(request.HeadingDegrees)
             || !ValidAltitude(request.AltitudeFeet)
             || !ValidFraction(request.FuelFractionMilliunits)
+            || !ValidFraction(request.DamageFractionMilliunits)
             || request.Latitude is < -90d or > 90d
             || request.Longitude is < -180d or > 180d)
         {
@@ -2548,6 +2639,21 @@ internal static class RuntimeOwnedMutationAdapter
         if (request.Telegraph is < -1 or > 5)
         {
             return Invalid("telegraph must be between -1 and 5.");
+        }
+        if (request.Magazines is { Length: > 0 } requestedMagazines)
+        {
+            if (requestedMagazines.Any(magazine =>
+                string.IsNullOrWhiteSpace(magazine.AmmunitionId) || magazine.Quantity < 0))
+            {
+                return Invalid("Every magazine must name an ammunition id and hold a non-negative count.");
+            }
+            if (requestedMagazines
+                .Select(magazine => magazine.AmmunitionId)
+                .Distinct(StringComparer.Ordinal)
+                .Count() != requestedMagazines.Length)
+            {
+                return Invalid("Magazines must not repeat an ammunition id.");
+            }
         }
         if (request.WeaponStatus is not null
             && !Enum.TryParse<ObjectBase.WeaponStatus>(
@@ -3329,10 +3435,27 @@ internal static class RuntimeOwnedMutationAdapter
         FuelFractionMilliunits = fuelFraction,
         StoresFractionMilliunits = storesFraction,
         DamageFractionMilliunits = damageFraction,
+        Magazines = CaptureMagazines(vessel),
         IsDisabled = vessel.Disabled,
         IsDestroyed = vessel.IsDestroyed,
         };
     }
+
+    /// <summary>
+    /// Reads Sea Power's per-ammunition counts. This is the state the campaign
+    /// needs to resume the same magazines it handed over; the aggregate stores
+    /// fraction cannot say which magazine was spent.
+    /// </summary>
+    private static AmmunitionStoreSnapshotPayload[] CaptureMagazines(ObjectBase vessel) =>
+        vessel.AmmunitionAmountDictionary
+            .Where(store => !string.IsNullOrWhiteSpace(store.Key))
+            .Select(store => new AmmunitionStoreSnapshotPayload
+            {
+                AmmunitionId = store.Key,
+                Quantity = store.Value,
+            })
+            .OrderBy(store => store.AmmunitionId, StringComparer.Ordinal)
+            .ToArray();
 
     private static long StoreQuantity(ObjectBase vessel) => vessel.AmmunitionAmountDictionary.Values
         .Where(value => value > 0)
@@ -3387,6 +3510,18 @@ internal static class RuntimeOwnedMutationAdapter
                 + $"actual={realized.FuelFractionMilliunits} "
                 + $"tolerance={FuelFractionToleranceMilliunits}");
         }
+        if (realized.DamageFractionMilliunits is not null
+            && !WithinOptionalMilliunits(
+                realized.DamageFractionMilliunits,
+                request.DamageFractionMilliunits,
+                DamageFractionToleranceMilliunits))
+        {
+            mismatches.Add(
+                $"damage-milliunits expected={request.DamageFractionMilliunits} "
+                + $"actual={realized.DamageFractionMilliunits} "
+                + $"tolerance={DamageFractionToleranceMilliunits}");
+        }
+        MagazineMismatches(mismatches, request.Magazines, realized.Magazines);
         if (realized.IsDestroyed)
         {
             mismatches.Add("destroyed=true");
@@ -3486,6 +3621,18 @@ internal static class RuntimeOwnedMutationAdapter
                 + $"actual={realized.FuelFractionMilliunits} "
                 + $"tolerance={FuelFractionToleranceMilliunits}");
         }
+        if (realized.DamageFractionMilliunits is not null
+            && !WithinOptionalMilliunits(
+                realized.DamageFractionMilliunits,
+                expected.DamageFractionMilliunits,
+                DamageFractionToleranceMilliunits))
+        {
+            mismatches.Add(
+                $"damage-milliunits expected={expected.DamageFractionMilliunits} "
+                + $"actual={realized.DamageFractionMilliunits} "
+                + $"tolerance={DamageFractionToleranceMilliunits}");
+        }
+        MagazineMismatches(mismatches, expected.Magazines, realized.Magazines);
         if (realized.IsDestroyed)
         {
             mismatches.Add("destroyed=true");
@@ -3565,10 +3712,45 @@ internal static class RuntimeOwnedMutationAdapter
             JsonOptions) ?? throw new InvalidOperationException(
                 "Could not clone committed resource release result.");
 
+    /// <summary>
+    /// Compares requested and realized magazines. Rounds are whole counts, not
+    /// a measured quantity, so this is an exact comparison with no tolerance:
+    /// a unit that came back with one fewer missile than it was given has a
+    /// real discrepancy, not a rounding difference. Only requested ammunition
+    /// is checked, so a native magazine the campaign does not yet track is not
+    /// treated as a mismatch.
+    /// </summary>
+    private static void MagazineMismatches(
+        List<string> mismatches,
+        AmmunitionStoreSnapshotPayload[]? expected,
+        AmmunitionStoreSnapshotPayload[]? realized)
+    {
+        if (expected is null || expected.Length == 0)
+        {
+            return;
+        }
+
+        var actual = (realized ?? [])
+            .GroupBy(store => store.AmmunitionId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(store => store.Quantity), StringComparer.Ordinal);
+        foreach (var magazine in expected.OrderBy(store => store.AmmunitionId, StringComparer.Ordinal))
+        {
+            if (!actual.TryGetValue(magazine.AmmunitionId, out var rounds))
+            {
+                mismatches.Add($"magazine-missing ammunition={magazine.AmmunitionId}");
+                continue;
+            }
+            if (rounds != magazine.Quantity)
+            {
+                mismatches.Add(
+                    $"magazine-rounds ammunition={magazine.AmmunitionId} "
+                    + $"expected={magazine.Quantity} actual={rounds}");
+            }
+        }
+    }
+
     private static string[] UnsupportedFields() =>
     [
-        "damage-state-application",
-        "magazine-state-application",
         "sensor-state-application",
         "formation-state-application",
         "hosted-aircraft-application",

@@ -75,9 +75,11 @@ public static class CampaignCanonicalSerializer
                     weapon.LaunchReliabilityMilliUnits,
                     weapon.KillProbabilityMilliUnits,
                     weapon.WarheadPower,
-                    ParseEnum<WeaponMechanicsSource>(weapon.MechanicsSource))).ToImmutableArray(),
+                    ParseEnum<WeaponMechanicsSource>(weapon.MechanicsSource),
+                    weapon.MagazineCapacityRounds)).ToImmutableArray(),
                 new EntityRevision(item.Revision),
                 ReadAnalogue(item),
+                ReadMagazines(item.Magazines),
                 item.HostEntityId is null
                     ? null
                     : ParseId(item.HostEntityId, value => new EntityId(value))))
@@ -336,6 +338,16 @@ public static class CampaignCanonicalSerializer
                 writer.WriteNumber("killProbabilityMilliUnits", weapon.KillProbabilityMilliUnits);
                 writer.WriteNumber("warheadPower", weapon.WarheadPower);
                 writer.WriteNumber("mechanicsSource", (int)weapon.MechanicsSource);
+                writer.WriteNumber("magazineCapacityRounds", weapon.MagazineCapacityRounds);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("magazines");
+            foreach (var magazine in item.Magazines)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("ammunitionId", magazine.Key);
+                writer.WriteNumber("rounds", magazine.Value);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -732,6 +744,20 @@ public static class CampaignCanonicalSerializer
             ? (T)Enum.ToObject(typeof(T), value)
             : throw new JsonException($"{typeof(T).Name} value {value} is invalid.");
 
+    private static ImmutableSortedDictionary<string, int> ReadMagazines(MagazineDocument[] magazines)
+    {
+        try
+        {
+            return magazines
+                .Select(item => new KeyValuePair<string, int>(item.AmmunitionId, item.Rounds))
+                .ToImmutableSortedDictionary(StringComparer.Ordinal);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new JsonException("Canonical magazines contain duplicate ammunition.", exception);
+        }
+    }
+
     private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> ReadResources(ResourceDocument[] resources)
     {
         try
@@ -818,6 +844,7 @@ public static class CampaignCanonicalSerializer
         public required int DamageMilliUnits { get; init; }
         public required string ClassifiedTruthTag { get; init; }
         public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
+        public MagazineDocument[] Magazines { get; init; } = [];
         public int AltitudeOrDepthMeters { get; init; }
         public int FireMilliUnits { get; init; }
         public int FloodMilliUnits { get; init; }
@@ -855,6 +882,13 @@ public static class CampaignCanonicalSerializer
         public int KillProbabilityMilliUnits { get; init; } = 1_000;
         public int WarheadPower { get; init; }
         public int MechanicsSource { get; init; }
+        public int MagazineCapacityRounds { get; init; }
+    }
+
+    private sealed class MagazineDocument
+    {
+        public required string AmmunitionId { get; init; }
+        public required int Rounds { get; init; }
     }
 
     private sealed class GroupDocument
