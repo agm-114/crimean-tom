@@ -273,6 +273,7 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public double? AltitudeFeet { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
+    public long? FuelFractionMilliunits { get; set; }
     public OwnedSurfaceCheckpointPayload? SourceCheckpoint { get; set; }
     public string FaultInjectionStep { get; set; } = string.Empty;
     public string FaultInjectionConfirmation { get; set; } = string.Empty;

@@ -1023,6 +1023,8 @@ internal static class RuntimeOwnedMutationAdapter
             HeadingDegrees = sourceUnit?.HeadingDegrees ?? NormalizeHeading(request.HeadingDegrees),
             SpeedKnots = sourceUnit?.SpeedKnots,
             Telegraph = sourceUnit?.Telegraph ?? request.Telegraph,
+            FuelFractionMilliunits = sourceUnit?.FuelFractionMilliunits
+                ?? request.FuelFractionMilliunits,
         };
         if (request.Context.DryRun)
         {
@@ -1077,12 +1079,14 @@ internal static class RuntimeOwnedMutationAdapter
                 ApplyTelegraph(created, request.Telegraph);
                 created._velocityInKnots = SpeedForTelegraph(created, request.Telegraph);
                 created._velocityInUnity = created._velocityInKnots * 0.0076554087f;
+                ApplyFuel(created, predicted.FuelFractionMilliunits);
                 InitializeAirborneState(created, position);
                 Physics.SyncTransforms();
             }
             else
             {
                 ApplyPortableState(created, sourceUnit);
+                InitializeAirborneState(created, created._geoPosition);
             }
             InjectFailure(request.FaultInjectionStep, "after-state-apply");
 
@@ -1792,6 +1796,10 @@ internal static class RuntimeOwnedMutationAdapter
             }
 
             ApplyPortableState(vessel!, checkpoint.Unit);
+            if (reconstructed)
+            {
+                InitializeAirborneState(vessel!, vessel!._geoPosition);
+            }
             InjectFailure(request.FaultInjectionStep, "after-state-apply");
             if (vessel!.Disabled)
             {
@@ -2292,7 +2300,26 @@ internal static class RuntimeOwnedMutationAdapter
                 "The owned unit has no native fuel capacity to restore.");
         }
 
-        parameters._currentFuelMass = (float)(fuel / 1_000_000d * parameters._maxFuel);
+        var fraction = (float)(fuel / 1_000_000d);
+        parameters._currentFuelMass = fraction * parameters._maxFuel;
+
+        // Aircraft and helicopters derive current fuel mass from RangeInKm on
+        // their native update path. Restore both halves of that relationship so
+        // the first paused checkpoint and subsequent native frames agree.
+        if (vessel is Aircraft aircraft)
+        {
+            var range = fraction * parameters._maxRangeInKm;
+            aircraft.RangeInKm.Value = range;
+            aircraft.ActualRangeInKm.Value = range;
+            aircraft.RangeOnMap.Value = range * 1000f * 0.0148809375f;
+        }
+        else if (vessel is Helicopter helicopter)
+        {
+            var range = fraction * parameters._maxRangeInKm;
+            helicopter.RangeInKm.Value = range;
+            helicopter.ActualRangeInKm.Value = range;
+            helicopter.RangeOnMap.Value = range * 1000f * 0.0148809375f;
+        }
     }
 
     private static string? ValidateSourceCheckpoint(
@@ -2479,6 +2506,7 @@ internal static class RuntimeOwnedMutationAdapter
             || !double.IsFinite(request.Longitude)
             || !double.IsFinite(request.HeadingDegrees)
             || !ValidAltitude(request.AltitudeFeet)
+            || !ValidFraction(request.FuelFractionMilliunits)
             || request.Latitude is < -90d or > 90d
             || request.Longitude is < -180d or > 180d)
         {
@@ -2910,10 +2938,35 @@ internal static class RuntimeOwnedMutationAdapter
         if (unit is Aircraft aircraft)
         {
             aircraft.giveControl(aircraft._velocityInKnots, resetAltitude: false);
+            aircraft.SetFlightPhysicsModel(isStartingAirborne: true);
+            SeedNativeAirborneCourse(aircraft, position);
         }
         else if (unit is Helicopter helicopter)
         {
-            helicopter.GiveControl(0f);
+            helicopter.GiveControl(helicopter._velocityInKnots);
+            SeedNativeAirborneCourse(helicopter, position);
+        }
+    }
+
+    private static void SeedNativeAirborneCourse(ObjectBase unit, GeoPosition position)
+    {
+        // Sea Power's fixed-wing controller treats an airborne aircraft with no
+        // waypoint as though its current position were a destination. The turn-radius
+        // guard then chooses an arbitrary turn circle. Runtime-created aircraft need
+        // an initial native course just as authored aircraft need their scenario
+        // waypoint. Player or AI orders replace this transient command normally.
+        const float initialCourseDistanceNauticalMiles = 100f;
+        var course = position.GeoOffsetByDistanceOnHeading(
+            initialCourseDistanceNauticalMiles,
+            (float)NormalizeHeading(unit.transform.eulerAngles.y));
+        unit.CommandPosition = course;
+
+        if (unit is Aircraft aircraft && aircraft.Motioncontroller is { } controller)
+        {
+            controller.CommandPosition = Utils.longLatToLocalV3(
+                course,
+                Globals._currentCenterTile);
+            controller.CommandAltitude = aircraft.DesiredAltitude.Value;
         }
     }
 
@@ -3144,6 +3197,16 @@ internal static class RuntimeOwnedMutationAdapter
         {
             mismatches.Add($"telegraph expected={request.Telegraph} actual={realized.Telegraph}");
         }
+        if (!WithinOptionalMilliunits(
+                realized.FuelFractionMilliunits,
+                request.FuelFractionMilliunits,
+                FuelFractionToleranceMilliunits))
+        {
+            mismatches.Add(
+                $"fuel-milliunits expected={request.FuelFractionMilliunits} "
+                + $"actual={realized.FuelFractionMilliunits} "
+                + $"tolerance={FuelFractionToleranceMilliunits}");
+        }
         if (realized.IsDestroyed)
         {
             mismatches.Add("destroyed=true");
@@ -3324,7 +3387,6 @@ internal static class RuntimeOwnedMutationAdapter
     private static string[] UnsupportedFields() =>
     [
         "damage-state-application",
-        "fuel-state-application",
         "magazine-state-application",
         "sensor-state-application",
         "formation-state-application",

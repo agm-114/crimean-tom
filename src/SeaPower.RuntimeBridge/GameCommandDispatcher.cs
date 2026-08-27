@@ -2042,6 +2042,16 @@ internal static partial class GameCommandDispatcher
 
         {
             var nativeRenderPosition = Singleton<RenderPosition>.Instance;
+            // Campaign selection initially follows a lightweight proxy through
+            // RenderPosition.switchToPivot(). Sea Power's switchToObject() does
+            // not clear that pivot attachment, so the native unit can become the
+            // selected object while the camera continues following the proxy's
+            // geodetic position. Detach first so the normal native follow path
+            // tracks the realized unit transform exactly.
+            if (nativeRenderPosition.isAttachedToPivot())
+            {
+                nativeRenderPosition.detachFromPivot();
+            }
             nativeRenderPosition.switchToObject(
                 target,
                 performSmoothMove: false,

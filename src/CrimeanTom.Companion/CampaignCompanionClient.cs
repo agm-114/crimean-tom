@@ -2301,6 +2301,7 @@ public sealed class CampaignCompanionClient(
                     AltitudeFeet = assignment.AltitudeFeet,
                     HeadingDegrees = assignment.HeadingMillidegrees / 1_000d,
                     Telegraph = assignment.Telegraph,
+                    FuelFractionMilliunits = assignment.InitialFuelMilliunits,
                     SourceCheckpoint = sourceCheckpoint,
                 }, JsonOptions),
                 cancellationToken);
