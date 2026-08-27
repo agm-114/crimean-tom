@@ -79,7 +79,8 @@ public static class CampaignCanonicalSerializer
                     weapon.MagazineCapacityRounds,
                     weapon.ReloadSeconds,
                     weapon.SalvoRounds,
-                    weapon.MountCount)).ToImmutableArray(),
+                    weapon.MountCount,
+                    weapon.GuidanceChannels)).ToImmutableArray(),
                 new EntityRevision(item.Revision),
                 ReadAnalogue(item),
                 ReadMagazines(item.Magazines),
@@ -346,6 +347,7 @@ public static class CampaignCanonicalSerializer
                 writer.WriteNumber("reloadSeconds", weapon.ReloadSeconds);
                 writer.WriteNumber("salvoRounds", weapon.SalvoRounds);
                 writer.WriteNumber("mountCount", weapon.MountCount);
+                writer.WriteNumber("guidanceChannels", weapon.GuidanceChannels);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -917,6 +919,7 @@ public static class CampaignCanonicalSerializer
         public int ReloadSeconds { get; init; }
         public int SalvoRounds { get; init; }
         public int MountCount { get; init; }
+        public int GuidanceChannels { get; init; }
     }
 
     private sealed class WeaponReadyDocument

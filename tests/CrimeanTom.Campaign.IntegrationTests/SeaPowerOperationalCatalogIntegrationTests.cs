@@ -102,6 +102,7 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
                 SystemName=BoxLauncher
                 NumberOfContainers=1
                 Ammunition=test_sam
+                AssociatedSensors=SensorSystem1
 
                 [WeaponSystem2]
                 Type=Torpedo
@@ -124,6 +125,13 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
                 SystemName=TwinArm
                 NumberOfContainers=2
                 Ammunition=test_ssm
+                AssociatedSensors=SensorSystem1,SensorSystem2
+
+                [SensorSystem1]
+                SystemName=Illuminator
+
+                [SensorSystem2]
+                SystemName=SearchRadar
 
                 [TorpedoMagazine]
                 NumberOfAmmunitionTypes=1
@@ -146,6 +154,15 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
                 [DeckGun]
                 ReloadTime=60
                 FireRate=120
+                """);
+            File.WriteAllText(Path.Combine(root, "systems", "sensors.ini"), """
+                [Illuminator]
+                TargetChannels=1
+                WeaponChannels=2       // missiles guided simultaneously
+
+                [SearchRadar]
+                TargetChannels=6
+                WeaponChannels=1
                 """);
 
             // One bare station, and one station naming an attachment group that
@@ -222,6 +239,13 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
             Assert.Equal(2, cadence["test_shell"].SalvoRounds);
             // The unit's own section overrides the shared system definition.
             Assert.Equal(45, cadence["test_shell"].ReloadSeconds);
+
+            // Guidance capacity comes from the mount's own fire-control
+            // sensors, summed across them, not from the launcher or missile.
+            Assert.Equal(2, cadence["test_sam"].GuidanceChannels);
+            Assert.Equal(3, cadence["test_ssm"].GuidanceChannels);
+            // A mount with no associated fire-control sensor declares none.
+            Assert.Equal(0, cadence["test_torpedo"].GuidanceChannels);
         }
         finally
         {
