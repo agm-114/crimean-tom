@@ -279,6 +279,14 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
     public long? FuelFractionMilliunits { get; set; }
+    public long? DamageFractionMilliunits { get; set; }
+
+    /// <summary>
+    /// Rounds per ammunition id the campaign expects this unit to enter with.
+    /// Absent means "leave the native loadout as spawned".
+    /// </summary>
+    public AmmunitionStoreSnapshotPayload[]? Magazines { get; set; }
+
     public string? WeaponStatus { get; set; }
     public string? MissionType { get; set; }
     public bool? RadarsActive { get; set; }
@@ -309,6 +317,15 @@ public sealed class OwnedSurfaceUnitStatePayload
     public long? FuelFractionMilliunits { get; set; }
     public long? StoresFractionMilliunits { get; set; }
     public long? DamageFractionMilliunits { get; set; }
+
+    /// <summary>
+    /// Rounds per ammunition id, mirroring Sea Power's own per-ammunition
+    /// counts. The aggregate stores fraction cannot express which magazine is
+    /// empty, so it cannot carry a partly expended loadout across the handoff
+    /// boundary without loss.
+    /// </summary>
+    public AmmunitionStoreSnapshotPayload[]? Magazines { get; set; }
+
     public bool IsDisabled { get; set; }
     public bool IsDestroyed { get; set; }
 }

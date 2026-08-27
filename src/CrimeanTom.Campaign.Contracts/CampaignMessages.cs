@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 12;
-    public const int AlgorithmVersion = 22;
+    public const int Version = 13;
+    public const int AlgorithmVersion = 23;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -133,7 +133,15 @@ public sealed record OperationalWeaponCapability(
     int LaunchReliabilityMilliUnits = 1_000,
     int KillProbabilityMilliUnits = 1_000,
     int WarheadPower = 0,
-    WeaponMechanicsSource MechanicsSource = WeaponMechanicsSource.Approximation);
+    WeaponMechanicsSource MechanicsSource = WeaponMechanicsSource.Approximation,
+    /// <summary>
+    /// Rounds of this ammunition a full native magazine holds, taken from Sea
+    /// Power's own loadout rule. Zero means the game declares no countable
+    /// magazine for this ammunition on this platform, such as a gun mount with
+    /// no associated magazine, and the weapon is therefore not round-limited by
+    /// the server. It does not mean the platform starts empty.
+    /// </summary>
+    int MagazineCapacityRounds = 0);
 
 public enum WeaponMechanicsSource
 {
@@ -486,6 +494,7 @@ public sealed record ApplyTacticalStateCommand(
     int HeadingMilliDegrees,
     int Telegraph,
     IReadOnlyDictionary<ResourceKind, ResourceAmount> Resources,
+    IReadOnlyDictionary<string, int> Magazines,
     int DamageMilliUnits,
     EntityLifecycle Lifecycle)
     : CampaignCommandData;

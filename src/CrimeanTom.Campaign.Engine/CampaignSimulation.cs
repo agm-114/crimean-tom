@@ -30,6 +30,15 @@ internal static class CampaignSimulation
         TacticalAuthorityIndexes = new();
     private const long ActivityInterval = 10;
     private const long RepairPerActivity = 50_000;
+
+    /// <summary>
+    /// Exchange rate between the campaign's aggregate munitions stock and one
+    /// magazine round, plus how many rounds one rearming activity can move.
+    /// These bound how fast a base can rearm a unit; they do not affect how
+    /// many rounds a magazine holds, which comes from the game catalog.
+    /// </summary>
+    private const long MunitionMilliUnitsPerRound = 1_000;
+    private const long RearmRoundsPerActivity = 200;
     private const long MeanEarthRadiusMeters = 6_371_000;
     private const long VisualContactMeters = 20_000;
     private const long StandoffMeters = 8_000;
@@ -554,6 +563,7 @@ internal static class CampaignSimulation
                 continue;
             }
             var resources = entity.Resources;
+            var magazines = entity.Magazines;
             var damage = entity.DamageMilliUnits;
             var lifecycle = entity.Lifecycle;
             var analogue = entity.Analogue;
@@ -566,6 +576,31 @@ internal static class CampaignSimulation
             {
                 home = found;
                 (resources, home, baseChanged) = Replenish(resources, home);
+
+                // Rearming moves real rounds from the base into named
+                // magazines. A ship alongside gets its missiles back one
+                // magazine at a time and only while the base still holds
+                // munitions, rather than having a fungible pool topped up.
+                var munitionsOnHand = Get(home.Resources, ResourceKind.Munitions);
+                var (rearmed, munitionsLeft, rearmChanged) = CampaignMagazines.Replenish(
+                    magazines,
+                    EffectiveWeapons(entity),
+                    Math.Min(munitionsOnHand / MunitionMilliUnitsPerRound, RearmRoundsPerActivity));
+                if (rearmChanged)
+                {
+                    magazines = rearmed;
+                    var spentMilliUnits = checked(
+                        (Math.Min(munitionsOnHand / MunitionMilliUnitsPerRound, RearmRoundsPerActivity)
+                            - munitionsLeft) * MunitionMilliUnitsPerRound);
+                    home = home with
+                    {
+                        Resources = Set(
+                            home.Resources,
+                            ResourceKind.Munitions,
+                            Math.Max(0, munitionsOnHand - spentMilliUnits)),
+                    };
+                    baseChanged = true;
+                }
                 var available = Get(home.Resources, ResourceKind.SpareParts);
                 var repairBudget = Math.Min(available, RepairPerActivity);
                 var hullRepair = Math.Min(repairBudget, damage);
@@ -713,12 +748,14 @@ internal static class CampaignSimulation
                 || lifecycle != entity.Lifecycle
                 || telegraph != entity.Telegraph
                 || analogue != entity.Analogue
-                || !resources.SequenceEqual(entity.Resources);
+                || !resources.SequenceEqual(entity.Resources)
+                || !magazines.SequenceEqual(entity.Magazines);
             if (changed)
             {
                 entities = entities.SetItem(entity.EntityId, entity with
                 {
                     Resources = resources,
+                    Magazines = magazines,
                     DamageMilliUnits = damage,
                     ReadinessMilliUnits = readiness,
                     Lifecycle = lifecycle,
@@ -824,7 +861,11 @@ internal static class CampaignSimulation
 
             var available = Get(actor.Resources, ResourceKind.Munitions);
             var expenditure = Math.Min(available, WeaponExpenditure(bid.Weapon, actor.SimulationDomain));
-            if (expenditure <= 0)
+            var (magazines, rounds) = CampaignMagazines.Expend(
+                actor.Magazines,
+                bid.Weapon.AmmunitionId,
+                RoundsPerEngagement(bid.Weapon));
+            if (expenditure <= 0 || rounds <= 0)
             {
                 claimedActors.Remove(actor.EntityId);
                 claimedTargets.Remove(target.EntityId);
@@ -834,6 +875,7 @@ internal static class CampaignSimulation
             var interceptHeading = HeadingToward(actor.Coordinate, bid.TargetingCoordinate, actor.Heading);
             actor = actor with
             {
+                Magazines = magazines,
                 Resources = Set(actor.Resources, ResourceKind.Munitions, available - expenditure),
                 Heading = interceptHeading,
                 Telegraph = TelegraphIntercept,
@@ -848,7 +890,8 @@ internal static class CampaignSimulation
             outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.WeaponExpenditure, actor.RegionId,
                 actor.EntityId, target.EntityId, expenditure, 0,
                 $"{bid.Weapon.AmmunitionId} employment at {bid.ActualDistanceMeters} m "
-                + $"(catalog max {bid.Weapon.MaximumRange.Value} m)"));
+                + $"(catalog max {bid.Weapon.MaximumRange.Value} m)"
+                + MagazineDetail(actor, bid.Weapon.AmmunitionId, rounds)));
 
             if (!IsBallisticGun(bid.Weapon))
             {
@@ -1163,6 +1206,12 @@ internal static class CampaignSimulation
         var entities = state.Entities;
         var remaining = new List<InFlightOrdnance>();
         var outcomes = priorOutcomes.ToList();
+
+        // Every round resolved inside one call shares this tick. Track how many
+        // point-defense engagements each defender has already committed to so a
+        // saturating raid cannot draw an independent, uncapped probability roll
+        // per inbound round from the same finite set of fire-control channels.
+        var pointDefenseEngagementsThisTick = new Dictionary<EntityId, int>();
         foreach (var round in state.InFlight.OrderBy(item => item.OrdnanceId, StringComparer.Ordinal))
         {
             if (!entities.TryGetValue(round.TargetEntityId, out var target)
@@ -1300,13 +1349,45 @@ internal static class CampaignSimulation
                 round.TargetClassification,
                 DistanceMeters.FromMeters(Math.Max(1, ActiveSeekerRangeMeters(round, null))));
             var pd = PointDefensePenalty(target, distance);
+            // Point defense now shoots a specific interceptor. A defender whose
+            // close-in magazines are spent cannot keep engaging even though its
+            // aggregate munitions pool is not empty.
+            var pointDefenseWeapon = pd > 0 ? PointDefenseWeapon(target) : null;
+            if (pointDefenseWeapon is null)
+            {
+                pd = 0;
+            }
+            if (pd > 0)
+            {
+                var committedChannels = pointDefenseEngagementsThisTick.GetValueOrDefault(target.EntityId);
+                if (committedChannels >= PointDefenseChannelCapacity(target))
+                {
+                    // Every fire-control channel this defender can bring to bear is
+                    // already committed to another inbound round this tick. Sea
+                    // Power's point defense is not an unlimited simultaneous-shot
+                    // probability roll; a saturated defender cannot attempt a third
+                    // or fourth intercept in the same instant. Let this round
+                    // through undefended rather than rolling for a channel that
+                    // does not exist.
+                    pd = 0;
+                }
+                else
+                {
+                    pointDefenseEngagementsThisTick[target.EntityId] = committedChannels + 1;
+                }
+            }
             if (pd > 0)
             {
                 const long pointDefenseExpenditure = 8_000;
                 var available = Get(target.Resources, ResourceKind.Munitions);
                 var expenditure = Math.Min(available, pointDefenseExpenditure);
+                var (defenderMagazines, interceptors) = CampaignMagazines.Expend(
+                    target.Magazines,
+                    pointDefenseWeapon!.AmmunitionId,
+                    RoundsPerEngagement(pointDefenseWeapon));
                 target = target with
                 {
+                    Magazines = defenderMagazines,
                     Resources = Set(target.Resources, ResourceKind.Munitions, available - expenditure),
                     Revision = target.Revision.Next(),
                 };
@@ -1316,7 +1397,8 @@ internal static class CampaignSimulation
                 {
                     outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.PointDefense, target.RegionId,
                         target.EntityId, round.ShooterEntityId, expenditure, 0,
-                        $"Point defense defeated analogue round {round.OrdnanceId}"));
+                        $"Point defense defeated analogue round {round.OrdnanceId}"
+                        + MagazineDetail(target, pointDefenseWeapon.AmmunitionId, interceptors)));
                     continue;
                 }
             }
@@ -1624,7 +1706,10 @@ internal static class CampaignSimulation
         && entity.Analogue.MagazineIntegrityMilliUnits >= 80
         && entity.Analogue.WeaponReadyMilliUnits >= 400
         && EffectiveWeapons(entity).Length > 0
-        && Get(entity.Resources, ResourceKind.Munitions) > 0;
+        && Get(entity.Resources, ResourceKind.Munitions) > 0
+        // A platform whose every counted magazine is spent is out of the fight
+        // even while the aggregate sustainment pool still shows stock.
+        && CampaignMagazines.HasAnyRounds(entity, EffectiveWeapons(entity));
 
     private static ImmutableArray<OperationalWeaponCapability> EffectiveWeapons(EntityState entity)
     {
@@ -1679,6 +1764,11 @@ internal static class CampaignSimulation
         var targetingDistanceMeters = RoundedGreatCircleDistanceMeters(actor.Coordinate, targetingCoordinate);
         var weapon = EffectiveWeapons(actor)
             .Where(item => OperationalWeaponTargets(item.TargetClassification, classification))
+            // An exhausted magazine removes that weapon from selection the way
+            // it does natively. A ship that has fired its last anti-ship
+            // missile must fall back to a weapon it still has rounds for
+            // instead of continuing to employ one it no longer carries.
+            .Where(item => CampaignMagazines.HasRounds(actor, item.AmmunitionId))
             .Where(item => actualDistanceMeters >= item.MinimumRange.Value)
             .Where(item => actualDistanceMeters <= item.MaximumRange.Value)
             .Where(item => targetingDistanceMeters >= item.MinimumRange.Value)
@@ -1805,6 +1895,45 @@ internal static class CampaignSimulation
         return 30_000;
     }
 
+    /// <summary>
+    /// Rounds one engagement removes from the named magazine.
+    ///
+    /// A guided round is one round, matching Sea Power, where a launch consumes
+    /// exactly the weapon that flies. Gun and other ballistic engagements fire
+    /// a burst; the server does not yet model per-mount fire rate, salvo size,
+    /// or time on target, so it uses one declared burst size. That burst size
+    /// is an approximation and remains an open item in the parity backlog. The
+    /// magazine capacity it draws down is not an approximation.
+    /// </summary>
+    private const int BallisticBurstRounds = 4;
+
+    private static int RoundsPerEngagement(OperationalWeaponCapability weapon) =>
+        IsBallisticGun(weapon) ? BallisticBurstRounds : 1;
+
+    /// <summary>
+    /// The interceptor a defender would actually use against a close-in threat:
+    /// the shortest-ranged air-capable weapon that still has rounds. Returns
+    /// null when every candidate magazine is spent, which stops point defense
+    /// rather than letting it fire ammunition the platform no longer has.
+    /// </summary>
+    private static OperationalWeaponCapability? PointDefenseWeapon(EntityState target) =>
+        EffectiveWeapons(target)
+            .Where(item => item.MaximumRange.Value <= 40_000)
+            .Where(item => CampaignMagazines.HasRounds(target, item.AmmunitionId))
+            .OrderBy(item => item.MaximumRange.Value)
+            .ThenBy(item => item.AmmunitionId, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Appends the rounds spent and left for one magazine so a parity run can
+    /// compare server expenditure with Sea Power's ammunition dictionary.
+    /// Weapons with no counted magazine report nothing.
+    /// </summary>
+    private static string MagazineDetail(EntityState entity, string ammunitionId, int expendedRounds) =>
+        CampaignMagazines.Remaining(entity, ammunitionId) is { } remaining
+            ? $"; {expendedRounds} round(s) expended, {remaining} left"
+            : string.Empty;
+
     private static bool ContainsToken(string value, string token) =>
         value.Contains(token, StringComparison.OrdinalIgnoreCase);
 
@@ -1823,13 +1952,23 @@ internal static class CampaignSimulation
         members.Max(item => item.DamageMilliUnits) >= 600_000
         || members.Any(item => IsAirborne(item)
             && Get(item.Resources, ResourceKind.Fuel) < 150_000)
-        || members.Any(item => IsAirborne(item)
-            && EffectiveWeapons(item).Length > 0
-            && Get(item.Resources, ResourceKind.Munitions) == 0)
+        || members.Any(IsWinchester)
         || members.Any(item => Classify(item) == ContactClassification.Subsurface
             && item.DamageMilliUnits >= 250_000)
         || members.Any(item => Get(item.Resources, ResourceKind.Fuel) < 80_000
             && item.SimulationDomain != SimulationDomain.Logistics);
+
+    /// <summary>
+    /// An armed aircraft that has nothing left to shoot with. Either the
+    /// aggregate munitions pool is empty or every counted magazine it carries
+    /// is spent, so a strike aircraft that has dropped its last bomb goes home
+    /// even while the pool suggests otherwise.
+    /// </summary>
+    private static bool IsWinchester(EntityState item) =>
+        IsAirborne(item)
+        && EffectiveWeapons(item).Length > 0
+        && (Get(item.Resources, ResourceKind.Munitions) == 0
+            || !CampaignMagazines.HasAnyRounds(item, EffectiveWeapons(item)));
 
     private static string WithdrawalReason(IReadOnlyList<EntityState> members)
     {
@@ -1838,9 +1977,7 @@ internal static class CampaignSimulation
         {
             return "Bingo fuel; task force ordered to withdraw";
         }
-        if (members.Any(item => IsAirborne(item)
-            && EffectiveWeapons(item).Length > 0
-            && Get(item.Resources, ResourceKind.Munitions) == 0))
+        if (members.Any(IsWinchester))
         {
             return "Winchester; task force ordered to withdraw";
         }
@@ -2153,8 +2290,25 @@ internal static class CampaignSimulation
             return 0;
         }
 
-        return EffectiveWeapons(target).Any(item => item.MaximumRange.Value <= 40_000) ? 140 : 0;
+        return PointDefenseWeapon(target) is not null ? 140 : 0;
     }
+
+    /// <summary>
+    /// Coarse fire-control channel count for simultaneous point-defense
+    /// engagements: one channel per distinct close-in weapon or short-range
+    /// SAM system the defender's catalog loadout advertises, bounded to a
+    /// plausible mount count. This is not a per-mount reaction-time or
+    /// doctrine model; it only prevents an unlimited number of independent
+    /// intercept rolls against one defender in a single tick.
+    /// </summary>
+    private static int PointDefenseChannelCapacity(EntityState target) => Math.Clamp(
+        EffectiveWeapons(target)
+            .Where(item => item.MaximumRange.Value <= 40_000)
+            .Select(item => item.AmmunitionId)
+            .Distinct(StringComparer.Ordinal)
+            .Count(),
+        1,
+        4);
 
     private static long RoundedGreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
     {

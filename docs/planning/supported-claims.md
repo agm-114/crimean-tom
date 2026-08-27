@@ -78,6 +78,45 @@ The target and gap inventory are in
   Power has no fuel reading. This prevents partial aircraft fuel from being
   multiplied by its handoff value a second time. A partial-fuel live Sea Power
   run remains open.
+- Owned surface, submarine, and airborne materialization now restores the
+  campaign's tracked aggregate damage fraction natively instead of always
+  entering Sea Power undamaged. Sea Power recomputes its own aggregate damage
+  every tick from each system's remaining integrity rather than exposing a
+  settable total, so the bridge distributes the requested fraction across
+  every native system and keeps the derived total consistent for an immediate
+  readback. A live run materialized a Knox at a requested 40% damage fraction;
+  Sea Power's own recomputed damage fraction read back 0.4 both immediately
+  and after further unpaused native ticks, and the object remained under
+  native control rather than destroyed or disabled. Hit location, warhead
+  effects, flooding, fire, and component-specific failure remain unsupported;
+  this closes only the aggregate-damage handoff gap.
+- The campaign tracks ammunition as rounds in named magazines rather than one
+  fungible munitions pool. Capacities come from Sea Power's own loadout rule,
+  reimplemented from `SimpleObjectParameters.ReadAmmoFromWeaponSystem` and
+  `ReadAmmoFromHardpointSystem`: a magazine contributes its declared
+  `Ammunition{n}_Count`, a magazine shared by several mounts is counted once, a
+  launcher without a magazine contributes `NumberOfContainers` multiplied by its
+  system's `NumberOfAttachments` from `systems/weapons.ini`, a hardpoint station
+  contributes one round or one per named attachment position, and a gun or CIWS
+  mount without a magazine contributes nothing. Read against the installed
+  build, a Knox reports 18 ASROC, 22 MK46, 8 RIM-7, and 600 127 mm rounds, a
+  Ticonderoga reports 68 RIM-66C and 8 Harpoon, and an SH-2F ASW loadout reports
+  2 torpedoes with 11 passive and 4 active sonobuoys. Weapon selection, point
+  defense, and the Winchester withdrawal rule now consume and test those named
+  magazines, so an exhausted anti-ship magazine removes that weapon from
+  selection while a gun with rounds remaining stays usable. This is a verified
+  catalog-derived capacity and consumption rule, not a matched-run parity
+  result. Guns and CIWS mounts that the game's rule leaves uncounted stay
+  unlimited on the server rather than receiving an invented capacity, and the
+  rounds one ballistic engagement consumes remains a declared approximation
+  because per-mount fire rate and salvo size are not modelled.
+- Owned materialization can restore per-ammunition magazines natively through
+  Sea Power's `setAmmunitionAmount`, and checkpoints capture the native
+  `AmmunitionAmountDictionary`, so a partly expended loadout crosses the handoff
+  boundary as exact rounds instead of an aggregate stores fraction. Requests
+  naming ammunition the spawned native unit does not carry are rejected rather
+  than dropped, and realized magazines are verified exactly with no tolerance.
+  A live Sea Power run of this path has not been performed yet.
 - Ordered lifecycle mutations temporarily pause Sea Power and restore its prior
   play state.
 - A checkpointed bridge record that becomes detached after scene loss can fence

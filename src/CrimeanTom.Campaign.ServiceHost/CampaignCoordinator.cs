@@ -1199,6 +1199,7 @@ public sealed class CampaignCoordinator(
                 item.Telegraph,
                 item.Resources.GetValueOrDefault(ResourceKind.Fuel).MilliUnits,
                 item.Resources.GetValueOrDefault(ResourceKind.Stores).MilliUnits,
+                item.Magazines,
                 item.DamageMilliUnits,
                 item.Lifecycle.ToString(),
                 item.Revision.Value,
@@ -4223,6 +4224,7 @@ public sealed class CampaignCoordinator(
         var heading = applyKinematics ? proposal.HeadingMillidegrees : current.Heading.Value;
         var telegraph = applyKinematics ? proposal.Telegraph : current.Telegraph;
         var resources = current.Resources;
+        var magazines = current.Magazines;
         if (proposal.Kind is TacticalEventKind.Resources
             or TacticalEventKind.Checkpoint
             or TacticalEventKind.StateSync)
@@ -4230,6 +4232,31 @@ public sealed class CampaignCoordinator(
             resources = resources
                 .SetItem(ResourceKind.Fuel, ResourceAmount.FromMilliUnits(proposal.FuelMilliunits))
                 .SetItem(ResourceKind.Stores, ResourceAmount.FromMilliUnits(proposal.StoresMilliunits));
+            if (proposal.Magazines.Count > 0)
+            {
+                var reported = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var magazine in proposal.Magazines)
+                {
+                    if (string.IsNullOrWhiteSpace(magazine.AmmunitionId)
+                        || magazine.Rounds < 0
+                        || !reported.TryAdd(magazine.AmmunitionId, magazine.Rounds))
+                    {
+                        throw new CampaignStoreConflict(
+                            "tactical-magazine-invalid",
+                            "Tactical magazine readback contains a blank, negative, or duplicate entry.");
+                    }
+                }
+                if (current.Magazines.Keys.Any(key => !reported.ContainsKey(key)))
+                {
+                    throw new CampaignStoreConflict(
+                        "tactical-magazine-incomplete",
+                        "Tactical magazine readback omitted a campaign-tracked ammunition id.");
+                }
+                magazines = current.Magazines.Keys.ToImmutableSortedDictionary(
+                    key => key,
+                    key => reported[key],
+                    StringComparer.Ordinal);
+            }
         }
         var damage = proposal.Kind is TacticalEventKind.Damage
             or TacticalEventKind.Destroyed
@@ -4244,6 +4271,7 @@ public sealed class CampaignCoordinator(
             || current.Heading.Value != heading
             || current.Telegraph != telegraph
             || !current.Resources.SequenceEqual(resources)
+            || !current.Magazines.SequenceEqual(magazines)
             || current.DamageMilliUnits != damage
             || current.Lifecycle != lifecycle;
         if (stateChanged)
@@ -4260,6 +4288,7 @@ public sealed class CampaignCoordinator(
                     heading,
                     telegraph,
                     resources,
+                    magazines,
                     damage,
                     lifecycle),
                 proposal.Kind == TacticalEventKind.Checkpoint
@@ -5331,6 +5360,17 @@ public sealed class CampaignCoordinator(
         HostEntityId = entity.HostEntityId is { } hostEntityId
             ? $"unit:crimean-tom:{hostEntityId}"
             : string.Empty,
+        // Hand the exact rounds the campaign believes this unit still carries
+        // to Sea Power, so a unit that has already spent part of its loadout
+        // enters the battle with those magazines and not a full reload.
+        Magazines =
+        {
+            entity.Magazines.Select(magazine => new MagazineStock
+            {
+                AmmunitionId = magazine.Key,
+                Rounds = magazine.Value,
+            }),
+        },
     };
 
     private static CrimeanTom.Campaign.Transport.V1.AssignmentRole ToTransportRole(
@@ -5687,6 +5727,7 @@ public sealed record CampaignEntityView(
     int Telegraph,
     long FuelMilliunits,
     long StoresMilliunits,
+    IReadOnlyDictionary<string, int> Magazines,
     int DamageMilliunits,
     string Lifecycle,
     long Revision,

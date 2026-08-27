@@ -170,6 +170,7 @@ public static class CampaignKernel
                 || weapon.LaunchReliabilityMilliUnits is < 0 or > 1_000
                 || weapon.KillProbabilityMilliUnits is < 0 or > 1_000
                 || weapon.WarheadPower < 0
+                || weapon.MagazineCapacityRounds < 0
                 || weapon.MechanicsSource == WeaponMechanicsSource.SeaPowerCatalog
                     && weapon.Kind != OrdnanceKind.Projectile
                     && weapon.SpeedMetersPerSecond <= 0)
@@ -746,11 +747,26 @@ public static class CampaignKernel
         ValidateCoordinate(value.Coordinate);
         ValidateResources(value.Resources);
         _ = HeadingMilliDegrees.FromMilliDegrees(value.HeadingMilliDegrees);
+        var magazineCapacities = entity.OperationalWeapons
+            .Where(weapon => weapon.MagazineCapacityRounds > 0)
+            .GroupBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Max(weapon => weapon.MagazineCapacityRounds),
+                StringComparer.Ordinal);
         if (value.Telegraph is < -1 or > 5
             || value.DamageMilliUnits is < 0 or > 1_000_000
-            || !Enum.IsDefined(value.Lifecycle))
+            || !Enum.IsDefined(value.Lifecycle)
+            || value.Magazines.Count != magazineCapacities.Count
+            || value.Magazines.Any(item =>
+                string.IsNullOrWhiteSpace(item.Key)
+                || item.Value < 0
+                || !magazineCapacities.TryGetValue(item.Key, out var capacity)
+                || item.Value > capacity))
         {
-            throw Violation("invalid-tactical-state", "Tactical heading, telegraph, damage, or lifecycle is invalid.");
+            throw Violation(
+                "invalid-tactical-state",
+                "Tactical heading, telegraph, damage, lifecycle, or magazine state is invalid.");
         }
         return Decision.Create(
             command.Subject,
@@ -782,18 +798,20 @@ public static class CampaignKernel
     private static CampaignState ApplyEntity(CampaignState state, CommittedCampaignEvent item, EntityRegisteredEvent value)
     {
         var data = value.Entity;
+        var weapons = (data.OperationalWeapons ?? [])
+            .OrderBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
+            .ThenBy(weapon => weapon.TargetClassification)
+            .ToImmutableArray();
         var entry = new EntityState(data.EntityId, data.Name, data.CatalogUnitId, data.CatalogLoadoutId,
             data.CoalitionId, data.RegionId,
             data.Coordinate, data.HomeBaseId, data.Lifecycle, data.Fidelity, data.SimulationDomain,
             data.MaximumFidelity, data.Resources.ToImmutableSortedDictionary(),
             HeadingMilliDegrees.FromMilliDegrees(0), Telegraph: 0,
             ReadinessMilliUnits: 1_000, DamageMilliUnits: 0, data.ClassifiedTruthTag,
-            (data.OperationalWeapons ?? [])
-                .OrderBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
-                .ThenBy(weapon => weapon.TargetClassification)
-                .ToImmutableArray(),
+            weapons,
             item.NewSubjectRevision,
             AnalogueTacticalCondition.Healthy,
+            CampaignMagazines.Full(weapons),
             data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
@@ -995,6 +1013,7 @@ public static class CampaignKernel
             Heading = HeadingMilliDegrees.FromMilliDegrees(data.HeadingMilliDegrees),
             Telegraph = data.Telegraph,
             Resources = data.Resources.ToImmutableSortedDictionary(),
+            Magazines = data.Magazines.ToImmutableSortedDictionary(StringComparer.Ordinal),
             DamageMilliUnits = data.DamageMilliUnits,
             ReadinessMilliUnits = Math.Clamp(1_000 - data.DamageMilliUnits / 1_000, 0, 1_000),
             Lifecycle = data.Lifecycle,

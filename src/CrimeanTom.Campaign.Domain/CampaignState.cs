@@ -49,7 +49,19 @@ public sealed record EntityState(
     ImmutableArray<OperationalWeaponCapability> OperationalWeapons,
     EntityRevision Revision,
     AnalogueTacticalCondition Analogue,
-    EntityId? HostEntityId = null);
+    /// <summary>
+    /// Rounds remaining per Sea Power ammunition id, matching the native
+    /// <c>AmmunitionAmountDictionary</c>. A missing key means the catalog
+    /// declares no countable magazine for that ammunition, so the server does
+    /// not round-limit it; a present key holding zero means a spent magazine
+    /// and blocks further employment of that ammunition.
+    /// </summary>
+    ImmutableSortedDictionary<string, int> Magazines,
+    EntityId? HostEntityId = null)
+{
+    public static readonly ImmutableSortedDictionary<string, int> NoMagazines =
+        ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal);
+}
 
 public sealed record GroupState(
     GroupId GroupId,

@@ -13,6 +13,98 @@ namespace CrimeanTom.Campaign.IntegrationTests;
 public sealed class DeterministicCampaignKernelIntegrationTests
 {
     [Fact]
+    public void Tactical_state_commits_exact_magazines_and_rejects_impossible_counts()
+    {
+        var weapon = new OperationalWeaponCapability(
+            "test-guided-round",
+            ContactClassification.Surface,
+            DistanceMeters.FromMeters(25_000),
+            MagazineCapacityRounds: 2);
+        var entity = OperationalEntity(
+            Ids.ExchangeActor,
+            Ids.BlueCoalition,
+            SimulationDomain.Maritime,
+            "Tactical magazine carrier",
+            "synthetic-magazine-carrier",
+            [weapon]) with
+        {
+            Fidelity = FidelityState.Tactical,
+            MaximumFidelity = FidelityState.Tactical,
+        };
+        var state = CampaignState.Create(new CampaignMetadata(
+            Ids.Campaign,
+            "Tactical magazine handoff",
+            123,
+            "sha256:synthetic-magazine-catalog",
+            CampaignSchema.Version,
+            CampaignSchema.AlgorithmVersion)) with
+        {
+            Regions = new[]
+            {
+                new RegionState(
+                    Ids.ExchangeRegion,
+                    "Tactical area",
+                    ImmutableSortedSet<RegionId>.Empty,
+                    new EntityRevision(1)),
+            }.ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Entities = new[] { entity }.ToImmutableSortedDictionary(item => item.EntityId, item => item),
+            Assignments = new[]
+            {
+                new AssignmentState(
+                    Ids.Assignment,
+                    entity.EntityId,
+                    AssignmentRole.Primary,
+                    new AuthorityEpoch(1),
+                    CampaignTime.Origin,
+                    AssignmentLifecycle.Active,
+                    new EntityRevision(1)),
+            }.ToImmutableSortedDictionary(item => item.AssignmentId, item => item),
+        };
+        CampaignStateValidator.Validate(state);
+
+        var spent = entity.Magazines.SetItem(weapon.AmmunitionId, 1);
+        var command = Command(
+            500,
+            CampaignSubject.Entity(entity.EntityId),
+            entity.Revision,
+            new ApplyTacticalStateCommand(
+                Ids.Assignment,
+                new AuthorityEpoch(1),
+                entity.EntityId,
+                entity.Coordinate,
+                entity.Heading.Value,
+                entity.Telegraph,
+                entity.Resources,
+                spent,
+                entity.DamageMilliUnits,
+                entity.Lifecycle),
+            effectiveAt: state.Time);
+        var committed = CampaignKernel.Commit(state, command);
+        Assert.Equal(1, committed.Entities[entity.EntityId].Magazines[weapon.AmmunitionId]);
+        CampaignStateValidator.Validate(committed);
+
+        var impossible = command with
+        {
+            CommandId = new CommandId(Guid.Parse("50000000-0000-0000-0000-000000000501")),
+            ExpectedSubjectRevision = entity.Revision,
+            Data = ((ApplyTacticalStateCommand)command.Data) with
+            {
+                Magazines = spent.SetItem(weapon.AmmunitionId, 3),
+            },
+        };
+        var violation = Assert.Throws<CampaignRuleViolation>(() => CampaignKernel.Commit(state, impossible));
+        Assert.Equal("invalid-tactical-state", violation.Code);
+
+        var corrupt = state with
+        {
+            Entities = state.Entities.SetItem(
+                entity.EntityId,
+                entity with { Magazines = spent.SetItem(weapon.AmmunitionId, -1) }),
+        };
+        Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(corrupt));
+    }
+
+    [Fact]
     public void Combined_arms_operational_emulator_resolves_physical_land_installation_and_rotary_targets()
     {
         var surfaceStrike = SimulateOperationalExchange(
@@ -231,11 +323,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "9e992e1bf58001a5b333fdc74db2d7e437d8998d56fbdf86440fc5584aada194",
+            longHorizon.Hash == "2770a7a3ecea4e568ce12c29a38603e60821ad6d91b39ec855d383256bbe1b5d",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "716bad81c979365f8c83459ac09460e2844123dfbd73accfde934b1139ce25f4",
+            migrated.Hash == "0419a38b2e7a1072979f876e14f620d30975859323d4adb6324803f494d1224f",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -1129,7 +1221,23 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             $"{name}-truth",
             weapons.ToImmutableArray(),
             new EntityRevision(1),
-            AnalogueTacticalCondition.Healthy);
+            AnalogueTacticalCondition.Healthy,
+            FullMagazines(weapons));
+
+    /// <summary>
+    /// Mirrors the engine's entry rule: a unit starts with every countable
+    /// magazine full, and a weapon whose catalog declares no magazine stays
+    /// unlimited rather than being given an invented capacity.
+    /// </summary>
+    private static ImmutableSortedDictionary<string, int> FullMagazines(
+        IReadOnlyList<OperationalWeaponCapability> weapons) =>
+        weapons
+            .Where(weapon => weapon.MagazineCapacityRounds > 0)
+            .GroupBy(weapon => weapon.AmmunitionId, StringComparer.Ordinal)
+            .ToImmutableSortedDictionary(
+                group => group.Key,
+                group => group.Max(weapon => weapon.MagazineCapacityRounds),
+                StringComparer.Ordinal);
 
     private static OperationalWeaponCapability LandWeapon(string ammunitionId, long rangeMeters) =>
         new(ammunitionId, ContactClassification.LandFormation, DistanceMeters.FromMeters(rangeMeters));
@@ -1145,8 +1253,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(12, CampaignSchema.Version);
-        Assert.Equal(22, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(13, CampaignSchema.Version);
+        Assert.Equal(23, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
