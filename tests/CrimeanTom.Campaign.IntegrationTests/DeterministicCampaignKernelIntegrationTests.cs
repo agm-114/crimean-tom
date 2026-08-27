@@ -323,11 +323,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "2770a7a3ecea4e568ce12c29a38603e60821ad6d91b39ec855d383256bbe1b5d",
+            longHorizon.Hash == "a8b5f5e014917c85228663fc2e80f2ecd71a8a7a1b563346314cc717d9f64b73",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "0419a38b2e7a1072979f876e14f620d30975859323d4adb6324803f494d1224f",
+            migrated.Hash == "89f9bb748d3e127877183a01d7004a3a8b0dbaae449561aaa34e4bb43df54478",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -1222,7 +1222,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             weapons.ToImmutableArray(),
             new EntityRevision(1),
             AnalogueTacticalCondition.Healthy,
-            FullMagazines(weapons));
+            FullMagazines(weapons),
+            EntityState.NoWeaponReadyAt);
 
     /// <summary>
     /// Mirrors the engine's entry rule: a unit starts with every countable
@@ -1253,8 +1254,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(13, CampaignSchema.Version);
-        Assert.Equal(23, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(14, CampaignSchema.Version);
+        Assert.Equal(24, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

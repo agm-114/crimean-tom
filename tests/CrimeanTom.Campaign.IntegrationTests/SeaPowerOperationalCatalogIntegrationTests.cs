@@ -105,16 +105,19 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
 
                 [WeaponSystem2]
                 Type=Torpedo
+                SystemName=TorpedoTube
                 AssociatedMagazine=TorpedoMagazine
 
                 [WeaponSystem3]
                 Type=Torpedo
+                SystemName=TorpedoTube
                 AssociatedMagazine=TorpedoMagazine
 
                 [WeaponSystem4]
                 Type=Gun
                 SystemName=DeckGun
                 Ammunition=test_shell
+                ReloadTime=45              // overrides the shared definition
 
                 [WeaponSystem5]
                 Type=Missile
@@ -130,9 +133,19 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
             File.WriteAllText(Path.Combine(root, "systems", "weapons.ini"), """
                 [BoxLauncher]
                 NumberOfAttachments=8
+                ReloadTime=1800
 
                 [TwinArm]
                 NumberOfAttachments=2
+                ReloadTime=8
+                SalvoFireAmount=4
+
+                [TorpedoTube]
+                ReloadTime=30
+
+                [DeckGun]
+                ReloadTime=60
+                FireRate=120
                 """);
 
             // One bare station, and one station naming an attachment group that
@@ -187,6 +200,28 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
 
             Assert.Equal(1, aircraft["test_torpedo"]);
             Assert.Equal(3, aircraft["test_shell"]);
+
+            // Firing cadence comes from the weapon system, not the ammunition,
+            // and a unit may override it. A gun sustains a rate of fire instead
+            // of reloading as a unit, so one engagement is a second of fire.
+            var cadence = catalog.Resolve("test_ship")
+                .DistinctBy(item => item.AmmunitionId)
+                .ToDictionary(item => item.AmmunitionId, item => item);
+
+            Assert.Equal(1_800, cadence["test_sam"].ReloadSeconds);
+            Assert.Equal(1, cadence["test_sam"].MountCount);
+            // A twin-arm launcher is one mount that cycles both arms, so its two
+            // containers raise capacity but not the number of mounts.
+            Assert.Equal(1, cadence["test_ssm"].MountCount);
+            Assert.Equal(8, cadence["test_ssm"].ReloadSeconds);
+            Assert.Equal(4, cadence["test_ssm"].SalvoRounds);
+            // Two mounts share the torpedo magazine but each still cycles.
+            Assert.Equal(2, cadence["test_torpedo"].MountCount);
+            Assert.Equal(30, cadence["test_torpedo"].ReloadSeconds);
+            // 120 rounds per minute is two rounds of sustained fire a second.
+            Assert.Equal(2, cadence["test_shell"].SalvoRounds);
+            // The unit's own section overrides the shared system definition.
+            Assert.Equal(45, cadence["test_shell"].ReloadSeconds);
         }
         finally
         {

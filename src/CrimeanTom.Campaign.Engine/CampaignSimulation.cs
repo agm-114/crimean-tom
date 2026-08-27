@@ -806,7 +806,7 @@ internal static class CampaignSimulation
                 .Where(item => item.CoalitionId != actor.CoalitionId
                     && CanBeAttacked(liveState, item)
                     && !coveredTargets.Contains(item.EntityId))
-                .Select(item => SelectOperationalWeapon(liveState, actor, item))
+                .Select(item => SelectOperationalWeapon(liveState, actor, item, dueAt))
                 .Where(item => item is not null)
                 .Select(item => item!.Value)
                 .Where(item => HasFireSolution(liveState, actor, item.Entity, item.ActualDistanceMeters))
@@ -864,7 +864,7 @@ internal static class CampaignSimulation
             var (magazines, rounds) = CampaignMagazines.Expend(
                 actor.Magazines,
                 bid.Weapon.AmmunitionId,
-                RoundsPerEngagement(bid.Weapon));
+                CampaignMagazines.SalvoRounds(bid.Weapon));
             if (expenditure <= 0 || rounds <= 0)
             {
                 claimedActors.Remove(actor.EntityId);
@@ -876,6 +876,7 @@ internal static class CampaignSimulation
             actor = actor with
             {
                 Magazines = magazines,
+                WeaponReadyAt = CampaignMagazines.Reserve(actor.WeaponReadyAt, bid.Weapon, dueAt),
                 Resources = Set(actor.Resources, ResourceKind.Munitions, available - expenditure),
                 Heading = interceptHeading,
                 Telegraph = TelegraphIntercept,
@@ -1348,11 +1349,11 @@ internal static class CampaignSimulation
                 round.AmmunitionId,
                 round.TargetClassification,
                 DistanceMeters.FromMeters(Math.Max(1, ActiveSeekerRangeMeters(round, null))));
-            var pd = PointDefensePenalty(target, distance);
+            var pd = PointDefensePenalty(target, distance, dueAt);
             // Point defense now shoots a specific interceptor. A defender whose
             // close-in magazines are spent cannot keep engaging even though its
             // aggregate munitions pool is not empty.
-            var pointDefenseWeapon = pd > 0 ? PointDefenseWeapon(target) : null;
+            var pointDefenseWeapon = pd > 0 ? PointDefenseWeapon(target, dueAt) : null;
             if (pointDefenseWeapon is null)
             {
                 pd = 0;
@@ -1384,10 +1385,12 @@ internal static class CampaignSimulation
                 var (defenderMagazines, interceptors) = CampaignMagazines.Expend(
                     target.Magazines,
                     pointDefenseWeapon!.AmmunitionId,
-                    RoundsPerEngagement(pointDefenseWeapon));
+                    CampaignMagazines.SalvoRounds(pointDefenseWeapon));
                 target = target with
                 {
                     Magazines = defenderMagazines,
+                    WeaponReadyAt = CampaignMagazines.Reserve(
+                        target.WeaponReadyAt, pointDefenseWeapon, dueAt),
                     Resources = Set(target.Resources, ResourceKind.Munitions, available - expenditure),
                     Revision = target.Revision.Next(),
                 };
@@ -1737,7 +1740,7 @@ internal static class CampaignSimulation
         long ActualDistanceMeters,
         long TargetingDistanceMeters,
         GeoCoordinate TargetingCoordinate)?
-        SelectOperationalWeapon(CampaignState state, EntityState actor, EntityState target)
+        SelectOperationalWeapon(CampaignState state, EntityState actor, EntityState target, CampaignTime now)
     {
         if (actor.CatalogUnitId == "abstract_land_formation"
             && target.SimulationDomain is SimulationDomain.Ground or SimulationDomain.Installation)
@@ -1769,6 +1772,10 @@ internal static class CampaignSimulation
             // missile must fall back to a weapon it still has rounds for
             // instead of continuing to employ one it no longer carries.
             .Where(item => CampaignMagazines.HasRounds(actor, item.AmmunitionId))
+            // A mount still reloading cannot shoot. A box launcher with a long
+            // reload cycle therefore fires once and then stays quiet, instead
+            // of re-engaging every tick.
+            .Where(item => CampaignMagazines.IsReady(actor, item.AmmunitionId, now))
             .Where(item => actualDistanceMeters >= item.MinimumRange.Value)
             .Where(item => actualDistanceMeters <= item.MaximumRange.Value)
             .Where(item => targetingDistanceMeters >= item.MinimumRange.Value)
@@ -1896,30 +1903,16 @@ internal static class CampaignSimulation
     }
 
     /// <summary>
-    /// Rounds one engagement removes from the named magazine.
-    ///
-    /// A guided round is one round, matching Sea Power, where a launch consumes
-    /// exactly the weapon that flies. Gun and other ballistic engagements fire
-    /// a burst; the server does not yet model per-mount fire rate, salvo size,
-    /// or time on target, so it uses one declared burst size. That burst size
-    /// is an approximation and remains an open item in the parity backlog. The
-    /// magazine capacity it draws down is not an approximation.
-    /// </summary>
-    private const int BallisticBurstRounds = 4;
-
-    private static int RoundsPerEngagement(OperationalWeaponCapability weapon) =>
-        IsBallisticGun(weapon) ? BallisticBurstRounds : 1;
-
-    /// <summary>
     /// The interceptor a defender would actually use against a close-in threat:
     /// the shortest-ranged air-capable weapon that still has rounds. Returns
     /// null when every candidate magazine is spent, which stops point defense
     /// rather than letting it fire ammunition the platform no longer has.
     /// </summary>
-    private static OperationalWeaponCapability? PointDefenseWeapon(EntityState target) =>
+    private static OperationalWeaponCapability? PointDefenseWeapon(EntityState target, CampaignTime now) =>
         EffectiveWeapons(target)
             .Where(item => item.MaximumRange.Value <= 40_000)
             .Where(item => CampaignMagazines.HasRounds(target, item.AmmunitionId))
+            .Where(item => CampaignMagazines.IsReady(target, item.AmmunitionId, now))
             .OrderBy(item => item.MaximumRange.Value)
             .ThenBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .FirstOrDefault();
@@ -2281,7 +2274,7 @@ internal static class CampaignSimulation
         _ => 5L,
     };
 
-    private static int PointDefensePenalty(EntityState target, long distanceMeters)
+    private static int PointDefensePenalty(EntityState target, long distanceMeters, CampaignTime now)
     {
         if (distanceMeters > 25_000
             || target.Analogue.WeaponIntegrityMilliUnits < 200
@@ -2290,7 +2283,7 @@ internal static class CampaignSimulation
             return 0;
         }
 
-        return PointDefenseWeapon(target) is not null ? 140 : 0;
+        return PointDefenseWeapon(target, now) is not null ? 140 : 0;
     }
 
     /// <summary>

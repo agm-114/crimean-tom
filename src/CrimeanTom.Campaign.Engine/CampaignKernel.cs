@@ -171,6 +171,9 @@ public static class CampaignKernel
                 || weapon.KillProbabilityMilliUnits is < 0 or > 1_000
                 || weapon.WarheadPower < 0
                 || weapon.MagazineCapacityRounds < 0
+                || weapon.ReloadSeconds < 0
+                || weapon.SalvoRounds < 0
+                || weapon.MountCount < 0
                 || weapon.MechanicsSource == WeaponMechanicsSource.SeaPowerCatalog
                     && weapon.Kind != OrdnanceKind.Projectile
                     && weapon.SpeedMetersPerSecond <= 0)
@@ -812,6 +815,7 @@ public static class CampaignKernel
             item.NewSubjectRevision,
             AnalogueTacticalCondition.Healthy,
             CampaignMagazines.Full(weapons),
+            EntityState.NoWeaponReadyAt,
             data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }

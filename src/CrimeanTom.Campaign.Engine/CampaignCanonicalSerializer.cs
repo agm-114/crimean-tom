@@ -76,10 +76,14 @@ public static class CampaignCanonicalSerializer
                     weapon.KillProbabilityMilliUnits,
                     weapon.WarheadPower,
                     ParseEnum<WeaponMechanicsSource>(weapon.MechanicsSource),
-                    weapon.MagazineCapacityRounds)).ToImmutableArray(),
+                    weapon.MagazineCapacityRounds,
+                    weapon.ReloadSeconds,
+                    weapon.SalvoRounds,
+                    weapon.MountCount)).ToImmutableArray(),
                 new EntityRevision(item.Revision),
                 ReadAnalogue(item),
                 ReadMagazines(item.Magazines),
+                ReadWeaponReadyAt(item.WeaponReadyAt),
                 item.HostEntityId is null
                     ? null
                     : ParseId(item.HostEntityId, value => new EntityId(value))))
@@ -339,6 +343,9 @@ public static class CampaignCanonicalSerializer
                 writer.WriteNumber("warheadPower", weapon.WarheadPower);
                 writer.WriteNumber("mechanicsSource", (int)weapon.MechanicsSource);
                 writer.WriteNumber("magazineCapacityRounds", weapon.MagazineCapacityRounds);
+                writer.WriteNumber("reloadSeconds", weapon.ReloadSeconds);
+                writer.WriteNumber("salvoRounds", weapon.SalvoRounds);
+                writer.WriteNumber("mountCount", weapon.MountCount);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -348,6 +355,15 @@ public static class CampaignCanonicalSerializer
                 writer.WriteStartObject();
                 writer.WriteString("ammunitionId", magazine.Key);
                 writer.WriteNumber("rounds", magazine.Value);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("weaponReadyAt");
+            foreach (var ready in item.WeaponReadyAt)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("ammunitionId", ready.Key);
+                writer.WriteNumber("readyAtQuanta", ready.Value);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -758,6 +774,20 @@ public static class CampaignCanonicalSerializer
         }
     }
 
+    private static ImmutableSortedDictionary<string, long> ReadWeaponReadyAt(WeaponReadyDocument[] ready)
+    {
+        try
+        {
+            return ready
+                .Select(item => new KeyValuePair<string, long>(item.AmmunitionId, item.ReadyAtQuanta))
+                .ToImmutableSortedDictionary(StringComparer.Ordinal);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new JsonException("Canonical weapon readiness contains duplicate ammunition.", exception);
+        }
+    }
+
     private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> ReadResources(ResourceDocument[] resources)
     {
         try
@@ -845,6 +875,7 @@ public static class CampaignCanonicalSerializer
         public required string ClassifiedTruthTag { get; init; }
         public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
         public MagazineDocument[] Magazines { get; init; } = [];
+        public WeaponReadyDocument[] WeaponReadyAt { get; init; } = [];
         public int AltitudeOrDepthMeters { get; init; }
         public int FireMilliUnits { get; init; }
         public int FloodMilliUnits { get; init; }
@@ -883,6 +914,15 @@ public static class CampaignCanonicalSerializer
         public int WarheadPower { get; init; }
         public int MechanicsSource { get; init; }
         public int MagazineCapacityRounds { get; init; }
+        public int ReloadSeconds { get; init; }
+        public int SalvoRounds { get; init; }
+        public int MountCount { get; init; }
+    }
+
+    private sealed class WeaponReadyDocument
+    {
+        public required string AmmunitionId { get; init; }
+        public required long ReadyAtQuanta { get; init; }
     }
 
     private sealed class MagazineDocument
