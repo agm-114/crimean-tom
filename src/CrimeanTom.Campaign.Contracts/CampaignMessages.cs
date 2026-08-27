@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 14;
-    public const int AlgorithmVersion = 24;
+    public const int Version = 15;
+    public const int AlgorithmVersion = 25;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -157,7 +157,12 @@ public sealed record OperationalWeaponCapability(
     /// Mounts able to employ this ammunition. More mounts shorten the interval
     /// between engagements because they reload independently.
     /// </summary>
-    int MountCount = 0);
+    int MountCount = 0,
+    /// <summary>
+    /// Missiles this platform's fire-control sensors can guide at once for this
+    /// ammunition. Zero means the catalog declares no guidance channel.
+    /// </summary>
+    int GuidanceChannels = 0);
 
 public enum WeaponMechanicsSource
 {

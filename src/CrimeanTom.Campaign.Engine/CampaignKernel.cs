@@ -174,6 +174,7 @@ public static class CampaignKernel
                 || weapon.ReloadSeconds < 0
                 || weapon.SalvoRounds < 0
                 || weapon.MountCount < 0
+                || weapon.GuidanceChannels < 0
                 || weapon.MechanicsSource == WeaponMechanicsSource.SeaPowerCatalog
                     && weapon.Kind != OrdnanceKind.Projectile
                     && weapon.SpeedMetersPerSecond <= 0)

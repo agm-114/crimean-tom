@@ -123,6 +123,16 @@ The target and gap inventory are in
   and divided by mount count rather than per mount, so sustained rate matches
   but mounts cycling out of phase do not; that is a declared approximation, not
   a measured tolerance.
+- Simultaneous engagements are bounded by native fire-control channels instead
+  of fixed constants. A mount's guidance capacity is summed from the
+  `WeaponChannels` of the sensors its weapon system is associated with, through
+  the unit's own sensor sections into `systems/sensors.ini`; a Knox Mk25 draws 2
+  channels from its MK-115 illuminator. Only weapons needing the shooter to keep
+  illuminating or commanding them occupy a channel, so a fire-and-forget round
+  is limited by reload rather than by channel count. This replaces a hardcoded
+  limit of two guided rounds per shooter and a point-defense channel count that
+  was clamped to between one and four distinct weapons. Reaction time,
+  doctrine, and per-target channel occupancy are still not modelled.
 - Owned materialization can restore per-ammunition magazines natively through
   Sea Power's `setAmmunitionAmount`, and checkpoints capture the native
   `AmmunitionAmountDictionary`, so a partly expended loadout crosses the handoff

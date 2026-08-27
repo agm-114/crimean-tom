@@ -851,8 +851,13 @@ internal static class CampaignSimulation
 
             claimedActors.Add(actor.EntityId);
             claimedTargets.Add(target.EntityId);
+            // Only a weapon that needs the shooter to keep illuminating or
+            // commanding it occupies a fire-control channel. A fire-and-forget
+            // round stops consuming the shooter's attention once away, so its
+            // rate is governed by reload rather than by channel count.
             if (!IsBallisticGun(bid.Weapon)
-                && guidanceLoad.GetValueOrDefault(actor.EntityId) >= 2)
+                && bid.Weapon.RequiresExternalGuidance
+                && guidanceLoad.GetValueOrDefault(actor.EntityId) >= GuidanceChannelCapacity(bid.Weapon))
             {
                 claimedActors.Remove(actor.EntityId);
                 claimedTargets.Remove(target.EntityId);
@@ -2287,21 +2292,26 @@ internal static class CampaignSimulation
     }
 
     /// <summary>
-    /// Coarse fire-control channel count for simultaneous point-defense
-    /// engagements: one channel per distinct close-in weapon or short-range
-    /// SAM system the defender's catalog loadout advertises, bounded to a
-    /// plausible mount count. This is not a per-mount reaction-time or
-    /// doctrine model; it only prevents an unlimited number of independent
-    /// intercept rolls against one defender in a single tick.
+    /// Simultaneous point-defense engagements the defender's close-in
+    /// fire-control sensors support, summed from their native channel counts.
+    /// This is not yet a reaction-time or doctrine model; it stops a saturating
+    /// raid from drawing an unlimited number of independent intercept rolls
+    /// against one defender in a single tick.
     /// </summary>
-    private static int PointDefenseChannelCapacity(EntityState target) => Math.Clamp(
+    private static int PointDefenseChannelCapacity(EntityState target) => Math.Max(
+        1,
         EffectiveWeapons(target)
             .Where(item => item.MaximumRange.Value <= 40_000)
-            .Select(item => item.AmmunitionId)
-            .Distinct(StringComparer.Ordinal)
-            .Count(),
-        1,
-        4);
+            .GroupBy(item => item.AmmunitionId, StringComparer.Ordinal)
+            .Sum(group => GuidanceChannelCapacity(group.First())));
+
+    /// <summary>
+    /// Simultaneous engagements one weapon's own fire-control sensors support,
+    /// from the native channel counts. A mount whose catalog declares no
+    /// channel still gets one, because it visibly does engage.
+    /// </summary>
+    private static int GuidanceChannelCapacity(OperationalWeaponCapability weapon) =>
+        Math.Max(1, weapon.GuidanceChannels);
 
     private static long RoundedGreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
     {

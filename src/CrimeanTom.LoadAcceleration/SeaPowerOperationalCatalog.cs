@@ -42,7 +42,14 @@ public sealed record SeaPowerCatalogWeapon(
     /// How many mounts feed this ammunition. Independent mounts shorten the
     /// interval between engagements even when each reloads at its own pace.
     /// </summary>
-    int MountCount = 0);
+    int MountCount = 0,
+    /// <summary>
+    /// Missiles the mounts' own fire-control sensors can guide at once, summed
+    /// from each associated sensor's <c>WeaponChannels</c>. Zero means the
+    /// catalog declares no guidance channel, as for a mount with no associated
+    /// fire-control sensor.
+    /// </summary>
+    int GuidanceChannels = 0);
 
 public sealed class SeaPowerOperationalCatalog
 {
@@ -51,6 +58,7 @@ public sealed class SeaPowerOperationalCatalog
     private readonly object _sync = new();
     private readonly Dictionary<(string Unit, string Loadout), IReadOnlyList<SeaPowerCatalogWeapon>> _cache = new();
     private readonly Lazy<IniDocument> _weaponSystems;
+    private readonly Lazy<IniDocument> _sensors;
 
     /// <summary>
     /// Shared weapon-system definitions. Launcher capacity lives here rather
@@ -58,6 +66,13 @@ public sealed class SeaPowerOperationalCatalog
     /// this file says how many rounds one container of that system holds.
     /// </summary>
     private IniDocument WeaponSystems => _weaponSystems.Value;
+
+    /// <summary>
+    /// Shared sensor definitions. A mount's simultaneous guidance capacity
+    /// lives here, on the fire-control sensor it is associated with, rather
+    /// than on the launcher or the missile.
+    /// </summary>
+    private IniDocument Sensors => _sensors.Value;
 
     public SeaPowerOperationalCatalog(string originalStreamingAssetsRoot)
     {
@@ -68,6 +83,9 @@ public sealed class SeaPowerOperationalCatalog
         }
         _weaponSystems = new Lazy<IniDocument>(() =>
             IniDocument.TryLoad(Path.Combine(_originalRoot, "systems", "weapons.ini"))
+                ?? IniDocument.None);
+        _sensors = new Lazy<IniDocument>(() =>
+            IniDocument.TryLoad(Path.Combine(_originalRoot, "systems", "sensors.ini"))
                 ?? IniDocument.None);
     }
 
@@ -206,6 +224,8 @@ public sealed class SeaPowerOperationalCatalog
                     ? salvo.SalvoRounds : 0,
                 MountCount = cadence.TryGetValue(item.AmmunitionId, out var mounts)
                     ? mounts.Mounts : 0,
+                GuidanceChannels = cadence.TryGetValue(item.AmmunitionId, out var channels)
+                    ? channels.GuidanceChannels : 0,
             })
             .OrderBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .ThenBy(item => item.TargetType, StringComparer.Ordinal)
@@ -281,7 +301,8 @@ public sealed class SeaPowerOperationalCatalog
         }
     }
 
-    private readonly record struct MountCadence(int Mounts, long ReloadSeconds, int SalvoRounds);
+    private readonly record struct MountCadence(
+        int Mounts, long ReloadSeconds, int SalvoRounds, int GuidanceChannels);
 
     /// <summary>
     /// Reads one mount's firing cadence. Sea Power takes reload time and fire
@@ -321,7 +342,35 @@ public sealed class SeaPowerOperationalCatalog
         return new MountCadence(
             1,
             reload > 0 ? checked((long)Math.Round(reload, MidpointRounding.AwayFromZero)) : 0,
-            salvo);
+            salvo,
+            ReadGuidanceChannels(unit, systemSection));
+    }
+
+    /// <summary>
+    /// Sums the guidance channels of the fire-control sensors a mount is
+    /// associated with. The unit names its own sensor sections, and each names
+    /// a shared sensor definition that declares how many missiles it can guide
+    /// at once.
+    /// </summary>
+    private int ReadGuidanceChannels(IniDocument unit, string systemSection)
+    {
+        var associated = unit.Value(systemSection, "AssociatedSensors");
+        if (associated.Length == 0)
+        {
+            return 0;
+        }
+
+        var channels = 0;
+        foreach (var reference in associated.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var sensorName = unit.Value(reference.Trim(), "SystemName");
+            if (sensorName.Length == 0)
+            {
+                continue;
+            }
+            channels = checked(channels + Math.Max(0, Sensors.IntegerOrDefault(sensorName, "WeaponChannels", 0)));
+        }
+        return channels;
     }
 
     /// <summary>
@@ -348,7 +397,8 @@ public sealed class SeaPowerOperationalCatalog
             existing.ReloadSeconds == 0 || mount.ReloadSeconds == 0
                 ? Math.Max(existing.ReloadSeconds, mount.ReloadSeconds)
                 : Math.Min(existing.ReloadSeconds, mount.ReloadSeconds),
-            Math.Max(existing.SalvoRounds, mount.SalvoRounds));
+            Math.Max(existing.SalvoRounds, mount.SalvoRounds),
+            checked(existing.GuidanceChannels + mount.GuidanceChannels));
     }
 
     /// <summary>

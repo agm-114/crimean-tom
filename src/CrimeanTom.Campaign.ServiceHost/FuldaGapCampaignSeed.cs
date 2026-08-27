@@ -319,7 +319,8 @@ internal static partial class FuldaGapCampaignSeed
                 checked((int)Math.Clamp(item.MagazineRounds, 0, int.MaxValue)),
                 checked((int)Math.Clamp(item.ReloadSeconds, 0, int.MaxValue)),
                 item.SalvoRounds,
-                item.MountCount))
+                item.MountCount,
+                item.GuidanceChannels))
             .ToArray() ?? [];
     }
 
