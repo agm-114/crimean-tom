@@ -1809,6 +1809,7 @@ internal static partial class GameCommandDispatcher
             ? Singleton<RenderPosition>.Instance.getSelectedObject()
             : null;
         var selectedViewModel = main?.SelectedViewModel?.Value as ObjectBaseViewModel;
+        var tacticalMap = main?.Map?.DisplayMap;
         return new UiInspectionPayload
         {
             SceneName = SceneManager.GetActiveScene().name ?? string.Empty,
@@ -1819,6 +1820,10 @@ internal static partial class GameCommandDispatcher
             SimulationTimeSeconds = Finite(GameTime.time),
             TimeCompression = Finite(GameTime.TimeCompression),
             MapVisible = main?.MapVisible ?? false,
+            MapFullscreen = main?.Map?.IsFullscreen ?? false,
+            MapZoomLevel = tacticalMap is null ? null : Finite(tacticalMap.Zoom),
+            MapCenterLatitude = tacticalMap is null ? null : Finite(tacticalMap.Center.Latitude),
+            MapCenterLongitude = tacticalMap is null ? null : Finite(tacticalMap.Center.Longitude),
             HudVisible = MainGameViewModel.GetHudVisible(),
             FormationManagerVisible = main?.ShowFormationManager ?? false,
             FlightDeckVisible = selectedViewModel?.ObjectFlightDeck?.FlightDeckVisible ?? false,
@@ -2129,33 +2134,132 @@ internal static partial class GameCommandDispatcher
         }
 
         string postcondition;
+        bool? realizedMapVisible = null;
+        bool? realizedMapFullscreen = null;
+        double? realizedMapZoom = null;
+        double? realizedMapLatitude = null;
+        double? realizedMapLongitude = null;
+        bool? mapNativeClampingApplied = null;
+        if (panel is not "map"
+            && (request.Fullscreen is not null
+                || request.ZoomLevel is not null
+                || request.CenterLatitude is not null
+                || request.CenterLongitude is not null))
+        {
+            return Failure(
+                ProtocolErrorCodes.InvalidMessage,
+                "Map framing fields are valid only for the tactical map panel.");
+        }
         switch (panel)
         {
             case "map":
             {
-                var before = main!.MapVisible;
-                if (request.Visible is { } already && already == before)
+                var map = main!.Map;
+                var displayMap = map?.DisplayMap;
+                if (map is null || displayMap is null)
                 {
-                    postcondition = already ? "tactical-map-visible" : "tactical-map-hidden";
-                    break;
+                    return Failure(
+                        ProtocolErrorCodes.AutomationPreconditionFailed,
+                        "The tactical map is not initialized.");
+                }
+                if ((request.CenterLatitude is null) != (request.CenterLongitude is null))
+                {
+                    return Failure(
+                        ProtocolErrorCodes.InvalidMessage,
+                        "Map center latitude and longitude must be supplied together.");
+                }
+                if (request.Visible is false
+                    && (request.Fullscreen is not null
+                        || request.ZoomLevel is not null
+                        || request.CenterLatitude is not null))
+                {
+                    return Failure(
+                        ProtocolErrorCodes.InvalidMessage,
+                        "A hidden tactical map cannot be framed or made fullscreen.");
                 }
 
-                main.ToggleMapOpen();
-                if (main.MapVisible == before)
+                var hasFramingRequest = request.Fullscreen is not null
+                    || request.ZoomLevel is not null
+                    || request.CenterLatitude is not null;
+                if (request.Visible is null && !hasFramingRequest)
+                {
+                    main.ToggleMapOpen();
+                }
+                else
+                {
+                    var wantedVisible = request.Visible ?? true;
+                    if (main.MapVisible != wantedVisible)
+                    {
+                        main.ToggleMapOpen();
+                    }
+                    if (main.MapVisible != wantedVisible)
+                    {
+                        return Failure(
+                            ProtocolErrorCodes.AutomationPostconditionFailed,
+                            "Tactical map did not reach the requested visibility.");
+                    }
+                }
+
+                if (main.MapVisible && request.Fullscreen is { } wantedFullscreen
+                    && map.IsFullscreen != wantedFullscreen)
+                {
+                    main.ToggleMapFullscreen();
+                }
+                if (request.Fullscreen is { } fullscreen
+                    && map.IsFullscreen != fullscreen)
                 {
                     return Failure(
                         ProtocolErrorCodes.AutomationPostconditionFailed,
-                        "Tactical map toggle did not change MapVisible.");
+                        "Tactical map did not reach the requested fullscreen state.");
                 }
 
-                if (request.Visible is { } wanted && main.MapVisible != wanted)
+                if (request.CenterLatitude is { } latitude
+                    && request.CenterLongitude is { } longitude)
                 {
-                    return Failure(
-                        ProtocolErrorCodes.AutomationPostconditionFailed,
-                        "Tactical map did not reach the requested visibility.");
+                    if (!double.IsFinite(latitude)
+                        || latitude is < -89.999d or > 89.999d
+                        || !double.IsFinite(longitude)
+                        || longitude is < -180d or > 180d)
+                    {
+                        return Failure(
+                            ProtocolErrorCodes.InvalidMessage,
+                            "Map center coordinates are outside the supported range.");
+                    }
+                    displayMap.Center = new GeoPosition(latitude, longitude, 0d);
                 }
 
-                postcondition = main.MapVisible ? "tactical-map-visible" : "tactical-map-hidden";
+                if (request.ZoomLevel is { } zoomLevel)
+                {
+                    if (!double.IsFinite(zoomLevel)
+                        || zoomLevel is < 1d or > 20d)
+                    {
+                        return Failure(
+                            ProtocolErrorCodes.InvalidMessage,
+                            "Map zoom level must be between 1 and 20.");
+                    }
+                    displayMap.Zoom = (float)zoomLevel;
+                }
+
+                realizedMapVisible = main.MapVisible;
+                realizedMapFullscreen = map.IsFullscreen;
+                realizedMapZoom = Finite(displayMap.Zoom);
+                realizedMapLatitude = Finite(displayMap.Center.Latitude);
+                realizedMapLongitude = Finite(displayMap.Center.Longitude);
+                mapNativeClampingApplied = (request.ZoomLevel is { } requestedZoom
+                        && realizedMapZoom is { } actualZoom
+                        && Math.Abs(requestedZoom - actualZoom) > 0.001d)
+                    || (request.CenterLatitude is { } requestedLatitude
+                        && realizedMapLatitude is { } actualLatitude
+                        && Math.Abs(requestedLatitude - actualLatitude) > 0.000001d)
+                    || (request.CenterLongitude is { } requestedLongitude
+                        && realizedMapLongitude is { } actualLongitude
+                        && Math.Abs(requestedLongitude - actualLongitude) > 0.000001d);
+
+                postcondition = !main.MapVisible
+                    ? "tactical-map-hidden"
+                    : map.IsFullscreen
+                        ? "tactical-map-fullscreen"
+                        : "tactical-map-visible";
                 break;
             }
             case "formation":
@@ -2216,9 +2320,17 @@ internal static partial class GameCommandDispatcher
         return Success(new UiAutomationActionResultPayload
         {
             Action = GameCommandTypes.SetTacticalHudPanel,
-            Outcome = "completed",
+            Outcome = mapNativeClampingApplied is true
+                ? "completed-with-native-clamping"
+                : "completed",
             Postcondition = postcondition,
             Scenario = GetScenarioAutomationState(),
+            MapVisible = realizedMapVisible,
+            MapFullscreen = realizedMapFullscreen,
+            MapZoomLevel = realizedMapZoom,
+            MapCenterLatitude = realizedMapLatitude,
+            MapCenterLongitude = realizedMapLongitude,
+            MapNativeClampingApplied = mapNativeClampingApplied,
         });
     }
 

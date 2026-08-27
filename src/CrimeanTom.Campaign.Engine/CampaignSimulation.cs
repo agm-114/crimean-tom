@@ -852,6 +852,18 @@ internal static class CampaignSimulation
 
             if (!IsBallisticGun(bid.Weapon))
             {
+                var launchRoll = KeyedValue(
+                    state.Metadata.Seed,
+                    actor.EntityId.Value,
+                    dueAt,
+                    $"launch-reliability-{target.EntityId}-{bid.Weapon.AmmunitionId}") % 1_000;
+                if (launchRoll >= bid.Weapon.LaunchReliabilityMilliUnits)
+                {
+                    outcomes.Add(Outcome(state, dueAt, OperationalOutcomeKind.SeekerLost, actor.RegionId,
+                        actor.EntityId, target.EntityId, 0, 0,
+                        $"{bid.Weapon.AmmunitionId} failed during launch"));
+                    continue;
+                }
                 var headingMilli = interceptHeading.Value;
                 inflight.Add(new InFlightOrdnance(
                     KeyedGuid(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"ordnance-{target.EntityId}").ToString("N"),
@@ -869,7 +881,7 @@ internal static class CampaignSimulation
                     KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"ins-{target.EntityId}") % 80,
                     dueAt,
                     OrdnanceKindFor(bid.Weapon),
-                    OrdnanceGuidanceFor(bid.Weapon) is OrdnanceGuidance.SemiActive or OrdnanceGuidance.Command ? 1 : 0,
+                    bid.Weapon.RequiresExternalGuidance ? 1 : 0,
                     0));
                 guidanceLoad[actor.EntityId] = guidanceLoad.GetValueOrDefault(actor.EntityId) + 1;
                 coveredTargets.Add(target.EntityId);
@@ -1177,14 +1189,18 @@ internal static class CampaignSimulation
             var terminalApproach = round.Stage == OrdnanceFlightStage.Terminal
                 || round.RemainingMeters <= round.SpeedMetersPerTick;
             var seekerDelay = Math.Max(0, round.SeekerDelayTicks - 1);
-            var externalGuidance = round.Guidance is OrdnanceGuidance.SemiActive or OrdnanceGuidance.Command;
+            var roundWeapon = EffectiveWeapons(shooter)
+                .FirstOrDefault(item => string.Equals(item.AmmunitionId, round.AmmunitionId, StringComparison.Ordinal)
+                    && item.TargetClassification == round.TargetClassification);
+            var externalGuidance = roundWeapon?.RequiresExternalGuidance
+                ?? round.Guidance is OrdnanceGuidance.SemiActive or OrdnanceGuidance.Command;
             var hasExternalGuidance = !externalGuidance
                 || CanProvideExternalGuidance(state with { Entities = entities }, shooter, target);
             var lostGuidanceTicks = hasExternalGuidance ? 0 : round.LostGuidanceTicks + 1;
             var headingMilli = round.HeadingMilliDegrees;
             if (terminalApproach && round.Guidance == OrdnanceGuidance.Active
                 && seekerDelay == 0
-                && distanceBeforeStep <= ActiveSeekerRangeMeters(round))
+                && distanceBeforeStep <= ActiveSeekerRangeMeters(round, roundWeapon))
             {
                 headingMilli = HeadingToward(round.Coordinate, target.Coordinate,
                     HeadingMilliDegrees.FromMilliDegrees(headingMilli)).Value;
@@ -1279,10 +1295,10 @@ internal static class CampaignSimulation
                 }
             }
 
-            var weapon = new OperationalWeaponCapability(
+            var weapon = roundWeapon ?? new OperationalWeaponCapability(
                 round.AmmunitionId,
                 round.TargetClassification,
-                DistanceMeters.FromMeters(Math.Max(1, ActiveSeekerRangeMeters(round))));
+                DistanceMeters.FromMeters(Math.Max(1, ActiveSeekerRangeMeters(round, null))));
             var pd = PointDefensePenalty(target, distance);
             if (pd > 0)
             {
@@ -1370,6 +1386,7 @@ internal static class CampaignSimulation
             - (1_000 - target.Analogue.PropulsionIntegrityMilliUnits) / 20,
             80,
             900);
+        hitChance = hitChance * weapon.KillProbabilityMilliUnits / 1_000;
         var geometric = ColliderHitResolution.TryGetHull(
                 ColliderHitResolution.ActiveCatalog(),
                 target.CatalogUnitId,
@@ -1399,7 +1416,10 @@ internal static class CampaignSimulation
             }
         }
 
-        var rangeDamage = 40_000 + (1_000 - rangeRatio) * 80
+        var nativeWarheadDamage = weapon.WarheadPower > 0
+            ? Math.Clamp(weapon.WarheadPower * 2_500, 10_000, 700_000)
+            : 40_000;
+        var rangeDamage = nativeWarheadDamage + (1_000 - rangeRatio) * 80
             + KeyedValue(state.Metadata.Seed, actor.EntityId.Value, dueAt, $"engagement-damage-{target.EntityId}") % 90_001;
         rangeDamage = target.SimulationDomain switch
         {
@@ -1536,7 +1556,9 @@ internal static class CampaignSimulation
             : entity.Analogue.AltitudeOrDepthMeters;
 
     private static bool IsBallisticGun(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "gun")
+        weapon.MechanicsSource != WeaponMechanicsSource.Approximation
+            ? weapon.Kind == OrdnanceKind.Projectile
+            : ContainsToken(weapon.AmmunitionId, "gun")
         || ContainsToken(weapon.AmmunitionId, "shell")
         || ContainsToken(weapon.AmmunitionId, "ciws")
         || weapon.MaximumRange.Value < 40_000
@@ -1547,19 +1569,26 @@ internal static class CampaignSimulation
             && !ContainsToken(weapon.AmmunitionId, "sam");
 
     private static long OrdnanceSpeedMetersPerTick(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "torpedo") ? 25_000
+        weapon.MechanicsSource != WeaponMechanicsSource.Approximation && weapon.SpeedMetersPerSecond > 0
+            ? checked(weapon.SpeedMetersPerSecond * ActivityInterval)
+        : ContainsToken(weapon.AmmunitionId, "torpedo") ? 25_000
         : ContainsToken(weapon.AmmunitionId, "bomb") ? 40_000
         : ContainsToken(weapon.AmmunitionId, "decoy") || ContainsToken(weapon.AmmunitionId, "chaff") ? 8_000
         : 100_000;
 
     private static OrdnanceKind OrdnanceKindFor(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "torpedo") ? OrdnanceKind.Torpedo
+        weapon.MechanicsSource != WeaponMechanicsSource.Approximation ? weapon.Kind
+        : ContainsToken(weapon.AmmunitionId, "torpedo") ? OrdnanceKind.Torpedo
         : ContainsToken(weapon.AmmunitionId, "bomb") ? OrdnanceKind.Bomb
         : ContainsToken(weapon.AmmunitionId, "decoy") || ContainsToken(weapon.AmmunitionId, "chaff") ? OrdnanceKind.Decoy
         : OrdnanceKind.Missile;
 
-    private static long ActiveSeekerRangeMeters(InFlightOrdnance round) =>
-        ContainsToken(round.AmmunitionId, "torpedo") ? 40_000 : 120_000;
+    private static long ActiveSeekerRangeMeters(
+        InFlightOrdnance round,
+        OperationalWeaponCapability? weapon) =>
+        weapon is { MechanicsSource: not WeaponMechanicsSource.Approximation, SeekerRange.Value: > 0 }
+            ? weapon.SeekerRange.Value
+            : ContainsToken(round.AmmunitionId, "torpedo") ? 40_000 : 120_000;
 
     private static long TerminalHitRadiusMeters(InFlightOrdnance round) =>
         ContainsToken(round.AmmunitionId, "torpedo") ? 5_000 : 15_000;
@@ -1577,7 +1606,8 @@ internal static class CampaignSimulation
         && CanIlluminate(state, shooter, target);
 
     private static OrdnanceGuidance OrdnanceGuidanceFor(OperationalWeaponCapability weapon) =>
-        ContainsToken(weapon.AmmunitionId, "bomb")
+        weapon.MechanicsSource != WeaponMechanicsSource.Approximation ? weapon.Guidance
+        : ContainsToken(weapon.AmmunitionId, "bomb")
             || ContainsToken(weapon.AmmunitionId, "decoy")
             || ContainsToken(weapon.AmmunitionId, "chaff")
             ? OrdnanceGuidance.Inertial
@@ -1649,7 +1679,9 @@ internal static class CampaignSimulation
         var targetingDistanceMeters = RoundedGreatCircleDistanceMeters(actor.Coordinate, targetingCoordinate);
         var weapon = EffectiveWeapons(actor)
             .Where(item => OperationalWeaponTargets(item.TargetClassification, classification))
+            .Where(item => actualDistanceMeters >= item.MinimumRange.Value)
             .Where(item => actualDistanceMeters <= item.MaximumRange.Value)
+            .Where(item => targetingDistanceMeters >= item.MinimumRange.Value)
             .Where(item => targetingDistanceMeters <= item.MaximumRange.Value)
             .Where(item => visual
                 || targetingDistanceMeters + estimate!.UncertaintyRadiusMeters <= item.MaximumRange.Value)
@@ -1753,11 +1785,13 @@ internal static class CampaignSimulation
         }
 
         var ammunition = weapon.AmmunitionId;
-        if (ContainsToken(ammunition, "torpedo"))
+        if (weapon.Kind == OrdnanceKind.Torpedo
+            || weapon.MechanicsSource == WeaponMechanicsSource.Approximation && ContainsToken(ammunition, "torpedo"))
         {
             return 22_000;
         }
-        if (ContainsToken(ammunition, "bomb"))
+        if (weapon.Kind == OrdnanceKind.Bomb
+            || weapon.MechanicsSource == WeaponMechanicsSource.Approximation && ContainsToken(ammunition, "bomb"))
         {
             return 18_000;
         }

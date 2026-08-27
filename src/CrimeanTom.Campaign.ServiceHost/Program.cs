@@ -150,7 +150,6 @@ app.MapGet("/player/status", () => Results.Ok(new
 {
     status = "ready",
     scenarioId = "ww3-plus-1989",
-    scenarioEntityCount = 4_096,
 }));
 app.MapGet("/player/campaigns", async (
     SqliteCampaignJournal store,
@@ -184,11 +183,7 @@ app.MapPost("/player/campaigns", async (
             CampaignSchema.Version,
             CampaignSchema.AlgorithmVersion), cancellationToken);
         await store.CreatePlayerProfileAsync(campaignId, "local-player", cancellationToken);
-        var seeded = await coordinator.BootstrapFuldaGapAsync(
-            campaignId,
-            cancellationToken,
-            forceMultiplier: 1,
-            maximumEntities: 4_096);
+        var seeded = await coordinator.BootstrapFuldaGapAsync(campaignId, cancellationToken);
         var coalitionId = string.Equals(request.Coalition, "Red", StringComparison.OrdinalIgnoreCase)
             ? seeded.RedCoalitionId
             : seeded.BlueCoalitionId;
@@ -382,24 +377,6 @@ app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap", async (
     Guid.TryParseExact(campaignId, "N", out var parsed)
         ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(new CampaignId(parsed), cancellationToken))
         : Results.BadRequest(new { error = "invalid-campaign-id" }));
-app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap/{forceMultiplier:int}", async (
-    string campaignId,
-    int forceMultiplier,
-    CampaignCoordinator coordinator,
-    CancellationToken cancellationToken) =>
-    Guid.TryParseExact(campaignId, "N", out var parsed) && forceMultiplier is >= 1 and <= 100
-        ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(
-            new CampaignId(parsed), cancellationToken, forceMultiplier))
-        : Results.BadRequest(new { error = "invalid-campaign-id-or-force-multiplier" }));
-app.MapPost("/control/campaigns/{campaignId}/bootstrap/fulda-gap/subset/{entityCount:int}", async (
-    string campaignId,
-    int entityCount,
-    CampaignCoordinator coordinator,
-    CancellationToken cancellationToken) =>
-    Guid.TryParseExact(campaignId, "N", out var parsed) && entityCount is >= 1 and <= 4_096
-        ? Results.Ok(await coordinator.BootstrapFuldaGapAsync(
-            new CampaignId(parsed), cancellationToken, forceMultiplier: 1, maximumEntities: entityCount))
-        : Results.BadRequest(new { error = "invalid-campaign-id-or-entity-count" }));
 app.MapGet("/campaigns/{campaignId}", async (
     string campaignId,
     CampaignCoordinator coordinator,

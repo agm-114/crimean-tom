@@ -209,7 +209,7 @@ app.innerHTML = `
         <input id="campaign-name" class="command-input" maxlength="80" value="World War III, 1989" />
         <label class="metric-label" for="campaign-coalition">Player coalition</label>
         <select id="campaign-coalition" class="command-input"><option value="Blue">NATO AND ALIGNED</option><option value="Red">WARSAW PACT AND ALIGNED</option></select>
-        <button id="create-campaign" class="command-cell">CREATE 4,096-ENTITY CAMPAIGN</button>
+        <button id="create-campaign" class="command-cell">CREATE CAMPAIGN</button>
       </div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>TIME AND SAVE</span><span id="run-state" class="text-[#e2e2e2]">PAUSED</span></div>
       <div class="grid grid-cols-3 gap-1 p-2">
@@ -760,7 +760,7 @@ async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").valu
 async function createCampaign(): Promise<void> {
   const button = byId<HTMLButtonElement>("create-campaign");
   button.disabled = true;
-  byId("connection-message").textContent = "CREATING AND SAVING THE 4,096-ENTITY CAMPAIGN";
+  byId("connection-message").textContent = "CREATING AND SAVING THE CAMPAIGN";
   try {
     const created = await request<PlayerCampaign>("/player/campaigns", {
       method: "POST",

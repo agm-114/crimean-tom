@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 11;
-    public const int AlgorithmVersion = 20;
+    public const int Version = 12;
+    public const int AlgorithmVersion = 22;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -123,7 +123,24 @@ public enum ContactClassification
 public sealed record OperationalWeaponCapability(
     string AmmunitionId,
     ContactClassification TargetClassification,
-    DistanceMeters MaximumRange);
+    DistanceMeters MaximumRange,
+    DistanceMeters MinimumRange = default,
+    OrdnanceKind Kind = OrdnanceKind.Missile,
+    OrdnanceGuidance Guidance = OrdnanceGuidance.Active,
+    long SpeedMetersPerSecond = 0,
+    DistanceMeters SeekerRange = default,
+    bool RequiresExternalGuidance = false,
+    int LaunchReliabilityMilliUnits = 1_000,
+    int KillProbabilityMilliUnits = 1_000,
+    int WarheadPower = 0,
+    WeaponMechanicsSource MechanicsSource = WeaponMechanicsSource.Approximation);
+
+public enum WeaponMechanicsSource
+{
+    Approximation,
+    SeaPowerCatalogIncomplete,
+    SeaPowerCatalog,
+}
 
 public enum OperationalOutcomeKind
 {
@@ -191,6 +208,7 @@ public enum OrdnanceGuidance
     Active,
     SemiActive,
     Command,
+    Passive,
 }
 
 public enum OrdnanceKind
@@ -199,6 +217,7 @@ public enum OrdnanceKind
     Torpedo,
     Bomb,
     Decoy,
+    Projectile,
 }
 
 public sealed record AnalogueTacticalCondition(

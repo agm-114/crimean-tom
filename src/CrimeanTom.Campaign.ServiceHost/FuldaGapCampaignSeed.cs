@@ -11,15 +11,8 @@ internal static partial class FuldaGapCampaignSeed
     private static readonly Lazy<SeaPowerOperationalCatalog?> OperationalCatalog =
         new(SeaPowerOperationalCatalog.TryCreateFromEnvironment);
 
-    public static FuldaGapSeed Create(
-        CampaignId campaignId,
-        int forceMultiplier = 1,
-        int? maximumEntities = null)
+    public static FuldaGapSeed Create(CampaignId campaignId)
     {
-        if (forceMultiplier is < 1 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(forceMultiplier), "Fulda force multiplier must be between 1 and 100.");
-        }
         var blue = new CoalitionId(Id(campaignId, "coalition-blue"));
         var red = new CoalitionId(Id(campaignId, "coalition-red"));
         var regions = new[]
@@ -162,20 +155,21 @@ internal static partial class FuldaGapCampaignSeed
             .Concat(Ww3AirbaseComplexEntities(campaignId, blue, red))
             .Concat(Ww3FormationPhysicalEntities(campaignId, blue, red))
             .ToArray();
-        var entities = Enumerable.Range(0, forceMultiplier)
-            .SelectMany(echelon => echelon == 0
-                ? entityTemplates
-                : entityTemplates.Select(template => Replicate(campaignId, template, echelon)))
+        var entities = entityTemplates
             .OrderBy(item => item.EntityId)
             .ToArray();
         var entityIds = entities.ToDictionary(item => item.Key, item => item.EntityId, StringComparer.Ordinal);
         var groups = entities.GroupBy(item => item.GroupKey, StringComparer.Ordinal)
-            .Select(group => new FuldaGroupSeed(
-                group.Key,
-                new GroupId(Id(campaignId, $"group-{group.Key}")),
-                GroupName(group.Key),
-                group.First().CoalitionId,
-                group.Select(item => item.EntityId).OrderBy(item => item).ToArray()))
+            .Select(group =>
+            {
+                var members = group.OrderBy(item => item.EntityId).ToArray();
+                return new FuldaGroupSeed(
+                    group.Key,
+                    new GroupId(Id(campaignId, $"group-{group.Key}")),
+                    members.Length == 1 ? members[0].Name : GroupName(group.Key),
+                    members[0].CoalitionId,
+                    members.Select(item => item.EntityId).ToArray());
+            })
             .OrderBy(item => item.GroupId)
             .ToArray();
         var groupIds = groups.ToDictionary(item => item.Key, item => item.GroupId, StringComparer.Ordinal);
@@ -217,122 +211,19 @@ internal static partial class FuldaGapCampaignSeed
         }.Concat(Ww3PlusOrders(campaignId, groupIds, regionIds))
             .Concat(Ww3AirbaseComplexOrders(campaignId, blue, red, groupIds, regionIds))
             .ToArray();
-        var selectedCount = maximumEntities ?? entities.Length;
-        if (selectedCount is < 1 || selectedCount > entities.Length)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(maximumEntities),
-                $"Fulda entity limit must be between 1 and {entities.Length}.");
-        }
-
-        // Keep the normal full seed unchanged. Bounded performance fixtures use
-        // a stable cross-theater sample while retaining Pharris as the tactical
-        // campaign/Sea Power anchor required by the current POC sync path.
-        var selectedEntities = selectedCount == entities.Length
-            ? entities
-            : SelectBoundedEntities(entities, selectedCount);
-        var selectedEntitySet = selectedEntities
-            .Select(item => item.EntityId)
-            .ToHashSet();
-        var selectedGroups = groups
-            .Select(group => group with
-            {
-                Members = group.Members.Where(selectedEntitySet.Contains).ToArray(),
-            })
-            .Where(group => group.Members.Count > 0)
-            .ToArray();
-        var selectedGroupSet = selectedGroups
-            .Select(group => group.GroupId)
-            .ToHashSet();
-        var selectedOrders = orders
-            .Where(order => selectedGroupSet.Contains(order.GroupId))
-            .ToArray();
-        var selectedEntityIds = selectedEntities
-            .ToDictionary(item => item.Key, item => item.EntityId, StringComparer.Ordinal);
-
         return new FuldaGapSeed(
             campaignId,
-            forceMultiplier,
             blue,
             red,
             regions,
             bases,
-            selectedEntities,
-            selectedGroups,
-            selectedOrders,
+            entities,
+            groups,
+            orders,
             regionIds,
             baseIds,
-            selectedEntityIds);
+            entityIds);
     }
-
-    private static FuldaEntitySeed[] SelectBoundedEntities(
-        IReadOnlyList<FuldaEntitySeed> entities,
-        int selectedCount)
-    {
-        // Bounded fixtures sample complete formations. Groups containing a POC
-        // anchor or a natively supported Knox are considered first, so retaining
-        // one important entity does not leave the rest of its formation behind.
-        var groups = entities
-            .GroupBy(item => item.GroupKey, StringComparer.Ordinal)
-            .Select(group => new
-            {
-                Group = group,
-                Priority = group.Any(item => string.Equals(item.Key, "pharris", StringComparison.Ordinal)) ? 0
-                    : group.Any(IsRequiredBoundedEntity) ? 1
-                    : 2,
-            })
-            .OrderBy(item => item.Priority)
-            .ThenBy(item => StableSampleKey(item.Group.Key), StringComparer.Ordinal)
-            .ToArray();
-        var selected = new List<FuldaEntitySeed>(selectedCount);
-        var selectedKeys = new HashSet<string>(StringComparer.Ordinal);
-        var remaining = selectedCount;
-        foreach (var candidateGroup in groups)
-        {
-            var candidates = candidateGroup.Group
-                .OrderBy(item => item.Key, StringComparer.Ordinal)
-                .ToArray();
-            if (candidates.Length > remaining)
-            {
-                continue;
-            }
-            selected.AddRange(candidates);
-            foreach (var candidate in candidates)
-            {
-                selectedKeys.Add(candidate.Key);
-            }
-            remaining -= candidates.Length;
-            if (remaining == 0)
-            {
-                break;
-            }
-        }
-        if (remaining > 0)
-        {
-            selected.AddRange(entities
-                .Where(item => !selectedKeys.Contains(item.Key))
-                .OrderByDescending(IsRequiredBoundedEntity)
-                .ThenBy(item => StableSampleKey(item.Key), StringComparer.Ordinal)
-                .Take(remaining));
-        }
-        return selected
-            .OrderBy(item => item.EntityId)
-            .ToArray();
-    }
-
-    private static bool IsRequiredBoundedEntity(FuldaEntitySeed item) =>
-        string.Equals(item.Key, "pharris", StringComparison.Ordinal)
-        || string.Equals(item.Key, "yorktown", StringComparison.Ordinal)
-        || string.Equals(item.Key, "spruance", StringComparison.Ordinal)
-        || string.Equals(item.Key, "krivak", StringComparison.Ordinal)
-        || string.Equals(item.HostEntityKey, "yorktown", StringComparison.Ordinal)
-        || string.Equals(item.GroupKey, "blue-pacific-cvg", StringComparison.Ordinal)
-        || string.Equals(item.GroupKey, "blue-usec-carriers-group-01", StringComparison.Ordinal)
-        || string.Equals(item.GroupKey, "red-northern-aviation-cruiser-group-01", StringComparison.Ordinal)
-        || string.Equals(item.CatalogUnitId, "usn_ff_knox_84", StringComparison.Ordinal);
-
-    private static string StableSampleKey(string entityKey) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entityKey)));
 
     private static FuldaRegionSeed Region(CampaignId campaignId, string key, string name, string[] neighbors) =>
         new(key, new RegionId(Id(campaignId, $"region-{key}")), name, neighbors);
@@ -414,42 +305,52 @@ internal static partial class FuldaGapCampaignSeed
             .Select(item => new OperationalWeaponCapability(
                 item.AmmunitionId,
                 Enum.Parse<ContactClassification>(item.TargetType),
-                DistanceMeters.FromMeters(item.MaximumRangeMeters)))
+                DistanceMeters.FromMeters(item.MaximumRangeMeters),
+                DistanceMeters.FromMeters(item.MinimumRangeMeters),
+                OrdnanceKindFor(item.OrdnanceType),
+                OrdnanceGuidanceFor(item.GuidanceType),
+                item.SpeedMetersPerSecond,
+                DistanceMeters.FromMeters(item.SeekerRangeMeters),
+                RequiresExternalGuidance(item.GuidanceType, item.MidCourseCorrection),
+                item.LaunchReliabilityMilliUnits,
+                item.KillProbabilityMilliUnits,
+                item.WarheadPower,
+                MechanicsSourceFor(item.OrdnanceType, item.SpeedMetersPerSecond)))
             .ToArray() ?? [];
     }
+
+    private static WeaponMechanicsSource MechanicsSourceFor(string type, long speedMetersPerSecond) =>
+        string.Equals(type.Trim(), "Projectile", StringComparison.OrdinalIgnoreCase)
+            || speedMetersPerSecond > 0
+            ? WeaponMechanicsSource.SeaPowerCatalog
+            : WeaponMechanicsSource.SeaPowerCatalogIncomplete;
+
+    private static OrdnanceKind OrdnanceKindFor(string type) => type.Trim().ToUpperInvariant() switch
+    {
+        "TORPEDO" => OrdnanceKind.Torpedo,
+        "BOMB" => OrdnanceKind.Bomb,
+        "DECOY" or "CHAFF" or "NOISEMAKER" => OrdnanceKind.Decoy,
+        "PROJECTILE" => OrdnanceKind.Projectile,
+        _ => OrdnanceKind.Missile,
+    };
+
+    private static OrdnanceGuidance OrdnanceGuidanceFor(int guidanceType) => guidanceType switch
+    {
+        1 or 4 or 6 or 8 or 9 => OrdnanceGuidance.Passive,
+        2 or 5 => OrdnanceGuidance.SemiActive,
+        3 or 7 or 10 => OrdnanceGuidance.Active,
+        _ => OrdnanceGuidance.Inertial,
+    };
+
+    private static bool RequiresExternalGuidance(int guidanceType, int midCourseCorrection) =>
+        guidanceType is 2 or 5 || midCourseCorrection == 1;
 
     private static FuldaOrderSeed Order(
         CampaignId campaignId, string key, GroupId groupId, RegionId destination, OrderKind kind) =>
         new(new OrderId(Id(campaignId, $"order-{key}")), groupId, kind, destination);
 
-    private static FuldaEntitySeed Replicate(CampaignId campaignId, FuldaEntitySeed template, int echelon)
-    {
-        var suffix = $"echelon-{echelon + 1:D3}";
-        var latitudeOffset = ((echelon % 9) - 4) * 12_000;
-        var longitudeOffset = (((echelon / 9) % 9) - 4) * 18_000;
-        var key = $"{template.Key}-{suffix}";
-        return template with
-        {
-            Key = key,
-            EntityId = new EntityId(Id(campaignId, $"entity-{key}")),
-            Name = $"{template.Name} / {echelon + 1:D3}",
-            Coordinate = GeoCoordinate.FromMicrodegrees(
-                template.Coordinate.LatitudeMicrodegrees + latitudeOffset,
-                template.Coordinate.LongitudeMicrodegrees + longitudeOffset),
-            GroupKey = $"{template.GroupKey}-{suffix}",
-            HostEntityKey = template.HostEntityKey is null
-                ? null
-                : $"{template.HostEntityKey}-{suffix}",
-        };
-    }
-
     private static string GroupName(string key)
     {
-        var echelonMarker = key.IndexOf("-echelon-", StringComparison.Ordinal);
-        if (echelonMarker >= 0)
-        {
-            return $"{GroupName(key[..echelonMarker])} / {key[(echelonMarker + 9)..]}";
-        }
         return key switch
         {
         "blue-giuk" => "NATO GIUK barrier",
@@ -505,7 +406,6 @@ internal static partial class FuldaGapCampaignSeed
 
 internal sealed record FuldaGapSeed(
     CampaignId CampaignId,
-    int ForceMultiplier,
     CoalitionId BlueCoalitionId,
     CoalitionId RedCoalitionId,
     IReadOnlyList<FuldaRegionSeed> Regions,

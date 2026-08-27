@@ -6,7 +6,16 @@ namespace CrimeanTom.LoadAcceleration;
 public sealed record SeaPowerCatalogWeapon(
     string AmmunitionId,
     string TargetType,
-    long MaximumRangeMeters);
+    long MinimumRangeMeters,
+    long MaximumRangeMeters,
+    string OrdnanceType,
+    int GuidanceType,
+    int MidCourseCorrection,
+    long SpeedMetersPerSecond,
+    long SeekerRangeMeters,
+    int LaunchReliabilityMilliUnits,
+    int KillProbabilityMilliUnits,
+    int WarheadPower);
 
 public sealed class SeaPowerOperationalCatalog
 {
@@ -154,8 +163,78 @@ public sealed class SeaPowerOperationalCatalog
         }
         foreach (var target in targets.OrderBy(value => value, StringComparer.Ordinal))
         {
-            yield return new SeaPowerCatalogWeapon(ammunitionId, target, maximumRangeMeters);
+            yield return new SeaPowerCatalogWeapon(
+                ammunitionId,
+                target,
+                MinimumRangeMeters(ammunition),
+                maximumRangeMeters,
+                ammunition.Value("General", "Type"),
+                ammunition.Integer("Guidance", "GuidanceType"),
+                ammunition.Integer("Guidance", "MidCourseCorrection"),
+                SpeedMetersPerSecond(ammunition),
+                SeekerRangeMeters(ammunition),
+                ProbabilityMilliUnits(ammunition, "Guidance", "LaunchReliability", percentage: true, fallback: 1_000),
+                ProbabilityMilliUnits(ammunition, "WarheadData", "KillProbability", percentage: false, fallback: 1_000),
+                ammunition.Integer("WarheadData", "Power"));
         }
+    }
+
+    private static long MinimumRangeMeters(IniDocument ammunition)
+    {
+        var nauticalMiles = ammunition.Number("Guidance", "MinLaunchRange");
+        return nauticalMiles <= 0
+            ? 0
+            : checked((long)Math.Round(nauticalMiles * 1_852d, MidpointRounding.AwayFromZero));
+    }
+
+    private static long SpeedMetersPerSecond(IniDocument ammunition)
+    {
+        var metersPerSecond = ammunition.Number("Physics", "MuzzleVelocity");
+        if (metersPerSecond > 0)
+        {
+            return checked((long)Math.Round(metersPerSecond, MidpointRounding.AwayFromZero));
+        }
+        var knots = ammunition.Number("Guidance", "MaxVelocity");
+        if (knots <= 0)
+        {
+            knots = ammunition.Numbers("Guidance", "SpeedSettings").DefaultIfEmpty().Max();
+        }
+        if (knots <= 0)
+        {
+            knots = ammunition.Number("Guidance", "TerminalVelocity");
+        }
+        return knots <= 0
+            ? 0
+            : checked((long)Math.Round(knots * 0.514444d, MidpointRounding.AwayFromZero));
+    }
+
+    private static long SeekerRangeMeters(IniDocument ammunition)
+    {
+        var active = ammunition.Number("Guidance", "SeekerActiveRange");
+        var passive = ammunition.Number("Guidance", "SeekerPassiveRange");
+        var nauticalMiles = Math.Max(active, passive);
+        return nauticalMiles <= 0
+            ? 0
+            : checked((long)Math.Round(nauticalMiles * 1_852d, MidpointRounding.AwayFromZero));
+    }
+
+    private static int ProbabilityMilliUnits(
+        IniDocument ammunition,
+        string section,
+        string key,
+        bool percentage,
+        int fallback)
+    {
+        var raw = ammunition.Value(section, key);
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        {
+            return fallback;
+        }
+        var normalized = percentage ? value / 100d : value;
+        return Math.Clamp(
+            checked((int)Math.Round(normalized * 1_000d, MidpointRounding.AwayFromZero)),
+            0,
+            1_000);
     }
 
     private static long RangeMeters(IniDocument ammunition)

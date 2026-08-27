@@ -15,9 +15,11 @@ namespace SeaPowerRuntimeBridge;
 
 internal static class RuntimeVisualRenderProxyAdapter
 {
-    private const int MaximumProxyCount = 4_096;
+    private const int MaximumProjectionBatchRecords = 32_768;
     private const int MaximumAttachedMapMarkers = 384;
-    private const float MapClusterCellPixels = 42f;
+    private const float StrategicMapClusterCellPixels = 24f;
+    private const float OperationalMapClusterCellPixels = 16f;
+    private const float UnclusteredMapCellPixels = 2f;
     private const float ViewportRefreshIntervalSeconds = 0.5f;
     private const int MaximumViewportRecordsPerFrame = 512;
     private const double ViewportWorkBudgetMilliseconds = 1.5d;
@@ -532,18 +534,18 @@ internal static class RuntimeVisualRenderProxyAdapter
                     processed++;
                     if (!double.IsFinite(point.X)
                         || !double.IsFinite(point.Y)
-                        || point.X < -MapClusterCellPixels
-                        || point.X > work.Width + MapClusterCellPixels
-                        || point.Y < -MapClusterCellPixels
-                        || point.Y > work.Height + MapClusterCellPixels)
+                        || point.X < -work.ClusterCellPixels
+                        || point.X > work.Width + work.ClusterCellPixels
+                        || point.Y < -work.ClusterCellPixels
+                        || point.Y > work.Height + work.ClusterCellPixels)
                     {
                         continue;
                     }
                     work.HitCandidates.Add(new ViewportHitCandidate(record, point.X, point.Y));
 
                     var key = (
-                        (int)Math.Floor(point.X / MapClusterCellPixels),
-                        (int)Math.Floor(point.Y / MapClusterCellPixels));
+                        (int)Math.Floor(point.X / work.ClusterCellPixels),
+                        (int)Math.Floor(point.Y / work.ClusterCellPixels));
                     if (!work.Clusters.TryGetValue(key, out var cluster))
                     {
                         work.Clusters[key] = new MapCluster(
@@ -557,8 +559,8 @@ internal static class RuntimeVisualRenderProxyAdapter
                         continue;
                     }
 
-                    var centerX = (key.Item1 + 0.5d) * MapClusterCellPixels;
-                    var centerY = (key.Item2 + 0.5d) * MapClusterCellPixels;
+                    var centerX = (key.Item1 + 0.5d) * work.ClusterCellPixels;
+                    var centerY = (key.Item2 + 0.5d) * work.ClusterCellPixels;
                     var candidateDistance = SquaredDistance(point.X, point.Y, centerX, centerY);
                     var currentDistance = SquaredDistance(
                         cluster.ScreenX,
@@ -675,7 +677,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         bounds = default!;
         try
         {
-            var padding = MapClusterCellPixels;
+            var padding = StrategicMapClusterCellPixels;
             const double metresPerDegree = 111_319.49079327358d;
             var paddedWidth = width + 2d * padding;
             var paddedHeight = height + 2d * padding;
@@ -913,9 +915,9 @@ internal static class RuntimeVisualRenderProxyAdapter
             || request.TaskforceId.Length > 128
             || request.Proxies is null
             || request.RemovedEntityIds is null
-            || request.Proxies.Length + request.RemovedEntityIds.Length > MaximumProxyCount)
+            || request.Proxies.Length + request.RemovedEntityIds.Length > MaximumProjectionBatchRecords)
         {
-            return "Positive projection generation and revision values, a canonical campaign ID, bounded taskforce ID, and at most 4096 map projections are required.";
+            return "Positive projection generation and revision values, a canonical campaign ID, bounded taskforce ID, and a bounded projection batch are required.";
         }
 
         var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -1133,6 +1135,7 @@ internal static class RuntimeVisualRenderProxyAdapter
         public int NextAttachmentIndex { get; set; }
         public long ElapsedMicroseconds { get; set; }
         public long MaximumSliceMicroseconds { get; set; }
+        public float ClusterCellPixels { get; private set; } = ClusterCellSize(sourceRecords.Length);
         public Dictionary<(int X, int Y), MapCluster> Clusters { get; } = [];
         public List<ViewportHitCandidate> HitCandidates { get; } = [];
         public Dictionary<VisualProxyRecord, MapMarkerAttachment> Desired { get; private set; } = [];
@@ -1142,7 +1145,21 @@ internal static class RuntimeVisualRenderProxyAdapter
         public void CompletePrefilter()
         {
             Records = PrefilteredRecords.ToArray();
+            ClusterCellPixels = ClusterCellSize(Records.Length);
             Phase = ViewportRefreshPhase.ScanRecords;
+        }
+
+        private static float ClusterCellSize(int visibleRecordCount)
+        {
+            if (visibleRecordCount <= MaximumAttachedMapMarkers)
+            {
+                return UnclusteredMapCellPixels;
+            }
+            if (visibleRecordCount <= MaximumAttachedMapMarkers * 2)
+            {
+                return OperationalMapClusterCellPixels;
+            }
+            return StrategicMapClusterCellPixels;
         }
 
         public void PrepareAttachments(

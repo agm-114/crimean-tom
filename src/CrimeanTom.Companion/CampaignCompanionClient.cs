@@ -1188,7 +1188,6 @@ public sealed class CampaignCompanionClient(
                     .Where(spec => spec is not null)
                     .Cast<SurfaceRenderProxySpecPayload>())
                 .OrderBy(spec => spec.EntityId, StringComparer.Ordinal)
-                .Take(4_096)
                 .ToArray();
 
         var desiredSpecs = proxies.ToDictionary(item => item.EntityId, StringComparer.Ordinal);
@@ -2645,7 +2644,7 @@ public sealed class CampaignCompanionClient(
                     LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
                     HeadingMillidegrees = QuantizeHeadingMilliDegrees(unit.HeadingDegrees.Value),
                     Telegraph = unit.Telegraph,
-                    FuelMilliunits = ScaleResource(
+                    FuelMilliunits = ResolveFuelResource(
                         assignment.InitialFuelMilliunits,
                         unit.FuelFractionMilliunits),
                     StoresMilliunits = ScaleResource(
@@ -2900,7 +2899,7 @@ public sealed class CampaignCompanionClient(
                 LongitudeMicrodegrees = checked((int)Math.Round(unit.Longitude.Value * 1_000_000)),
                 HeadingMillidegrees = QuantizeHeadingMilliDegrees(unit.HeadingDegrees.Value),
                 Telegraph = unit.Telegraph,
-                FuelMilliunits = ScaleResource(
+                FuelMilliunits = ResolveFuelResource(
                     assignment.InitialFuelMilliunits,
                     unit.FuelFractionMilliunits),
                 StoresMilliunits = ScaleResource(
@@ -4105,6 +4104,9 @@ public sealed class CampaignCompanionClient(
 
     private static long ScaleResource(long baseline, long? fractionMilliunits) => checked(
         baseline * Math.Clamp(fractionMilliunits ?? 1_000_000, 0, 1_000_000) / 1_000_000);
+
+    private static long ResolveFuelResource(long baseline, long? nativeFractionMilliunits) =>
+        Math.Clamp(nativeFractionMilliunits ?? baseline, 0, 1_000_000);
 
     private static int QuantizeHeadingMilliDegrees(double headingDegrees)
     {

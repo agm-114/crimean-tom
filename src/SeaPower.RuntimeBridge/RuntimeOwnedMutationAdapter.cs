@@ -4,6 +4,7 @@ using System.Text.Json;
 using CrimeanTom.Protocol;
 
 using SeaPower;
+using SeapowerUI.ViewModels;
 
 using UnityEngine;
 
@@ -254,7 +255,7 @@ internal static class RuntimeOwnedMutationAdapter
             .Select(pair =>
             {
                 var record = pair.Value;
-                var vessel = record.Unit;
+                var vessel = IsNativeObjectAvailable(record.Unit) ? record.Unit : null;
                 var lifecycleState = vessel == null
                     ? "detached-after-scene-loss"
                     : vessel.Disabled
@@ -330,6 +331,23 @@ internal static class RuntimeOwnedMutationAdapter
             SchedulerPolicy = "active-objects-consume-capacity; committed-suspended-objects-are-reclaimed",
             Entities = entries,
         };
+    }
+
+    private static bool IsNativeObjectAvailable(ObjectBase? unit)
+    {
+        if (ReferenceEquals(unit, null))
+        {
+            return false;
+        }
+
+        try
+        {
+            return unit != null && unit.gameObject != null && unit.transform != null;
+        }
+        catch (NullReferenceException)
+        {
+            return false;
+        }
     }
 
     public static MutationAdapterResult<RegisterOwnedHostedAircraftResultPayload>
@@ -1088,6 +1106,8 @@ internal static class RuntimeOwnedMutationAdapter
                 ApplyPortableState(created, sourceUnit);
                 InitializeAirborneState(created, created._geoPosition);
             }
+            ApplyTacticalPosture(created, request);
+            ApplyInitialEngagement(created, request);
             InjectFailure(request.FaultInjectionStep, "after-state-apply");
 
             var initialStoresQuantity = StoreQuantity(created);
@@ -2294,10 +2314,23 @@ internal static class RuntimeOwnedMutationAdapter
         }
 
         var parameters = vessel._obp;
-        if (parameters is null || parameters._maxFuel <= 0f)
+        if (parameters is null)
         {
             throw new InvalidOperationException(
-                "The owned unit has no native fuel capacity to restore.");
+                "The owned unit has no native parameters for fuel restoration.");
+        }
+        if (parameters._maxFuel <= 0f)
+        {
+            // Sea Power does not populate _maxFuel for its current ships and
+            // submarines. Their endurance remains campaign-owned. Aircraft
+            // and helicopters do expose native fuel, so zero still means that
+            // an airborne unit was not initialized correctly.
+            if (vessel is Aircraft or Helicopter)
+            {
+                throw new InvalidOperationException(
+                    "The owned aircraft has no native fuel capacity to restore.");
+            }
+            return;
         }
 
         var fraction = (float)(fuel / 1_000_000d);
@@ -2515,6 +2548,28 @@ internal static class RuntimeOwnedMutationAdapter
         if (request.Telegraph is < -1 or > 5)
         {
             return Invalid("telegraph must be between -1 and 5.");
+        }
+        if (request.WeaponStatus is not null
+            && !Enum.TryParse<ObjectBase.WeaponStatus>(
+                request.WeaponStatus,
+                ignoreCase: true,
+                out _))
+        {
+            return Invalid("weaponStatus must be Hold, Tight, or Free when supplied.");
+        }
+        if (request.MissionType is not null
+            && !Enum.TryParse<MissionEditorViewModel.MissionType>(
+                request.MissionType,
+                ignoreCase: true,
+                out _))
+        {
+            return Invalid("missionType is not a recognized Sea Power tactical mission type.");
+        }
+        if (!string.IsNullOrWhiteSpace(request.InitialTargetEntityId)
+            && (!ValidScopedId(request.InitialTargetEntityId, "unit:crimean-tom:")
+                || request.InitialShotsToFire is < 1 or > 16))
+        {
+            return Invalid("The initial target identity or requested shot count is invalid.");
         }
         var faultError = ValidateFaultInjection(
             request.FaultInjectionStep,
@@ -2792,6 +2847,16 @@ internal static class RuntimeOwnedMutationAdapter
                 continue;
             }
 
+            // A launched hosted aircraft can appear in ObjectsManager before
+            // Sea Power finishes populating its native fuel capacity. Keep it
+            // pending until that initialization is complete instead of making
+            // this read-only capture command throw.
+            if (launched is Aircraft or Helicopter
+                && launched._obp._maxFuel <= 0f)
+            {
+                continue;
+            }
+
             ApplyFuel(launched, hosted.FuelFractionMilliunits);
             ApplyDisplayName(launched, hosted.DisplayName);
             OwnedEntities.Add(entityId, new(
@@ -2948,6 +3013,119 @@ internal static class RuntimeOwnedMutationAdapter
         }
     }
 
+    private static void ApplyTacticalPosture(
+        ObjectBase unit,
+        MaterializeOwnedSurfaceUnitRequestPayload request)
+    {
+        if (request.WeaponStatus is not null
+            && Enum.TryParse<ObjectBase.WeaponStatus>(
+                request.WeaponStatus,
+                ignoreCase: true,
+                out var weaponStatus))
+        {
+            unit._weaponStatus = weaponStatus;
+        }
+
+        if (request.MissionType is not null
+            && Enum.TryParse<MissionEditorViewModel.MissionType>(
+                request.MissionType,
+                ignoreCase: true,
+                out var missionType))
+        {
+            unit._ai.CurrentMissionType.Value = missionType;
+        }
+
+        if (request.RadarsActive is bool radarsActive)
+        {
+            foreach (var radar in unit._obp!._searchRadarSystems)
+            {
+                if (radarsActive)
+                {
+                    radar.Enable();
+                }
+                else
+                {
+                    radar.Disable();
+                }
+            }
+            unit.IsAirSearchRadarsOn.Value = radarsActive;
+            unit.IsSurfaceSearchRadarsOn.Value = radarsActive;
+        }
+
+        if (request.ActiveSonarsEnabled is bool activeSonarsEnabled)
+        {
+            foreach (var sonar in unit._obp!._activeSonarSystems)
+            {
+                sonar._sonar.IsActive.Value = activeSonarsEnabled;
+                if (activeSonarsEnabled)
+                {
+                    sonar.Enable();
+                }
+            }
+        }
+
+        if (request.TowedArrayDeployed is bool towedArrayDeployed)
+        {
+            foreach (var sonar in unit._obp!._towedSonarSystems)
+            {
+                sonar._wasSetOn = towedArrayDeployed;
+                if (towedArrayDeployed)
+                {
+                    sonar.Enable();
+                }
+                else if (!sonar.IsClipOnArray)
+                {
+                    sonar.IsOn.Value = false;
+                    sonar.Disable();
+                }
+            }
+        }
+
+        unit._ai.AutoSetHidingState();
+    }
+
+    private static void ApplyInitialEngagement(
+        ObjectBase unit,
+        MaterializeOwnedSurfaceUnitRequestPayload request)
+    {
+        if (string.IsNullOrWhiteSpace(request.InitialTargetEntityId))
+        {
+            return;
+        }
+
+        var target = Singleton<ObjectsManager>.Instance._listOfAllObjects.FirstOrDefault(candidate =>
+            candidate != null
+            && !candidate.Disabled
+            && !candidate.IsDestroyed
+            && string.Equals(
+                candidate._campaignTag,
+                request.InitialTargetEntityId,
+                StringComparison.Ordinal));
+        if (target is null)
+        {
+            throw new InvalidOperationException(
+                $"Initial engagement target '{request.InitialTargetEntityId}' is not active.");
+        }
+
+        var ammunitionId = unit.GetDefaultAmmunitionForEngage(target);
+        if (string.IsNullOrWhiteSpace(ammunitionId)
+            || unit.getAmmunitionAmountByName(ammunitionId) <= 0)
+        {
+            throw new InvalidOperationException(
+                $"'{request.UnitTypeId}' has no native ammunition suitable for the initial target.");
+        }
+
+        var engageTask = new EngageTask(
+            ammunitionId,
+            target,
+            unit,
+            request.InitialShotsToFire)
+        {
+            _ignoreIfUndetected = true,
+        };
+        unit.AddEngageTask(engageTask);
+    }
+
     private static void SeedNativeAirborneCourse(ObjectBase unit, GeoPosition position)
     {
         // Sea Power's fixed-wing controller treats an airborne aircraft with no
@@ -3052,7 +3230,7 @@ internal static class RuntimeOwnedMutationAdapter
             5);
     }
 
-    private static void ApplyDisplayName(ObjectBase vessel, string displayName)
+    internal static void ApplyDisplayName(ObjectBase vessel, string displayName)
     {
         var normalized = displayName?.Trim() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(normalized))
@@ -3072,7 +3250,7 @@ internal static class RuntimeOwnedMutationAdapter
         }
     }
 
-    private static Taskforce? ResolveTaskforce(string requestedId)
+    internal static Taskforce? ResolveTaskforce(string requestedId)
     {
         var taskforces = Singleton<TaskforceManager>.Instance._taskForces
             .Where(taskforce => taskforce is not null)
@@ -3097,7 +3275,7 @@ internal static class RuntimeOwnedMutationAdapter
         return null;
     }
 
-    private static bool TaskforceMatchesRelationship(Taskforce taskforce, string relationship)
+    internal static bool TaskforceMatchesRelationship(Taskforce taskforce, string relationship)
     {
         var player = Globals._playerTaskforce;
         if (player is null)
@@ -3197,7 +3375,9 @@ internal static class RuntimeOwnedMutationAdapter
         {
             mismatches.Add($"telegraph expected={request.Telegraph} actual={realized.Telegraph}");
         }
-        if (!WithinOptionalMilliunits(
+        if ((realizedObject is Aircraft or Helicopter
+                || realized.FuelFractionMilliunits is not null)
+            && !WithinOptionalMilliunits(
                 realized.FuelFractionMilliunits,
                 request.FuelFractionMilliunits,
                 FuelFractionToleranceMilliunits))
@@ -3295,7 +3475,8 @@ internal static class RuntimeOwnedMutationAdapter
         {
             mismatches.Add($"telegraph expected={expected.Telegraph} actual={realized.Telegraph}");
         }
-        if (!WithinOptionalMilliunits(
+        if (realized.FuelFractionMilliunits is not null
+            && !WithinOptionalMilliunits(
                 realized.FuelFractionMilliunits,
                 expected.FuelFractionMilliunits,
                 FuelFractionToleranceMilliunits))
@@ -3391,6 +3572,7 @@ internal static class RuntimeOwnedMutationAdapter
         "sensor-state-application",
         "formation-state-application",
         "hosted-aircraft-application",
+        "surface-and-submarine-fuel-state-application",
     ];
 
     private static double NormalizeHeading(double value)

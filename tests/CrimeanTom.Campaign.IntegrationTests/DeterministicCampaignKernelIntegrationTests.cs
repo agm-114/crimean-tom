@@ -97,6 +97,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Equal(first.Events.Select(item => item.EventId), second.Events.Select(item => item.EventId));
         var decoded = CampaignCanonicalSerializer.Deserialize(firstBytes);
         Assert.Equal(firstBytes, CampaignCanonicalSerializer.Serialize(decoded));
+        Assert.True(first.State.Entities[Ids.RedKrivak].OperationalWeapons.SequenceEqual(
+            decoded.Entities[Ids.RedKrivak].OperationalWeapons));
 
         var canonicalJson = Encoding.UTF8.GetString(firstBytes);
         Assert.Contains(Ids.RedTruth, canonicalJson, StringComparison.Ordinal);
@@ -229,11 +231,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "5dedbaf738cc818202f6eead3d5480e3318e25997438c6c860a6be5766a84d03",
+            longHorizon.Hash == "9e992e1bf58001a5b333fdc74db2d7e437d8998d56fbdf86440fc5584aada194",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "873b86556f7f960195e704f29c714954d7263ab9b13115009a45dae64ea2c9c9",
+            migrated.Hash == "716bad81c979365f8c83459ac09460e2844123dfbd73accfde934b1139ce25f4",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -293,7 +295,17 @@ public sealed class DeterministicCampaignKernelIntegrationTests
                     new OperationalWeaponCapability(
                         "synthetic-catalog-anti-surface-missile",
                         ContactClassification.Surface,
-                        DistanceMeters.FromMeters(300_000)),
+                        DistanceMeters.FromMeters(300_000),
+                        DistanceMeters.FromMeters(2_000),
+                        OrdnanceKind.Missile,
+                        OrdnanceGuidance.Active,
+                        SpeedMetersPerSecond: 300,
+                        SeekerRange: DistanceMeters.FromMeters(35_000),
+                        RequiresExternalGuidance: false,
+                        LaunchReliabilityMilliUnits: 1_000,
+                        KillProbabilityMilliUnits: 850,
+                        WarheadPower: 90,
+                        MechanicsSource: WeaponMechanicsSource.SeaPowerCatalog),
                 ])), commands, events);
 
         var members = reverseCollectionInputs
@@ -581,16 +593,31 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             packagedResponse.OperationalPackages.Values,
             item => item.CoalitionId == Ids.BlueCoalition && item.RegionId == Ids.BlackSea);
         Assert.Equal(3, package.Members.Count);
-        Assert.Equal(package.AssemblyAt, package.Members[Ids.BlueGroup].StartsAt);
-        Assert.Equal(package.AssemblyAt, package.Members[Ids.PackageSubmarineGroup].StartsAt);
+        Assert.Equal(package.ExecuteAt.Quanta - 30, package.Members[Ids.BlueGroup].StartsAt.Quanta);
+        Assert.Equal(package.ExecuteAt.Quanta - 30, package.Members[Ids.PackageSubmarineGroup].StartsAt.Quanta);
         Assert.Equal(package.ExecuteAt.Quanta - 10, package.Members[Ids.PackageAirGroup].StartsAt.Quanta);
         Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.Strike);
         Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.AirCover);
         Assert.Contains(package.Members.Values, item => item.Role == OperationalPackageRole.AntiSubmarine);
-        Assert.Equal(OrderKind.Cap, packagedResponse.Orders[
-            Assert.IsType<OrderId>(packagedResponse.Groups[Ids.PackageAirGroup].ActiveOrderId)].Kind);
-        Assert.Equal(OrderKind.Asw, packagedResponse.Orders[
-            Assert.IsType<OrderId>(packagedResponse.Groups[Ids.PackageSubmarineGroup].ActiveOrderId)].Kind);
+        Assert.Null(packagedResponse.Groups[Ids.PackageAirGroup].ActiveOrderId);
+        Assert.Null(packagedResponse.Groups[Ids.PackageSubmarineGroup].ActiveOrderId);
+        var assembledResponse = SimulateForTest(
+            packagedResponse,
+            116,
+            package.Members[Ids.PackageSubmarineGroup].StartsAt);
+        if (assembledResponse.Groups[Ids.PackageSubmarineGroup].ActiveOrderId is { } assemblyOrderId)
+        {
+            Assert.Equal(OrderKind.Transit, assembledResponse.Orders[assemblyOrderId].Kind);
+        }
+        Assert.Null(assembledResponse.Groups[Ids.PackageAirGroup].ActiveOrderId);
+        var executingResponse = SimulateForTest(
+            assembledResponse,
+            117,
+            new CampaignTime(package.ExecuteAt.Quanta + 10));
+        Assert.Equal(OrderKind.Cap, executingResponse.Orders[
+            Assert.IsType<OrderId>(executingResponse.Groups[Ids.PackageAirGroup].ActiveOrderId)].Kind);
+        Assert.Equal(OrderKind.Asw, executingResponse.Orders[
+            Assert.IsType<OrderId>(executingResponse.Groups[Ids.PackageSubmarineGroup].ActiveOrderId)].Kind);
         var packageRecovery = SimulateForTest(packagedResponse with
         {
             Entities = packagedResponse.Entities.SetItem(
@@ -1118,8 +1145,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(11, CampaignSchema.Version);
-        Assert.Equal(20, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(12, CampaignSchema.Version);
+        Assert.Equal(22, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

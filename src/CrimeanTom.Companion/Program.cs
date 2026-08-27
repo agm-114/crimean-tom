@@ -1003,15 +1003,6 @@ static IResult? ValidateLandMutationRequest(
     {
         return sessionError;
     }
-    string[] supportedUnitTypes =
-    [
-        "usa_mbt_m60",
-        "usa_apc_m113",
-        "usa_aaa_vulcan",
-        "usa_mim-23_launcher",
-        "nato_ewr_station",
-        "nato_small_airbase",
-    ];
     if (string.IsNullOrWhiteSpace(request.Context.AssignmentId)
         || request.Context.AssignmentId.Length > 128
         || !request.Context.AssignmentId.StartsWith("assignment:", StringComparison.Ordinal)
@@ -1022,9 +1013,9 @@ static IResult? ValidateLandMutationRequest(
         || string.IsNullOrWhiteSpace(request.EntityId)
         || request.EntityId.Length > 128
         || !request.EntityId.StartsWith("unit:crimean-tom:", StringComparison.Ordinal)
-        || !supportedUnitTypes.Contains(request.UnitTypeId, StringComparer.Ordinal)
-        || !string.Equals(request.VariantId, "Default", StringComparison.Ordinal)
-        || !string.Equals(request.LoadoutId, "Default", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.UnitTypeId)
+        || string.IsNullOrWhiteSpace(request.VariantId)
+        || string.IsNullOrWhiteSpace(request.LoadoutId)
         || string.IsNullOrWhiteSpace(request.TaskforceId)
         || !double.IsFinite(request.Latitude)
         || !double.IsFinite(request.Longitude)

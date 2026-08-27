@@ -210,14 +210,19 @@ public sealed class MaterializeOwnedLandUnitRequestPayload
 {
     public OwnedMutationContextPayload Context { get; set; } = new();
     public string EntityId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
     public string UnitTypeId { get; set; } = string.Empty;
     public string VariantId { get; set; } = "Default";
     public string LoadoutId { get; set; } = "Default";
     public string TaskforceId { get; set; } = string.Empty;
+    public string Relationship { get; set; } = "Friendly";
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
+    public string? WeaponStatus { get; set; }
+    public string? MissionType { get; set; }
+    public bool? RadarsActive { get; set; }
 }
 
 public sealed class OwnedLandUnitStatePayload
@@ -274,6 +279,13 @@ public sealed class MaterializeOwnedSurfaceUnitRequestPayload
     public double HeadingDegrees { get; set; }
     public int Telegraph { get; set; }
     public long? FuelFractionMilliunits { get; set; }
+    public string? WeaponStatus { get; set; }
+    public string? MissionType { get; set; }
+    public bool? RadarsActive { get; set; }
+    public bool? ActiveSonarsEnabled { get; set; }
+    public bool? TowedArrayDeployed { get; set; }
+    public string InitialTargetEntityId { get; set; } = string.Empty;
+    public int InitialShotsToFire { get; set; } = 2;
     public OwnedSurfaceCheckpointPayload? SourceCheckpoint { get; set; }
     public string FaultInjectionStep { get; set; } = string.Empty;
     public string FaultInjectionConfirmation { get; set; } = string.Empty;
@@ -1808,7 +1820,7 @@ public sealed class CampaignMaintenanceUnitPayload
 
 public sealed class UiAutomationActionResultPayload
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
 
     public string Action { get; set; } = string.Empty;
 
@@ -1823,6 +1835,18 @@ public sealed class UiAutomationActionResultPayload
     public CampaignManagementStatePayload Campaign { get; set; } = new();
 
     public ScenarioAutomationStatePayload? Scenario { get; set; }
+
+    public bool? MapVisible { get; set; }
+
+    public bool? MapFullscreen { get; set; }
+
+    public double? MapZoomLevel { get; set; }
+
+    public double? MapCenterLatitude { get; set; }
+
+    public double? MapCenterLongitude { get; set; }
+
+    public bool? MapNativeClampingApplied { get; set; }
 }
 
 public sealed class StartScenarioRequestPayload
@@ -1871,7 +1895,7 @@ public sealed class ScenarioAutomationStatePayload
 
 public sealed class UiInspectionPayload
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 4;
 
     public string SceneName { get; set; } = string.Empty;
 
@@ -1888,6 +1912,14 @@ public sealed class UiInspectionPayload
     public double? TimeCompression { get; set; }
 
     public bool MapVisible { get; set; }
+
+    public bool MapFullscreen { get; set; }
+
+    public double? MapZoomLevel { get; set; }
+
+    public double? MapCenterLatitude { get; set; }
+
+    public double? MapCenterLongitude { get; set; }
 
     public bool HudVisible { get; set; }
 
@@ -1946,6 +1978,14 @@ public sealed class SetTacticalHudPanelRequestPayload
     public string Panel { get; set; } = string.Empty;
 
     public bool? Visible { get; set; }
+
+    public bool? Fullscreen { get; set; }
+
+    public double? ZoomLevel { get; set; }
+
+    public double? CenterLatitude { get; set; }
+
+    public double? CenterLongitude { get; set; }
 }
 
 public sealed class ExperimentalPauseRequestPayload

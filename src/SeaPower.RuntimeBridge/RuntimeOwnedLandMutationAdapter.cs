@@ -6,6 +6,7 @@ using System.Text.Json;
 using CrimeanTom.Protocol;
 
 using SeaPower;
+using SeapowerUI.ViewModels;
 
 using UnityEngine;
 
@@ -226,7 +227,11 @@ internal static class RuntimeOwnedLandMutationAdapter
             {
                 var record = pair.Value;
                 var landUnit = record.LandUnit;
-                var lifecycle = landUnit == null
+                if (!IsNativeObjectAvailable(landUnit))
+                {
+                    landUnit = null;
+                }
+                var lifecycle = ReferenceEquals(landUnit, null)
                     ? "detached-after-scene-loss"
                     : landUnit.Disabled
                         ? record.RecoveryRequired
@@ -285,6 +290,23 @@ internal static class RuntimeOwnedLandMutationAdapter
             SchedulerPolicy = "active-objects-consume-capacity; committed-suspended-objects-are-reclaimed",
             Entities = entries,
         };
+    }
+
+    private static bool IsNativeObjectAvailable(LandUnit? unit)
+    {
+        if (ReferenceEquals(unit, null))
+        {
+            return false;
+        }
+
+        try
+        {
+            return unit != null && unit.gameObject != null && unit.transform != null;
+        }
+        catch (NullReferenceException)
+        {
+            return false;
+        }
     }
 
     public static MutationAdapterResult<MaterializeOwnedLandUnitResultPayload> Materialize(
@@ -371,6 +393,7 @@ internal static class RuntimeOwnedLandMutationAdapter
         {
             var position = new GeoPosition(request.Latitude, request.Longitude, 0d);
             var heading = new Vector3(0f, (float)NormalizeHeading(request.HeadingDegrees), 0f);
+            var taskforce = RuntimeOwnedMutationAdapter.ResolveTaskforce(request.TaskforceId)!;
             created = Singleton<ObjectsManager>.Instance.createLandUnit(
                 request.VariantId,
                 request.LoadoutId,
@@ -380,7 +403,7 @@ internal static class RuntimeOwnedLandMutationAdapter
                 position,
                 request.Telegraph,
                 heading,
-                Globals._playerTaskforce);
+                taskforce);
             if (created == null)
             {
                 return MutationAdapterResult<MaterializeOwnedLandUnitResultPayload>.Failure(
@@ -389,6 +412,7 @@ internal static class RuntimeOwnedLandMutationAdapter
             }
 
             created._campaignTag = request.EntityId;
+            RuntimeOwnedMutationAdapter.ApplyDisplayName(created, request.DisplayName);
             created._geoPosition = position;
             var local = Utils.longLatToLocalV3(position, Globals._currentCenterTile);
             var terrainHeight = (float)terrain.TerrainHeightUnity.Value;
@@ -397,6 +421,7 @@ internal static class RuntimeOwnedLandMutationAdapter
             created.transform.eulerAngles = heading;
             created.DesiredAltitude.Value = local.y;
             created.setTelegraph(request.Telegraph);
+            ApplyTacticalPosture(created, request);
             Physics.SyncTransforms();
 
             var realized = Capture(created, request, terrain);
@@ -1903,14 +1928,29 @@ internal static class RuntimeOwnedLandMutationAdapter
             return Invalid(ProtocolErrorCodes.MutationPreconditionFailed,
                 "The requested land materialization profile is not verified by this runtime build.");
         }
-        if (!string.Equals(
-                request.TaskforceId,
-                RuntimeOwnedMutationAdapter.GetPlayerTaskforceId(),
-                StringComparison.Ordinal)
-            || Globals._playerTaskforce is null)
+        var taskforce = RuntimeOwnedMutationAdapter.ResolveTaskforce(request.TaskforceId);
+        if (taskforce is null
+            || !RuntimeOwnedMutationAdapter.TaskforceMatchesRelationship(
+                taskforce,
+                request.Relationship))
         {
             return Invalid(ProtocolErrorCodes.MutationPreconditionFailed,
-                "taskforceId must resolve exactly to the current player task force.");
+                "taskforceId must resolve to the declared friendly or opposing task-force side.");
+        }
+        if (request.DisplayName.Length > 128
+            || request.WeaponStatus is not null
+                && !Enum.TryParse<ObjectBase.WeaponStatus>(
+                    request.WeaponStatus,
+                    ignoreCase: true,
+                    out _)
+            || request.MissionType is not null
+                && !Enum.TryParse<MissionEditorViewModel.MissionType>(
+                    request.MissionType,
+                    ignoreCase: true,
+                    out _))
+        {
+            return Invalid(ProtocolErrorCodes.MutationPreconditionFailed,
+                "The land display name or tactical posture is invalid.");
         }
         if (!Singleton<GameMain>.InstanceExists()
             || !Singleton<SceneCreator>.InstanceExists()
@@ -2006,6 +2046,48 @@ internal static class RuntimeOwnedLandMutationAdapter
         LoadoutId = loadoutId,
         SimulationDomain = domain,
     };
+
+    private static void ApplyTacticalPosture(
+        LandUnit unit,
+        MaterializeOwnedLandUnitRequestPayload request)
+    {
+        if (request.WeaponStatus is not null
+            && Enum.TryParse<ObjectBase.WeaponStatus>(
+                request.WeaponStatus,
+                ignoreCase: true,
+                out var weaponStatus))
+        {
+            unit._weaponStatus = weaponStatus;
+        }
+
+        if (request.MissionType is not null
+            && Enum.TryParse<MissionEditorViewModel.MissionType>(
+                request.MissionType,
+                ignoreCase: true,
+                out var missionType))
+        {
+            unit._ai.CurrentMissionType.Value = missionType;
+        }
+
+        if (request.RadarsActive is bool radarsActive)
+        {
+            foreach (var radar in unit._obp!._searchRadarSystems)
+            {
+                if (radarsActive)
+                {
+                    radar.Enable();
+                }
+                else
+                {
+                    radar.Disable();
+                }
+            }
+            unit.IsAirSearchRadarsOn.Value = radarsActive;
+            unit.IsSurfaceSearchRadarsOn.Value = radarsActive;
+        }
+
+        unit._ai.AutoSetHidingState();
+    }
 
     private static OwnedLandMaterializationProfilePayload CloneProfile(
         OwnedLandMaterializationProfilePayload profile) => new()

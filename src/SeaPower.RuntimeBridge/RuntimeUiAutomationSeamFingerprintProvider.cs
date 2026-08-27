@@ -15,7 +15,11 @@ internal static class RuntimeUiAutomationSeamFingerprintProvider
         | BindingFlags.Instance
         | BindingFlags.Static;
 
-    public static UiAutomationSeamCapabilityPayload[] Capture()
+    private static readonly Lazy<UiAutomationSeamCapabilityPayload[]> Cached = new(CaptureCore);
+
+    public static UiAutomationSeamCapabilityPayload[] Capture() => [.. Cached.Value];
+
+    private static UiAutomationSeamCapabilityPayload[] CaptureCore()
     {
         return
         [
@@ -97,11 +101,12 @@ internal static class RuntimeUiAutomationSeamFingerprintProvider
                 ]),
             CaptureGroupSafe(
                 "tactical-hud-panel",
-                "f346b53b868af2c2966bd08c0ede4ad7cf4c62e9861cf661d35013136c49e9ad",
+                "2260086dd72a6929950188eaab63d15bfcf101fafe504b00054f97f243413ce0",
                 [GameCommandTypes.SetTacticalHudPanel],
                 () =>
                 [
                     RequiredMethod(typeof(MainGameViewModel), "ToggleMapOpen"),
+                    RequiredMethod(typeof(MainGameViewModel), "ToggleMapFullscreen"),
                     RequiredMethod(typeof(MainGameViewModel), "SetHudVisible"),
                     RequiredMethod(typeof(PauseMenuViewModel), "get_ResumeCommand"),
                 ]),

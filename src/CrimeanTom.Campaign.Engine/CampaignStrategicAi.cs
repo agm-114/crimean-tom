@@ -16,8 +16,8 @@ namespace CrimeanTom.Campaign.Engine;
 internal static class CampaignStrategicAi
 {
     private const long DirectorCadenceQuanta = 40;
-    private const long CommitmentQuanta = 80;
-    private const long RecoveryLatchQuanta = 40;
+    private const long CommitmentQuanta = 300;
+    private const long RecoveryLatchQuanta = 60;
     private const long OrderQuanta = 30;
 
     public static CampaignState ResolveIntent(CampaignState state, CampaignTime dueAt)
@@ -44,7 +44,7 @@ internal static class CampaignStrategicAi
             }
         }
 
-        return IssueOperationalOrders(result, dueAt);
+        return CampaignOperationalControllers.IssueOrders(result, dueAt);
     }
 
     private static CampaignState PruneOperationalPackages(
@@ -115,6 +115,10 @@ internal static class CampaignStrategicAi
             (StrategicObjectiveId ObjectiveId, ContactClassification Classification), int>();
         var assignedPackageRoleCounts = new Dictionary<
             (StrategicObjectiveId ObjectiveId, OperationalPackageRole Role), int>();
+        var assignedDomainCounts = new Dictionary<
+            (StrategicObjectiveId ObjectiveId, SimulationDomain Domain), int>();
+        var assignedRouteCounts = new Dictionary<
+            (RegionId Origin, RegionId Next, SimulationDomain Domain), int>();
         var replannedGroups = new List<GroupId>();
         var commitments = state.GroupCommitments;
         foreach (var group in view.Groups.Values)
@@ -140,6 +144,8 @@ internal static class CampaignStrategicAi
                     assignedCounts,
                     assignedResponseCounts,
                     assignedPackageRoleCounts,
+                    assignedDomainCounts,
+                    assignedRouteCounts,
                     state.Metadata.Seed,
                     dueAt);
             }
@@ -148,6 +154,17 @@ internal static class CampaignStrategicAi
             {
                 assignedCounts[objectiveId] = assignedCounts.GetValueOrDefault(objectiveId) + 1;
                 var selectedObjective = planned.First(item => item.ObjectiveId == objectiveId);
+                if (!group.ContainsInstallation)
+                {
+                    var domainKey = (objectiveId, group.Domain);
+                    assignedDomainCounts[domainKey] = assignedDomainCounts.GetValueOrDefault(domainKey) + 1;
+                    var next = NextHop(view.Neighbors, group.RegionId, selectedObjective.RegionId);
+                    if (next != group.RegionId)
+                    {
+                        var routeKey = (group.RegionId, next, group.Domain);
+                        assignedRouteCounts[routeKey] = assignedRouteCounts.GetValueOrDefault(routeKey) + 1;
+                    }
+                }
                 foreach (var classification in ResponsiveClasses(view, group, selectedObjective))
                 {
                     var key = (objectiveId, classification);
@@ -269,44 +286,73 @@ internal static class CampaignStrategicAi
             {
                 continue;
             }
-            var groups = objectiveGroups.OrderBy(group => group.GroupId).ToArray();
-            if (groups.Length < 2)
+            var remaining = objectiveGroups.OrderBy(group => group.GroupId).ToList();
+            var packageIndex = 0;
+            while (remaining.Count >= 2)
             {
-                continue;
+                var anchor = remaining[0];
+                var roleCounts = new Dictionary<OperationalPackageRole, int>();
+                var selected = new List<StrategicGroupView>();
+                while (selected.Count < 6 && remaining.Count > 0)
+                {
+                    var candidate = remaining
+                        .Select(group => new
+                        {
+                            Group = group,
+                            Role = SelectPackageRole(view, group, objective, roleCounts),
+                            Distance = Distance(view.Neighbors, anchor.RegionId, group.RegionId),
+                        })
+                        .OrderBy(item => roleCounts.GetValueOrDefault(item.Role))
+                        .ThenBy(item => item.Distance)
+                        .ThenBy(item => item.Role)
+                        .ThenBy(item => item.Group.GroupId)
+                        .First();
+                    selected.Add(candidate.Group);
+                    roleCounts[candidate.Role] = roleCounts.GetValueOrDefault(candidate.Role) + 1;
+                    remaining.Remove(candidate.Group);
+                }
+                if (selected.Count < 2)
+                {
+                    break;
+                }
+
+                var maximumTransit = selected.Max(group =>
+                    Distance(view.Neighbors, group.RegionId, objective.RegionId));
+                var executeAt = new CampaignTime(checked(
+                    dueAt.Quanta + OrderQuanta + Math.Min(120, maximumTransit * 15L)));
+                var expiresAt = new CampaignTime(selected.Min(group =>
+                    commitments[group.GroupId].ExpiresAt.Quanta));
+                if (executeAt.Quanta >= expiresAt.Quanta)
+                {
+                    executeAt = new CampaignTime(Math.Max(dueAt.Quanta, expiresAt.Quanta - OrderQuanta));
+                }
+                var members = ImmutableSortedDictionary<GroupId, OperationalPackageMemberState>.Empty;
+                roleCounts.Clear();
+                foreach (var group in selected)
+                {
+                    var role = SelectPackageRole(view, group, objective, roleCounts);
+                    roleCounts[role] = roleCounts.GetValueOrDefault(role) + 1;
+                    members = members.Add(group.GroupId, new OperationalPackageMemberState(
+                        group.GroupId,
+                        role,
+                        PackageStartsAt(group.Domain, dueAt, executeAt)));
+                }
+                var packageId = new OperationalPackageId(KeyedGuid(
+                    state.Metadata.Seed,
+                    objective.ObjectiveId.Value,
+                    dueAt,
+                    $"operational-package-{epoch}-{packageIndex++}"));
+                packages = packages.Add(packageId, new OperationalPackageState(
+                    packageId,
+                    view.CoalitionId,
+                    objective.ObjectiveId,
+                    objective.RegionId,
+                    dueAt,
+                    executeAt,
+                    expiresAt,
+                    members,
+                    new EntityRevision(1)));
             }
-            var executeAt = new CampaignTime(checked(dueAt.Quanta + OrderQuanta));
-            var expiresAt = new CampaignTime(groups.Min(group => commitments[group.GroupId].ExpiresAt.Quanta));
-            if (executeAt.Quanta > expiresAt.Quanta)
-            {
-                executeAt = expiresAt;
-            }
-            var roleCounts = new Dictionary<OperationalPackageRole, int>();
-            var members = ImmutableSortedDictionary<GroupId, OperationalPackageMemberState>.Empty;
-            foreach (var group in groups)
-            {
-                var role = SelectPackageRole(view, group, objective, roleCounts);
-                roleCounts[role] = roleCounts.GetValueOrDefault(role) + 1;
-                var startsAt = PackageStartsAt(group.Domain, dueAt, executeAt);
-                members = members.Add(group.GroupId, new OperationalPackageMemberState(
-                    group.GroupId,
-                    role,
-                    startsAt));
-            }
-            var packageId = new OperationalPackageId(KeyedGuid(
-                state.Metadata.Seed,
-                objective.ObjectiveId.Value,
-                dueAt,
-                $"operational-package-{epoch}"));
-            packages = packages.Add(packageId, new OperationalPackageState(
-                packageId,
-                view.CoalitionId,
-                objective.ObjectiveId,
-                objective.RegionId,
-                dueAt,
-                executeAt,
-                expiresAt,
-                members,
-                new EntityRevision(1)));
         }
         return packages;
     }
@@ -498,6 +544,8 @@ internal static class CampaignStrategicAi
         IReadOnlyDictionary<StrategicObjectiveId, int> assignedCounts,
         IReadOnlyDictionary<(StrategicObjectiveId, ContactClassification), int> assignedResponseCounts,
         IReadOnlyDictionary<(StrategicObjectiveId, OperationalPackageRole), int> assignedPackageRoleCounts,
+        IReadOnlyDictionary<(StrategicObjectiveId, SimulationDomain), int> assignedDomainCounts,
+        IReadOnlyDictionary<(RegionId, RegionId, SimulationDomain), int> assignedRouteCounts,
         long seed,
         CampaignTime dueAt)
     {
@@ -510,14 +558,25 @@ internal static class CampaignStrategicAi
                 continue;
             }
             var distance = Distance(view.Neighbors, group.RegionId, objective.RegionId);
-            if (distance == int.MaxValue)
+            if (distance == int.MaxValue || distance > MaximumObjectiveDistance(group.Domain))
+            {
+                continue;
+            }
+            if (!group.ContainsInstallation
+                && assignedDomainCounts.GetValueOrDefault((objective.ObjectiveId, group.Domain))
+                    >= ObjectiveDomainCapacity(objective.Kind, group.Domain))
             {
                 continue;
             }
             var saturation = assignedCounts.GetValueOrDefault(objective.ObjectiveId);
+            var next = NextHop(view.Neighbors, group.RegionId, objective.RegionId);
+            var routeLoad = next == group.RegionId
+                ? 0
+                : assignedRouteCounts.GetValueOrDefault((group.RegionId, next, group.Domain));
             var score = objective.PriorityMilliUnits * 1_000L
                 - distance * 150_000L
                 - saturation * 100_000L
+                - routeLoad * 140_000L
                 + Affinity(group, objective.Kind)
                 + ThreatResponseAffinity(view, group, objective, assignedResponseCounts)
                 + PackageRoleAffinity(view, group, objective, assignedPackageRoleCounts)
@@ -529,6 +588,47 @@ internal static class CampaignStrategicAi
             }
         }
         return best?.ObjectiveId;
+    }
+
+    private static int MaximumObjectiveDistance(SimulationDomain domain) => domain switch
+    {
+        SimulationDomain.Installation => 0,
+        SimulationDomain.Ground or SimulationDomain.LandAbstract => 1,
+        SimulationDomain.RotaryWing => 2,
+        SimulationDomain.Air => 5,
+        SimulationDomain.Maritime => 7,
+        SimulationDomain.Logistics => 8,
+        _ => 4,
+    };
+
+    private static int ObjectiveDomainCapacity(StrategicObjectiveKind kind, SimulationDomain domain) => domain switch
+    {
+        SimulationDomain.Installation => int.MaxValue,
+        SimulationDomain.Ground => kind == StrategicObjectiveKind.Defend ? 10 : 8,
+        SimulationDomain.LandAbstract => 5,
+        SimulationDomain.Air => kind == StrategicObjectiveKind.Interdict ? 8 : 5,
+        SimulationDomain.RotaryWing => 4,
+        SimulationDomain.Maritime => kind == StrategicObjectiveKind.Interdict ? 7 : 5,
+        SimulationDomain.Logistics => kind == StrategicObjectiveKind.Sustain ? 4 : 2,
+        _ => 4,
+    };
+
+    private static RegionId NextHop(
+        IReadOnlyDictionary<RegionId, ImmutableSortedSet<RegionId>> neighbors,
+        RegionId origin,
+        RegionId destination)
+    {
+        if (origin == destination)
+        {
+            return origin;
+        }
+        return neighbors[origin]
+            .Select(candidate => (Region: candidate, Distance: Distance(neighbors, candidate, destination)))
+            .Where(item => item.Distance != int.MaxValue)
+            .OrderBy(item => item.Distance)
+            .ThenBy(item => item.Region)
+            .Select(item => item.Region)
+            .FirstOrDefault(origin);
     }
 
     private static long PackageRoleAffinity(
@@ -562,96 +662,7 @@ internal static class CampaignStrategicAi
         };
     }
 
-    private static CampaignState IssueOperationalOrders(CampaignState state, CampaignTime dueAt)
-    {
-        var groups = state.Groups;
-        var orders = state.Orders;
-        var packageMembers = state.OperationalPackages.Values
-            .SelectMany(package => package.Members.Values.Select(member => (Package: package, Member: member)))
-            .ToDictionary(item => item.Member.GroupId);
-        foreach (var group in state.Groups.Values)
-        {
-            if (group.ActiveOrderId is not null
-                || !state.GroupCommitments.TryGetValue(group.GroupId, out var commitment)
-                || commitment.ExpiresAt.Quanta <= dueAt.Quanta)
-            {
-                continue;
-            }
-            var members = group.Members.Select(id => state.Entities[id])
-                .Where(item => IsOperational(state, item))
-                .ToArray();
-            // A canonical group containing a fixed installation is one defensive
-            // complex. Moving only its fuel farm or support vehicles would split
-            // authority from the runway/radar that makes the group meaningful,
-            // while including the installation creates an order that can never
-            // arrive because installations have zero movement. Static complexes
-            // defend and engage in place without a movement order.
-            if (members.Length == 0
-                || members.Any(item => item.SimulationDomain == SimulationDomain.Installation))
-            {
-                continue;
-            }
-
-            var first = members[0];
-            RegionId destination;
-            OrderKind kind;
-            var startsAt = dueAt;
-            var mustCompleteBy = new CampaignTime(checked(dueAt.Quanta + OrderQuanta));
-            if (commitment.WithdrawLatched)
-            {
-                var home = members.Select(item => item.HomeBaseId)
-                    .Where(item => item is not null)
-                    .Select(item => state.Bases[item!.Value].RegionId)
-                    .Distinct()
-                    .OrderBy(item => item)
-                    .FirstOrDefault();
-                if (home == default || home == first.RegionId)
-                {
-                    continue;
-                }
-                destination = home;
-                kind = OrderKind.Withdraw;
-            }
-            else if (commitment.ObjectiveId is { } objectiveId
-                && state.StrategicObjectives.TryGetValue(objectiveId, out var objective))
-            {
-                destination = objective.RegionId;
-                kind = OperationalOrderKind(first, objective.Kind);
-                if (packageMembers.TryGetValue(group.GroupId, out var packageMember))
-                {
-                    startsAt = packageMember.Member.StartsAt;
-                    mustCompleteBy = packageMember.Package.ExecuteAt;
-                    kind = PackageOrderKind(kind, packageMember.Member.Role);
-                }
-            }
-            else
-            {
-                continue;
-            }
-
-            var orderId = new OrderId(KeyedGuid(
-                state.Metadata.Seed, group.GroupId.Value, dueAt,
-                $"strategic-{kind}-{destination.Value:N}"));
-            var order = new OrderState(
-                orderId,
-                group.GroupId,
-                kind,
-                destination,
-                startsAt,
-                mustCompleteBy,
-                CompletedAt: null,
-                new EntityRevision(1));
-            orders = orders.SetItem(orderId, order);
-            groups = groups.SetItem(group.GroupId, group with
-            {
-                ActiveOrderId = orderId,
-                Revision = group.Revision.Next(),
-            });
-        }
-        return state with { Groups = groups, Orders = orders };
-    }
-
-    private static OrderKind PackageOrderKind(OrderKind fallback, OperationalPackageRole role) =>
+    internal static OrderKind PackageOrderKind(OrderKind fallback, OperationalPackageRole role) =>
         role switch
         {
             OperationalPackageRole.AirCover => OrderKind.Cap,
@@ -662,7 +673,7 @@ internal static class CampaignStrategicAi
             _ => fallback,
         };
 
-    private static OrderKind OperationalOrderKind(EntityState lead, StrategicObjectiveKind objective) =>
+    internal static OrderKind OperationalOrderKind(EntityState lead, StrategicObjectiveKind objective) =>
         lead.SimulationDomain switch
         {
             SimulationDomain.Air or SimulationDomain.RotaryWing => objective switch
@@ -687,6 +698,10 @@ internal static class CampaignStrategicAi
 
     private static bool IsCompatible(StrategicGroupView group, StrategicObjectiveState objective)
     {
+        if (group.IsNonCombatant)
+        {
+            return false;
+        }
         if (group.ContainsInstallation)
         {
             return objective.Kind == StrategicObjectiveKind.Defend && objective.RegionId == group.RegionId;
@@ -877,6 +892,7 @@ internal static class CampaignStrategicAi
         SimulationDomain Domain,
         bool ContainsInstallation,
         bool ContainsSubsurface,
+        bool IsNonCombatant,
         ImmutableSortedSet<ContactClassification> EngagementClasses,
         bool RequiresRecovery,
         bool RecoveryReady);
@@ -926,8 +942,10 @@ internal static class CampaignStrategicAi
                     group.GroupId,
                     members[0].RegionId,
                     members[0].SimulationDomain,
-                    members.Any(item => item.SimulationDomain == SimulationDomain.Installation),
+                    members.Any(IsFixedOperationalSite),
                     members.Any(IsSubsurface),
+                    members.All(IsCivilianCatalog)
+                        && group.Name.StartsWith("Civilian ", StringComparison.Ordinal),
                     members.SelectMany(item => item.OperationalWeapons)
                         .Select(item => item.TargetClassification)
                         .ToImmutableSortedSet(),
@@ -942,4 +960,22 @@ internal static class CampaignStrategicAi
             return new CoalitionStrategicView(coalitionId, neighbors, bases, groups, intelligence);
         }
     }
+
+    internal static bool IsFixedOperationalSite(EntityState entity)
+    {
+        var catalog = entity.CatalogUnitId;
+        return entity.SimulationDomain == SimulationDomain.Installation
+            || catalog.StartsWith("tgt_", StringComparison.Ordinal)
+            || catalog.StartsWith("warehouses_", StringComparison.Ordinal)
+            || catalog.StartsWith("oil_terminal_", StringComparison.Ordinal)
+            || catalog.StartsWith("civ_comm_", StringComparison.Ordinal)
+            || catalog.StartsWith("civ_radio", StringComparison.Ordinal)
+            || catalog.StartsWith("civ_spar_rig", StringComparison.Ordinal)
+            || catalog.StartsWith("civ_tgt_bridge", StringComparison.Ordinal)
+            || catalog.StartsWith("port_", StringComparison.Ordinal);
+    }
+
+    private static bool IsCivilianCatalog(EntityState entity) =>
+        entity.CatalogUnitId.StartsWith("civ_", StringComparison.Ordinal)
+        || entity.CatalogUnitId.StartsWith("merchant_", StringComparison.Ordinal);
 }

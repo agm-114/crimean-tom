@@ -95,18 +95,21 @@ internal static partial class FuldaGapCampaignSeed
         IReadOnlyDictionary<string, RegionId> regionIds) =>
         Ww3PlusPackages(default, default)
             .Where(package => package.DestinationRegionKey is not null)
-            .SelectMany(package => Enumerable.Range(0, PackageGroups(package).Count).Select(groupIndex =>
-            {
-                var groupKey = PackageGroupKey(package, groupIndex);
-                return groupIds.TryGetValue(groupKey, out var groupId)
-                    ? Order(
-                    campaignId,
-                    $"{groupKey}-{package.OrderKind.ToString().ToLowerInvariant()}",
-                    groupId,
-                    regionIds[package.DestinationRegionKey!],
-                    package.OrderKind)
-                    : null;
-            }))
+            .SelectMany(package => PackageGroups(package)
+                .Select((catalogUnitIds, groupIndex) => (catalogUnitIds, groupIndex))
+                .Where(group => !group.catalogUnitIds.All(IsFixedInstallationCatalog))
+                .Select(group =>
+                {
+                    var groupKey = PackageGroupKey(package, group.groupIndex);
+                    return groupIds.TryGetValue(groupKey, out var groupId)
+                        ? Order(
+                        campaignId,
+                        $"{groupKey}-{package.OrderKind.ToString().ToLowerInvariant()}",
+                        groupId,
+                        regionIds[package.DestinationRegionKey!],
+                        package.OrderKind)
+                        : null;
+                }))
             .Where(order => order is not null)
             .Cast<FuldaOrderSeed>()
             .ToArray();
@@ -148,11 +151,19 @@ internal static partial class FuldaGapCampaignSeed
         FuldaEntitySeed parent,
         bool isBlue)
     {
+        var parentPosition = new SeedPosition(
+            parent.Coordinate.LatitudeMicrodegrees,
+            parent.Coordinate.LongitudeMicrodegrees);
+        var facing = FormationFacing(parent.RegionKey, isBlue);
         var armorCatalogIds = isBlue
             ? new[] { "usa_mbt_abrams", "usa_mbt_m60" }
             : new[] { "wp_mbt_t-72a", "wp_mbt_t-55m" };
         for (var index = 0; index < armorCatalogIds.Length; index++)
         {
+            var armorPosition = OffsetPosition(
+                parentPosition,
+                0.8d,
+                facing + (index == 0 ? -28d : 28d));
             yield return Entity(
                 campaignId,
                 $"{parent.Key}-physical-armor-{index + 1:D2}",
@@ -160,14 +171,15 @@ internal static partial class FuldaGapCampaignSeed
                 armorCatalogIds[index],
                 parent.CoalitionId,
                 parent.RegionKey,
-                parent.Coordinate.LatitudeMicrodegrees + ((index + 1) * 7_000),
-                parent.Coordinate.LongitudeMicrodegrees - ((index + 1) * 6_000),
+                armorPosition.LatitudeMicrodegrees,
+                armorPosition.LongitudeMicrodegrees,
                 parent.HomeBaseKey,
                 parent.GroupKey,
                 SimulationDomain.Ground,
                 operationalWeapons: Array.Empty<OperationalWeaponCapability>());
         }
 
+        var shoradPosition = OffsetPosition(parentPosition, 1.2d, facing + 180d);
         yield return Entity(
             campaignId,
             $"{parent.Key}-physical-shorad",
@@ -175,8 +187,8 @@ internal static partial class FuldaGapCampaignSeed
             isBlue ? "usa_aaa_vulcan" : "wp_sa-13_launcher",
             parent.CoalitionId,
             parent.RegionKey,
-            parent.Coordinate.LatitudeMicrodegrees - 8_000,
-            parent.Coordinate.LongitudeMicrodegrees + 9_000,
+            shoradPosition.LatitudeMicrodegrees,
+            shoradPosition.LongitudeMicrodegrees,
             parent.HomeBaseKey,
             parent.GroupKey,
             SimulationDomain.Ground,
@@ -184,6 +196,16 @@ internal static partial class FuldaGapCampaignSeed
                 isBlue ? "formation-vulcan-shorad" : "formation-sa-13-shorad",
                 isBlue ? 4_500 : 8_000));
     }
+
+    private static double FormationFacing(string regionKey, bool isBlue) => regionKey switch
+    {
+        "fulda" or "northag" => isBlue ? 105d : 285d,
+        "korea" or "korea-land" => isBlue ? 350d : 170d,
+        "taiwan" or "taiwan-land" => isBlue ? 285d : 105d,
+        "japan" or "japan-home" => isBlue ? 335d : 155d,
+        "iran-land" or "iraq-land" => isBlue ? 75d : 255d,
+        _ => isBlue ? 90d : 270d,
+    };
 
     private static IReadOnlyList<FuldaOrderSeed> Ww3AirbaseComplexOrders(
         CampaignId campaignId,
@@ -205,24 +227,24 @@ internal static partial class FuldaGapCampaignSeed
 
     private static IReadOnlyList<Ww3AirbaseComplex> Ww3AirbaseComplexes(CoalitionId blue, CoalitionId red) =>
     [
-        Airbase("blue-oceana-complex", "Oceana", blue, "usec", "oceana", 36_821_000, -76_033_000, "midatl", "nato_small_airbase", "usa_radar_tps-43", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
-        Airbase("blue-north-island-complex", "North Island", blue, "uswc", "north-island", 32_699_000, -117_215_000, "hawaii", "nato_small_airbase", "usa_radar_tps-43", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_kc-135a"]),
-        Airbase("blue-whidbey-complex", "Whidbey Island", blue, "pnw", "whidbey", 48_352_000, -122_656_000, "northpac", "nato_small_airbase", "usa_radar_tps-63", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
+        Airbase("blue-oceana-complex", "Oceana", blue, "usec", "oceana", 36_821_000, -76_033_000, "midatl", "nato_small_airbase", "usa_radar_tps-43", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usn_f-14a", "usn_a-6e", "usn_e-2c"]),
+        Airbase("blue-north-island-complex", "North Island", blue, "uswc", "north-island", 32_699_000, -117_215_000, "hawaii", "nato_small_airbase", "usa_radar_tps-43", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usn_f-14a", "usn_a-7e", "usn_e-2c"]),
+        Airbase("blue-whidbey-complex", "Whidbey Island", blue, "pnw", "whidbey", 48_352_000, -122_656_000, "northpac", "nato_small_airbase", "usa_radar_tps-63", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usn_f-14a", "usn_a-6e", "usn_ea-6b"]),
         Airbase("blue-ramstein-complex", "Ramstein", blue, "northag", "ramstein", 49_437_000, 7_600_000, "fulda", "nato_small_airbase", "nato_fps-20_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
         Airbase("blue-bitburg-complex", "Bitburg", blue, "northag", "bitburg", 49_946_000, 6_565_000, "fulda", "nato_small_airbase", "nato_tps-27_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_kc-135a"]),
         Airbase("blue-spangdahlem-complex", "Spangdahlem", blue, "northag", "spangdahlem", 49_973_000, 6_692_000, "fulda", "nato_small_airbase", "nato_fps-6_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
         Airbase("blue-keflavik-complex", "Keflavik", blue, "giuk", "keflavik", 63_980_000, -22_600_000, "norsea", "nato_small_airbase", "nato_fps-20_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
-        Airbase("blue-bodo-complex", "Bodo", blue, "norsea", "bodo", 67_270_000, 14_370_000, "barents", "nato_small_airbase", "nato_tps-27_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a"]),
+        Airbase("blue-bodo-complex", "Bodo", blue, "norsea", "bodo", 67_270_000, 14_370_000, "barents", "nato_small_airbase", "nato_tps-27_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-5e", "usaf_f-4e", "usaf_e-3a"], "Royal Norwegian Air Force"),
         Airbase("blue-lajes-complex", "Lajes", blue, "midatl", "lajes", 38_762_000, -27_091_000, "wapp", "nato_small_airbase", "nato_fps-20_radar", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_f-4e", "usaf_kc-135a"]),
         Airbase("blue-andersen-complex", "Andersen", blue, "northpac", "andersen", 13_584_000, 144_930_000, "japan", "nato_small_airbase", "usa_radar_tps-63", ["usa_mim-23_launcher", "nato_sam_skyguard", "usa_sam_site_nike_hercules"], ["usaf_f-15c", "usaf_b-52g", "usaf_kc-135a"]),
-        Airbase("red-san-antonio-complex", "San Antonio de los Banos", red, "cuba", "san-antonio-cuba", 22_871_000, -82_509_000, "florida", "wp_large_pvo_airbase", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"]),
-        Airbase("red-holguin-complex", "Holguin", red, "cuba", "holguin", 20_786_000, -76_315_000, "caribbean", "wp_airbase_2", "wp_p-18_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"]),
-        Airbase("red-cienfuegos-complex", "Cienfuegos", red, "cuba", "cienfuegos", 22_150_000, -80_443_000, "caribbean", "wp_airbase_1", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"]),
+        Airbase("red-san-antonio-complex", "San Antonio de los Banos", red, "cuba", "san-antonio-cuba", 22_871_000, -82_509_000, "florida", "wp_large_pvo_airbase", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"], "Cuban Air Force"),
+        Airbase("red-holguin-complex", "Holguin", red, "cuba", "holguin", 20_786_000, -76_315_000, "caribbean", "wp_airbase_2", "wp_p-18_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"], "Cuban Air Force"),
+        Airbase("red-cienfuegos-complex", "Cienfuegos", red, "cuba", "cienfuegos", 22_150_000, -80_443_000, "caribbean", "wp_airbase_1", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-23mld", "wp_mig-21", "wp_mi-14"], "Cuban Air Force"),
         Airbase("red-olenya-complex", "Olenya", red, "barents", "olenya", 68_151_000, 33_463_000, "norsea", "wp_large_pvo_airbase", "wp_p-14_radar", ["wp_sam_site_sa-11", "wp_sam_site_sa-5", "wp_sam_site_sa-10"], ["wp_mig-25pd", "wp_tu-22m2", "wp_tu-95rt"]),
         Airbase("red-peenemunde-complex", "Peenemunde", red, "baltic", "peenemunde", 54_140_000, 13_770_000, "baltap", "wp_airbase_3", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-10"], ["wp_mig-23mld", "wp_su-24m", "wp_mig-25pd"]),
         Airbase("red-vladivostok-complex", "Vladivostok", red, "japan", "vladivostok", 43_110_000, 131_890_000, "northpac", "wp_large_pvo_airbase", "wp_p-14_radar", ["wp_sam_site_sa-11", "wp_sam_site_sa-5", "wp_sam_site_sa-10"], ["wp_mig-23mld", "wp_su-24m", "wp_tu-95rt"]),
-        Airbase("red-wonsan-complex", "Wonsan", red, "korea", "wonsan", 39_150_000, 127_440_000, "korea", "wp_airbase_2", "wp_p-18_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-21", "wp_mig-23mld", "wp_su-24a"]),
-        Airbase("red-cam-ranh-complex", "Cam Ranh", red, "southchina", "cam-ranh", 11_890_000, 109_170_000, "southchina", "wp_airbase_1", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-21", "wp_su-24m", "wp_tu-16k"]),
+        Airbase("red-wonsan-complex", "Wonsan", red, "korea", "wonsan", 39_150_000, 127_440_000, "korea", "wp_airbase_2", "wp_p-18_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-21", "wp_mig-23mld", "wp_su-24a"], "KPAF"),
+        Airbase("red-cam-ranh-complex", "Cam Ranh", red, "southchina", "cam-ranh", 11_890_000, 109_170_000, "southchina", "wp_airbase_1", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-2_modernized"], ["wp_mig-21", "wp_su-24m", "wp_tu-16k"], "Soviet Naval Aviation"),
         Airbase("red-severomorsk-complex", "Severomorsk", red, "barents", "severomorsk", 69_070_000, 33_420_000, "giuk", "wp_large_pvo_airbase", "wp_p-14_radar", ["wp_sam_site_sa-11", "wp_sam_site_sa-5", "wp_sam_site_sa-10"], ["wp_mig-25pd", "wp_tu-142m", "wp_il-38"]),
         Airbase("red-baltiysk-complex", "Baltiysk", red, "baltic", "baltiysk", 54_650_000, 19_910_000, "baltap", "wp_airbase_4", "wp_p-35_radar", ["wp_sa-6_launcher", "wp_sam_site_sa-3", "wp_sam_site_sa-10"], ["wp_mig-23mld", "wp_su-24m", "wp_mig-25pd"]),
         .. LandAirExpansionAirbaseComplexes(blue, red),
@@ -240,10 +262,11 @@ internal static partial class FuldaGapCampaignSeed
         string airfieldCatalogId,
         string radarCatalogId,
         string[] samCatalogIds,
-        string[] aircraftCatalogIds) =>
+        string[] aircraftCatalogIds,
+        string? formationOwner = null) =>
         new(key, name, coalitionId, regionKey, homeBaseKey, latitude, longitude,
             destinationRegionKey, airfieldCatalogId, radarCatalogId, samCatalogIds,
-            aircraftCatalogIds);
+            aircraftCatalogIds, formationOwner);
 
     private static IEnumerable<FuldaEntitySeed> ExpandAirbaseComplex(
         CampaignId campaignId,
@@ -283,7 +306,12 @@ internal static partial class FuldaGapCampaignSeed
         for (var index = 0; index < sortieRoles.Length; index++)
         {
             var role = sortieRoles[index];
-            yield return Entity(campaignId, $"{complex.Key}-{role}-sortie", $"{complex.Name} opening {role} sortie",
+            yield return Entity(campaignId, $"{complex.Key}-{role}-sortie",
+                GeneratedUnitName(
+                    complex.AircraftCatalogIds[index],
+                    EffectiveSimulationDomain(complex.AircraftCatalogIds[index], SimulationDomain.Air),
+                    index + 1,
+                    complex.FormationOwner),
                 complex.AircraftCatalogIds[index], complex.CoalitionId, complex.RegionKey,
                 complex.LatitudeMicrodegrees + ((index + 1) * 5_000),
                 complex.LongitudeMicrodegrees - ((index + 1) * 5_000), complex.HomeBaseKey,
@@ -306,7 +334,7 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-usec-ssn", "US Atlantic attack submarine", ["usn_ssn_los_angeles", "usn_ssn_sturgeon"], blue, "usec", "new-london", SimulationDomain.Maritime, 8, 2, 39_500_000, -70_500_000, "giuk", OrderKind.Asw),
         Package("blue-usec-ssbn", "US Atlantic ballistic-missile submarine", ["usn_ssbn_lafayette", "usn_ssbn_james_madison"], blue, "usec", "new-london", SimulationDomain.Maritime, 3, 1, 38_000_000, -68_500_000, "midatl", OrderKind.Patrol),
         Package("blue-usec-amphib", "US Atlantic amphibious ship", ["usn_lha_tarawa", "usn_lpd_austin"], blue, "usec", "norfolk", SimulationDomain.Maritime, 6, 3, 35_000_000, -74_500_000, "caribbean", OrderKind.Reinforce),
-        Package("blue-usec-aux", "US Atlantic fleet auxiliary", ["usn_aoe_sacramento", "civ_ms_sealift_pacific", "civ_ms_seabee"], blue, "usec", "charleston", SimulationDomain.Logistics, 6, 3, 33_500_000, -76_500_000, "midatl", OrderKind.Resupply),
+        Package("blue-usec-aux", "US Atlantic fleet auxiliary", ["usn_aoe_sacramento", "civ_ms_sealift_pacific", "civ_ms_seabee"], blue, "usec", "charleston", SimulationDomain.Logistics, 6, 3, 33_500_000, -76_500_000, "midatl", OrderKind.Resupply, formationOwner: "US Navy"),
 
         // United States Pacific Fleet, West Coast, and Hawaii.
         FormationPackage("blue-uswc-carriers", "US Pacific carrier strike group",
@@ -322,29 +350,41 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-uswc-ssn", "US Pacific attack submarine", ["usn_ssn_los_angeles", "usn_ssn_sturgeon", "usn_ssn_permit"], blue, "uswc", "san-diego", SimulationDomain.Maritime, 10, 2, 30_500_000, -125_000_000, "northpac", OrderKind.Asw),
         Package("blue-pnw-ssbn", "US Pacific ballistic-missile submarine", ["usn_ssbn_lafayette", "usn_ssbn_franklin"], blue, "pnw", "bangor", SimulationDomain.Maritime, 4, 1, 47_500_000, -126_000_000, "northpac", OrderKind.Patrol),
         Package("blue-uswc-amphib", "US Pacific amphibious ship", ["usn_lha_tarawa", "usn_lpd_austin"], blue, "uswc", "san-diego", SimulationDomain.Maritime, 8, 4, 30_000_000, -120_000_000, "hawaii", OrderKind.Reinforce),
-        Package("blue-uswc-aux", "US Pacific fleet auxiliary", ["usn_aoe_sacramento", "civ_ms_sealift_pacific", "civ_ms_c7s68"], blue, "uswc", "long-beach", SimulationDomain.Logistics, 8, 4, 33_000_000, -121_000_000, "hawaii", OrderKind.Resupply),
+        Package("blue-uswc-aux", "US Pacific fleet auxiliary", ["usn_aoe_sacramento", "civ_ms_sealift_pacific", "civ_ms_c7s68"], blue, "uswc", "long-beach", SimulationDomain.Logistics, 8, 4, 33_000_000, -121_000_000, "hawaii", OrderKind.Resupply, formationOwner: "US Navy"),
         Package("blue-hawaii-screen", "US Hawaii surface combatant", ["usn_cg_ticonderoga", "usn_dd_spruance_abl", "usn_ffg_oliver_hazard_perry_longhull"], blue, "hawaii", "pearl-harbor", SimulationDomain.Maritime, 8, 4, 22_000_000, -160_000_000, "northpac", OrderKind.Patrol),
         Package("blue-hawaii-sub", "US Hawaii attack submarine", ["usn_ssn_los_angeles", "usn_ssn_sturgeon"], blue, "hawaii", "pearl-harbor", SimulationDomain.Maritime, 4, 2, 20_500_000, -160_500_000, "northpac", OrderKind.Asw),
 
         // Soviet global fleet packages.
         Package("red-northern-surface", "Soviet Northern Fleet combatant", ["wp_rkr_kirov", "wp_rkr_slava", "wp_bpk_udaloy", "wp_em_sovremenny"], red, "barents", "severomorsk", SimulationDomain.Maritime, 12, 4, 71_000_000, 31_000_000, "norsea", OrderKind.Patrol),
         Package("red-northern-sub", "Soviet Northern Fleet submarine", ["wp_ssn_victor3", "wp_ssgn_oscar1", "wp_ssbn_delta3", "wp_ss_kilo"], red, "barents", "polyarny", SimulationDomain.Maritime, 16, 4, 70_500_000, 29_000_000, "giuk", OrderKind.Asw),
-        Package("red-northern-aux", "Soviet Northern Fleet amphibious or auxiliary ship", ["wp_bdk_ivan_rogov", "wp_bdk_ropucha", "wp_vt_boris_chilikin"], red, "barents", "severomorsk", SimulationDomain.Logistics, 10, 5, 69_800_000, 35_000_000, "norsea", OrderKind.Resupply),
+        Package("red-northern-aux", "Northern Fleet support group", ["wp_bdk_ivan_rogov", "wp_bdk_ropucha", "wp_vt_boris_chilikin"], red, "barents", "severomorsk", SimulationDomain.Logistics, 10, 5, 69_800_000, 35_000_000, "norsea", OrderKind.Resupply),
         Package("red-baltic-surface", "Soviet Baltic Fleet combatant", ["wp_em_sovremenny", "wp_skr_krivak2", "wp_skr_petya3", "wp_ptg_osa1"], red, "baltic", "baltiysk", SimulationDomain.Maritime, 12, 4, 55_500_000, 18_000_000, "baltap", OrderKind.Patrol),
-        Package("red-baltic-aux", "Warsaw Pact Baltic amphibious or auxiliary ship", ["wp_bdk_ropucha", "wp_bdk_alligator", "civ_ms_kommunist"], red, "baltic", "baltiysk", SimulationDomain.Logistics, 6, 3, 55_200_000, 19_000_000, "baltap", OrderKind.Reinforce),
+        Package("red-baltic-aux", "Baltic Fleet reinforcement group", ["wp_bdk_ropucha", "wp_bdk_alligator", "civ_ms_kommunist"], red, "baltic", "baltiysk", SimulationDomain.Logistics, 6, 3, 55_200_000, 19_000_000, "baltap", OrderKind.Reinforce, formationOwner: "Soviet Baltic Fleet"),
         Package("red-pacific-surface", "Soviet Pacific Fleet combatant", ["wp_rkr_kirov", "wp_rkr_slava", "wp_em_sovremenny", "wp_bpk_udaloy", "wp_skr_krivak2"], red, "japan", "vladivostok", SimulationDomain.Maritime, 18, 6, 43_000_000, 135_000_000, "northpac", OrderKind.Patrol),
         Package("red-pacific-sub", "Soviet Pacific Fleet submarine", ["wp_ssn_victor3", "wp_ssgn_charlie2", "wp_ssgn_oscar1", "wp_ssbn_delta3", "wp_ss_kilo"], red, "okhotsk", "vladivostok", SimulationDomain.Maritime, 18, 3, 47_000_000, 150_000_000, "northpac", OrderKind.Asw),
-        Package("red-pacific-aux", "Soviet Pacific Fleet amphibious or auxiliary ship", ["wp_bdk_ivan_rogov", "wp_bdk_ropucha", "wp_vt_boris_chilikin", "civ_ms_irkutsk"], red, "japan", "vladivostok", SimulationDomain.Logistics, 8, 4, 42_000_000, 133_000_000, "northpac", OrderKind.Resupply),
+        Package("red-pacific-aux", "Pacific Fleet support group", ["wp_bdk_ivan_rogov", "wp_bdk_ropucha", "wp_vt_boris_chilikin", "civ_ms_irkutsk"], red, "japan", "vladivostok", SimulationDomain.Logistics, 8, 4, 42_000_000, 133_000_000, "northpac", OrderKind.Resupply, formationOwner: "Soviet Pacific Fleet"),
         Package("red-med-surface", "Soviet Mediterranean squadron combatant", ["wp_rkr_kynda", "wp_bpk_kara", "wp_skr_krivak2"], red, "med", "tartus", SimulationDomain.Maritime, 10, 5, 34_000_000, 25_000_000, "levant", OrderKind.Patrol),
         Package("red-med-sub", "Soviet Mediterranean submarine", ["wp_ss_kilo", "wp_ss_foxtrot", "wp_ssn_victor2"], red, "med", "tartus", SimulationDomain.Maritime, 4, 2, 35_000_000, 23_000_000, "levant", OrderKind.Asw),
         Package("red-med-aux", "Soviet Mediterranean auxiliary", ["wp_bdk_ropucha", "wp_vt_boris_chilikin"], red, "med", "tartus", SimulationDomain.Logistics, 2, 2, 34_500_000, 24_000_000, "levant", OrderKind.Resupply),
 
-        // Cuban forces and representative allied fleets.
-        Package("red-cuba-navy", "Cuban Revolutionary Navy unit", ["wp_ptg_osa1", "wp_skr_petya3", "wp_ss_foxtrot", "civ_ms_kommunist"], red, "cuba", "cienfuegos", SimulationDomain.Maritime, 12, 4, 21_500_000, -79_500_000, "florida", OrderKind.Patrol),
-        Package("blue-allied-atlantic", "NATO Atlantic allied combatant", ["rn_dd_battle", "rcn_ss_oberon", "nrp_ssk_albacora", "fgs_ddg_lutjens"], blue, "wapp", "plymouth", SimulationDomain.Maritime, 16, 4, 50_000_000, -12_000_000, "giuk", OrderKind.Escort),
-        Package("blue-allied-europe", "NATO European littoral combatant", ["fgs_ddg_lutjens", "knm_ptg_hauk", "es_ffg_baleares", "fr_ss_agosta"], blue, "nsea", "wilhelmshaven", SimulationDomain.Maritime, 12, 4, 55_000_000, 5_000_000, "baltap", OrderKind.Patrol),
-        Package("blue-allied-pacific", "Pacific allied combatant", ["jmsdf_ddh_haruna", "jmsdf_ddg_tachikaze", "jmsdf_ss_yushio", "ran_ffg_adelaide_shorthull"], blue, "japan", "yokosuka", SimulationDomain.Maritime, 12, 4, 36_000_000, 142_000_000, "okhotsk", OrderKind.Patrol),
-        Package("blue-allied-south", "Mediterranean or Indian Ocean allied combatant", ["es_ffg_baleares", "fr_ss_agosta", "wp_skr_petya3", "ran_ddg_perth"], blue, "med", "rota", SimulationDomain.Maritime, 8, 4, 37_000_000, 8_000_000, "levant", OrderKind.Patrol),
+        // Cuban forces and representative allied fleets. Keep ordinary formations
+        // under one national service and close to a credible home port. Coalition
+        // packages can still combine them later for a specific operation.
+        Package("red-cuba-navy", "Cuban Revolutionary Navy unit", ["wp_ptg_osa1", "wp_skr_petya3", "wp_ss_foxtrot", "civ_ms_kommunist"], red, "cuba", "cienfuegos", SimulationDomain.Maritime, 12, 4, 21_500_000, -79_500_000, "florida", OrderKind.Patrol, formationOwner: "Cuban Revolutionary Navy"),
+        Package("blue-royal-navy-atlantic", "Royal Navy Atlantic combatant", ["rn_dd_battle"], blue, "wapp", "plymouth", SimulationDomain.Maritime, 4, 2, 50_500_000, -5_500_000, "giuk", OrderKind.Escort),
+        Package("blue-rcn-atlantic", "Royal Canadian Navy Atlantic combatant", ["rcn_ss_oberon"], blue, "giuk", "keflavik", SimulationDomain.Maritime, 4, 2, 58_500_000, -35_000_000, "giuk", OrderKind.Asw),
+        Package("blue-portuguese-atlantic", "Portuguese Navy Atlantic combatant", ["nrp_ssk_albacora"], blue, "wapp", "lisbon", SimulationDomain.Maritime, 4, 2, 39_000_000, -11_000_000, "giuk", OrderKind.Asw),
+        Package("blue-west-german-atlantic", "West German Navy Atlantic combatant", ["fgs_ddg_lutjens"], blue, "bight", "wilhelmshaven", SimulationDomain.Maritime, 4, 2, 53_800_000, 7_000_000, "nsea", OrderKind.Escort),
+        Package("blue-west-german-littoral", "West German Navy Baltic combatant", ["fgs_ddg_lutjens"], blue, "bight", "wilhelmshaven", SimulationDomain.Maritime, 3, 3, 54_000_000, 7_500_000, "baltap", OrderKind.Patrol),
+        Package("blue-norwegian-littoral", "Royal Norwegian Navy littoral combatant", ["knm_ptg_hauk"], blue, "norsea", "bodo", SimulationDomain.Maritime, 3, 3, 66_500_000, 12_000_000, "norsea", OrderKind.Patrol),
+        Package("blue-spanish-littoral", "Spanish Navy littoral combatant", ["es_ffg_baleares"], blue, "med", "rota", SimulationDomain.Maritime, 3, 3, 36_500_000, -7_500_000, "med", OrderKind.Patrol),
+        Package("blue-french-littoral", "French Navy littoral combatant", ["fr_ss_agosta"], blue, "med", "toulon", SimulationDomain.Maritime, 3, 3, 42_500_000, 6_000_000, "levant", OrderKind.Asw),
+        Package("blue-jmsdf-pacific", "JMSDF Pacific combatant", ["jmsdf_ddh_haruna", "jmsdf_ddg_tachikaze", "jmsdf_ss_yushio"], blue, "japan", "yokosuka", SimulationDomain.Maritime, 9, 3, 36_000_000, 141_000_000, "okhotsk", OrderKind.Patrol),
+        Package("blue-ran-pacific", "Royal Australian Navy Pacific combatant", ["ran_ffg_adelaide_shorthull"], blue, "australia", "fremantle", SimulationDomain.Maritime, 3, 3, -31_500_000, 113_000_000, "southpac", OrderKind.Patrol),
+        Package("blue-spanish-mediterranean", "Spanish Navy Mediterranean combatant", ["es_ffg_baleares"], blue, "med", "rota", SimulationDomain.Maritime, 2, 2, 36_000_000, -5_500_000, "levant", OrderKind.Patrol),
+        Package("blue-french-mediterranean", "French Navy Mediterranean combatant", ["fr_ss_agosta"], blue, "med", "toulon", SimulationDomain.Maritime, 2, 2, 42_000_000, 6_000_000, "levant", OrderKind.Asw),
+        Package("blue-indian-ocean", "Indian Navy Indian Ocean combatant", ["wp_skr_petya3"], blue, "india-west", "mumbai", SimulationDomain.Maritime, 2, 2, 18_000_000, 70_000_000, "arabian", OrderKind.Escort, formationOwner: "Indian Navy"),
+        Package("blue-ran-indian-ocean", "Royal Australian Navy Indian Ocean combatant", ["ran_ddg_perth"], blue, "australia", "fremantle", SimulationDomain.Maritime, 2, 2, -31_000_000, 112_000_000, "indian", OrderKind.Escort),
 
         // Civilian and merchant traffic. They remain coalition-affiliated until diplomacy/noncombatant rules exist.
         Package("blue-civil-atlantic", "Western transatlantic merchant", ["civ_ms_c7s68", "civ_ms_roro_a", "civ_ms_bulk", "civ_ms_car_carrier_a", "civ_ms_act_1", "civ_ms_amra", "civ_ms_c8", "civ_ms_encounter", "civ_ms_freighter_a", "civ_ms_freighter_b", "civ_ms_freighter_d", "civ_ms_super_p"], blue, "midatl", "hampton", SimulationDomain.Logistics, 18, 6, 43_000_000, -38_000_000, "wapp", OrderKind.Transit),
@@ -352,7 +392,7 @@ internal static partial class FuldaGapCampaignSeed
         Package("red-civil-atlantic", "Soviet-bloc Atlantic merchant", ["civ_ms_kommunist", "civ_ms_slavyansk", "civ_ms_poltava", "civ_ms_metallurg_anosov", "civ_ms_ivan_franko"], red, "southatl", "havana", SimulationDomain.Logistics, 12, 6, 10_000_000, -35_000_000, "caribbean", OrderKind.Transit),
         Package("red-civil-pacific", "Soviet-bloc Pacific merchant", ["civ_ms_irkutsk", "civ_ms_andizhan", "civ_ms_yuniy_partizan", "civ_ms_murom"], red, "northpac", "vladivostok", SimulationDomain.Logistics, 8, 4, 45_000_000, 165_000_000, "japan", OrderKind.Transit),
         Package("blue-fishing-traffic", "Western fishing vessel", ["civ_fv_crabboat", "civ_fv_sterntrawler_a", "civ_fv_fishingboat_b", "civ_fv_fishingboat_a", "civ_fv_fishingboat_c", "civ_fv_fishingboat_d", "civ_fv_sterntrawler_b"], blue, "giuk", "keflavik", SimulationDomain.Logistics, 8, 4, 61_000_000, -22_000_000, "norsea", OrderKind.Transit),
-        Package("red-fishing-traffic", "Soviet fishing or intelligence-adjacent vessel", ["civ_fv_okean", "civ_fv_sidetrawler", "civ_fv_sterntrawler_c", "civ_fv_dhow", "civ_fv_sampan", "civ_fv_sterntrawler_d"], red, "barents", "severomorsk", SimulationDomain.Logistics, 8, 4, 68_000_000, 25_000_000, "norsea", OrderKind.Transit),
+        Package("red-fishing-traffic", "Soviet Northern fishing fleet", ["civ_fv_okean", "civ_fv_sidetrawler", "civ_fv_sterntrawler_c", "civ_fv_dhow", "civ_fv_sampan", "civ_fv_sterntrawler_d"], red, "barents", "severomorsk", SimulationDomain.Logistics, 8, 4, 68_000_000, 25_000_000, "norsea", OrderKind.Transit),
 
         // Air formations: one campaign entity represents a squadron-, wing-, or mission-sized package.
         Package("blue-usec-air", "US East Coast air formation", ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a", "usaf_kc-135a"], blue, "usec", "oceana", SimulationDomain.Air, 8, 4, 36_500_000, -77_000_000, "midatl", OrderKind.Cap),
@@ -360,11 +400,13 @@ internal static partial class FuldaGapCampaignSeed
         Package("blue-central-air", "NATO Central Region air formation", ["usaf_f-15c", "usaf_f-4e", "usaf_e-3a", "usaf_kc-135a"], blue, "northag", "ramstein", SimulationDomain.Air, 8, 4, 50_000_000, 7_000_000, "fulda", OrderKind.Cap),
         Package("red-west-air", "Warsaw Pact western air formation", ["wp_mig-23mld", "wp_su-24m", "wp_mig-25pd", "wp_tu-16k"], red, "baltic", "peenemunde", SimulationDomain.Air, 8, 4, 53_500_000, 14_000_000, "fulda", OrderKind.Cap),
         Package("red-fareast-air", "Soviet Far East air formation", ["wp_mig-23mld", "wp_su-24m", "wp_tu-95rt", "wp_tu-142m"], red, "japan", "vladivostok", SimulationDomain.Air, 6, 3, 44_000_000, 135_000_000, "northpac", OrderKind.Cap),
-        Package("red-cuba-air", "Cuban-Soviet air formation", ["wp_mig-21", "wp_mig-23mld", "wp_mi-14"], red, "cuba", "san-antonio-cuba", SimulationDomain.Air, 6, 3, 22_500_000, -81_500_000, "florida", OrderKind.Cap),
-        Package("blue-allied-pacific-air", "Allied Pacific air formation", ["raaf_f-111c", "usaf_f-5e"], blue, "southpac", "andersen", SimulationDomain.Air, 4, 2, 5_000_000, 155_000_000, "northpac", OrderKind.Cap),
+        Package("red-cuba-air", "Cuban Air Force formation", ["wp_mig-21", "wp_mig-23mld", "wp_mi-14"], red, "cuba", "san-antonio-cuba", SimulationDomain.Air, 6, 3, 22_500_000, -81_500_000, "florida", OrderKind.Cap, formationOwner: "Cuban Air Force"),
+        Package("blue-raaf-pacific-air", "RAAF Pacific strike flight", ["raaf_f-111c"], blue, "australia", "fremantle", SimulationDomain.Air, 2, 2, -27_000_000, 145_000_000, "southpac", OrderKind.Patrol),
+        Package("blue-usaf-pacific-air", "USAF Pacific fighter flight", ["usaf_f-5e"], blue, "northpac", "andersen", SimulationDomain.Air, 2, 2, 14_000_000, 145_000_000, "northpac", OrderKind.Cap),
 
         // Rotary-wing packages exercise attack, lift, maritime patrol, and ASW behavior separately from fixed-wing aircraft.
-        Package("blue-central-rotary", "NATO attack or lift helicopter flight", ["usmc_ah-1t", "usn_ch-46"], blue, "northag", "ramstein", SimulationDomain.RotaryWing, 4, 2, 50_050_000, 7_250_000, "fulda", OrderKind.Patrol),
+        Package("blue-usmc-central-attack-rotary", "USMC attack helicopter flight", ["usmc_ah-1t"], blue, "northag", "ramstein", SimulationDomain.RotaryWing, 2, 2, 50_050_000, 7_250_000, "fulda", OrderKind.Patrol),
+        Package("blue-usn-central-lift-rotary", "USN lift helicopter flight", ["usn_ch-46"], blue, "northag", "ramstein", SimulationDomain.RotaryWing, 2, 2, 50_100_000, 7_300_000, "fulda", OrderKind.Reinforce),
         FormationPackage("blue-atlantic-rotary", "USN ASW detachment",
         [
             ["usn_sh-2f", "usn_sh-3h"],
@@ -495,7 +537,11 @@ internal static partial class FuldaGapCampaignSeed
                 yield return Entity(
                     campaignId,
                     key,
-                    GeneratedUnitName(catalogUnitId, package.SimulationDomain, ordinal),
+                    GeneratedUnitName(
+                        catalogUnitId,
+                        package.SimulationDomain,
+                        ordinal,
+                        package.FormationOwner),
                     catalogUnitId,
                     package.CoalitionId,
                     hostedByYorktown ? "nsea" : package.RegionKey,
@@ -554,7 +600,7 @@ internal static partial class FuldaGapCampaignSeed
         int memberCount,
         string catalogUnitId)
     {
-        var center = DeploymentGroupCenter(package, groupIndex);
+        var center = DeploymentGroupCenter(package, groupIndex, catalogUnitId);
         var station = ResolveFormationStation(
             package,
             memberIndex,
@@ -566,19 +612,42 @@ internal static partial class FuldaGapCampaignSeed
             NormalizeBearing(DeploymentBearing(package) + station.RelativeBearingDegrees));
     }
 
-    private static SeedPosition DeploymentGroupCenter(Ww3PlusPackage package, int groupIndex)
+    private static SeedPosition DeploymentGroupCenter(
+        Ww3PlusPackage package,
+        int groupIndex,
+        string catalogUnitId)
     {
-        var groupCount = PackageGroups(package).Count;
-        var isFrontFormation = package.SimulationDomain is SimulationDomain.Ground
-            or SimulationDomain.LandAbstract;
+        var groups = PackageGroups(package);
+        var groupCount = groups.Count;
+        var isAbstractFormation = string.Equals(
+            catalogUnitId,
+            "abstract_land_formation",
+            StringComparison.Ordinal);
+        var isFrontFormation = package.SimulationDomain == SimulationDomain.Ground
+            || isAbstractFormation;
+        var frontLayer = isFrontFormation
+            ? GroundFrontLayer(package, groupIndex, catalogUnitId, groupCount)
+            : 0;
+        var peers = isFrontFormation
+            ? Enumerable.Range(0, groupCount)
+                .Where(index => GroundFrontLayer(
+                    package,
+                    index,
+                    groups[index][0],
+                    groupCount) == frontLayer)
+                .ToArray()
+            : Enumerable.Range(0, groupCount).ToArray();
+        var peerIndex = Array.IndexOf(peers, groupIndex);
         var groupsPerLine = isFrontFormation
-            || package.SimulationDomain == SimulationDomain.Installation
-            ? Math.Min(groupCount, 8)
-            : Math.Min(groupCount, 10);
-        var lineCount = (groupCount + groupsPerLine - 1) / groupsPerLine;
-        var slot = groupIndex % groupsPerLine;
-        var line = groupIndex / groupsPerLine;
-        var slotsOnLine = Math.Min(groupsPerLine, groupCount - (line * groupsPerLine));
+            ? Math.Min(peers.Length, 10)
+            : package.SimulationDomain == SimulationDomain.Installation
+                || package.CatalogUnitIds.All(IsFixedInstallationCatalog)
+                ? Math.Min(groupCount, 8)
+                : Math.Min(groupCount, 10);
+        var lineCount = (peers.Length + groupsPerLine - 1) / groupsPerLine;
+        var slot = peerIndex % groupsPerLine;
+        var line = peerIndex / groupsPerLine;
+        var slotsOnLine = Math.Min(groupsPerLine, peers.Length - (line * groupsPerLine));
         var spacing = DeploymentGroupSpacingNauticalMiles(package);
         var alongTrack = (slot - ((slotsOnLine - 1) / 2d)) * spacing;
         if ((line & 1) == 1)
@@ -595,12 +664,61 @@ internal static partial class FuldaGapCampaignSeed
             var frontagePosition = OffsetSigned(origin, alongTrack, bearing + 90d);
             return OffsetPosition(
                 frontagePosition,
-                line * spacing * 0.55d,
+                GroundFrontDepthNauticalMiles(frontLayer) + line * spacing * 0.35d,
                 bearing + 180d);
         }
         var alongPosition = OffsetSigned(origin, alongTrack, bearing);
         return OffsetSigned(alongPosition, crossTrack, bearing + 90d);
     }
+
+    private static int GroundFrontLayer(
+        Ww3PlusPackage package,
+        int groupIndex,
+        string catalogUnitId,
+        int groupCount)
+    {
+        if (string.Equals(catalogUnitId, "abstract_land_formation", StringComparison.Ordinal))
+        {
+            return Math.Min(2, groupIndex * 3 / Math.Max(1, groupCount));
+        }
+        if (IsGroundSupportCatalog(catalogUnitId))
+        {
+            return 3;
+        }
+        if (IsGroundIndirectFireCatalog(catalogUnitId))
+        {
+            return 2;
+        }
+        if (IsGroundAirDefenseCatalog(catalogUnitId))
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static double GroundFrontDepthNauticalMiles(int layer) => layer switch
+    {
+        0 => 0d,
+        1 => 8d,
+        2 => 18d,
+        _ => 32d,
+    };
+
+    private static bool IsGroundAirDefenseCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "aaa", "spaag", "sam")
+        || catalogUnitId.Contains("launcher", StringComparison.Ordinal)
+        || catalogUnitId.Contains("fcr", StringComparison.Ordinal)
+        || catalogUnitId.Contains("radar", StringComparison.Ordinal);
+
+    private static bool IsGroundIndirectFireCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "mlrs", "spa")
+        || catalogUnitId.Contains("artillery", StringComparison.Ordinal)
+        || catalogUnitId.Contains("emplacement", StringComparison.Ordinal);
+
+    private static bool IsGroundSupportCatalog(string catalogUnitId) =>
+        HasCatalogRole(catalogUnitId, "car")
+        || catalogUnitId.Contains("command", StringComparison.Ordinal)
+        || catalogUnitId.Contains("truck", StringComparison.Ordinal);
 
     private static FormationStation ResolveFormationStation(
         Ww3PlusPackage package,
@@ -781,6 +899,12 @@ internal static partial class FuldaGapCampaignSeed
     private static bool IsFixedInstallationCatalog(string catalogUnitId) =>
         catalogUnitId.StartsWith("tgt_", StringComparison.Ordinal)
         || catalogUnitId.StartsWith("warehouses_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("oil_terminal_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("civ_comm_", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("civ_radio", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("civ_spar_rig", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("civ_tgt_bridge", StringComparison.Ordinal)
+        || catalogUnitId.StartsWith("port_", StringComparison.Ordinal)
         || catalogUnitId.Contains("airbase", StringComparison.Ordinal)
         || catalogUnitId.Contains("radar", StringComparison.Ordinal)
         || catalogUnitId.Contains("sam_site", StringComparison.Ordinal);
@@ -804,7 +928,8 @@ internal static partial class FuldaGapCampaignSeed
     private static string GeneratedUnitName(
         string catalogUnitId,
         SimulationDomain simulationDomain,
-        int ordinal)
+        int ordinal,
+        string? formationOwner = null)
     {
         var parts = catalogUnitId.Split('_', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
@@ -812,7 +937,7 @@ internal static partial class FuldaGapCampaignSeed
             return $"Campaign unit {ordinal:D3}";
         }
 
-        var prefix = parts[0] switch
+        var prefix = formationOwner ?? parts[0] switch
         {
             "usn" when simulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing => "USN",
             "usn" => "USS",
@@ -830,7 +955,9 @@ internal static partial class FuldaGapCampaignSeed
             "nato" => "NATO",
             "raf" => "RAF",
             "raaf" => "RAAF",
+            "wp" when simulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing => "Soviet Air Force",
             "wp" => "Soviet",
+            "pla" when simulationDomain == SimulationDomain.Air => "PLAAF",
             "pla" => "PLA",
             "plan" => "PLAN",
             "iaf" => "IAF",
@@ -838,10 +965,11 @@ internal static partial class FuldaGapCampaignSeed
             "irina" => "IRINA",
             "iqaf" => "IQAF",
             "iqa" => "Iraqi Army",
+            "fr" when simulationDomain is SimulationDomain.Air or SimulationDomain.RotaryWing => "French Air Force",
             "fr" => "French",
             "fin" => "Finnish",
             "swe" => "Swedish",
-            "nv" => "Norwegian",
+            "nv" => "North Vietnamese",
             "civ" => "Civilian",
             "port" => string.Empty,
             "tgt" => string.Empty,
@@ -1017,8 +1145,9 @@ internal static partial class FuldaGapCampaignSeed
         {
             return "Campaign formation";
         }
+        var effectiveDomain = EffectiveSimulationDomain(catalogUnitId, package.SimulationDomain);
         var service = package.FormationOwner
-            ?? ServiceName(parts[0], package.SimulationDomain);
+            ?? ServiceName(parts[0], effectiveDomain);
         var modelParts = parts.Skip(1)
             .Where(part => !CatalogRoleWords.Contains(part))
             .ToList();
@@ -1046,7 +1175,7 @@ internal static partial class FuldaGapCampaignSeed
         {
             model = string.Empty;
         }
-        var formation = FormationNoun(catalogUnitId, package.SimulationDomain);
+        var formation = FormationNoun(catalogUnitId, effectiveDomain);
         return string.Join(' ', new[] { service, model, formation }
             .Where(item => !string.IsNullOrWhiteSpace(item)));
     }
@@ -1069,12 +1198,16 @@ internal static partial class FuldaGapCampaignSeed
         "knm" => "Norwegian Navy",
         "nrp" => "Portuguese Navy",
         "es" => "Spanish Navy",
-        "fr" => "French",
+        "fr" => domain is SimulationDomain.Air or SimulationDomain.RotaryWing
+            ? "French Air Force"
+            : "French",
         "fin" => "Finnish",
         "swe" => "Swedish",
         "nv" => "North Vietnamese",
-        "wp" => "Soviet",
-        "pla" => "PLA",
+        "wp" => domain is SimulationDomain.Air or SimulationDomain.RotaryWing
+            ? "Soviet Air Force"
+            : "Soviet",
+        "pla" => domain == SimulationDomain.Air ? "PLAAF" : "PLA",
         "plan" => "PLAN",
         "iaf" => "Israeli Air Force",
         "ins" => "Israeli Navy",
@@ -1195,5 +1328,6 @@ internal static partial class FuldaGapCampaignSeed
         string AirfieldCatalogId,
         string RadarCatalogId,
         IReadOnlyList<string> SamCatalogIds,
-        IReadOnlyList<string> AircraftCatalogIds);
+        IReadOnlyList<string> AircraftCatalogIds,
+        string? FormationOwner);
 }

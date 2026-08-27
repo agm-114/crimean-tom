@@ -107,7 +107,7 @@ public sealed class UnattendedCampaignIntegrationTests
             Assert.Equal(10, tempo.GetProperty("advanceQuanta").GetInt64());
             Assert.Equal(200, tempo.GetProperty("wallIntervalMilliseconds").GetInt32());
             Assert.Equal(50d, tempo.GetProperty("targetMultiplier").GetDouble());
-            Assert.Equal(4_096, root.GetProperty("scenarioEntityCount").GetInt32());
+            Assert.InRange(root.GetProperty("scenarioEntityCount").GetInt32(), 4_000, 20_000);
             Assert.True(root.GetProperty("paused").GetBoolean());
             Assert.True(root.GetProperty("friendlyEntities").GetArrayLength() > 0);
             Assert.True(root.GetProperty("friendlyGroups").GetArrayLength() > 0);
@@ -120,6 +120,20 @@ public sealed class UnattendedCampaignIntegrationTests
                 item => item.GetProperty("entityId").GetString()!,
                 StringComparer.Ordinal);
             var friendlyGroups = root.GetProperty("friendlyGroups").EnumerateArray().ToArray();
+            Assert.All(
+                friendlyGroups.Where(group => group.GetProperty("memberEntityIds").GetArrayLength() == 1),
+                group =>
+                {
+                    var memberId = group.GetProperty("memberEntityIds")[0].GetString()!;
+                    Assert.Equal(
+                        friendlyEntityById[memberId].GetProperty("name").GetString(),
+                        group.GetProperty("name").GetString());
+                });
+            Assert.DoesNotContain(
+                friendlyGroups,
+                group => group.GetProperty("name").GetString() is { } name
+                    && (name.Contains(" or ", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains(" / ", StringComparison.Ordinal)));
             var airGroups = friendlyGroups.Where(group =>
                 group.GetProperty("name").GetString() is { } name
                 && (name.Contains("squadron", StringComparison.OrdinalIgnoreCase)
@@ -334,6 +348,50 @@ public sealed class UnattendedCampaignIntegrationTests
                 diagnostic.EnsureSuccessStatusCode();
                 using var diagnosticBody = JsonDocument.Parse(
                     await diagnostic.Content.ReadAsStringAsync(testTimeout.Token));
+                var regionNames = diagnosticBody.RootElement.GetProperty("regions").EnumerateArray()
+                    .ToDictionary(
+                        item => item.GetProperty("regionId").GetString()!,
+                        item => item.GetProperty("name").GetString()!,
+                        StringComparer.Ordinal);
+                var authoredEntities = diagnosticBody.RootElement.GetProperty("entities").EnumerateArray()
+                    .ToArray();
+                Assert.All(
+                    authoredEntities.Where(item =>
+                        item.GetProperty("simulationDomain").GetString() == "Air"
+                        && item.GetProperty("catalogUnitId").GetString() is { } catalog
+                        && catalog.StartsWith("fr_", StringComparison.Ordinal)),
+                    item => Assert.Contains(
+                        regionNames[item.GetProperty("regionId").GetString()!],
+                        new[] { "French air-defense and reinforcement zone" }));
+                Assert.All(
+                    authoredEntities.Where(item =>
+                        item.GetProperty("catalogUnitId").GetString() is { } catalog
+                        && (catalog.StartsWith("iaf_", StringComparison.Ordinal)
+                            || catalog.StartsWith("jasdf_", StringComparison.Ordinal)
+                            || catalog.StartsWith("jmsdf_", StringComparison.Ordinal))),
+                    item =>
+                    {
+                        var catalog = item.GetProperty("catalogUnitId").GetString()!;
+                        var regionName = regionNames[item.GetProperty("regionId").GetString()!];
+                        var plausible = catalog.StartsWith("iaf_", StringComparison.Ordinal)
+                            ? regionName.Contains("Levant", StringComparison.Ordinal)
+                            : regionName.Contains("Japan", StringComparison.Ordinal)
+                                || regionName.Contains("Okhotsk", StringComparison.Ordinal);
+                        Assert.True(plausible, $"{item.GetProperty("name").GetString()} began in {regionName}");
+                    });
+                Assert.All(
+                    authoredEntities.Where(item =>
+                        item.GetProperty("name").GetString() is { } name
+                        && name.StartsWith("Cuban Air Force ", StringComparison.Ordinal)),
+                    item =>
+                    {
+                        var regionName = regionNames[item.GetProperty("regionId").GetString()!];
+                        Assert.True(
+                            regionName.Contains("Cuba", StringComparison.Ordinal)
+                            || regionName.Contains("Caribbean", StringComparison.Ordinal)
+                            || regionName.Contains("Florida", StringComparison.Ordinal),
+                            $"{item.GetProperty("name").GetString()} operated in {regionName}");
+                    });
                 var enemyGroup = diagnosticBody.RootElement.GetProperty("groups").EnumerateArray()
                     .First(item => item.GetProperty("coalitionId").GetString() != playerCoalitionId);
                 using var forbidden = await playerClient.PostAsJsonAsync(
@@ -1014,6 +1072,49 @@ public sealed class UnattendedCampaignIntegrationTests
                 testTimeout.Token))
             {
                 pausedMove.EnsureSuccessStatusCode();
+            }
+
+            using (var strategicDiagnostic = await operatorClient.GetAsync(
+                $"/campaigns/{campaignId}",
+                testTimeout.Token))
+            {
+                strategicDiagnostic.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(
+                    await strategicDiagnostic.Content.ReadAsStringAsync(testTimeout.Token));
+                var strategies = body.RootElement.GetProperty("coalitionStrategies").EnumerateArray()
+                    .ToArray();
+                var objectives = body.RootElement.GetProperty("strategicObjectives").EnumerateArray()
+                    .ToArray();
+                var commitments = body.RootElement.GetProperty("groupCommitments").EnumerateArray()
+                    .ToArray();
+                var packages = body.RootElement.GetProperty("operationalPackages").EnumerateArray()
+                    .ToArray();
+                Assert.Equal(2, strategies.Select(item =>
+                    item.GetProperty("coalitionId").GetString()).Distinct(StringComparer.Ordinal).Count());
+                Assert.Equal(2, objectives.Select(item =>
+                    item.GetProperty("coalitionId").GetString()).Distinct(StringComparer.Ordinal).Count());
+                Assert.NotEmpty(commitments);
+                Assert.NotEmpty(packages);
+                Assert.Equal(2, packages.Select(item =>
+                    item.GetProperty("coalitionId").GetString()).Distinct(StringComparer.Ordinal).Count());
+                Assert.All(packages, package =>
+                {
+                    var assemblyAt = package.GetProperty("assemblyAtQuanta").GetInt64();
+                    var executeAt = package.GetProperty("executeAtQuanta").GetInt64();
+                    var expiresAt = package.GetProperty("expiresAtQuanta").GetInt64();
+                    var members = package.GetProperty("members").EnumerateArray().ToArray();
+                    Assert.InRange(members.Length, 2, 6);
+                    Assert.InRange(executeAt, assemblyAt, expiresAt);
+                    Assert.All(members, member => Assert.InRange(
+                        member.GetProperty("startsAtQuanta").GetInt64(),
+                        assemblyAt,
+                        executeAt));
+                });
+                var packageMembers = packages
+                    .SelectMany(package => package.GetProperty("members").EnumerateArray())
+                    .Select(member => member.GetProperty("groupId").GetString()!)
+                    .ToArray();
+                Assert.Equal(packageMembers.Length, packageMembers.Distinct(StringComparer.Ordinal).Count());
             }
 
             using var movedView = await GetPlayerCampaignAsync(playerClient, campaignId, testTimeout.Token);

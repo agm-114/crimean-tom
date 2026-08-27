@@ -65,7 +65,17 @@ public static class CampaignCanonicalSerializer
                 item.OperationalWeapons.Select(weapon => new OperationalWeaponCapability(
                     weapon.AmmunitionId,
                     ParseEnum<ContactClassification>(weapon.TargetClassification),
-                    DistanceMeters.FromMeters(weapon.MaximumRangeMeters))).ToImmutableArray(),
+                    DistanceMeters.FromMeters(weapon.MaximumRangeMeters),
+                    DistanceMeters.FromMeters(weapon.MinimumRangeMeters),
+                    ParseEnum<OrdnanceKind>(weapon.Kind),
+                    ParseEnum<OrdnanceGuidance>(weapon.Guidance),
+                    weapon.SpeedMetersPerSecond,
+                    DistanceMeters.FromMeters(weapon.SeekerRangeMeters),
+                    weapon.RequiresExternalGuidance,
+                    weapon.LaunchReliabilityMilliUnits,
+                    weapon.KillProbabilityMilliUnits,
+                    weapon.WarheadPower,
+                    ParseEnum<WeaponMechanicsSource>(weapon.MechanicsSource))).ToImmutableArray(),
                 new EntityRevision(item.Revision),
                 ReadAnalogue(item),
                 item.HostEntityId is null
@@ -316,6 +326,16 @@ public static class CampaignCanonicalSerializer
                 writer.WriteString("ammunitionId", weapon.AmmunitionId);
                 writer.WriteNumber("targetClassification", (int)weapon.TargetClassification);
                 writer.WriteNumber("maximumRangeMeters", weapon.MaximumRange.Value);
+                writer.WriteNumber("minimumRangeMeters", weapon.MinimumRange.Value);
+                writer.WriteNumber("kind", (int)weapon.Kind);
+                writer.WriteNumber("guidance", (int)weapon.Guidance);
+                writer.WriteNumber("speedMetersPerSecond", weapon.SpeedMetersPerSecond);
+                writer.WriteNumber("seekerRangeMeters", weapon.SeekerRange.Value);
+                writer.WriteBoolean("requiresExternalGuidance", weapon.RequiresExternalGuidance);
+                writer.WriteNumber("launchReliabilityMilliUnits", weapon.LaunchReliabilityMilliUnits);
+                writer.WriteNumber("killProbabilityMilliUnits", weapon.KillProbabilityMilliUnits);
+                writer.WriteNumber("warheadPower", weapon.WarheadPower);
+                writer.WriteNumber("mechanicsSource", (int)weapon.MechanicsSource);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -825,6 +845,16 @@ public static class CampaignCanonicalSerializer
         public required string AmmunitionId { get; init; }
         public required int TargetClassification { get; init; }
         public required long MaximumRangeMeters { get; init; }
+        public long MinimumRangeMeters { get; init; }
+        public int Kind { get; init; }
+        public int Guidance { get; init; } = (int)OrdnanceGuidance.Active;
+        public long SpeedMetersPerSecond { get; init; }
+        public long SeekerRangeMeters { get; init; }
+        public bool RequiresExternalGuidance { get; init; }
+        public int LaunchReliabilityMilliUnits { get; init; } = 1_000;
+        public int KillProbabilityMilliUnits { get; init; } = 1_000;
+        public int WarheadPower { get; init; }
+        public int MechanicsSource { get; init; }
     }
 
     private sealed class GroupDocument

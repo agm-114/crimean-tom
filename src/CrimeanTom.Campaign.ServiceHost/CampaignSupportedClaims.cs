@@ -18,7 +18,7 @@ public static class CampaignSupportedClaims
             "process-lifetime-browser-cookie-scoped-to-player-api-without-operator-authority",
             "http-content-type-cannot-bypass-bearer-authentication",
             "local-player-create-pause-resume-save-and-restart-restore",
-            "full-4096-player-scenario-coalition-filtered-map-and-friendly-hierarchy",
+            "full-authored-player-scenario-coalition-filtered-map-and-friendly-hierarchy",
             "durable-coalition-scoped-player-transit-and-hold-orders-with-idempotency-revision-and-restart-recovery",
             "player-selected-supported-group-tactical-entry-with-preflight-idempotency-and-atomic-activation",
             "service-qualified-coalition-known-hostile-entry-under-opposing-taskforce-without-player-truth-leakage",

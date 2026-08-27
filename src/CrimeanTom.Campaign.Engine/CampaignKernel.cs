@@ -159,9 +159,22 @@ public static class CampaignKernel
             CampaignInvariants.RequireText(weapon.AmmunitionId, nameof(weapon.AmmunitionId));
             if (!Enum.IsDefined(weapon.TargetClassification)
                 || weapon.TargetClassification is ContactClassification.Unknown or ContactClassification.Logistics
-                || weapon.MaximumRange.Value <= 0)
+                || weapon.MaximumRange.Value <= 0
+                || weapon.MinimumRange.Value < 0
+                || weapon.MinimumRange.Value > weapon.MaximumRange.Value
+                || !Enum.IsDefined(weapon.Kind)
+                || !Enum.IsDefined(weapon.Guidance)
+                || !Enum.IsDefined(weapon.MechanicsSource)
+                || weapon.SpeedMetersPerSecond < 0
+                || weapon.SeekerRange.Value < 0
+                || weapon.LaunchReliabilityMilliUnits is < 0 or > 1_000
+                || weapon.KillProbabilityMilliUnits is < 0 or > 1_000
+                || weapon.WarheadPower < 0
+                || weapon.MechanicsSource == WeaponMechanicsSource.SeaPowerCatalog
+                    && weapon.Kind != OrdnanceKind.Projectile
+                    && weapon.SpeedMetersPerSecond <= 0)
             {
-                throw Violation("invalid-operational-weapon", "Operational weapon capabilities require a target class and a positive catalog range.");
+                throw Violation("invalid-operational-weapon", "Operational weapon mechanics are inconsistent or incomplete.");
             }
         }
         if (!Enum.IsDefined(value.SimulationDomain)
