@@ -227,28 +227,25 @@ The default deterministic seed now commits:
 | --- | ---: | --- |
 | Regions | 55 | Global sea-route and land-zone graph, including the Black Sea, Alaska, Europe, China, Japan, Korea, Taiwan, Vietnam, Iran, Iraq, and the Levant |
 | Bases | 81 | Naval, air, logistics, intelligence, and staging locations |
-| Campaign entities | 4,096 | Ships, fixed- and rotary-wing air, commerce, installations, physical ground targets, and land abstractions |
-| Groups | 918 | Task groups, convoys, defense complexes, sortie packages, helicopter flights, and ballistic units |
-| Groups with opening orders | 740 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement |
-| Maritime-domain entities | 1,329 | Surface combatants and submarines |
+| Campaign entities | 4,161 | Ships, fixed- and rotary-wing air, commerce, installations, physical ground targets, and land abstractions |
+| Groups | 1,244 | Task groups, convoys, defense complexes, sortie packages, helicopter flights, and ballistic units |
+| Groups with opening orders | 913 | CAP, patrol, ASW, escort, transit, resupply, and reinforcement. Fixed sites receive no movement order |
+| Maritime-domain entities | 1,393 | Surface combatants and submarines |
 | Fixed-wing air-domain entities | 491 | Squadron-, wing-, or mission-sized packages |
 | Rotary-wing entities | 149 | Attack, lift, maritime-patrol, ASW, and unmanned helicopters |
-| Logistics-domain entities | 399 | Auxiliaries, commerce, sealift, fuel, ammunition, industry, and warehouses |
+| Logistics-domain entities | 400 | Auxiliaries, commerce, sealift, fuel, ammunition, industry, and warehouses |
 | Ground entities | 984 | Physical armor, mechanized, artillery, local-GBAD, coastal-defense, support, and ballistic-launcher targets |
 | Installation entities | 654 | Airfields, ports, radar/IADS nodes, industry, strategic GBAD, and coastal-defense components |
 | Operational land abstractions | 90 | Campaign-scale formations and rear-area commands |
 | Civilian/merchant catalog entities | 158 | Coalition-affiliated air and sea traffic sample pending neutral diplomacy |
 | Fixed-site components | 838 | Airfields, ports, radar/GBAD, shore defense, fuel, ammunition, industry, and warehouses |
-| Resident strategic systems | 325 | Strategic SAM, radar, and ballistic systems that never demote below Operational |
-| Tactical-eligible entities | 4,006 | Catalog-backed workload intended for eventual streaming |
+| Resident strategic systems | 324 | Strategic SAM, radar, and ballistic systems that never demote below Operational |
+| Tactical-eligible entities | 4,071 | Catalog-backed workload intended for eventual streaming |
 
-The entity total remains 4,096. One former standalone two-helicopter flight was
-folded into USS Yorktown's canonical group as native onboard SH-2F and SH-3H
-inventory, reducing group and opening-order counts by one.
-
-`forceMultiplier` remains available for larger synthetic runs. It replicates
-the complete 4,096-entity echelon deterministically, so multiplier 2 represents
-8,192 entities rather than the old 120.
+These counts describe the current authored order of battle, not a target size.
+There is no multiplier or subset campaign. Add or remove forces when the
+scenario's military logic or measured runtime behavior requires it, then update
+this inventory from the generated seed.
 
 ## Installed catalog provenance
 

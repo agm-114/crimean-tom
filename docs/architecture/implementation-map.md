@@ -48,8 +48,14 @@ restore exist.
 `CampaignUnattendedSimulationHostedService` advances campaigns without Sea
 Power. `CampaignSimulation` handles movement, sustainment, intelligence,
 weather, doctrine, sensors, weapons, countermeasures, damage, and withdrawal.
-Strategic AI generates coalition plans, objectives, commitments, packages, and
-orders. All Operational ticks still execute in the service process.
+`CampaignStrategicAi` generates coalition objectives and commitments from a
+coalition-filtered view. It applies domain reach, objective capacity, and
+first-hop route-pressure limits, then builds persistent role-balanced packages
+of at most six groups. `CampaignOperationalControllers` gives maritime, air,
+rotary-wing, ground, and logistics groups distinct assembly, execution, and
+recovery behavior. Fixed installations, open-ended player orders, and live
+tactical assignments are fenced from AI movement. All Operational ticks still
+execute in the service process.
 
 One campaign quantum is one simulated second. The default hosted clock advances
 ten quanta per one-second wall interval, so its declared target tempo is 10x.
@@ -92,7 +98,9 @@ task, and adopt the launched object without changing its campaign identity.
 Terrain preparation relocates
 the local window, waits for finalized land terrain, samples height, and rejects
 water or unready placement. The two-second naval readback can commit changed
-kinematics, telegraph, fuel or stores fractions, damage, and destruction.
+kinematics, telegraph, stores fractions, damage, and destruction. Current Sea
+Power vessel profiles do not expose native fuel capacity. Their checkpoints
+therefore preserve campaign-owned fuel rather than fabricating a local reading.
 
 This is not complete portable tactical state. Hosted-aircraft recovery,
 magazines, sensors, formations, fixed-wing aircraft, broader rotary-wing
@@ -112,9 +120,11 @@ the Bulk lane. It suppresses unchanged sources and serializes reconciliation.
 The bridge tracks accepted and applied generation and revision, refuses to
 replace an in-progress apply, updates records in bounded batches, and rebuilds
 the viewport separately. It retains every authorized record while attaching at
-most 384 representative Sea Power symbols. A queued control writer takes
-precedence before a bulk frame starts writing. It cannot interrupt a bulk frame
-already in flight.
+most 384 representative Sea Power symbols. Visible sets within that budget use
+two-pixel cells and are effectively unclustered; moderately dense views use
+16-pixel cells; only the densest strategic view uses 24-pixel cells. A queued
+control writer takes precedence before a bulk frame starts writing. It cannot
+interrupt a bulk frame already in flight.
 
 Selection uses native Sea Power hit results before the campaign proximity
 fallback. A campaign selection runs one relocation, then polls terrain without
@@ -130,14 +140,14 @@ rights.
 Current live qualification is narrow. Generic visual loading has been observed
 for several catalog entries, but an earlier UI binding callback triggered
 unrelated proxies and stole camera focus. That callback is gone. Direct mouse
-selection, one-shot relocation, reconnect replay, the 4,096-record frame budget,
+selection, one-shot relocation, reconnect replay, the full-campaign frame budget,
 full catalog coverage, overlap handling, uncertainty glyphs, and a campaign-bound
 default task force still need live proof.
 
 ## Implemented player and operator path
 
 The browser polls a coalition-filtered player projection over loopback HTTP. It
-can create and name the fixed 4,096-entity scenario paused, start, pause, save,
+can create and name the authored scenario paused, start, pause, save,
 list, open, renew its process-lifetime session after service restart, and restore
 the same campaign head. Its cookie is accepted only on `/player`; operator and
 companion HTTP control remains bearer-authenticated. Enemy canonical entities
@@ -160,7 +170,7 @@ player coalition. Its read model reports the current group revision, connected
 Sea Power session, usable capacity, and exact support for each surviving
 member. The write requires that reviewed revision and an idempotency key. It
 uses the existing fenced handoff path and activates multi-member groups only
-after the complete batch is prepared. The full 4,096-entity service story and a
+after the complete batch is prepared. The full authored-campaign service story and a
 live Sea Power run now pass for the two-member USS Yorktown and USS Spruance
 group. A separate run passes for USS Honolulu as a native Los Angeles-class
 submarine while campaign time advances. A third run passes for an atomic
@@ -212,6 +222,8 @@ The design context is in [distributed simulation](../future/distributed-simulati
 | Product requirement | Current implementation gap |
 | --- | --- |
 | Local campaign application | Lifecycle, filtered map, objective assignment, Transit/Hold, and selected-group entry work; broader orders, objective progress, packaging, and result UX remain |
+| Rational campaign operations | Both coalitions plan and execute bounded packages through domain controllers; airbase inventory/cycles, route reservations, package success/abort logic, and human-readable AI explanations remain |
+| Full-fidelity server simulation | The service has aggregate movement, sensing, weapons, damage, and withdrawal; Sea Power-equivalent timing, mechanics, tactical AI, portable state, matched traces, and safe subsystem sleeping remain open |
 | Campaign-owned task force | The canonical North Sea island enters as two native ships, two native onboard helicopters, and one coalition-known hostile on the opposing task force; replacement of the remaining authored placeholder force is open |
 | Complete tactical round trip | Live clean return checkpoints and releases all five North Sea members for supported fields; hostile combat fate, expenditure, and broader portable state remain open |
 | Representation parity | Mouse selection, overlap, uncertainty, and catalog-wide proxy behavior remain incomplete |

@@ -24,11 +24,13 @@ results.
    not, and the next product gaps.
 4. [System architecture](architecture/system-architecture.md) defines the
    active local architecture and its invariants.
-5. [Implementation map](architecture/implementation-map.md) maps those roles to
+5. [Full-fidelity server simulation](architecture/full-fidelity-server-simulation.md)
+   defines simulation parity, allowed sleeping, and the canonical gap backlog.
+6. [Implementation map](architecture/implementation-map.md) maps those roles to
    the current repository.
-6. [Implementation plan](planning/implementation-plan.md) orders the work from
+7. [Implementation plan](planning/implementation-plan.md) orders the work from
    local proof of concept through private multiplayer.
-7. [Supported claims](planning/supported-claims.md) limits what the project may
+8. [Supported claims](planning/supported-claims.md) limits what the project may
    present as proven.
 
 When documents disagree, use this order:
@@ -45,6 +47,9 @@ delivery order: implementation plan
 
 - [System architecture](architecture/system-architecture.md): active product
   topology, ownership, time, fidelity, persistence, recovery, and multiplayer.
+- [Full-fidelity server simulation](architecture/full-fidelity-server-simulation.md):
+  parity requirements, safe subsystem sleeping, validation, and remaining
+  mechanics.
 - [Implementation map](architecture/implementation-map.md): current processes,
   projects, and deliberate gaps.
 - [Transport stack](architecture/transport-stack.md): local bridge, campaign

@@ -2,7 +2,7 @@
 
 The active product uses one campaign service and one local Sea Power tactical
 process. The service runs Operational simulation in-process. This is enough to
-prove the player loop and support the 4,096-entity design target.
+prove the player loop against the authored campaign.
 
 Private multiplayer remains active work. It does not require distributed
 Operational workers or several Sea Power processes. Multiple players can share
@@ -40,7 +40,7 @@ Any future design must retain these rules:
 ## When to revisit the design
 
 Revisit distributed simulation only after measurements show that one service
-cannot meet the 4,096-entity campaign budget, or after the product needs one of
+cannot meet the authored campaign's budget, or after the product needs one of
 these capabilities:
 
 - concurrent tactical battles;

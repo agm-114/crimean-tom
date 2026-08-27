@@ -19,6 +19,15 @@ edges. Durable assignments remain the source of authority truth. Runtime
 coupling observations can join existing assignments into a larger island, but
 cannot create authority by themselves.
 
+Not every detection or map track is automatically an unsafe edge. Presentation
+tracks may cross the authority boundary. Consequential sensor, fire-control,
+guidance, jamming, collision, formation, host, and support relationships need a
+versioned mechanic policy. The policy either joins their complete dependency
+set, performs a lossless authority transfer, uses a parity-qualified boundary
+adapter, or rejects the interaction. Until an adapter passes, the registry uses
+the conservative same-authority rule. See
+[full-fidelity server simulation](full-fidelity-server-simulation.md).
+
 A handoff batch is only an atomic preparation or fence transaction. Several
 complete batches may belong to one island after independent map promotions.
 Code must not infer island completeness from one shared `BatchId`.

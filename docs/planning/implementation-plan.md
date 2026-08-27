@@ -13,8 +13,13 @@ create or load campaign
   -> return, save, quit, and recover
 ```
 
-The proving dataset contains 4,096 campaign entities. The first tactical proof
-uses a bounded interaction island. It does not place the full dataset in Unity.
+The project has one authored campaign whose order of battle determines its size.
+Tactical play uses a bounded interaction island. It does not place the full
+dataset in Unity. The campaign service must still reproduce consequential Sea
+Power mechanics for entities outside that island. It may sleep irrelevant
+subsystems, but sleeping and always-awake server runs must produce compatible
+results. See
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
 
 Private multiplayer follows the local loop. Distributed Operational workers,
 hot replicas, and live tactical migration are [future work](../future/distributed-simulation.md).
@@ -28,6 +33,8 @@ A milestone is complete only when:
 - expected failures produce clear recovery or rejection states;
 - broad automated tests cover the durable service path;
 - Sea Power behavior is checked live where Unity is involved; and
+- matched server and Sea Power traces pass for every claimed server-simulated
+  platform family;
 - current status and supported claims are updated.
 
 An endpoint, DTO, process launch, screenshot, or isolated map symbol is not a
@@ -36,7 +43,7 @@ completed feature.
 ## Milestone 1: make the campaign application usable
 
 **Status:** The core acceptance gate passed locally on 24 August 2026. The
-browser shell created and named the 4,096-entity campaign paused, exposed the
+browser shell created and named the then-current full campaign paused, exposed the
 coalition-filtered map and friendly hierarchy, started and paused time, saved,
 restarted the service, renewed its player session, and restored the same head.
 Packaging and richer degraded or incompatible-version presentation remain
@@ -64,7 +71,7 @@ Deliver the local product shell around the existing service and monitor.
 
 ### Acceptance gate
 
-A clean local install can create the 4,096-entity scenario, inspect it without
+A clean local install can create the authored scenario, inspect it without
 time advancing, explicitly start it, save it, restart the application, and
 restore the same campaign head.
 
@@ -81,7 +88,7 @@ region, observe movement and objective assignment, replace the order with Hold,
 and retain that exact order through save and service restart. Coalition scope,
 expected revisions, idempotent retry, altered-key conflict, foreign-group
 rejection, and strategic-AI non-interference are covered by the broad service
-story using the full 4,096-entity seed. The rendered browser flow was also
+story using the full authored seed. The rendered browser flow was also
 checked. The milestone remains open for the broader command set, task-force and
 policy controls, objective progress, and campaign end state.
 
@@ -98,12 +105,21 @@ ruleset.
 
 ### Campaign rules
 
+- Implemented: coalition-scoped objectives and commitments, bounded
+  role-balanced packages, staggered assembly, domain-specific execution and
+  recovery, static-installation fences, objective capacity, and first-hop route
+  pressure.
 - Add durable objectives, progress, victory, failure, and campaign-ended state.
 - Connect losses, control, logistics, readiness, and time to visible results.
 - Explain AI objectives and current operational packages at a useful level.
 - Keep both coalitions acting from their own intelligence.
 - Prevent strategic AI from moving fixed defenses or taking player-owned units
   outside the selected control policy.
+
+Next add airbase inventory and launch or recovery cycles, package prerequisite
+and abort logic, route reservations, and regional throughput. These mechanics
+must use state that the full-fidelity server simulator can preserve. Do not
+replace them with more entity-count fixtures.
 
 ### Acceptance gate
 
@@ -124,7 +140,7 @@ campaign-to-battle loop before widening the order surface.
 application checks the selected friendly group against the connected runtime,
 shows per-member support and available capacity, rejects foreign, stale, or
 incomplete requests, and activates the supported group through the existing
-fenced handoff path. The broad 4,096-entity service story now proves atomic
+fenced handoff path. The broad full-campaign service story now proves atomic
 two-member preparation. Live Sea Power qualification loaded USS Yorktown and
 USS Spruance together with campaign names, stable tags, and positions intact. A
 second path loaded USS Honolulu as a native Los Angeles-class submarine while
@@ -175,7 +191,7 @@ Complete this work before adding more symbol or proxy families:
 The working implementation covers items 1, 2, 4, 5, 6, and 7. Typed selection,
 viewport fallback, cached record order, and native precedence are implemented.
 Scenario start covers the first part of item 3. Live Sea Power qualification
-covers a 4,096-record replay, native focus, and one full-world viewport pass;
+covers a then-current full-campaign replay, native focus, and one full-world viewport pass;
 direct mouse selection and reconnect repair remain open.
 
 ### Tactical preparation
@@ -268,7 +284,7 @@ Prove one mixed naval island with:
 - nearby terrain-backed radar, low-end GBAD, or installation targets where the
   scenario supports them.
 
-Broader catalog coverage continues after this vertical slice. The 4,096-entity
+Broader catalog coverage continues after this vertical slice. The authored
 campaign remains loaded and advancing around the bounded island.
 
 ### Acceptance gate
@@ -278,7 +294,7 @@ Power, sees the correct campaign-owned members, selects local units, non-local
 friendlies, and hostile contacts with the same interaction model, and observes
 no placeholder X symbols or underground objects.
 
-During this flow, a 4,096-record replay cannot delay a control command past its
+During this flow, a full-campaign replay cannot delay a control command past its
 deadline. Repeating a timed-out scenario transition cannot load the scenario a
 second time. Restarting Sea Power creates a new projection generation and
 restores the authorized map without restarting the campaign service.
@@ -319,33 +335,57 @@ A campaign-owned hostile is damaged or destroyed in Sea Power. Its fate and the
 player force's supported state commit once. Normal exit and a separate forced
 restart both return to one durable campaign timeline.
 
-## Milestone 5: qualify parity and the 4K design
+## Milestone 5: build and qualify full-fidelity server simulation
 
-Compare the external campaign model with Sea Power and enforce explicit budgets.
+Replace aggregate Operational combat with mechanics that match the pinned Sea
+Power build, then enforce explicit performance budgets. The canonical backlog
+is [full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
 
 ### Parity portfolio
 
-Use small matched scenarios to compare:
+Build a matched-run harness that starts the server and Sea Power from one
+versioned initial state, order set, environment, doctrine configuration, and
+random seed. Compare:
 
-- movement and fuel use;
-- detection, classification, and track aging;
-- weapon launch, flight, interception, hit, and damage;
-- aircraft, helicopter, submarine, ship, ground-unit, and installation behavior;
-- fixed timestep and internal time dilation; and
-- player-visible controls and map interactions.
+- event order and timing;
+- movement, navigation, formations, collision, and fuel use;
+- detection, classification, track correlation, uncertainty, aging, and loss;
+- emissions, jamming, countermeasures, fire control, launch, guidance,
+  interception, hit, and damage;
+- sortie, deck, runway, helicopter, submarine, ship, ground-unit, GBAD, and
+  installation behavior;
+- tactical AI decisions, doctrine, communications, and support; and
+- final portable checkpoints and handoff continuity.
 
-Record systematic differences as versioned calibration rules or explicit
-limitations. Aggregate FPS alone is not parity.
+Record each difference as a defect, measured tolerance, versioned calibration
+rule, or explicit unsupported state. Aggregate FPS, matching kill counts, or
+the presence of weapon launches does not prove parity.
+
+### Selective sleeping
+
+- Implement each mechanic in an always-awake reference mode first.
+- Record dependency envelopes, next possible events, wake deadlines, and wake
+  reasons.
+- Sleep collision, sensors, AI, damage progression, or other work only when no
+  reachable event can change the state.
+- Compare sleeping and always-awake server runs before using Sea Power as the
+  final reference.
+- Wake before proximity, orders, emissions, weapons, damage, environment,
+  resource thresholds, hosted operations, or authority handoff can matter.
+- Reject a state instead of using an aggregate or statistical substitute when
+  the required mechanic is unsupported.
 
 ### Performance portfolio
 
 - Compare small purpose-built native scenarios with matching dynamic cases.
-- Exercise 500, 1,000, 2,000, and 4,096 dynamic campaign sizes.
+- Profile the complete authored campaign as its order of battle changes.
 - Report campaign throughput, frame time, fixed timestep, time dilation, working
   set, tactical-entry latency, proxy latency, checkpoint size, and commit
   latency.
 - Report native objects, map records, proxies, Operational entities, tracks,
   weapons, and terrain-backed objects separately.
+- Report awake mechanics, sleeping mechanics, scheduled events, wakeups, and
+  parity error. Do not compare memory or throughput across unequal mechanics.
 
 ### Durability portfolio
 
@@ -357,9 +397,11 @@ limitations. Aggregate FPS alone is not parity.
 
 ### Acceptance gate
 
-The 4,096-entity campaign meets declared simulation, memory, UI, entry, and
-recovery budgets with a bounded Sea Power object set. Known parity differences
-are visible and versioned.
+The first supported combined-arms set passes matched server and Sea Power traces
+with declared tolerances. Its sleeping and always-awake server modes also match.
+The authored campaign then meets declared simulation, memory, UI, entry, and
+recovery budgets with a bounded Sea Power object set. Unsupported mechanics
+block server authority or keep the affected interaction island in Sea Power.
 
 ## Milestone 6: broaden campaign content
 

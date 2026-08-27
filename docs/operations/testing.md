@@ -3,8 +3,8 @@
 ## Purpose
 
 Tests must answer whether the player loop works, the campaign keeps one
-timeline, Sea Power behaves as expected, and the 4,096-entity design stays
-within budget. Prefer a few broad stories over many narrow tests.
+timeline, Sea Power behaves as expected, and the authored campaign stays within
+budget. Prefer a few broad stories over many narrow tests.
 
 No single layer is sufficient:
 
@@ -50,7 +50,7 @@ repository-local `sea-power-runtime` skill and these entry points:
 
 ```powershell
 pnpm build
-pnpm deploy
+pnpm run deploy
 pnpm launch
 pnpm verify
 pnpm status
@@ -89,9 +89,59 @@ pnpm game:time-compression -- -TimeCompression 1
 Do not leave extra Sea Power or companion processes running after a test unless
 the user asks to keep them open.
 
+## Full-spectrum combat parity
+
+The combined parity pair is the broad live combat check. One coastal battle
+includes a carrier group, a native flight-deck launch, fixed-wing land attack
+and SEAD, fighter interception, AEW, layered GBAD, surface missile combat,
+submarines, helicopter ASW, an airfield, ground installations, and civilian
+traffic.
+
+Run the authored baseline and streamed counterpart with the same duration and
+time compression:
+
+```powershell
+pnpm combat:parity -- -Case Combined -Mode Native -DurationSeconds 45 -TimeCompression 20 -OutputPath .run/combat-parity/full-spectrum-native.json
+pnpm combat:parity -- -Case Combined -Mode Streamed -DurationSeconds 45 -TimeCompression 20 -OutputPath .run/combat-parity/full-spectrum-streamed.json
+pnpm combat:parity -- -NativePath .run/combat-parity/full-spectrum-native.json -StreamedPath .run/combat-parity/full-spectrum-streamed.json
+```
+
+The comparison requires matching detection, weapon launch, damage, destruction,
+air-to-land attack, GBAD engagement, carrier operations, helicopter and
+submarine presence, civilian traffic, camera-focus traversal, and streamed
+native readiness. The capture also records frame rate, fixed timestep, internal
+time dilation, first detection and weapon times, and peak active weapons.
+
+This pair compares authored and streamed units inside Sea Power. It proves that
+streamed units become combat-ready native objects. It does not compare the
+campaign service's combat model with Sea Power.
+
+## Server simulation parity
+
+Do not claim full server fidelity from aggregate campaign outcomes. Detection,
+launch, damage, and destruction counts are smoke checks.
+
+A server parity case must use the same versioned initial state, orders,
+environment, doctrine, and random inputs for both runs. Capture the native Sea
+Power trace first, then compare server event order and timing, tracks, movement,
+fuel, ammunition, launched weapons, guidance state, damage, tactical decisions,
+and the final portable checkpoint. Run the server once with all relevant
+mechanics awake and once with selective sleeping enabled. The two server traces
+must match before either is compared with Sea Power.
+
+Each difference must produce one of four results:
+
+- a defect;
+- a measured and named tolerance;
+- a versioned calibration rule tied to the pinned Sea Power build; or
+- an unsupported-state rejection that prevents server authority.
+
+The required mechanics and platform gaps are tracked in
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
+
 ## First-playable acceptance story
 
-Run this story against the full 4,096-entity campaign:
+Run this story against the complete authored campaign:
 
 1. Start from no running Crimean Tom processes.
 2. Create a campaign and confirm it is paused.
@@ -103,7 +153,10 @@ Run this story against the full 4,096-entity campaign:
    in their host's flight-deck inventory and the owned-resource ledger without
    consuming world-object capacity until launch.
 7. Maximize the tactical map and inspect local units, non-local friendlies, and
-   hostile tracks.
+   hostile tracks. Automated runs should use the typed HUD request with
+   `fullscreen`, `zoomLevel`, and map-center coordinates. Record the realized
+   framing returned by the command because Sea Power can clamp the requested
+   world-scale zoom to its native view bounds.
 8. Select each kind through the player input path. Confirm native symbology,
    labels, focus, and bounded loading feedback.
 9. Select a distant friendly and confirm one non-simulating visual proxy appears
@@ -185,18 +238,13 @@ For map and visual proxies:
   checkpoint, or publication path; and
 - confirm promotion hides the proxy before the real object becomes visible.
 
-## Dynamic scale scenarios
-
-The dynamic campaign uses the full seed with bounded subsets of 500, 1,000,
-2,000, or 4,096 campaign entities. A dynamic count is not a native-object count.
-
 ## Performance comparison
 
 Use the capture script for both baseline and candidate:
 
 ```powershell
-pnpm performance:capture -- -Label vanilla-500 -DurationSeconds 120
-pnpm performance:capture -- -Label dynamic-500 -DurationSeconds 120
+pnpm performance:capture -- -Label vanilla-reference -DurationSeconds 120
+pnpm performance:capture -- -Label authored-campaign -DurationSeconds 120
 ```
 
 Compare retained captures with:
@@ -221,9 +269,10 @@ pairing, warm-up, duration, and time controls. Record:
 - tactical-entry and selected-proxy latency; and
 - checkpoint size and result-commit latency.
 
-Use the 500, 1,000, 2,000, and 4,096 dynamic campaigns to validate scaling.
-Create small, purpose-built Sea Power scenarios when a native comparison is
-needed. Do not commit generated mass-native missions.
+Profile the same authored campaign as its order of battle changes. Create small,
+purpose-built Sea Power scenarios only when a native parity comparison is
+needed; they are test cases, not alternate campaigns. Do not commit generated
+mass-native missions.
 
 ## Parity portfolio
 

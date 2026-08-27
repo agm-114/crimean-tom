@@ -30,6 +30,13 @@ Sea Power is the tactical engine. It owns:
 
 Sea Power does not own the campaign save, strategic AI, or global campaign UI.
 
+The campaign service is also the target full-fidelity simulator for every
+entity outside a Sea Power lease. It may omit Unity presentation work and sleep
+mechanics that cannot affect the current state, but it may not replace relevant
+combat with a less accurate outcome model. Sea Power remains the reference for
+the pinned game build. The parity contract and current mechanic gaps are in
+[full-fidelity server simulation](full-fidelity-server-simulation.md).
+
 ## Active process topology
 
 ```text
@@ -254,17 +261,31 @@ Loading and inspecting a campaign never advances it. A new or restored campaign
 starts paused. Tactical pause and campaign pause are separate states unless a
 ruleset explicitly couples them and tells the player.
 
-## Fidelity and interaction islands
+## Simulation location and interaction islands
 
-Strategic state represents theater intent and aggregated formations.
-Operational state advances individual campaign entities outside Sea Power.
-Tactical state uses real Sea Power objects for the local battle.
+Strategic state represents theater intent and aggregated command. Operational
+state means that the campaign service advances an individual entity outside Sea
+Power. Tactical state means that a leased native Sea Power object advances it.
+These names describe authority and presentation, not acceptable differences in
+combat mechanics. The server target is full consequential parity with Sea
+Power for every supported platform and state.
+
+The server can sleep collision, sensing, AI, or other mechanics only while a
+dependency and next-event calculation proves that they cannot change the
+result. It must retain resumable state and wake the mechanic before proximity,
+orders, emissions, weapons, damage, environment, resource thresholds, hosted
+operations, or authority transfer make it relevant. The full rules are in
+[full-fidelity server simulation](full-fidelity-server-simulation.md).
 
 The interaction island begins with the campaign-owned player task force and
 includes entities coupled by live sensor, weapon, targeting, formation,
 support, or collision relationships. Sea Power receives the whole island under
-one epoch. The service must not split a live weapon or sensor relationship
-between authorities. The service derives membership through the
+one epoch. The service must not split a consequential relationship between
+authorities unless a mechanic-specific boundary adapter has passed matched
+parity tests. Presentation tracks may cross without granting authority. An
+in-flight weapon, its guidance dependencies, and its target remain together
+until lossless transfer or an equivalent adapter exists. The service derives
+membership through the
 [interaction-island registry](interaction-islands.md). Handoff batches remain
 transaction boundaries; several independently prepared batches can join one
 island through host-child or live coupling relationships.
@@ -338,7 +359,7 @@ never removes its authorized map record.
 
 Projection transport is versioned and differential after the initial snapshot.
 An unchanged source version does not enter the game pipe. Changed records and
-explicit removals are preferred to another 4,096-record snapshot; a full
+explicit removals are preferred to another full-campaign snapshot; a full
 snapshot is reserved for initial load and resynchronization.
 
 ## Tactical entry
@@ -391,10 +412,41 @@ intact and receives a clear migration, compatible-version, or export path.
 
 ## Strategic and operational AI
 
-Each coalition has a strategic director that chooses objectives, allocates
-forces, manages reserves and sustainment, and replans from coalition
-intelligence. Domain controllers turn that intent into bounded naval, air,
-ground, air-defense, strike, escort, and logistics packages.
+Each coalition director sees its own forces, public geography and bases, and
+that coalition's intelligence. It creates durable objectives and group
+commitments. Selection is limited by domain reach, per-objective domain
+capacity, and pressure on the first route hop. These are deterministic
+anti-convergence rules, not a theater route reservation system.
+
+Committed groups form role-balanced operational packages of two to six groups.
+A package chooses one adjacent assembly region, releases slower groups before
+aircraft and helicopters, and persists across director passes until execution,
+expiry, or loss of a required member. Package membership never overrides an
+open-ended player order or a live tactical assignment.
+
+Domain controllers translate commitments and package phases into ordinary
+campaign orders:
+
+- ships and submarines assemble, execute their assigned patrol, escort, strike,
+  or ASW role, and remain on station until recovery is required;
+- fixed-wing aircraft reserve fuel and time for a return to a friendly base;
+- helicopters use the same cycle with a shorter operating radius and larger
+  reserve;
+- ground formations assemble only when that does not pull them away from the
+  front, then advance or hold; and
+- logistics groups carry supplies forward and return to a depot to reload.
+
+Fixed installations defend in place. A controller owns one replaceable order
+slot per group; player orders, emergency withdrawal, and tactical authority
+take precedence.
+
+This is the current Operational approximation. It does not yet model aircraft as airbase
+inventory, individual launch and recovery schedules, runway capacity, tanker
+tracks, route reservations, or a package success/abort state machine.
+
+This approximation is an implementation gap, not the target architecture. The
+server must eventually execute compatible tactical mechanics for supported
+aircraft while retaining strategic and operational command layers above them.
 
 AI commands enter the same validation and durable commit path as player
 commands. Fixed installations cannot receive movement orders. Player-controlled
@@ -436,28 +488,32 @@ See the [threat model](../planning/threat-model.md) for current gaps.
 
 ## Performance budgets
 
-The design target is a 4,096-entity campaign, not 4,096 Unity objects. Most
-entities remain in the Operational model. The tactical process receives a
-bounded interaction island, map records, and selected visual proxies.
+The authored order of battle determines campaign size; an arbitrary round
+entity limit does not. Most entities remain in the server simulation. The
+tactical process receives a bounded interaction island, map records, and
+selected visual proxies.
 
-Projection work has its own frame budget. A full 4,096-record snapshot may take
+Projection work has its own frame budget. A full-campaign snapshot may take
 several frames to appear. A queued control frame takes precedence over bulk
 traffic that has not started writing, but it cannot interrupt a pipe frame
 already in flight. Projection work must not repeat a scenario transition or
-force the game to serialize 4,096 result records. Tests record queue depth,
+force the game to serialize the entire campaign as tactical results. Tests record queue depth,
 control latency, records applied per frame, snapshot-to-map latency, and the
 longest main-thread projection slice.
 
 Qualification records these populations separately:
 
 - campaign entities;
-- entities advanced in the Operational model;
+- entities advanced by the server;
+- awake and sleeping server mechanics;
+- scheduled events and subsystem wakeups;
 - Sea Power simulated objects;
 - map records;
 - visual proxies; and
 - active tracks and weapons.
 
-Benchmarks report campaign throughput, Sea Power fixed timestep, internal time
+Benchmarks report campaign throughput and parity error before comparing cost.
+They also report Sea Power fixed timestep, internal time
 dilation, frame time, memory, tactical-entry latency, proxy latency, and result
 commit latency. The comparison baseline is a smaller all-native Sea Power
 scenario with matching force composition where possible.

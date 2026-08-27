@@ -46,7 +46,8 @@ Until Computer Use is available, inspect the live game through the authenticated
 companion instead of desktop screenshots:
 
 - `pnpm game:ui` / `GET /game/ui` reports scene, current window type, pause,
-  HUD/map/formation visibility, selected unit, and screen size.
+  HUD/map/formation visibility, map fullscreen state, map center and zoom,
+  selected unit, and screen size.
 - `pnpm game:screenshot` / `POST /game/screenshot` captures the Unity framebuffer
   after the current frame, writes `_CrimeanTomScreenshot.png` beside experimental
   saves, and returns path/hash metadata. `GET /game/screenshot/image` serves that
@@ -56,7 +57,13 @@ companion instead of desktop screenshots:
   framing. Native land units use an elevated oblique view; repeating focus on
   an already-selected unit still reframes it.
 - `POST /game/automation/hud` with `{ "panel": "map"|"formation"|"hud"|"pause-resume" }`
-  toggles those typed HUD surfaces.
+  toggles those typed HUD surfaces. A map request can also set `fullscreen`,
+  `zoomLevel`, `centerLatitude`, and `centerLongitude`. For example,
+  `{ "panel": "map", "visible": true, "fullscreen": true, "zoomLevel": 1,
+  "centerLatitude": 35, "centerLongitude": 20 }` opens a global debug view
+  through Sea Power's native map properties. The result reports the realized
+  center, zoom, fullscreen state, and whether Sea Power applied native
+  clamping. Use those realized values when comparing captures.
 
 These tools are local-control only. Camera and HUD actions are pinned to verified
 method fingerprints and fail closed when a game update changes those seams.

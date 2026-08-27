@@ -17,8 +17,8 @@ update requires renewed qualification.
 - Operator pause rejects campaign time advances until resume.
 - One campaign quantum is one simulated second. The default local target tempo
   is 10x, and the player API declares the tick contract and multiplier.
-- The local player application can create and name the fixed 4,096-entity
-  proving scenario paused, start it, pause it, save it, restart the campaign
+- The local player application can create and name the authored campaign
+  paused, start it, pause it, save it, restart the campaign
   service, and restore the same campaign head and time.
 - The player can give a movable friendly group a coalition-scoped Transit order
   to a visible region, replace it with Hold, and see whether the write was
@@ -44,8 +44,14 @@ update requires renewed qualification.
 - Operational simulation covers movement, sustainment, intelligence, sensors,
   weapons, countermeasures, damage, weather effects, and withdrawal.
 
-These are deterministic game systems, not a claim of human-equivalent command
-or complete Sea Power parity.
+These are deterministic campaign systems, not full-fidelity Sea Power
+simulation. They do not yet reproduce native event timing, navigation,
+collision, sensor propagation and modes, track management, electronic warfare,
+weapon guidance, component damage, aviation cycles, acoustics, communications,
+or tactical AI. Current server memory and throughput results measure this
+incomplete mechanic set and must not be presented as the cost of full parity.
+The target and gap inventory are in
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
 
 ## Authority and local synchronization
 
@@ -63,8 +69,15 @@ or complete Sea Power parity.
   positive reclamation receipt. Omission from a projection can suspend stale
   local authority but cannot destroy a checkpointed native object.
 - The owned ship/submarine proof of concept can publish changed readbacks for pose,
-  telegraph, fuel or stores fractions, damage, and destruction during unpaused
-  play.
+  telegraph, stores fractions, damage, and destruction during unpaused play.
+  Current Sea Power vessel profiles expose no native fuel capacity, so a vessel
+  checkpoint leaves campaign-owned fuel unchanged instead of inventing a native
+  fuel reading.
+- The broad companion integration path publishes an aircraft's native fuel
+  fraction directly on state sync and preserves the campaign baseline when Sea
+  Power has no fuel reading. This prevents partial aircraft fuel from being
+  multiplied by its handoff value a second time. A partial-fuel live Sea Power
+  run remains open.
 - Ordered lifecycle mutations temporarily pause Sea Power and restore its prior
   play state.
 - A checkpointed bridge record that becomes detached after scene loss can fence
@@ -136,6 +149,14 @@ or complete Sea Power parity.
   was 3.851 ms. The associated 4,096-record projection applied in 330.271 ms with
   a 1.584 ms worst slice. This is one machine and one map state, not a frame-time
   guarantee.
+- The current 4,161-entity campaign entered its five-member North Sea tactical
+  island and applied 4,157 remaining projection records in 16.296 ms. A pinned
+  native fullscreen request produced Sea Power's clamped global zoom of 3.006.
+  The viewport processed all 4,157 records, found 4,061 on-screen candidates,
+  attached 183 clustered markers, and completed in 4.056 ms with a 4.223 ms
+  worst slice. Sea Power reported about 60 FPS, a 16.667 ms fixed step, and
+  internal time dilation 1. This qualifies the global clustering path on one
+  machine. It does not qualify direct mouse selection or reconnect repair.
 - The same Sea Power process entered and exited the five-member North Sea
   island, then entered and exited the one-member USS Honolulu island. The
   companion reclaimed five committed resources after the first exit and one

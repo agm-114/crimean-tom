@@ -20,8 +20,9 @@ preferred behavior and optional implementation choices.
 
 Crimean Tom is one continuously advancing war, not a sequence of disconnected
 missions. Most of the theater is simulated outside Unity. Sea Power presents
-the player's local high-fidelity battle while remaining connected to the same
-campaign timeline.
+and temporarily owns the player's local battle while remaining connected to
+the same campaign timeline. The external simulator must preserve the
+consequential mechanics of native Sea Power play for every supported platform.
 
 A player must be able to:
 
@@ -38,8 +39,10 @@ A player must be able to:
 
 ## Core experience principles
 
-1. **One world.** Strategic, Operational, and Tactical are fidelity levels of
-   the same entities. They are not separate copies of the campaign.
+1. **One world.** Strategic, Operational, and Tactical are command,
+   representation, and authority modes for the same entities. They are not
+   separate copies of the campaign, and Operational authority does not permit
+   different consequential mechanics.
 2. **Map-first continuity.** The map is the stable view of the war. Physical
    objects stream around player interest and tactical need; map presence does
    not depend on local Unity materialization.
@@ -57,6 +60,11 @@ A player must be able to:
 7. **Failure is visible and recoverable.** Streaming, terrain, authority, save,
    and connection problems produce actionable player state, not silent missing
    units or duplicate objects.
+8. **Simulation location must not change the battle.** A supported engagement
+   should produce compatible movement, detections, weapon behavior, resource
+   use, damage, and tactical decisions whether the campaign service or Sea Power
+   owns it. The server may sleep irrelevant mechanics, but it must wake them
+   before they can affect an outcome.
 
 ## Campaign lifecycle
 
@@ -234,6 +242,13 @@ campaign record
 - Pause is explicit and scoped. Pausing the player's tactical presentation does
   not implicitly freeze the whole theater unless the selected single-player
   ruleset says so and the UI reports that policy.
+- Server-side subsystem sleeping is separate from campaign pause. A sleeping
+  collision, sensor, AI, or other mechanic must have a recorded wake condition
+  and next possible event. Sleeping must not change the accepted result beyond
+  its declared parity tolerance.
+
+The complete server parity contract is in
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
 
 ## Orders, AI, and campaign progression
 
@@ -312,7 +327,7 @@ The POC is playable only when one clean run demonstrates all of the following
 while the full dynamic campaign dataset is loaded and advancing around a bounded
 tactical island:
 
-1. A fresh 4,096-entity campaign can be created, loaded paused, explicitly
+1. A fresh authored campaign can be created, loaded paused, explicitly
    started, saved, and restored.
 2. The player campaign map exposes the full authorized friendly order of battle
    and only coalition-detected hostile tracks, with usable clustering at world

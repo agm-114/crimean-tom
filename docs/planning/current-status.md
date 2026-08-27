@@ -23,6 +23,17 @@ activate the whole supported group. The remaining product gap is combined-arms
 entry, usable tactical-map continuity, combat return, recovery, broader orders,
 and objective progress.
 
+The server combat model is not full fidelity. It can produce detections,
+launches, weapon expenditure, point defense, aggregate damage, destruction, and
+withdrawal. Weapon profiles now preserve native catalog type, range, guidance,
+speed, seeker, reliability, hit-probability, and warhead fields while marking
+incomplete profiles separately. The model still does not reproduce Sea Power's
+complete timing, sensors, weapon flight, damage, aviation, acoustics, collision,
+or tactical AI. Its current memory and throughput numbers therefore describe an
+incomplete simulator. They are not performance targets for the finished design.
+The canonical backlog is
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
+
 The [product contract](playable-dynamic-campaign-product-contract.md) defines the
 goal. The [implementation plan](implementation-plan.md) defines the order.
 
@@ -33,21 +44,22 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Campaign core | Immutable state, typed commands and events, fixed logical time, deterministic replay and hashing | Save schema and algorithm evolution are not qualified |
 | Campaign clock | One quantum is one simulated second; the default target tempo is 10x and the player view declares the clock contract | Actual throughput can fall below target under load; player-selectable tempo and measured lag are not implemented |
 | Persistence | SQLite WAL, writer fencing, periodic snapshots, compressed events, content-addressed blobs, integrity checks, online backup, side-directory restore | Long campaigns, compaction, disk pressure, and upgrade paths remain open |
-| Scenario | Sourced 55-region, 81-base, 4,096-entity WW3++ proving seed | It is an engineering load scenario, not a balanced release campaign |
-| Operational model | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | Parity with Sea Power remains incomplete and calibration is narrow |
-| Strategic AI | Two coalitions create objectives, allocate capable groups, keep fixed defenses in place, form multi-role packages, and replan | No route or capacity deconfliction, deception, or human-level command claim |
+| Scenario | Sourced 55-region, 81-base, 4,161-entity authored WW3++ order of battle with nationally based air, naval, and ground forces | Detailed historical OOB work, front geometry, force composition, and balance remain iterative |
+| Server simulation | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, and withdrawal | This is an aggregate Operational model, not full Sea Power parity; most mechanics in the full-fidelity gap inventory remain open |
+| Strategic AI | Two coalitions create intelligence-scoped objectives, enforce domain reach and objective capacity, penalize loaded route entrances, and form persistent two-to-six-group packages | No route reservations, regional throughput, deception, package success/abort state, or human-level command claim |
+| Operational control | Maritime, fixed-wing, rotary-wing, ground, and logistics controllers stage packages, execute domain orders, return aircraft before fuel/time reserves expire, shuttle supply groups, and fence player/tactical authority | Air groups remain persistent abstractions rather than airbase inventory with launch, tanker, runway, and recovery schedules |
 | Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, collider capture, and native hosted-helicopter registration and launch | Pinned game build, narrow portable-state allow-list, and no hosted-aircraft recovery contract |
 | Tactical lease | Eligible heartbeats keep assignments live; loss starts a 12-second wall-clock grace while unrelated campaign entities advance; game-session loss blocks new authority work and drains the current result into a bounded durable outbox before fencing the old stream | Live reconnect during grace, abrupt process loss, and restart latency still need Sea Power qualification |
-| Tactical readback | Changed ship or submarine pose, telegraph, fuel or stores fraction, damage, and destruction can commit every two seconds | Magazines, sensors, formations, hosted assets, and broader families are incomplete |
+| Tactical readback | Changed ship or submarine pose, telegraph, stores fraction, damage, and destruction can commit every two seconds; Sea Power exposes no native fuel capacity for current vessel profiles, so campaign fuel remains unchanged | Magazines, sensors, formations, hosted assets, vessel fuel consumption, and broader families are incomplete |
 | Tactical return | The campaign application can request a clean whole-island exit, receive final checkpoint references, release the island atomically, show the durable member result, and idempotently reclaim matching bridge-owned objects from positive release receipts; a scene-lost checkpointed record can fence without tactical pause at its unchanged revision | Final ammunition, sensors, formations, hosted-aircraft recovery, launched weapons, and objective effects remain unsupported; detached return is live-qualified for one submarine profile |
-| Map projection | One full session/resync snapshot is followed by versioned upserts and removals on the Bulk lane; a game-session change recreates the campaign stream; projection and viewport work both run in frame-budgeted phases | Live 4,096-record runs applied in about 330-692 ms; the latest apply took 330.271 ms with a 1.584 ms worst slice. A full-world viewport pass considered 3,711 candidates, attached 97 markers, completed in 3.292 ms, and used a 0.404 ms worst slice; the cold-session maximum was 3.851 ms. Reconnect repair, delta telemetry, and concurrent control latency remain open |
+| Map projection | One full session/resync snapshot is followed by versioned upserts and removals on the Bulk lane; viewport work is frame-budgeted and uses 2-, 16-, or 24-pixel clustering cells according to visible density | A current global fullscreen pass processed 4,157 records, reduced 4,061 on-screen candidates to 183 markers, and refreshed in 4.056 ms with a 4.223 ms worst slice at 60 FPS; labels remain dense at world scale, and reconnect repair, delta telemetry, and concurrent control latency remain open |
 | Symbology | Projected records use authored Sea Power unit symbols instead of generic X markers | Overlap, uncertainty glyphs, and catalog-wide behavior remain open |
 | Visual proxies | Selection is an explicit state machine; it preserves native hit precedence, relocates once, polls terrain, then creates and focuses a non-simulating model or hostile estimate | Direct mouse selection, cancellation, failure display, and terrain behavior need live proof across more catalog families |
 | Focused promotion | A native `IMapSelectable` transition requests one campaign entity without requiring its entire Operational group to fit; preparation requires the selected entity's exact runtime-advertised profile, native initialization, stores, airborne state where required, and friendly control before checkpoint and focus; public altitude/depth is corrected against native readback; pre-checkpoint failure rolls back and permits retry | A live CAS F-5E proved weapons, gear-up airborne state, native selection, status, and orders; a full-campaign USS Honolulu promotion proved exact Variant31 identity, initialized stores, native control, status, and camera focus; rollback and broader families still need live qualification |
 | Ground placement | Several ground and installation profiles wait for terrain and reject invalid placement | Broad ground, air-defense, airbase, and ballistic families are not portable |
 | Sessions | Player profile persists coalition, pause state, cursor, and save head; the process-lifetime browser session renews after service restart | Durable user identity is absent |
 | Player orders | Coalition-scoped Transit and Hold use expected group revisions and durable idempotency; replacement completes the prior order, strategic AI respects the player order, and save/restart retains it | Patrol, escort, engage, withdraw, task-force editing, readiness, EMCON, and ROE are absent |
-| Player application | Browser shell creates and names the fixed 4,096-entity scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Combined-arms entry, complete objective progress, packaging, and detailed recovery UX are absent |
+| Player application | Browser shell creates and names the authored scenario paused, shows the coalition-filtered map and force hierarchy, issues Transit/Hold, controls time and saves, and requests tactical entry for a selected friendly group | Combined-arms entry, complete objective progress, packaging, and detailed recovery UX are absent |
 | Player tactical entry | Preflight derives coalition authority from the saved player profile, reports each surviving member's runtime-profile support and world-object capacity, rejects foreign or stale requests, and prepares the interaction island atomically; the known hostile remains a masked track in the player view | Live qualification covers the five-member North Sea island, USS Honolulu, and a separate airborne SH-2F/SH-3H group; combined surface/submarine entry, fixed-wing aircraft, and hosted recovery remain open |
 | Authorization | Browser authority is limited to `/player`; operator and companion HTTP control remains bearer-only, and a spoofed gRPC content type does not bypass the HTTP boundary | This is a trusted local-session design, not durable user identity |
 | Claim API | `GET /supported-claims` exposes a versioned machine-readable ledger aligned with the local runtime | Update it whenever a supported or unsupported boundary changes |
@@ -55,7 +67,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 ## What the player can and cannot do
 
 The current prototype can launch services, create a named full campaign paused,
-show 4,096 total entities as a coalition-filtered player picture, start and
+show its complete authorized order of battle as a coalition-filtered player picture, start and
 pause time, save, restart the service, renew the local browser session, and
 restore the same campaign head. It can redirect a movable friendly group to a
 visible region, cancel it into Hold, and see objective assignment. It can also
@@ -127,7 +139,23 @@ than in the active tree.
 
 ## Immediate gaps
 
-### 1. Expand campaign-owned task-force entry
+### 1. Replace aggregate server combat with full-fidelity mechanics
+
+Treat Sea Power as the reference implementation for the pinned build. Start
+with one bounded combined naval and air engagement. Define lossless portable
+state, capture native traces, implement compatible server movement, sensing,
+weapons, fuel, damage, and tactical decisions, then compare the two from the
+same initial state and random inputs. Add subsystem sleeping only after the
+always-awake server path passes. A sleeping path must also match the awake path.
+
+The full inventory covers timing, environment, navigation, collision, sensors,
+tracks, electronic warfare, weapons, point defense, damage, fuel, naval and air
+operations, ground systems, command links, AI, civilians, catalog mappings,
+handoff state, cross-authority interactions, scheduling, validation,
+performance, and versioning. It lives in
+[full-fidelity server simulation](../architecture/full-fidelity-server-simulation.md).
+
+### 2. Expand campaign-owned task-force entry
 
 The selected-group transaction, unsupported-member report, one-member submarine
 patrol, and two-member airborne helicopter group work. The canonical North Sea
@@ -138,7 +166,7 @@ island. Next qualify a combined surface/submarine group, implement hosted
 recovery and restart reconciliation, and remove the authored mission as the
 source of player membership.
 
-### 2. Map and proxy parity
+### 3. Map and proxy parity
 
 Map-driven promotion is entity-scoped. Explicit entry from the campaign
 application remains a whole-group transaction. One fixed-wing path now has a
@@ -147,7 +175,14 @@ spawned airborne with gear retracted, exposed native orders and status, and
 retained ammunition. The 3D follow camera centered on the unit. A later full-
 campaign run applied all 4,096 projection records, focused USS Spruance, opened
 Sea Power's full-screen tactical map, and found the viewport centered on that
-unit. Direct mouse selection and overlap behavior remain open.
+unit. The current 4,161-entity campaign then entered the five-member North Sea
+task force, kept seven native units in the tactical scene, and applied 4,157 map
+records in 16.419 ms. A follow-up used the pinned vanilla fullscreen action and
+Sea Power's clamped world zoom. It processed all 4,157 records, found 4,061
+on-screen candidates, attached 183 clustered markers, and refreshed the viewport
+in 4.056 ms. Sea Power held 60 FPS at a 16.667 ms fixed step and internal time
+dilation 1. Labels are still dense at world scale. Direct mouse selection and
+overlap behavior remain open.
 
 The working implementation separates Bulk projection traffic from Control,
 tracks game-session generation and revision, sends differential upserts and
@@ -186,32 +221,32 @@ the service denies the debug view, the companion latches that denial and uses
 ordinary coalition-filtered projections instead of dropping friendly map sync
 or retrying a forbidden request every cycle.
 
-### 3. Complete tactical return
+### 4. Complete tactical return
 
 Commit campaign-owned hostile fate, player damage, fuel, stores, ammunition,
 hosted assets, and objective effects once. Show unsupported or rejected fields
 instead of silently discarding them.
 
-### 4. Broader orders and objective rules
+### 5. Broader orders and objective rules
 
 Build on the accepted Transit/Hold path with patrol, escort, engage, withdraw,
 task-force membership, readiness, EMCON, ROE, objective progress, and an
 understandable campaign end state. The narrow order slice is enough to build and
 test the campaign-to-battle loop before widening this surface.
 
-### 5. Recovery and save longevity
+### 6. Recovery and save longevity
 
 Qualify clean exit, forced game termination, game relaunch, companion restart,
 service restart, long-running storage, and one schema and algorithm upgrade.
 
-### 6. Broader combined arms
+### 7. Broader combined arms
 
 Add portable fixed-wing aircraft, ship-hosted helicopter recovery and return,
 broader submarine families, ground targets, airbases,
 radars, GBAD, strategic air defenses, ballistic launchers, logistics, and shore
 sites through the same map, entry, return, and recovery contract.
 
-### 7. Private multiplayer
+### 8. Private multiplayer
 
 After the local loop works, add durable identities, invitations, coalition
 roles, realtime filtered projections, reconnect, shared-control policy, TLS, and
@@ -219,14 +254,27 @@ rate limits. This does not require distributed simulation.
 
 ## Performance position
 
-The architecture targets 4,096 campaign entities, not 4,096 Sea Power objects.
-The full campaign should keep most entities in the Operational model while Sea
-Power holds a bounded interaction island, map records, and selected proxies.
-
-Dynamic campaign subsets exist at 500, 1,000, 2,000, and 4,096 entities. Future
-results must report native objects, map records, proxies, external entities, fixed
+The authored order of battle determines campaign size. The full campaign should
+keep most entities in the server simulator while Sea Power holds a bounded
+interaction island, map records, and selected proxies. Future results must
+report native objects, map records, proxies, external entities, fixed
 timestep, internal time dilation, frame time, memory, and campaign throughput
 separately.
+
+The measurements below come from the current aggregate model. Repeat them after
+each full-fidelity mechanic lands. A cheaper result is not an improvement if it
+changes detection, weapon, damage, fuel, or AI behavior.
+
+A local full-campaign profile advanced the current 4,161 entities and 1,244
+groups through 600 quanta in 24.316 wall seconds. Both coalitions remained
+active. They held 101 and 88 operational packages with 470 and 382 committed
+groups, produced 23,707 and 18,360 recorded outcomes, damaged forces on both
+sides, and lost five and three entities. The recorded outcomes included
+detection, launch, weapon expenditure, point defense, damage, withdrawal, and
+seeker loss. The largest coalition-region concentration changed from 108
+groups to 107. This supports two-sided
+combat and bounded convergence in the Operational model. It does not qualify
+Sea Power parity, campaign balance, or long-duration save growth.
 
 The baseline full-application smoke used Sea Power
 `0.8.2-23444+s358` and the native Red Sea Breakout scenario. It reported 18
@@ -237,7 +285,7 @@ Briefing continuation, pause, resume, contact and event capture, screenshot, and
 native exit worked through the Runtime Bridge. This proves runtime compatibility
 for that small native scenario.
 
-A later full-application run kept the 4,096-entity campaign loaded, selected the
+A later full-application run kept the then-current full campaign loaded, selected the
 one-member NATO GIUK barrier group in the campaign application, and entered Sea
 Power with USS Pharris. Sea Power created one campaign-owned Knox under
 `taskforce:Taskforce1`, relocated the origin and camera to the GIUK position,
@@ -249,7 +297,7 @@ entry for the supported Knox profile. It does not prove combined-arms entry,
 tactical-map parity, combat return, or restart recovery.
 
 A subsequent full-application run entered the two-member NATO North Sea surface
-action group from another 4,096-entity campaign. The service prepared USS
+action group from another full campaign. The service prepared USS
 Yorktown and USS Spruance as one atomic batch. Sea Power created both native
 objects under `taskforce:Taskforce1`, retained their campaign names and stable
 tags, and placed them at their North Sea coordinates. Readback reported two
@@ -259,7 +307,7 @@ not a combined surface/submarine group, hosted aircraft, combat return, or
 restart recovery.
 
 A third full-application run entered the one-member NATO GIUK submarine patrol
-from a 4,096-entity campaign. Sea Power created USS Honolulu as a native
+from a full campaign. Sea Power created USS Honolulu as a native
 `Submarine` using `usn_ssn_los_angeles / Variant31 / Default`, preserved its
 campaign name and stable tag, and placed it at the campaign coordinate under
 `taskforce:Taskforce1`. Formation Manager and the selected-unit strip showed
@@ -283,7 +331,7 @@ the map-selection promotion boundary for this submarine profile, not the full
 order UI.
 
 A final recovery run selected and materialized the same USS Honolulu from a
-fresh 4,096-entity campaign, then left Sea Power before requesting campaign
+fresh full campaign, then left Sea Power before requesting campaign
 return. Unity had destroyed the native object but retained its managed wrapper.
 The bridge classified the record as `detached-after-scene-loss`, reported native
 readiness and control as false, reused the current revision-1 checkpoint, and
@@ -303,7 +351,7 @@ expanded diagnostic and repeated-selection paths have not had another live Sea
 Power pass yet.
 
 A fourth full-application run entered the two-member NATO Atlantic maritime
-helicopter group from the 4,096-entity campaign. Sea Power created a native
+helicopter group from the full campaign. Sea Power created a native
 SH-2F and SH-3H using `usn_sh-2f / Squadron4 / ASW` and
 `usn_sh-3h / Squadron1 / ASW`, preserved both campaign names and stable tags,
 and placed both under `taskforce:Taskforce1` at about 498 feet. Formation
@@ -328,8 +376,8 @@ internal time dilation 1. This proves the bridge primitive, not canonical
 campaign host-child assignment, player-application entry, recovery, restart
 reconciliation, or fixed-wing operations.
 
-A sixth run exercised canonical hosted-aircraft entry from the full 4,096-
-entity campaign. The service atomically prepared USS Yorktown, USS Spruance,
+A sixth run exercised canonical hosted-aircraft entry from the then-current
+full campaign. The service atomically prepared USS Yorktown, USS Spruance,
 one SH-2F, and one SH-3H from their shared North Sea group. Sea Power created
 only the two ships as world objects and registered both helicopters in
 Yorktown's native flight-deck inventory. Formation Manager and Flight Deck
