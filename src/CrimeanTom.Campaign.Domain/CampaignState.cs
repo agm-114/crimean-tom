@@ -57,10 +57,20 @@ public sealed record EntityState(
     /// and blocks further employment of that ammunition.
     /// </summary>
     ImmutableSortedDictionary<string, int> Magazines,
+    /// <summary>
+    /// Campaign quantum at which each ammunition's mounts finish reloading and
+    /// can be employed again, keyed by Sea Power ammunition id. A missing key
+    /// means ready now. This is what stops a launcher with a long reload cycle
+    /// from firing every tick the way a fungible pool allowed.
+    /// </summary>
+    ImmutableSortedDictionary<string, long> WeaponReadyAt,
     EntityId? HostEntityId = null)
 {
     public static readonly ImmutableSortedDictionary<string, int> NoMagazines =
         ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal);
+
+    public static readonly ImmutableSortedDictionary<string, long> NoWeaponReadyAt =
+        ImmutableSortedDictionary<string, long>.Empty.WithComparers(StringComparer.Ordinal);
 }
 
 public sealed record GroupState(

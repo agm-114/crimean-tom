@@ -24,7 +24,25 @@ public sealed record SeaPowerCatalogWeapon(
     /// magazine carries rounds that the catalog never enumerates. Treat zero as
     /// "not magazine-limited by the catalog" rather than "out of ammunition".
     /// </summary>
-    long MagazineRounds = 0);
+    long MagazineRounds = 0,
+    /// <summary>
+    /// Seconds the launcher needs before it can fire this ammunition again,
+    /// from the weapon system's <c>ReloadTime</c>. Zero means the catalog
+    /// declares none, so the server does not gate re-engagement on reloading.
+    /// </summary>
+    long ReloadSeconds = 0,
+    /// <summary>
+    /// Rounds one engagement consumes: <c>SalvoFireAmount</c> for launchers, or
+    /// one second of sustained fire at the mount's <c>FireRate</c> for guns and
+    /// CIWS. Zero means the catalog declares neither and the server falls back
+    /// to a single round.
+    /// </summary>
+    int SalvoRounds = 0,
+    /// <summary>
+    /// How many mounts feed this ammunition. Independent mounts shorten the
+    /// interval between engagements even when each reloads at its own pace.
+    /// </summary>
+    int MountCount = 0);
 
 public sealed class SeaPowerOperationalCatalog
 {
@@ -107,6 +125,11 @@ public sealed class SeaPowerOperationalCatalog
         // the same magazine contents the game would give the same unit and
         // loadout. Keys use the game's ammunition names.
         var rounds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        // How fast each mount can shoot. Reload time and salvo size come from
+        // the weapon system rather than the ammunition, because two ships
+        // carrying the same missile can launch it at very different rates.
+        var cadence = new Dictionary<string, MountCadence>(StringComparer.OrdinalIgnoreCase);
         var processedMagazines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var systemCount = unit.Integer("WeaponSystems", "NumberOfWeaponSystems");
         for (var index = 1; index <= systemCount; index++)
@@ -124,16 +147,15 @@ public sealed class SeaPowerOperationalCatalog
             }
 
             AddResolvedAmmunition(ammunitionIds, unit.Value(baseSection, "Ammunition"), unit, scenarioYear);
+            var mount = ReadMountCadence(unit, baseSection, type);
             var magazine = unit.Value(baseSection, "AssociatedMagazine");
             if (magazine.Length > 0)
             {
-                // Two mounts can share one magazine. Sea Power counts such a
+                // Two mounts can share one magazine. Sea Power counts the
                 // magazine once, so a twin torpedo installation does not report
-                // double its real stock.
-                if (!processedMagazines.Add(magazine))
-                {
-                    continue;
-                }
+                // double its real stock. Each mount still shoots on its own,
+                // so cadence is recorded before the stock is skipped.
+                var firstUse = processedMagazines.Add(magazine);
                 var ammunitionCount = unit.Integer(magazine, "NumberOfAmmunitionTypes");
                 for (var ammunitionIndex = 1; ammunitionIndex <= ammunitionCount; ammunitionIndex++)
                 {
@@ -143,8 +165,12 @@ public sealed class SeaPowerOperationalCatalog
                         unit.Value(magazine, $"Ammunition{ammunitionIndex}"),
                         unit,
                         scenarioYear,
-                        include: declared != 0);
-                    AddRounds(rounds, resolved, declared);
+                        include: declared != 0 && firstUse);
+                    AddMount(cadence, resolved, mount);
+                    if (firstUse)
+                    {
+                        AddRounds(rounds, resolved, declared);
+                    }
                 }
                 continue;
             }
@@ -152,6 +178,9 @@ public sealed class SeaPowerOperationalCatalog
             // A gun or CIWS mount without a magazine has no catalog-countable
             // stock. Sea Power skips it here, so the server records no rounds
             // rather than inventing a number.
+            var systemAmmunition = ResolveAmmunitionId(
+                unit.Value(baseSection, "Ammunition"), unit, scenarioYear);
+            AddMount(cadence, systemAmmunition, mount);
             if (string.Equals(type, "Gun", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(type, "CIWS", StringComparison.OrdinalIgnoreCase))
             {
@@ -161,10 +190,7 @@ public sealed class SeaPowerOperationalCatalog
             var systemName = unit.Value(baseSection, "SystemName");
             var containers = unit.IntegerOrDefault(baseSection, "NumberOfContainers", 1);
             var attachments = WeaponSystems.IntegerOrDefault(systemName, "NumberOfAttachments", 1);
-            AddRounds(
-                rounds,
-                ResolveAmmunitionId(unit.Value(baseSection, "Ammunition"), unit, scenarioYear),
-                checked(containers * attachments));
+            AddRounds(rounds, systemAmmunition, checked(containers * attachments));
         }
 
         var result = ammunitionIds
@@ -174,6 +200,12 @@ public sealed class SeaPowerOperationalCatalog
             .Select(item => item with
             {
                 MagazineRounds = rounds.TryGetValue(item.AmmunitionId, out var stock) ? stock : 0,
+                ReloadSeconds = cadence.TryGetValue(item.AmmunitionId, out var mount)
+                    ? mount.ReloadSeconds : 0,
+                SalvoRounds = cadence.TryGetValue(item.AmmunitionId, out var salvo)
+                    ? salvo.SalvoRounds : 0,
+                MountCount = cadence.TryGetValue(item.AmmunitionId, out var mounts)
+                    ? mounts.Mounts : 0,
             })
             .OrderBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .ThenBy(item => item.TargetType, StringComparer.Ordinal)
@@ -247,6 +279,76 @@ public sealed class SeaPowerOperationalCatalog
 
             AddRounds(rounds, resolved, positions);
         }
+    }
+
+    private readonly record struct MountCadence(int Mounts, long ReloadSeconds, int SalvoRounds);
+
+    /// <summary>
+    /// Reads one mount's firing cadence. Sea Power takes reload time and fire
+    /// rate from the shared weapon-system definition and lets a unit override
+    /// either in its own weapon-system section, which is how the same launcher
+    /// can cycle at different rates on different ships.
+    /// </summary>
+    private MountCadence ReadMountCadence(IniDocument unit, string systemSection, string type)
+    {
+        var systemName = unit.Value(systemSection, "SystemName");
+        var reload = unit.NumberOrDefault(
+            systemSection,
+            "ReloadTime",
+            WeaponSystems.NumberOrDefault(systemName, "ReloadTime", 0d));
+
+        // A gun does not reload as a unit; it sustains a rate of fire. One
+        // engagement therefore consumes a second of that rate rather than a
+        // salvo of discrete rounds.
+        var isSustainedFire = string.Equals(type, "Gun", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "CIWS", StringComparison.OrdinalIgnoreCase);
+        int salvo;
+        if (isSustainedFire)
+        {
+            var roundsPerMinute = unit.NumberOrDefault(
+                systemSection,
+                "FireRate",
+                WeaponSystems.NumberOrDefault(systemName, "FireRate", 0d));
+            salvo = roundsPerMinute > 0
+                ? Math.Max(1, checked((int)Math.Round(roundsPerMinute / 60d, MidpointRounding.AwayFromZero)))
+                : 0;
+        }
+        else
+        {
+            salvo = Math.Max(0, WeaponSystems.IntegerOrDefault(systemName, "SalvoFireAmount", 0));
+        }
+
+        return new MountCadence(
+            1,
+            reload > 0 ? checked((long)Math.Round(reload, MidpointRounding.AwayFromZero)) : 0,
+            salvo);
+    }
+
+    /// <summary>
+    /// Records one more mount able to fire this ammunition. The shortest reload
+    /// wins because the first mount that comes ready is the one that shoots.
+    /// </summary>
+    private static void AddMount(
+        IDictionary<string, MountCadence> cadence,
+        string ammunitionId,
+        MountCadence mount)
+    {
+        if (ammunitionId.Length == 0)
+        {
+            return;
+        }
+        if (!cadence.TryGetValue(ammunitionId, out var existing))
+        {
+            cadence[ammunitionId] = mount;
+            return;
+        }
+
+        cadence[ammunitionId] = new MountCadence(
+            checked(existing.Mounts + mount.Mounts),
+            existing.ReloadSeconds == 0 || mount.ReloadSeconds == 0
+                ? Math.Max(existing.ReloadSeconds, mount.ReloadSeconds)
+                : Math.Min(existing.ReloadSeconds, mount.ReloadSeconds),
+            Math.Max(existing.SalvoRounds, mount.SalvoRounds));
     }
 
     /// <summary>
@@ -531,6 +633,10 @@ public sealed class SeaPowerOperationalCatalog
         public int Integer(string section, string key) =>
             int.TryParse(Value(section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
                 ? value : 0;
+
+        public double NumberOrDefault(string section, string key, double fallback) =>
+            double.TryParse(Value(section, key), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                ? value : fallback;
 
         public int IntegerOrDefault(string section, string key, int fallback) =>
             int.TryParse(Value(section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)

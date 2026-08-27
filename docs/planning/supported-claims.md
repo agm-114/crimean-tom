@@ -107,9 +107,22 @@ The target and gap inventory are in
   selection while a gun with rounds remaining stays usable. This is a verified
   catalog-derived capacity and consumption rule, not a matched-run parity
   result. Guns and CIWS mounts that the game's rule leaves uncounted stay
-  unlimited on the server rather than receiving an invented capacity, and the
-  rounds one ballistic engagement consumes remains a declared approximation
-  because per-mount fire rate and salvo size are not modelled.
+  unlimited on the server rather than receiving an invented capacity.
+- Weapon employment is gated by native firing cadence as well as stock. Reload
+  time, salvo size, and mount count come from the weapon system rather than the
+  ammunition, reimplemented from Sea Power's `weapons.ini` lookups with the
+  unit's own weapon-system section allowed to override the shared definition.
+  Read against the installed build, a Knox's Mk25 Sea Sparrow box reloads in
+  1800 s, its two MK46 tubes share a 200 s cycle, a Ticonderoga's two Mk26
+  launchers cycle in 7 s, its Harpoon canisters declare no reload at all, and
+  its Phalanx fires 50 rounds a second from a 3000 rpm mount. A mount still
+  reloading is removed from weapon selection and from point defense, so a box
+  launcher fires once and then stays quiet instead of re-engaging every tick.
+  One engagement now consumes the native salvo size, which replaces the
+  invented four-round ballistic burst. Reload is tracked once per ammunition
+  and divided by mount count rather than per mount, so sustained rate matches
+  but mounts cycling out of phase do not; that is a declared approximation, not
+  a measured tolerance.
 - Owned materialization can restore per-ammunition magazines natively through
   Sea Power's `setAmmunitionAmount`, and checkpoints capture the native
   `AmmunitionAmountDictionary`, so a partly expended loadout crosses the handoff

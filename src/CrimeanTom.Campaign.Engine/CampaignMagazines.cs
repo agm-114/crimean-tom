@@ -51,6 +51,54 @@ internal static class CampaignMagazines
     }
 
     /// <summary>
+    /// Whether every mount that can employ this ammunition has finished
+    /// reloading. A weapon with no declared reload is always ready.
+    /// </summary>
+    public static bool IsReady(EntityState entity, string ammunitionId, CampaignTime now) =>
+        !entity.WeaponReadyAt.TryGetValue(ammunitionId, out var readyAt) || readyAt <= now.Quanta;
+
+    /// <summary>
+    /// The campaign quantum at which this ammunition may be employed again.
+    ///
+    /// Sea Power reloads each mount independently, so a ship with two launchers
+    /// can re-engage about twice as often as one with a single launcher of the
+    /// same type. The server tracks one interval per ammunition rather than per
+    /// mount and divides the reload time by the mount count, which reproduces
+    /// the sustained rate but not the burst pattern of mounts cycling out of
+    /// phase. That difference is an approximation, not a measured tolerance.
+    /// </summary>
+    public static ImmutableSortedDictionary<string, long> Reserve(
+        ImmutableSortedDictionary<string, long> readiness,
+        OperationalWeaponCapability weapon,
+        CampaignTime now)
+    {
+        if (weapon.ReloadSeconds <= 0)
+        {
+            return readiness;
+        }
+
+        var mounts = Math.Max(1, weapon.MountCount);
+        var interval = Math.Max(1, weapon.ReloadSeconds / mounts);
+        return readiness.SetItem(weapon.AmmunitionId, checked(now.Quanta + interval));
+    }
+
+    // Elapsed entries are deliberately left in place. An expired timer and an
+    // absent key mean the same thing to IsReady, so sweeping them would bump an
+    // entity's revision for pure housekeeping. With short reload cycles across
+    // a theater-sized order of battle that churn floods the projection stream
+    // and destabilizes revision-sensitive handoffs. Reserve overwrites the key
+    // on the next shot, and the map stays bounded by the ammunition the entity
+    // carries.
+
+    /// <summary>
+    /// Rounds one engagement consumes, from the mount's native salvo size or
+    /// rate of fire. Falls back to a single round when the catalog declares
+    /// neither.
+    /// </summary>
+    public static int SalvoRounds(OperationalWeaponCapability weapon) =>
+        Math.Max(1, weapon.SalvoRounds);
+
+    /// <summary>
     /// Rounds left of one ammunition, or <see langword="null"/> when the
     /// catalog does not count this magazine and the weapon is unlimited.
     /// </summary>

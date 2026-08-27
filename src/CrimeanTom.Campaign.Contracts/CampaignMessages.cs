@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 13;
-    public const int AlgorithmVersion = 23;
+    public const int Version = 14;
+    public const int AlgorithmVersion = 24;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -141,7 +141,23 @@ public sealed record OperationalWeaponCapability(
     /// no associated magazine, and the weapon is therefore not round-limited by
     /// the server. It does not mean the platform starts empty.
     /// </summary>
-    int MagazineCapacityRounds = 0);
+    int MagazineCapacityRounds = 0,
+    /// <summary>
+    /// Seconds one mount needs before it can employ this ammunition again,
+    /// from the native weapon system's reload time. Zero means the catalog
+    /// declares no reload, as for a canister launcher that never reloads, and
+    /// the server does not gate re-engagement.
+    /// </summary>
+    int ReloadSeconds = 0,
+    /// <summary>
+    /// Rounds one engagement consumes. Zero falls back to a single round.
+    /// </summary>
+    int SalvoRounds = 0,
+    /// <summary>
+    /// Mounts able to employ this ammunition. More mounts shorten the interval
+    /// between engagements because they reload independently.
+    /// </summary>
+    int MountCount = 0);
 
 public enum WeaponMechanicsSource
 {
