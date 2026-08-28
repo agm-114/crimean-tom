@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 15;
-    public const int AlgorithmVersion = 25;
+    public const int Version = 16;
+    public const int AlgorithmVersion = 26;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -143,24 +143,44 @@ public sealed record OperationalWeaponCapability(
     /// </summary>
     int MagazineCapacityRounds = 0,
     /// <summary>
-    /// Seconds one mount needs before it can employ this ammunition again,
-    /// from the native weapon system's reload time. Zero means the catalog
-    /// declares no reload, as for a canister launcher that never reloads, and
-    /// the server does not gate re-engagement.
+    /// The mounts able to employ this ammunition, in the order the platform
+    /// declares them. Each reloads on its own, so a ship with two tubes can
+    /// launch twice in quick succession and then wait, which is not the same
+    /// as one tube cycling at twice the rate. An empty list means the catalog
+    /// declares no mount cadence and the server does not gate re-engagement.
+    /// </summary>
+    EquatableList<OperationalWeaponMount>? Mounts = null)
+{
+    public EquatableList<OperationalWeaponMount> Mounts { get; init; } =
+        Mounts ?? EquatableList<OperationalWeaponMount>.Empty;
+}
+
+/// <summary>
+/// One weapon mount of a platform, as Sea Power models it: an installation
+/// that reloads independently of its neighbours and draws on whatever magazine
+/// it is associated with.
+/// </summary>
+public sealed record OperationalWeaponMount(
+    /// <summary>
+    /// The platform's own weapon-system section name, unique within the
+    /// platform. Readiness is keyed by this, so it must stay stable for the
+    /// lifetime of a campaign.
+    /// </summary>
+    string MountId,
+    /// <summary>
+    /// Seconds this mount needs before it can fire again, from the native
+    /// weapon system's reload time. Zero means the catalog declares no reload,
+    /// as for a canister launcher that never reloads.
     /// </summary>
     int ReloadSeconds = 0,
     /// <summary>
-    /// Rounds one engagement consumes. Zero falls back to a single round.
+    /// Rounds one engagement from this mount consumes. Zero falls back to a
+    /// single round.
     /// </summary>
     int SalvoRounds = 0,
     /// <summary>
-    /// Mounts able to employ this ammunition. More mounts shorten the interval
-    /// between engagements because they reload independently.
-    /// </summary>
-    int MountCount = 0,
-    /// <summary>
-    /// Missiles this platform's fire-control sensors can guide at once for this
-    /// ammunition. Zero means the catalog declares no guidance channel.
+    /// Missiles this mount's fire-control sensors can guide at once. Zero means
+    /// the catalog declares no guidance channel.
     /// </summary>
     int GuidanceChannels = 0);
 
@@ -599,7 +619,21 @@ public sealed record SimulatedEntityUpdate(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? HeadingMilliDegrees = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Telegraph = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnalogueTacticalCondition? Analogue = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SimulatedAnaloguePatch? AnalogueChanges = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SimulatedAnaloguePatch? AnalogueChanges = null,
+    /// <summary>
+    /// Rounds remaining for each ammunition whose count changed this tick.
+    /// Without this the simulation would spend rounds while resolving a tick
+    /// and hand back a platform with a full magazine, so a ship could fire the
+    /// same last missile every tick forever. Keys are never removed once a
+    /// platform carries an ammunition, so a change map is enough.
+    /// </summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, int>? MagazineChanges = null,
+    /// <summary>
+    /// Quantum at which each mount that fired this tick finishes reloading.
+    /// Carried for the same reason as the magazine changes: a reload the event
+    /// does not describe is a reload the campaign never performs.
+    /// </summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, long>? MountReadyChanges = null);
 
 public sealed record SimulatedBaseUpdate(
     BaseId BaseId,
@@ -765,6 +799,7 @@ public static class CampaignContractJson
             WriteIndented = false,
         };
         options.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+        options.Converters.Add(new EquatableListJsonConverter());
         return options;
     }
 }

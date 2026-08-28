@@ -464,15 +464,16 @@ public static class CampaignStateValidator
                 group => group.Key,
                 group => group.Max(weapon => weapon.MagazineCapacityRounds),
                 StringComparer.Ordinal);
-        if (entity.WeaponReadyAt.Any(item =>
+        if (entity.MountReadyAt.Any(item =>
                 string.IsNullOrWhiteSpace(item.Key)
                 || item.Value < 0
                 || !entity.OperationalWeapons.Any(weapon =>
-                    string.Equals(weapon.AmmunitionId, item.Key, StringComparison.Ordinal))))
+                    weapon.Mounts.Any(mount =>
+                        string.Equals(mount.MountId, item.Key, StringComparison.Ordinal)))))
         {
             throw Invalid(
-                "entity-weapon-readiness",
-                "Entity weapon readiness must name carried ammunition and hold a non-negative quantum.");
+                "entity-mount-readiness",
+                "Entity mount readiness must name a carried mount and hold a non-negative quantum.");
         }
         if (entity.Magazines.Count != capacities.Count
             || entity.Magazines.Any(item =>

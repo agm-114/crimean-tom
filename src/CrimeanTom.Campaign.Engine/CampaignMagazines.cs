@@ -51,52 +51,84 @@ internal static class CampaignMagazines
     }
 
     /// <summary>
-    /// Whether every mount that can employ this ammunition has finished
-    /// reloading. A weapon with no declared reload is always ready.
-    /// </summary>
-    public static bool IsReady(EntityState entity, string ammunitionId, CampaignTime now) =>
-        !entity.WeaponReadyAt.TryGetValue(ammunitionId, out var readyAt) || readyAt <= now.Quanta;
-
-    /// <summary>
-    /// The campaign quantum at which this ammunition may be employed again.
+    /// The mount that fires next, or <see langword="null"/> when every mount is
+    /// still reloading and when the catalog declares no mounts at all.
     ///
-    /// Sea Power reloads each mount independently, so a ship with two launchers
-    /// can re-engage about twice as often as one with a single launcher of the
-    /// same type. The server tracks one interval per ammunition rather than per
-    /// mount and divides the reload time by the mount count, which reproduces
-    /// the sustained rate but not the burst pattern of mounts cycling out of
-    /// phase. That difference is an approximation, not a measured tolerance.
+    /// Sea Power reloads each mount independently, so a ship with two tubes can
+    /// launch both in quick succession and then wait a full cycle, while a ship
+    /// with one tube of the same type launches half as often in bursts of one.
+    /// Averaging the reload across the mounts would reproduce the sustained
+    /// rate and lose that burst. The first declared free mount shoots, which
+    /// keeps selection deterministic.
     /// </summary>
-    public static ImmutableSortedDictionary<string, long> Reserve(
-        ImmutableSortedDictionary<string, long> readiness,
+    public static OperationalWeaponMount? SelectMount(
+        EntityState entity,
         OperationalWeaponCapability weapon,
         CampaignTime now)
     {
-        if (weapon.ReloadSeconds <= 0)
+        foreach (var mount in weapon.Mounts)
         {
-            return readiness;
+            if (!entity.MountReadyAt.TryGetValue(mount.MountId, out var readyAt)
+                || readyAt <= now.Quanta)
+            {
+                return mount;
+            }
         }
-
-        var mounts = Math.Max(1, weapon.MountCount);
-        var interval = Math.Max(1, weapon.ReloadSeconds / mounts);
-        return readiness.SetItem(weapon.AmmunitionId, checked(now.Quanta + interval));
+        return null;
     }
 
+    /// <summary>
+    /// Whether some mount can employ this ammunition now. A weapon the catalog
+    /// gives no mounts, such as an aircraft hardpoint, is always ready.
+    /// </summary>
+    public static bool IsReady(
+        EntityState entity,
+        OperationalWeaponCapability weapon,
+        CampaignTime now) =>
+        weapon.Mounts.Count == 0 || SelectMount(entity, weapon, now) is not null;
+
+    /// <summary>
+    /// The campaign quantum at which one mount finishes reloading. A mount with
+    /// no declared reload never becomes unavailable and is not recorded.
+    /// </summary>
+    public static ImmutableSortedDictionary<string, long> Reserve(
+        ImmutableSortedDictionary<string, long> readiness,
+        OperationalWeaponMount? mount,
+        CampaignTime now) =>
+        mount is null || mount.ReloadSeconds <= 0
+            ? readiness
+            : readiness.SetItem(mount.MountId, checked(now.Quanta + mount.ReloadSeconds));
+
     // Elapsed entries are deliberately left in place. An expired timer and an
-    // absent key mean the same thing to IsReady, so sweeping them would bump an
-    // entity's revision for pure housekeeping. With short reload cycles across
+    // absent key mean the same thing to SelectMount, so sweeping them would bump
+    // an entity's revision for pure housekeeping. With short reload cycles across
     // a theater-sized order of battle that churn floods the projection stream
     // and destabilizes revision-sensitive handoffs. Reserve overwrites the key
-    // on the next shot, and the map stays bounded by the ammunition the entity
+    // on the next shot, and the map stays bounded by the mounts the entity
     // carries.
 
     /// <summary>
-    /// Rounds one engagement consumes, from the mount's native salvo size or
-    /// rate of fire. Falls back to a single round when the catalog declares
-    /// neither.
+    /// Rounds one engagement from this mount consumes, from its native salvo
+    /// size or rate of fire. Falls back to a single round when the catalog
+    /// declares neither, or when no mount was resolved.
     /// </summary>
-    public static int SalvoRounds(OperationalWeaponCapability weapon) =>
-        Math.Max(1, weapon.SalvoRounds);
+    public static int SalvoRounds(OperationalWeaponMount? mount) =>
+        Math.Max(1, mount?.SalvoRounds ?? 0);
+
+    /// <summary>
+    /// Rounds this platform can guide at once for one ammunition, summed across
+    /// the mounts that employ it. At least one, because a weapon with no
+    /// declared fire-control sensor is not thereby unable to shoot.
+    /// </summary>
+    public static int GuidanceChannels(OperationalWeaponCapability weapon)
+    {
+        var channels = 0;
+        foreach (var mount in weapon.Mounts)
+        {
+            channels = checked(channels + Math.Max(0, mount.GuidanceChannels));
+        }
+        return Math.Max(1, channels);
+    }
 
     /// <summary>
     /// Rounds left of one ammunition, or <see langword="null"/> when the

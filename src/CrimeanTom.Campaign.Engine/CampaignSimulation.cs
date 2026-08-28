@@ -864,12 +864,16 @@ internal static class CampaignSimulation
                 continue;
             }
 
+            // Selection already required a free mount, so this resolves the
+            // same one it chose; firing consumes that mount's salvo and takes
+            // that mount, not the whole battery, out of action to reload.
+            var firingMount = CampaignMagazines.SelectMount(actor, bid.Weapon, dueAt);
             var available = Get(actor.Resources, ResourceKind.Munitions);
             var expenditure = Math.Min(available, WeaponExpenditure(bid.Weapon, actor.SimulationDomain));
             var (magazines, rounds) = CampaignMagazines.Expend(
                 actor.Magazines,
                 bid.Weapon.AmmunitionId,
-                CampaignMagazines.SalvoRounds(bid.Weapon));
+                CampaignMagazines.SalvoRounds(firingMount));
             if (expenditure <= 0 || rounds <= 0)
             {
                 claimedActors.Remove(actor.EntityId);
@@ -881,7 +885,7 @@ internal static class CampaignSimulation
             actor = actor with
             {
                 Magazines = magazines,
-                WeaponReadyAt = CampaignMagazines.Reserve(actor.WeaponReadyAt, bid.Weapon, dueAt),
+                MountReadyAt = CampaignMagazines.Reserve(actor.MountReadyAt, firingMount, dueAt),
                 Resources = Set(actor.Resources, ResourceKind.Munitions, available - expenditure),
                 Heading = interceptHeading,
                 Telegraph = TelegraphIntercept,
@@ -1387,15 +1391,16 @@ internal static class CampaignSimulation
                 const long pointDefenseExpenditure = 8_000;
                 var available = Get(target.Resources, ResourceKind.Munitions);
                 var expenditure = Math.Min(available, pointDefenseExpenditure);
+                var defendingMount = CampaignMagazines.SelectMount(target, pointDefenseWeapon!, dueAt);
                 var (defenderMagazines, interceptors) = CampaignMagazines.Expend(
                     target.Magazines,
                     pointDefenseWeapon!.AmmunitionId,
-                    CampaignMagazines.SalvoRounds(pointDefenseWeapon));
+                    CampaignMagazines.SalvoRounds(defendingMount));
                 target = target with
                 {
                     Magazines = defenderMagazines,
-                    WeaponReadyAt = CampaignMagazines.Reserve(
-                        target.WeaponReadyAt, pointDefenseWeapon, dueAt),
+                    MountReadyAt = CampaignMagazines.Reserve(
+                        target.MountReadyAt, defendingMount, dueAt),
                     Resources = Set(target.Resources, ResourceKind.Munitions, available - expenditure),
                     Revision = target.Revision.Next(),
                 };
@@ -1780,7 +1785,7 @@ internal static class CampaignSimulation
             // A mount still reloading cannot shoot. A box launcher with a long
             // reload cycle therefore fires once and then stays quiet, instead
             // of re-engaging every tick.
-            .Where(item => CampaignMagazines.IsReady(actor, item.AmmunitionId, now))
+            .Where(item => CampaignMagazines.IsReady(actor, item, now))
             .Where(item => actualDistanceMeters >= item.MinimumRange.Value)
             .Where(item => actualDistanceMeters <= item.MaximumRange.Value)
             .Where(item => targetingDistanceMeters >= item.MinimumRange.Value)
@@ -1917,7 +1922,7 @@ internal static class CampaignSimulation
         EffectiveWeapons(target)
             .Where(item => item.MaximumRange.Value <= 40_000)
             .Where(item => CampaignMagazines.HasRounds(target, item.AmmunitionId))
-            .Where(item => CampaignMagazines.IsReady(target, item.AmmunitionId, now))
+            .Where(item => CampaignMagazines.IsReady(target, item, now))
             .OrderBy(item => item.MaximumRange.Value)
             .ThenBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .FirstOrDefault();
@@ -2302,8 +2307,12 @@ internal static class CampaignSimulation
         1,
         EffectiveWeapons(target)
             .Where(item => item.MaximumRange.Value <= 40_000)
-            .GroupBy(item => item.AmmunitionId, StringComparer.Ordinal)
-            .Sum(group => GuidanceChannelCapacity(group.First())));
+            .SelectMany(item => item.Mounts)
+            // One mount can serve several ammunition types. Its channels are
+            // the mount's, so counting them once per ammunition would let a
+            // single director appear to guide several raids at once.
+            .DistinctBy(item => item.MountId, StringComparer.Ordinal)
+            .Sum(item => Math.Max(0, item.GuidanceChannels)));
 
     /// <summary>
     /// Simultaneous engagements one weapon's own fire-control sensors support,
@@ -2311,7 +2320,7 @@ internal static class CampaignSimulation
     /// channel still gets one, because it visibly does engage.
     /// </summary>
     private static int GuidanceChannelCapacity(OperationalWeaponCapability weapon) =>
-        Math.Max(1, weapon.GuidanceChannels);
+        CampaignMagazines.GuidanceChannels(weapon);
 
     private static long RoundedGreatCircleDistanceMeters(GeoCoordinate origin, GeoCoordinate destination)
     {
@@ -2604,6 +2613,12 @@ internal static class CampaignSimulation
         var resourceChanges = item.Resources
             .Where(pair => !prior.Resources.TryGetValue(pair.Key, out var value) || value != pair.Value)
             .ToImmutableSortedDictionary();
+        var magazineChanges = item.Magazines
+            .Where(pair => !prior.Magazines.TryGetValue(pair.Key, out var value) || value != pair.Value)
+            .ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var mountReadyChanges = item.MountReadyAt
+            .Where(pair => !prior.MountReadyAt.TryGetValue(pair.Key, out var value) || value != pair.Value)
+            .ToImmutableSortedDictionary(StringComparer.Ordinal);
         var analogueChanges = ToPatch(item.Analogue, prior.Analogue);
         return new SimulatedEntityUpdate(
             item.EntityId,
@@ -2618,7 +2633,9 @@ internal static class CampaignSimulation
             HeadingMilliDegrees: item.Heading == prior.Heading ? null : item.Heading.Value,
             Telegraph: item.Telegraph == prior.Telegraph ? null : item.Telegraph,
             Analogue: null,
-            AnalogueChanges: analogueChanges);
+            AnalogueChanges: analogueChanges,
+            MagazineChanges: magazineChanges.Count == 0 ? null : magazineChanges,
+            MountReadyChanges: mountReadyChanges.Count == 0 ? null : mountReadyChanges);
     }
 
     private static SimulatedAnaloguePatch? ToPatch(

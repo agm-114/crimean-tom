@@ -26,9 +26,35 @@ public sealed record SeaPowerCatalogWeapon(
     /// </summary>
     long MagazineRounds = 0,
     /// <summary>
-    /// Seconds the launcher needs before it can fire this ammunition again,
-    /// from the weapon system's <c>ReloadTime</c>. Zero means the catalog
-    /// declares none, so the server does not gate re-engagement on reloading.
+    /// The mounts that can employ this ammunition, in the order the unit
+    /// declares them. Each cycles on its own, so they are kept separate rather
+    /// than collapsed into a count.
+    /// </summary>
+    IReadOnlyList<SeaPowerCatalogMount>? Mounts = null)
+{
+    public IReadOnlyList<SeaPowerCatalogMount> Mounts { get; init; } =
+        Mounts ?? Array.Empty<SeaPowerCatalogMount>();
+}
+
+/// <summary>
+/// One weapon mount, identified by the section the unit declares it in.
+///
+/// Sea Power reloads each mount independently, so two torpedo tubes sharing a
+/// magazine can each launch and then cycle out of phase with one another. The
+/// catalog therefore reports mounts individually instead of reporting how many
+/// there are: a count cannot say which mount is still reloading.
+/// </summary>
+public sealed record SeaPowerCatalogMount(
+    /// <summary>
+    /// The unit's own weapon-system section name, such as
+    /// <c>WeaponSystem3</c>. Unique within a unit and stable across loads,
+    /// which is what lets readiness be tracked per mount.
+    /// </summary>
+    string MountId,
+    /// <summary>
+    /// Seconds this mount needs before it can fire again, from its
+    /// <c>ReloadTime</c>. Zero means the catalog declares none, so the server
+    /// does not gate re-engagement on reloading.
     /// </summary>
     long ReloadSeconds = 0,
     /// <summary>
@@ -39,12 +65,7 @@ public sealed record SeaPowerCatalogWeapon(
     /// </summary>
     int SalvoRounds = 0,
     /// <summary>
-    /// How many mounts feed this ammunition. Independent mounts shorten the
-    /// interval between engagements even when each reloads at its own pace.
-    /// </summary>
-    int MountCount = 0,
-    /// <summary>
-    /// Missiles the mounts' own fire-control sensors can guide at once, summed
+    /// Missiles this mount's own fire-control sensors can guide at once, summed
     /// from each associated sensor's <c>WeaponChannels</c>. Zero means the
     /// catalog declares no guidance channel, as for a mount with no associated
     /// fire-control sensor.
@@ -144,10 +165,11 @@ public sealed class SeaPowerOperationalCatalog
         // loadout. Keys use the game's ammunition names.
         var rounds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
-        // How fast each mount can shoot. Reload time and salvo size come from
-        // the weapon system rather than the ammunition, because two ships
-        // carrying the same missile can launch it at very different rates.
-        var cadence = new Dictionary<string, MountCadence>(StringComparer.OrdinalIgnoreCase);
+        // Which mounts can shoot each ammunition, and how fast. Reload time and
+        // salvo size come from the weapon system rather than the ammunition,
+        // because two ships carrying the same missile can launch it at very
+        // different rates. Mounts stay separate so each can cycle on its own.
+        var cadence = new Dictionary<string, List<SeaPowerCatalogMount>>(StringComparer.OrdinalIgnoreCase);
         var processedMagazines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var systemCount = unit.Integer("WeaponSystems", "NumberOfWeaponSystems");
         for (var index = 1; index <= systemCount; index++)
@@ -218,14 +240,9 @@ public sealed class SeaPowerOperationalCatalog
             .Select(item => item with
             {
                 MagazineRounds = rounds.TryGetValue(item.AmmunitionId, out var stock) ? stock : 0,
-                ReloadSeconds = cadence.TryGetValue(item.AmmunitionId, out var mount)
-                    ? mount.ReloadSeconds : 0,
-                SalvoRounds = cadence.TryGetValue(item.AmmunitionId, out var salvo)
-                    ? salvo.SalvoRounds : 0,
-                MountCount = cadence.TryGetValue(item.AmmunitionId, out var mounts)
-                    ? mounts.Mounts : 0,
-                GuidanceChannels = cadence.TryGetValue(item.AmmunitionId, out var channels)
-                    ? channels.GuidanceChannels : 0,
+                Mounts = cadence.TryGetValue(item.AmmunitionId, out var mounts)
+                    ? mounts.ToArray()
+                    : Array.Empty<SeaPowerCatalogMount>(),
             })
             .OrderBy(item => item.AmmunitionId, StringComparer.Ordinal)
             .ThenBy(item => item.TargetType, StringComparer.Ordinal)
@@ -301,16 +318,13 @@ public sealed class SeaPowerOperationalCatalog
         }
     }
 
-    private readonly record struct MountCadence(
-        int Mounts, long ReloadSeconds, int SalvoRounds, int GuidanceChannels);
-
     /// <summary>
     /// Reads one mount's firing cadence. Sea Power takes reload time and fire
     /// rate from the shared weapon-system definition and lets a unit override
     /// either in its own weapon-system section, which is how the same launcher
     /// can cycle at different rates on different ships.
     /// </summary>
-    private MountCadence ReadMountCadence(IniDocument unit, string systemSection, string type)
+    private SeaPowerCatalogMount ReadMountCadence(IniDocument unit, string systemSection, string type)
     {
         var systemName = unit.Value(systemSection, "SystemName");
         var reload = unit.NumberOrDefault(
@@ -339,8 +353,8 @@ public sealed class SeaPowerOperationalCatalog
             salvo = Math.Max(0, WeaponSystems.IntegerOrDefault(systemName, "SalvoFireAmount", 0));
         }
 
-        return new MountCadence(
-            1,
+        return new SeaPowerCatalogMount(
+            systemSection,
             reload > 0 ? checked((long)Math.Round(reload, MidpointRounding.AwayFromZero)) : 0,
             salvo,
             ReadGuidanceChannels(unit, systemSection));
@@ -374,13 +388,13 @@ public sealed class SeaPowerOperationalCatalog
     }
 
     /// <summary>
-    /// Records one more mount able to fire this ammunition. The shortest reload
-    /// wins because the first mount that comes ready is the one that shoots.
+    /// Records one more mount able to fire this ammunition, keeping declaration
+    /// order so the same unit always resolves its mounts identically.
     /// </summary>
     private static void AddMount(
-        IDictionary<string, MountCadence> cadence,
+        IDictionary<string, List<SeaPowerCatalogMount>> cadence,
         string ammunitionId,
-        MountCadence mount)
+        SeaPowerCatalogMount mount)
     {
         if (ammunitionId.Length == 0)
         {
@@ -388,17 +402,14 @@ public sealed class SeaPowerOperationalCatalog
         }
         if (!cadence.TryGetValue(ammunitionId, out var existing))
         {
-            cadence[ammunitionId] = mount;
-            return;
+            cadence[ammunitionId] = existing = [];
         }
-
-        cadence[ammunitionId] = new MountCadence(
-            checked(existing.Mounts + mount.Mounts),
-            existing.ReloadSeconds == 0 || mount.ReloadSeconds == 0
-                ? Math.Max(existing.ReloadSeconds, mount.ReloadSeconds)
-                : Math.Min(existing.ReloadSeconds, mount.ReloadSeconds),
-            Math.Max(existing.SalvoRounds, mount.SalvoRounds),
-            checked(existing.GuidanceChannels + mount.GuidanceChannels));
+        // A mount that feeds several ammunition types walks this path once per
+        // type, but it must appear once per type, not twice for any one of them.
+        if (!existing.Any(item => string.Equals(item.MountId, mount.MountId, StringComparison.Ordinal)))
+        {
+            existing.Add(mount);
+        }
     }
 
     /// <summary>

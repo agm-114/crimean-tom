@@ -221,31 +221,41 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
             // Firing cadence comes from the weapon system, not the ammunition,
             // and a unit may override it. A gun sustains a rate of fire instead
             // of reloading as a unit, so one engagement is a second of fire.
-            var cadence = catalog.Resolve("test_ship")
+            // Mounts stay separate because each reloads on its own.
+            var mounts = catalog.Resolve("test_ship")
                 .DistinctBy(item => item.AmmunitionId)
-                .ToDictionary(item => item.AmmunitionId, item => item);
+                .ToDictionary(item => item.AmmunitionId, item => item.Mounts);
 
-            Assert.Equal(1_800, cadence["test_sam"].ReloadSeconds);
-            Assert.Equal(1, cadence["test_sam"].MountCount);
+            var sam = Assert.Single(mounts["test_sam"]);
+            Assert.Equal("WeaponSystem1", sam.MountId);
+            Assert.Equal(1_800, sam.ReloadSeconds);
+
             // A twin-arm launcher is one mount that cycles both arms, so its two
             // containers raise capacity but not the number of mounts.
-            Assert.Equal(1, cadence["test_ssm"].MountCount);
-            Assert.Equal(8, cadence["test_ssm"].ReloadSeconds);
-            Assert.Equal(4, cadence["test_ssm"].SalvoRounds);
-            // Two mounts share the torpedo magazine but each still cycles.
-            Assert.Equal(2, cadence["test_torpedo"].MountCount);
-            Assert.Equal(30, cadence["test_torpedo"].ReloadSeconds);
+            var ssm = Assert.Single(mounts["test_ssm"]);
+            Assert.Equal(8, ssm.ReloadSeconds);
+            Assert.Equal(4, ssm.SalvoRounds);
+
+            // Two mounts share the torpedo magazine but each cycles separately,
+            // so the pair can launch twice in quick succession and then both
+            // wait. Collapsing them into a count could not express that.
+            Assert.Equal(
+                ["WeaponSystem2", "WeaponSystem3"],
+                mounts["test_torpedo"].Select(item => item.MountId));
+            Assert.All(mounts["test_torpedo"], item => Assert.Equal(30, item.ReloadSeconds));
+
+            var gun = Assert.Single(mounts["test_shell"]);
             // 120 rounds per minute is two rounds of sustained fire a second.
-            Assert.Equal(2, cadence["test_shell"].SalvoRounds);
+            Assert.Equal(2, gun.SalvoRounds);
             // The unit's own section overrides the shared system definition.
-            Assert.Equal(45, cadence["test_shell"].ReloadSeconds);
+            Assert.Equal(45, gun.ReloadSeconds);
 
             // Guidance capacity comes from the mount's own fire-control
             // sensors, summed across them, not from the launcher or missile.
-            Assert.Equal(2, cadence["test_sam"].GuidanceChannels);
-            Assert.Equal(3, cadence["test_ssm"].GuidanceChannels);
+            Assert.Equal(2, sam.GuidanceChannels);
+            Assert.Equal(3, ssm.GuidanceChannels);
             // A mount with no associated fire-control sensor declares none.
-            Assert.Equal(0, cadence["test_torpedo"].GuidanceChannels);
+            Assert.All(mounts["test_torpedo"], item => Assert.Equal(0, item.GuidanceChannels));
         }
         finally
         {

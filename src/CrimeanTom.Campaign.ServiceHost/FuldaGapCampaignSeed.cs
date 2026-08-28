@@ -317,10 +317,11 @@ internal static partial class FuldaGapCampaignSeed
                 item.WarheadPower,
                 MechanicsSourceFor(item.OrdnanceType, item.SpeedMetersPerSecond),
                 checked((int)Math.Clamp(item.MagazineRounds, 0, int.MaxValue)),
-                checked((int)Math.Clamp(item.ReloadSeconds, 0, int.MaxValue)),
-                item.SalvoRounds,
-                item.MountCount,
-                item.GuidanceChannels))
+                item.Mounts.Select(mount => new OperationalWeaponMount(
+                    mount.MountId,
+                    checked((int)Math.Clamp(mount.ReloadSeconds, 0, int.MaxValue)),
+                    mount.SalvoRounds,
+                    mount.GuidanceChannels)).ToArray()))
             .ToArray() ?? [];
     }
 
