@@ -171,10 +171,11 @@ public static class CampaignKernel
                 || weapon.KillProbabilityMilliUnits is < 0 or > 1_000
                 || weapon.WarheadPower < 0
                 || weapon.MagazineCapacityRounds < 0
-                || weapon.ReloadSeconds < 0
-                || weapon.SalvoRounds < 0
-                || weapon.MountCount < 0
-                || weapon.GuidanceChannels < 0
+                || weapon.Mounts.Any(mount =>
+                    string.IsNullOrWhiteSpace(mount.MountId)
+                    || mount.ReloadSeconds < 0
+                    || mount.SalvoRounds < 0
+                    || mount.GuidanceChannels < 0)
                 || weapon.MechanicsSource == WeaponMechanicsSource.SeaPowerCatalog
                     && weapon.Kind != OrdnanceKind.Projectile
                     && weapon.SpeedMetersPerSecond <= 0)
@@ -816,7 +817,7 @@ public static class CampaignKernel
             item.NewSubjectRevision,
             AnalogueTacticalCondition.Healthy,
             CampaignMagazines.Full(weapons),
-            EntityState.NoWeaponReadyAt,
+            EntityState.NoMountReadyAt,
             data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
@@ -1101,6 +1102,18 @@ public static class CampaignKernel
             {
                 resources = resources.SetItem(change.Key, change.Value);
             }
+            var magazines = current.Magazines;
+            foreach (var change in update.MagazineChanges
+                ?? ImmutableSortedDictionary<string, int>.Empty)
+            {
+                magazines = magazines.SetItem(change.Key, change.Value);
+            }
+            var mountReadyAt = current.MountReadyAt;
+            foreach (var change in update.MountReadyChanges
+                ?? ImmutableSortedDictionary<string, long>.Empty)
+            {
+                mountReadyAt = mountReadyAt.SetItem(change.Key, change.Value);
+            }
             var analogue = update.Analogue ?? current.Analogue;
             if (update.AnalogueChanges is { } analogueChanges)
             {
@@ -1119,6 +1132,8 @@ public static class CampaignKernel
                     : current.Heading,
                 Telegraph = update.Telegraph ?? current.Telegraph,
                 Analogue = analogue,
+                Magazines = magazines,
+                MountReadyAt = mountReadyAt,
                 Revision = update.Revision,
             });
         }

@@ -77,14 +77,11 @@ public static class CampaignCanonicalSerializer
                     weapon.WarheadPower,
                     ParseEnum<WeaponMechanicsSource>(weapon.MechanicsSource),
                     weapon.MagazineCapacityRounds,
-                    weapon.ReloadSeconds,
-                    weapon.SalvoRounds,
-                    weapon.MountCount,
-                    weapon.GuidanceChannels)).ToImmutableArray(),
+                    ReadMounts(weapon.Mounts))).ToImmutableArray(),
                 new EntityRevision(item.Revision),
                 ReadAnalogue(item),
                 ReadMagazines(item.Magazines),
-                ReadWeaponReadyAt(item.WeaponReadyAt),
+                ReadMountReadyAt(item.MountReadyAt),
                 item.HostEntityId is null
                     ? null
                     : ParseId(item.HostEntityId, value => new EntityId(value))))
@@ -344,10 +341,17 @@ public static class CampaignCanonicalSerializer
                 writer.WriteNumber("warheadPower", weapon.WarheadPower);
                 writer.WriteNumber("mechanicsSource", (int)weapon.MechanicsSource);
                 writer.WriteNumber("magazineCapacityRounds", weapon.MagazineCapacityRounds);
-                writer.WriteNumber("reloadSeconds", weapon.ReloadSeconds);
-                writer.WriteNumber("salvoRounds", weapon.SalvoRounds);
-                writer.WriteNumber("mountCount", weapon.MountCount);
-                writer.WriteNumber("guidanceChannels", weapon.GuidanceChannels);
+                writer.WriteStartArray("mounts");
+                foreach (var mount in weapon.Mounts)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("mountId", mount.MountId);
+                    writer.WriteNumber("reloadSeconds", mount.ReloadSeconds);
+                    writer.WriteNumber("salvoRounds", mount.SalvoRounds);
+                    writer.WriteNumber("guidanceChannels", mount.GuidanceChannels);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -360,11 +364,11 @@ public static class CampaignCanonicalSerializer
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
-            writer.WriteStartArray("weaponReadyAt");
-            foreach (var ready in item.WeaponReadyAt)
+            writer.WriteStartArray("mountReadyAt");
+            foreach (var ready in item.MountReadyAt)
             {
                 writer.WriteStartObject();
-                writer.WriteString("ammunitionId", ready.Key);
+                writer.WriteString("mountId", ready.Key);
                 writer.WriteNumber("readyAtQuanta", ready.Value);
                 writer.WriteEndObject();
             }
@@ -776,18 +780,30 @@ public static class CampaignCanonicalSerializer
         }
     }
 
-    private static ImmutableSortedDictionary<string, long> ReadWeaponReadyAt(WeaponReadyDocument[] ready)
+    private static ImmutableSortedDictionary<string, long> ReadMountReadyAt(MountReadyDocument[] ready)
     {
         try
         {
             return ready
-                .Select(item => new KeyValuePair<string, long>(item.AmmunitionId, item.ReadyAtQuanta))
+                .Select(item => new KeyValuePair<string, long>(item.MountId, item.ReadyAtQuanta))
                 .ToImmutableSortedDictionary(StringComparer.Ordinal);
         }
         catch (ArgumentException exception)
         {
-            throw new JsonException("Canonical weapon readiness contains duplicate ammunition.", exception);
+            throw new JsonException("Canonical mount readiness contains duplicate mounts.", exception);
         }
+    }
+
+    private static OperationalWeaponMount[] ReadMounts(OperationalWeaponMountDocument[] mounts)
+    {
+        var result = new OperationalWeaponMount[mounts.Length];
+        for (var index = 0; index < mounts.Length; index++)
+        {
+            var mount = mounts[index];
+            result[index] = new OperationalWeaponMount(
+                mount.MountId, mount.ReloadSeconds, mount.SalvoRounds, mount.GuidanceChannels);
+        }
+        return result;
     }
 
     private static ImmutableSortedDictionary<ResourceKind, ResourceAmount> ReadResources(ResourceDocument[] resources)
@@ -877,7 +893,7 @@ public static class CampaignCanonicalSerializer
         public required string ClassifiedTruthTag { get; init; }
         public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
         public MagazineDocument[] Magazines { get; init; } = [];
-        public WeaponReadyDocument[] WeaponReadyAt { get; init; } = [];
+        public MountReadyDocument[] MountReadyAt { get; init; } = [];
         public int AltitudeOrDepthMeters { get; init; }
         public int FireMilliUnits { get; init; }
         public int FloodMilliUnits { get; init; }
@@ -916,15 +932,20 @@ public static class CampaignCanonicalSerializer
         public int WarheadPower { get; init; }
         public int MechanicsSource { get; init; }
         public int MagazineCapacityRounds { get; init; }
+        public OperationalWeaponMountDocument[] Mounts { get; init; } = [];
+    }
+
+    private sealed class OperationalWeaponMountDocument
+    {
+        public required string MountId { get; init; }
         public int ReloadSeconds { get; init; }
         public int SalvoRounds { get; init; }
-        public int MountCount { get; init; }
         public int GuidanceChannels { get; init; }
     }
 
-    private sealed class WeaponReadyDocument
+    private sealed class MountReadyDocument
     {
-        public required string AmmunitionId { get; init; }
+        public required string MountId { get; init; }
         public required long ReadyAtQuanta { get; init; }
     }
 

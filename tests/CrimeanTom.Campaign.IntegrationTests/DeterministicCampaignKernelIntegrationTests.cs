@@ -104,6 +104,97 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(corrupt));
     }
 
+    /// <summary>
+    /// Sea Power reloads each mount on its own, so a ship with two tubes fires
+    /// both in quick succession and then waits a full cycle. Dividing one
+    /// reload by the mount count would give the same sustained rate with the
+    /// burst flattened out, which is a different tactical picture: the twin
+    /// installation puts two rounds on a target before the target can react.
+    /// This checks the burst survives, and that a single mount cannot produce
+    /// one.
+    /// </summary>
+    [Fact]
+    public void Independent_mounts_fire_out_of_phase_rather_than_at_an_averaged_rate()
+    {
+        const int reloadSeconds = 60;
+        var twin = MountedShots(
+            new OperationalWeaponMount("WeaponSystem1", reloadSeconds),
+            new OperationalWeaponMount("WeaponSystem2", reloadSeconds));
+        var single = MountedShots(new OperationalWeaponMount("WeaponSystem1", reloadSeconds));
+
+        Assert.True(twin.Length >= 2, $"Twin mounts fired at [{string.Join(", ", twin)}].");
+        // The second tube shoots on the next tick, while the first is reloading.
+        Assert.True(
+            twin[1] - twin[0] < reloadSeconds,
+            $"Twin mounts fired at [{string.Join(", ", twin)}], expected a burst inside one reload.");
+        // With both tubes down, the battery goes quiet for a full cycle.
+        Assert.All(
+            twin.Skip(2),
+            shot => Assert.True(
+                shot - twin[0] >= reloadSeconds,
+                $"Twin mounts fired at [{string.Join(", ", twin)}], expected quiet until a tube reloaded."));
+        // One tube cannot burst, however many rounds its magazine holds.
+        Assert.All(
+            single.Zip(single.Skip(1)),
+            pair => Assert.True(
+                pair.Second - pair.First >= reloadSeconds,
+                $"A single mount fired at [{string.Join(", ", single)}], faster than it can reload."));
+    }
+
+    /// <summary>
+    /// Quanta at which one ship employed its weapon against a fixed target,
+    /// given the mounts it carries. The exchange is advanced a tick at a time
+    /// because cadence is only visible across ticks.
+    /// </summary>
+    private static long[] MountedShots(params OperationalWeaponMount[] mounts)
+    {
+        const long tickQuanta = 10;
+        var weapon = new OperationalWeaponCapability(
+            "test-tube-round",
+            ContactClassification.LandFormation,
+            DistanceMeters.FromMeters(200_000),
+            MagazineCapacityRounds: 16,
+            Mounts: mounts);
+        var state = CampaignState.Create(new CampaignMetadata(
+            Ids.Campaign,
+            "Mount cadence exchange",
+            0x4D4F554E54,
+            "sha256:mount-cadence-catalog-v1",
+            CampaignSchema.Version,
+            CampaignSchema.AlgorithmVersion)) with
+        {
+            Regions = new[]
+            {
+                new RegionState(Ids.ExchangeRegion, "Mount cadence target area",
+                    ImmutableSortedSet<RegionId>.Empty, new EntityRevision(1)),
+            }.ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Entities = new[]
+            {
+                OperationalEntity(Ids.ExchangeActor, Ids.BlueCoalition, SimulationDomain.Maritime,
+                    "Blue tube-armed ship", "synthetic-tube-ship", [weapon]),
+                OperationalEntity(Ids.ExchangeTarget, Ids.RedCoalition, SimulationDomain.Installation,
+                    "Red hardened installation", "synthetic-installation", []),
+            }.ToImmutableSortedDictionary(item => item.EntityId, item => item),
+        };
+        CampaignStateValidator.Validate(state);
+
+        // Outcomes are kept in a recent window, so each step contributes the
+        // shots it newly reported and duplicates are dropped by outcome id.
+        var shots = new Dictionary<string, long>(StringComparer.Ordinal);
+        var sequence = 700;
+        for (var quanta = tickQuanta; quanta <= 200; quanta += tickQuanta)
+        {
+            state = SimulateForTest(state, sequence++, new CampaignTime(quanta));
+            foreach (var item in state.RecentOperationalOutcomes
+                .Where(item => item.Kind == OperationalOutcomeKind.WeaponExpenditure
+                    && item.ActorEntityId == Ids.ExchangeActor))
+            {
+                shots[item.OutcomeId] = item.OccurredAt.Quanta;
+            }
+        }
+        return [.. shots.Values.Order()];
+    }
+
     [Fact]
     public void Combined_arms_operational_emulator_resolves_physical_land_installation_and_rotary_targets()
     {
@@ -323,11 +414,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "88dbfd4d817f27ccc0e8669e02ab5dadbc8613587a5a81f9bd283030ba101fca",
+            longHorizon.Hash == "2075afebfb2568ef7a435d30374646241b416467fdd6e21d2abe059ebd0cbff7",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "52cd262e2d13a46fbea82e8bc48c3ad9d6666600862428b4619d8113e3979a00",
+            migrated.Hash == "c715e3d162413465f3f2ddb2324512fa8cc1e51b516b573fe0facc1209902fe1",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -1223,7 +1314,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             new EntityRevision(1),
             AnalogueTacticalCondition.Healthy,
             FullMagazines(weapons),
-            EntityState.NoWeaponReadyAt);
+            EntityState.NoMountReadyAt);
 
     /// <summary>
     /// Mirrors the engine's entry rule: a unit starts with every countable
@@ -1254,8 +1345,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(15, CampaignSchema.Version);
-        Assert.Equal(25, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(16, CampaignSchema.Version);
+        Assert.Equal(26, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

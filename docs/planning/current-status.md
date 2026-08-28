@@ -30,8 +30,11 @@ speed, seeker, reliability, hit-probability, and warhead fields while marking
 incomplete profiles separately. Ammunition is no longer one fungible pool:
 each platform carries rounds in named magazines whose capacities come from Sea
 Power's own loadout rule, and weapon selection, point defense, rearming, and
-withdrawal all work on those counts. Re-engagement is gated by the mount's
-native reload time, so a long-cycle box launcher no longer fires every tick. The model still does not reproduce Sea Power's
+withdrawal all work on those counts. Re-engagement is gated by each
+mount's own native reload time, so a long-cycle box launcher no longer fires
+every tick and a twin installation bursts before it goes quiet.
+Magazine and reload state is carried on the simulation event, so expenditure
+persists across ticks rather than resetting each one. The model still does not reproduce Sea Power's
 complete timing, sensors, weapon flight, damage, aviation, acoustics, collision,
 or tactical AI. Its current memory and throughput numbers therefore describe an
 incomplete simulator. They are not performance targets for the finished design.
@@ -49,7 +52,7 @@ goal. The [implementation plan](implementation-plan.md) defines the order.
 | Campaign clock | One quantum is one simulated second; the default target tempo is 10x and the player view declares the clock contract | Actual throughput can fall below target under load; player-selectable tempo and measured lag are not implemented |
 | Persistence | SQLite WAL, writer fencing, periodic snapshots, compressed events, content-addressed blobs, integrity checks, online backup, side-directory restore | Long campaigns, compaction, disk pressure, and upgrade paths remain open |
 | Scenario | Sourced 55-region, 81-base, 4,161-entity authored WW3++ order of battle with nationally based air, naval, and ground forces | Detailed historical OOB work, front geometry, force composition, and balance remain iterative |
-| Server simulation | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, withdrawal, per-ammunition magazines counted with the game's own loadout rule, and native launcher reload and salvo cadence | This is an aggregate Operational model, not full Sea Power parity; most mechanics in the full-fidelity gap inventory remain open. Magazine capacity, consumption, and cadence are catalog-derived but not yet matched-run qualified, and reload is tracked per ammunition rather than per mount |
+| Server simulation | Movement, sustainment, sensors, intelligence, weapons, countermeasures, damage, weather effects, withdrawal, per-ammunition magazines counted with the game's own loadout rule, and native per-mount reload and salvo cadence | This is an aggregate Operational model, not full Sea Power parity; most mechanics in the full-fidelity gap inventory remain open. Magazine capacity, consumption, and cadence are catalog-derived but not yet matched-run qualified |
 | Strategic AI | Two coalitions create intelligence-scoped objectives, enforce domain reach and objective capacity, penalize loaded route entrances, and form persistent two-to-six-group packages | No route reservations, regional throughput, deception, package success/abort state, or human-level command claim |
 | Operational control | Maritime, fixed-wing, rotary-wing, ground, and logistics controllers stage packages, execute domain orders, return aircraft before fuel/time reserves expire, shuttle supply groups, and fence player/tactical authority | Air groups remain persistent abstractions rather than airbase inventory with launch, tanker, runway, and recovery schedules |
 | Sea Power bridge | Authenticated local sessions, screenshots, UI inspection, controlled mutation, terrain probes, checkpoints, collider capture, and native hosted-helicopter registration and launch | Pinned game build, narrow portable-state allow-list, and no hosted-aircraft recovery contract |

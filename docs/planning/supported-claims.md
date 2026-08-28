@@ -119,10 +119,20 @@ The target and gap inventory are in
   reloading is removed from weapon selection and from point defense, so a box
   launcher fires once and then stays quiet instead of re-engaging every tick.
   One engagement now consumes the native salvo size, which replaces the
-  invented four-round ballistic burst. Reload is tracked once per ammunition
-  and divided by mount count rather than per mount, so sustained rate matches
-  but mounts cycling out of phase do not; that is a declared approximation, not
-  a measured tolerance.
+  invented four-round ballistic burst.
+- Each mount reloads independently, keyed by the platform's own weapon-system
+  section. A ship with two tubes fires both in quick succession and then waits a
+  full cycle, rather than firing at an averaged rate that never bursts, and a
+  mount that feeds several ammunition types is occupied for all of them while it
+  reloads. This replaces the earlier approximation that divided one reload time
+  by the mount count. It remains a catalog-derived cadence rule, not a
+  matched-run parity result.
+- Magazine and reload state now survives the tick boundary. The simulated-entity
+  event previously carried neither, so rounds spent while resolving a tick were
+  discarded when the event was applied and a platform could fire the same last
+  round every tick indefinitely; the magazine and cadence rules above were
+  computed but never took effect across ticks. Both are now carried as changes
+  on the event and verified by a stepped engagement.
 - Simultaneous engagements are bounded by native fire-control channels instead
   of fixed constants. A mount's guidance capacity is summed from the
   `WeaponChannels` of the sensors its weapon system is associated with, through
@@ -131,8 +141,9 @@ The target and gap inventory are in
   illuminating or commanding them occupy a channel, so a fire-and-forget round
   is limited by reload rather than by channel count. This replaces a hardcoded
   limit of two guided rounds per shooter and a point-defense channel count that
-  was clamped to between one and four distinct weapons. Reaction time,
-  doctrine, and per-target channel occupancy are still not modelled.
+  was clamped to between one and four distinct weapons. A director shared by
+  several weapons is counted once rather than once per ammunition. Reaction
+  time, doctrine, and per-target channel occupancy are still not modelled.
 - Owned materialization can restore per-ammunition magazines natively through
   Sea Power's `setAmmunitionAmount`, and checkpoints capture the native
   `AmmunitionAmountDictionary`, so a partly expended loadout crosses the handoff
