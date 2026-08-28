@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
@@ -103,6 +104,52 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         };
         Assert.Throws<InvalidDataException>(() => CampaignStateValidator.Validate(corrupt));
     }
+
+    /// <summary>
+    /// A simulated tick reaches the campaign only through the fields its event
+    /// describes. Magazine counts and reload timers were once absent from that
+    /// event, so rounds spent resolving a tick were silently discarded and a
+    /// ship could fire its last missile every tick forever. Nothing about that
+    /// failure was visible in the simulation itself, which computed the right
+    /// answer and threw it away.
+    ///
+    /// This pins the two lists that must stay in step: what an entity carries,
+    /// and what the event can describe. Adding a field to entity state forces a
+    /// decision here about whether the simulation may change it.
+    /// </summary>
+    [Fact]
+    public void Every_entity_field_a_tick_can_change_travels_on_its_simulation_event()
+    {
+        // Carried on SimulatedEntityUpdate, whole or as a change set.
+        string[] carried =
+        [
+            "EntityId", "Revision", "RegionId", "Coordinate", "Lifecycle", "Resources",
+            "ReadinessMilliUnits", "DamageMilliUnits", "Heading", "Telegraph", "Analogue",
+            "Magazines", "MountReadyAt",
+        ];
+        // Identity and configuration a tick never rewrites. These change through
+        // their own commands, not through simulation.
+        string[] fixedForLife =
+        [
+            "Name", "CatalogUnitId", "CatalogLoadoutId", "CoalitionId", "HomeBaseId", "Fidelity",
+            "SimulationDomain", "MaximumFidelity", "ClassifiedTruthTag", "OperationalWeapons",
+            "HostEntityId",
+        ];
+        Assert.Equal(
+            [.. carried.Concat(fixedForLife).Order()],
+            PropertyNames(typeof(EntityState)));
+
+        // The analogue condition travels as its own patch, which has the same
+        // exposure: a field the patch cannot name is a field a tick cannot change.
+        Assert.Equal(
+            PropertyNames(typeof(AnalogueTacticalCondition)),
+            PropertyNames(typeof(SimulatedAnaloguePatch)));
+    }
+
+    private static string[] PropertyNames(Type type) =>
+        [.. type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(item => item.Name)
+            .Order()];
 
     /// <summary>
     /// Sea Power reloads each mount on its own, so a ship with two tubes fires
