@@ -133,6 +133,22 @@ The target and gap inventory are in
   round every tick indefinitely; the magazine and cadence rules above were
   computed but never took effect across ticks. Both are now carried as changes
   on the event and verified by a stepped engagement.
+- Radar detection range comes from the radars a platform actually carries.
+  Each unit's sensor sections resolve into `systems/sensors.ini`, and the
+  longest declared `MaxRange` whose `Role` covers the target's class sets the
+  horizon; ranges there are kilometres, unlike weapon ranges, which the game
+  declares in nautical miles. Read against the installed build, a Knox searches
+  for aircraft to 407 km through its SPS-40 but for ships only to 104 km, a
+  Ticonderoga reaches 463 km with SPY-1A, and a Krivak reaches 300 km for
+  aircraft and 46 km for ships. This replaces a table of constants that gave
+  every warship 120 km against aircraft and 80 km against ships regardless of
+  what it carried. Only radars are sourced this way: a sonar's detection
+  distance comes out of an acoustic model rather than its nominal declared
+  `ActiveRange`, and a visual sensor declares a multiplier rather than a range,
+  so submerged contacts and platforms whose sensors do not resolve keep the
+  approximate horizons. Those remain approximations, not measured tolerances.
+  Scan timing, altitude limits, target channels, datalink reach, line of sight,
+  and radar-cross-section dependence are still not modelled.
 - Simultaneous engagements are bounded by native fire-control channels instead
   of fixed constants. A mount's guidance capacity is summed from the
   `WeaponChannels` of the sensors its weapon system is associated with, through

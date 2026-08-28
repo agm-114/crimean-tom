@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 16;
-    public const int AlgorithmVersion = 26;
+    public const int Version = 17;
+    public const int AlgorithmVersion = 27;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -183,6 +183,37 @@ public sealed record OperationalWeaponMount(
     /// the catalog declares no guidance channel.
     /// </summary>
     int GuidanceChannels = 0);
+
+/// <summary>
+/// One radar a platform carries, with the range and role Sea Power declares
+/// for it.
+///
+/// Only radars are represented. A sonar's detection distance comes out of an
+/// acoustic propagation model rather than a declared range, and a visual
+/// sensor carries a multiplier rather than a range, so neither can be reduced
+/// to a horizon from the catalog alone. Platforms sensing through those
+/// channels still fall back to the server's approximate horizons.
+/// </summary>
+public sealed record OperationalSensorCapability(
+    /// <summary>
+    /// The platform's own sensor-system section name, unique within the
+    /// platform.
+    /// </summary>
+    string SensorId,
+    DistanceMeters MaximumRange,
+    DistanceMeters MinimumRange = default,
+    bool DetectsAir = false,
+    bool DetectsSurface = false,
+    bool DetectsLand = false,
+    /// <summary>
+    /// Targets this radar can track at once. Not yet consumed by the server.
+    /// </summary>
+    int TargetChannels = 0,
+    /// <summary>
+    /// Whether the contact is shared with the task force rather than held
+    /// locally. Not yet consumed by the server.
+    /// </summary>
+    bool HasDataLink = false);
 
 public enum WeaponMechanicsSource
 {
@@ -399,7 +430,8 @@ public sealed record RegisterEntityCommand(
     FidelityState MaximumFidelity = FidelityState.Tactical,
     string CatalogLoadoutId = "Default",
     IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons = null,
-    EntityId? HostEntityId = null)
+    EntityId? HostEntityId = null,
+    IReadOnlyList<OperationalSensorCapability>? OperationalSensors = null)
     : CampaignCommandData;
 
 public sealed record FormGroupCommand(GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members)

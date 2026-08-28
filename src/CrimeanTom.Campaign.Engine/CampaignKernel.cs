@@ -818,6 +818,8 @@ public static class CampaignKernel
             AnalogueTacticalCondition.Healthy,
             CampaignMagazines.Full(weapons),
             EntityState.NoMountReadyAt,
+            [.. (data.OperationalSensors ?? [])
+                .OrderBy(sensor => sensor.SensorId, StringComparer.Ordinal)],
             data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }

@@ -248,7 +248,8 @@ public sealed class CampaignCoordinator(
                         entity.OperationalWeapons,
                         entity.HostEntityKey is null
                             ? null
-                            : seed.EntityIds[entity.HostEntityKey]),
+                            : seed.EntityIds[entity.HostEntityKey],
+                        entity.OperationalSensors),
                     $"fulda-entity-{entity.Key}"));
             }
 

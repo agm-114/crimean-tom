@@ -248,6 +248,7 @@ internal static partial class FuldaGapCampaignSeed
             GeoCoordinate.FromMicrodegrees(latitude, longitude), homeBaseKey, groupKey,
             effectiveDomain, maximumFidelity,
             operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, effectiveDomain),
+            ResolveOperationalSensors(catalogUnitId),
             hostEntityKey);
     }
 
@@ -284,6 +285,25 @@ internal static partial class FuldaGapCampaignSeed
         || catalogUnitId.StartsWith("iriaf_ah-", StringComparison.Ordinal)
         || catalogUnitId.StartsWith("jmsdf_hss-", StringComparison.Ordinal)
         || catalogUnitId.StartsWith("pla_z-", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The radars the game gives this hull. A platform the catalog cannot
+    /// resolve reports none, and the simulation falls back to its approximate
+    /// horizons rather than treating the platform as blind.
+    /// </summary>
+    private static IReadOnlyList<OperationalSensorCapability> ResolveOperationalSensors(
+        string catalogUnitId) =>
+        OperationalCatalog.Value?.ResolveSensors(catalogUnitId)
+            .Select(item => new OperationalSensorCapability(
+                item.SensorId,
+                DistanceMeters.FromMeters(item.MaximumRangeMeters),
+                DistanceMeters.FromMeters(item.MinimumRangeMeters),
+                item.DetectsAir,
+                item.DetectsSurface,
+                item.DetectsLand,
+                item.TargetChannels,
+                item.HasDataLink))
+            .ToArray() ?? [];
 
     private static IReadOnlyList<OperationalWeaponCapability> ResolveOperationalWeapons(
         string catalogUnitId,
@@ -439,6 +459,7 @@ internal sealed record FuldaEntitySeed(
     SimulationDomain SimulationDomain,
     FidelityState MaximumFidelity,
     IReadOnlyList<OperationalWeaponCapability> OperationalWeapons,
+    IReadOnlyList<OperationalSensorCapability> OperationalSensors,
     string? HostEntityKey);
 internal sealed record FuldaGroupSeed(string Key, GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members);
 internal sealed record FuldaOrderSeed(OrderId OrderId, GroupId GroupId, OrderKind Kind, RegionId DestinationRegionId);

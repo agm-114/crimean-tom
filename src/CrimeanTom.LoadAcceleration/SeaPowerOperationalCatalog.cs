@@ -72,12 +72,40 @@ public sealed record SeaPowerCatalogMount(
     /// </summary>
     int GuidanceChannels = 0);
 
+/// <summary>
+/// One radar a unit carries, resolved through the unit's own sensor section
+/// into the shared sensor definitions.
+///
+/// Only radars are reported. Sea Power gives every radar a declared
+/// <c>MaxRange</c>, but a sonar's range emerges from an acoustic propagation
+/// model whose declared <c>ActiveRange</c> is a nominal bound rather than a
+/// detection distance, and a visual sensor carries a multiplier rather than a
+/// range at all. Reporting those from this reader would put a number on them
+/// that the catalog does not actually make.
+/// </summary>
+public sealed record SeaPowerCatalogSensor(
+    /// <summary>
+    /// The unit's own sensor-system section name, such as
+    /// <c>SensorSystem2</c>. Unique within a unit.
+    /// </summary>
+    string SensorId,
+    /// <summary>Shared sensor definition the unit's section names.</summary>
+    string SystemName,
+    long MinimumRangeMeters,
+    long MaximumRangeMeters,
+    bool DetectsAir,
+    bool DetectsSurface,
+    bool DetectsLand,
+    int TargetChannels,
+    bool HasDataLink);
+
 public sealed class SeaPowerOperationalCatalog
 {
     private static readonly string[] UnitFolders = ["vessels", "aircraft", "land_units"];
     private readonly string _originalRoot;
     private readonly object _sync = new();
     private readonly Dictionary<(string Unit, string Loadout), IReadOnlyList<SeaPowerCatalogWeapon>> _cache = new();
+    private readonly Dictionary<string, IReadOnlyList<SeaPowerCatalogSensor>> _sensorCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lazy<IniDocument> _weaponSystems;
     private readonly Lazy<IniDocument> _sensors;
 
@@ -128,6 +156,75 @@ public sealed class SeaPowerOperationalCatalog
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// The radars a unit carries, with the ranges and roles Sea Power declares
+    /// for them. A unit with no resolvable radar returns an empty list, which
+    /// the caller must treat as "the catalog says nothing here" rather than as
+    /// a blind platform.
+    /// </summary>
+    public IReadOnlyList<SeaPowerCatalogSensor> ResolveSensors(string unitTypeId)
+    {
+        lock (_sync)
+        {
+            if (_sensorCache.TryGetValue(unitTypeId, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        var unitPath = UnitFolders
+            .Select(folder => Path.Combine(_originalRoot, folder, $"{unitTypeId}.ini"))
+            .FirstOrDefault(File.Exists);
+        if (unitPath is null)
+        {
+            lock (_sync)
+            {
+                return _sensorCache[unitTypeId] = [];
+            }
+        }
+
+        var unit = IniDocument.Load(unitPath);
+        var result = new List<SeaPowerCatalogSensor>();
+        var count = unit.Integer("SensorSystems", "NumberOfSensorSystems");
+        for (var index = 1; index <= count; index++)
+        {
+            var section = $"SensorSystem{index}";
+            var systemName = unit.Value(section, "SystemName");
+            if (systemName.Length == 0
+                || !string.Equals(Sensors.Value(systemName, "Kind"), "Radar", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Ranges are declared in kilometres, unlike weapon ranges, which
+            // the game declares in nautical miles.
+            var maximum = Sensors.NumberOrDefault(systemName, "MaxRange", 0d);
+            if (maximum <= 0)
+            {
+                continue;
+            }
+
+            var role = Sensors.Value(systemName, "Role");
+            var air = role.IndexOf("Air", StringComparison.OrdinalIgnoreCase) >= 0;
+            var surface = role.IndexOf("Surface", StringComparison.OrdinalIgnoreCase) >= 0;
+            result.Add(new SeaPowerCatalogSensor(
+                section,
+                systemName,
+                checked((long)Math.Round(Sensors.NumberOrDefault(systemName, "MinRange", 0d) * 1_000d)),
+                checked((long)Math.Round(maximum * 1_000d)),
+                air,
+                surface,
+                string.Equals(Sensors.Value(systemName, "CanDetectLandTargets"), "True", StringComparison.OrdinalIgnoreCase),
+                Math.Max(0, Sensors.IntegerOrDefault(systemName, "TargetChannels", 0)),
+                string.Equals(Sensors.Value(systemName, "HasDataLink"), "True", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        lock (_sync)
+        {
+            return _sensorCache[unitTypeId] = result.ToArray();
+        }
     }
 
     public IReadOnlyList<SeaPowerCatalogWeapon> Resolve(

@@ -2418,9 +2418,27 @@ internal static class CampaignSimulation
         return Math.Clamp(score, 0, 950);
     }
 
+    /// <summary>
+    /// How far this platform can see a target of this class.
+    ///
+    /// A radar-equipped platform uses its own radars: the longest declared
+    /// range among those whose native role covers the target's class. A Knox
+    /// searches for aircraft to 407 km through its SPS-40 but for ships only to
+    /// 104 km, and a Ticonderoga reaches 463 km with SPY-1A, differences the
+    /// constants below flatten into one number for every warship.
+    ///
+    /// The constants remain for what the catalog cannot answer: submerged
+    /// contacts, which Sea Power resolves through an acoustic model rather than
+    /// a declared range, and platforms whose sensors the catalog does not
+    /// resolve. Those are approximations, not measured tolerances.
+    /// </summary>
     private static long SensorHorizonMeters(EntityState sensor, EntityState target)
     {
         var targetClass = Classify(target);
+        if (CataloguedSensorHorizonMeters(sensor, targetClass) is { } catalogued)
+        {
+            return catalogued;
+        }
         var sensorClass = Classify(sensor);
         if (sensor.SimulationDomain == SimulationDomain.Air)
         {
@@ -2445,6 +2463,37 @@ internal static class CampaignSimulation
         return targetClass == ContactClassification.Subsurface ? 18_000
             : targetClass == ContactClassification.Air ? 120_000
             : 80_000;
+    }
+
+    /// <summary>
+    /// The longest range among this platform's radars that can see the target's
+    /// class, or null when no carried radar covers it. Radar cannot see a
+    /// submerged contact at all, so that class never resolves here.
+    /// </summary>
+    private static long? CataloguedSensorHorizonMeters(
+        EntityState sensor,
+        ContactClassification targetClass)
+    {
+        if (targetClass == ContactClassification.Subsurface)
+        {
+            return null;
+        }
+
+        long best = 0;
+        foreach (var radar in sensor.OperationalSensors)
+        {
+            var covers = targetClass switch
+            {
+                ContactClassification.Air => radar.DetectsAir,
+                ContactClassification.Surface => radar.DetectsSurface,
+                _ => radar.DetectsLand,
+            };
+            if (covers && radar.MaximumRange.Value > best)
+            {
+                best = radar.MaximumRange.Value;
+            }
+        }
+        return best > 0 ? best : null;
     }
 
     private static long EffectiveSensorHorizonMeters(EntityState sensor, EntityState target)
