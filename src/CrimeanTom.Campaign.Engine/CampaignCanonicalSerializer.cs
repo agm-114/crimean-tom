@@ -82,6 +82,15 @@ public static class CampaignCanonicalSerializer
                 ReadAnalogue(item),
                 ReadMagazines(item.Magazines),
                 ReadMountReadyAt(item.MountReadyAt),
+                [.. item.OperationalSensors.Select(sensor => new OperationalSensorCapability(
+                    sensor.SensorId,
+                    DistanceMeters.FromMeters(sensor.MaximumRangeMeters),
+                    DistanceMeters.FromMeters(sensor.MinimumRangeMeters),
+                    sensor.DetectsAir,
+                    sensor.DetectsSurface,
+                    sensor.DetectsLand,
+                    sensor.TargetChannels,
+                    sensor.HasDataLink))],
                 item.HostEntityId is null
                     ? null
                     : ParseId(item.HostEntityId, value => new EntityId(value))))
@@ -361,6 +370,21 @@ public static class CampaignCanonicalSerializer
                 writer.WriteStartObject();
                 writer.WriteString("ammunitionId", magazine.Key);
                 writer.WriteNumber("rounds", magazine.Value);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("operationalSensors");
+            foreach (var sensor in item.OperationalSensors)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("sensorId", sensor.SensorId);
+                writer.WriteNumber("maximumRangeMeters", sensor.MaximumRange.Value);
+                writer.WriteNumber("minimumRangeMeters", sensor.MinimumRange.Value);
+                writer.WriteBoolean("detectsAir", sensor.DetectsAir);
+                writer.WriteBoolean("detectsSurface", sensor.DetectsSurface);
+                writer.WriteBoolean("detectsLand", sensor.DetectsLand);
+                writer.WriteNumber("targetChannels", sensor.TargetChannels);
+                writer.WriteBoolean("hasDataLink", sensor.HasDataLink);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -894,6 +918,7 @@ public static class CampaignCanonicalSerializer
         public required OperationalWeaponDocument[] OperationalWeapons { get; init; }
         public MagazineDocument[] Magazines { get; init; } = [];
         public MountReadyDocument[] MountReadyAt { get; init; } = [];
+        public OperationalSensorDocument[] OperationalSensors { get; init; } = [];
         public int AltitudeOrDepthMeters { get; init; }
         public int FireMilliUnits { get; init; }
         public int FloodMilliUnits { get; init; }
@@ -941,6 +966,18 @@ public static class CampaignCanonicalSerializer
         public int ReloadSeconds { get; init; }
         public int SalvoRounds { get; init; }
         public int GuidanceChannels { get; init; }
+    }
+
+    private sealed class OperationalSensorDocument
+    {
+        public required string SensorId { get; init; }
+        public required long MaximumRangeMeters { get; init; }
+        public long MinimumRangeMeters { get; init; }
+        public bool DetectsAir { get; init; }
+        public bool DetectsSurface { get; init; }
+        public bool DetectsLand { get; init; }
+        public int TargetChannels { get; init; }
+        public bool HasDataLink { get; init; }
     }
 
     private sealed class MountReadyDocument

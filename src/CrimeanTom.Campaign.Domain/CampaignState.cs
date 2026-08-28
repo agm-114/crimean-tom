@@ -65,6 +65,13 @@ public sealed record EntityState(
     /// instead of one averaged cadence that never bursts.
     /// </summary>
     ImmutableSortedDictionary<string, long> MountReadyAt,
+    /// <summary>
+    /// The radars this platform carries, from the game catalog. Empty means the
+    /// catalog resolved none, in which case detection falls back to the
+    /// server's approximate horizons rather than treating the platform as
+    /// blind.
+    /// </summary>
+    ImmutableArray<OperationalSensorCapability> OperationalSensors,
     EntityId? HostEntityId = null)
 {
     public static readonly ImmutableSortedDictionary<string, int> NoMagazines =

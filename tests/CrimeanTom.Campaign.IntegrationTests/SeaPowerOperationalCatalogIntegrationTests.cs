@@ -72,6 +72,94 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
     }
 
     /// <summary>
+    /// Detection range decides what a platform can even shoot at, and Sea Power
+    /// declares it per radar rather than per ship class. This covers the rules
+    /// that make one hull see further than another: the declared kilometre
+    /// range, the role that says whether a set searches for aircraft or ships,
+    /// land-detection, and the exclusion of sensors whose range the catalog
+    /// does not actually state.
+    /// </summary>
+    [Fact]
+    public void Radar_horizons_come_from_the_units_own_sensors()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"crimean-tom-sensors-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "vessels"));
+            Directory.CreateDirectory(Path.Combine(root, "ammunition"));
+            Directory.CreateDirectory(Path.Combine(root, "systems"));
+            File.WriteAllText(Path.Combine(root, "vessels", "test_ship.ini"), """
+                [SensorSystems]
+                NumberOfSensorSystems=4
+
+                [SensorSystem1]
+                SystemName=Illuminator
+
+                [SensorSystem2]
+                SystemName=SearchRadar
+
+                [SensorSystem3]
+                SystemName=HullSonar
+
+                [SensorSystem4]
+                SystemName=Periscope
+                """);
+            File.WriteAllText(Path.Combine(root, "systems", "sensors.ini"), """
+                [Illuminator]
+                Kind=Radar
+                Role=Air
+                MinRange=0.2
+                MaxRange=37
+
+                [SearchRadar]
+                Kind=Radar
+                Role=AirAndSurface
+                CanDetectLandTargets=True
+                HasDataLink=True
+                MinRange=9.3
+                MaxRange=407.4         // km, unlike weapon ranges in nmi
+                TargetChannels=6
+
+                [HullSonar]
+                Kind=Sonar
+                ActiveRange=2000       // a nominal bound, not a detection range
+
+                [Periscope]
+                Kind=Visual
+                MaxRangeMultiplier=2.2
+                """);
+
+            var sensors = new SeaPowerOperationalCatalog(root).ResolveSensors("test_ship");
+
+            // The sonar and the optics carry no declared detection range, so
+            // the catalog reports neither rather than inventing one.
+            Assert.Equal(["SensorSystem1", "SensorSystem2"], sensors.Select(item => item.SensorId));
+
+            var illuminator = sensors[0];
+            Assert.Equal(37_000, illuminator.MaximumRangeMeters);
+            Assert.Equal(200, illuminator.MinimumRangeMeters);
+            Assert.True(illuminator.DetectsAir);
+            Assert.False(illuminator.DetectsSurface);
+            Assert.False(illuminator.HasDataLink);
+
+            var search = sensors[1];
+            Assert.Equal(407_400, search.MaximumRangeMeters);
+            Assert.True(search.DetectsAir);
+            Assert.True(search.DetectsSurface);
+            Assert.True(search.DetectsLand);
+            Assert.Equal(6, search.TargetChannels);
+            Assert.True(search.HasDataLink);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Magazine stock decides when a platform stops shooting, so the server has
     /// to count rounds the way Sea Power counts them rather than share one
     /// fungible pool. This covers each rule the game applies: a magazine's

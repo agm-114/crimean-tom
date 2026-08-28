@@ -133,7 +133,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         [
             "Name", "CatalogUnitId", "CatalogLoadoutId", "CoalitionId", "HomeBaseId", "Fidelity",
             "SimulationDomain", "MaximumFidelity", "ClassifiedTruthTag", "OperationalWeapons",
-            "HostEntityId",
+            "OperationalSensors", "HostEntityId",
         ];
         Assert.Equal(
             [.. carried.Concat(fixedForLife).Order()],
@@ -461,11 +461,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "2075afebfb2568ef7a435d30374646241b416467fdd6e21d2abe059ebd0cbff7",
+            longHorizon.Hash == "1564579b3e63f7e0e4aae11d71eace26403ff323b364ae2f6ea68230d38ed201",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "c715e3d162413465f3f2ddb2324512fa8cc1e51b516b573fe0facc1209902fe1",
+            migrated.Hash == "bef19ef1b9919d010d64d1d29731285d4ef81da4be17a61ba2535b43a0fce4da",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -1361,7 +1361,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             new EntityRevision(1),
             AnalogueTacticalCondition.Healthy,
             FullMagazines(weapons),
-            EntityState.NoMountReadyAt);
+            EntityState.NoMountReadyAt,
+            []);
 
     /// <summary>
     /// Mirrors the engine's entry rule: a unit starts with every countable
@@ -1392,8 +1393,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(16, CampaignSchema.Version);
-        Assert.Equal(26, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(17, CampaignSchema.Version);
+        Assert.Equal(27, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();
