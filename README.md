@@ -58,10 +58,12 @@ result and maps Sea Power's intact, damaged, and destroyed states to 100, 50, an
 0 condition. Fuel and ammunition remain at their prepared values until the next
 adapter pass reads those systems directly.
 
-Press `F10` on Sea Power's main menu to open campaign headquarters. The embedded
-screen reads the local campaign save, shows the prepared force and objective, and
-launches the generated scenario through Sea Power's normal mission loader. The
-web bundle is generated during the game-side build and remains git-ignored.
+Open Sea Power's `CAMPAIGNS` menu, select `Crimean Tom Operations`, and choose
+`PLAY` to enter campaign headquarters. The embedded screen reads the local
+campaign save, shows the prepared force and objective, and launches the generated
+scenario through Sea Power's normal mission loader. Press `Esc`, `F10`, or the
+`CAMPAIGNS` button to return to Sea Power's campaign browser. The web bundle is
+generated during the game-side build and remains git-ignored.
 
 The retired implementation and its documentation remain available on
 `codex/archive-server-simulation-2026-09-04`.

@@ -15,6 +15,8 @@
     <BepInExCore>$(SeaPowerDir)\BepInEx\core</BepInExCore>
     <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\CrimeanTomOperations</PluginDeployDirectory>
+    <CampaignDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\user\campaigns\crimean-tom-operations</CampaignDeployDirectory>
+    <CampaignDescriptor>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\campaign.ini</CampaignDescriptor>
     <CampaignUiDirectory>$(MSBuildProjectDirectory)\..\..\apps\campaign-monitor</CampaignUiDirectory>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
@@ -88,8 +90,10 @@
     </ItemGroup>
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <MakeDir Directories="$(PluginDeployDirectory)\ui" />
+    <MakeDir Directories="$(CampaignDeployDirectory)" />
     <Copy SourceFiles="@(_PluginFile)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignUiDirectory)\dist\index.html" DestinationFolder="$(PluginDeployDirectory)\ui" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(CampaignDescriptor)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <RemoveDir Directories="$(CampaignUiDirectory)\dist" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>

@@ -6,15 +6,18 @@ namespace CrimeanTom.SeaPower;
 
 internal sealed class CampaignBridgeResult
 {
-    public CampaignBridgeResult(string responseJson, string? missionPath = null)
+    public CampaignBridgeResult(string responseJson, string? missionPath = null, bool closeUi = false)
     {
         ResponseJson = responseJson;
         MissionPath = missionPath;
+        CloseUi = closeUi;
     }
 
     public string ResponseJson { get; }
 
     public string? MissionPath { get; }
+
+    public bool CloseUi { get; }
 }
 
 internal static class CampaignBridge
@@ -35,6 +38,11 @@ internal static class CampaignBridge
         string path = request.RootElement.GetProperty("path").GetString()
             ?? throw new InvalidDataException("Campaign UI request path is missing.");
         string method = request.RootElement.GetProperty("method").GetString() ?? "GET";
+
+        if (path == "/ui/close")
+        {
+            return new CampaignBridgeResult(string.Empty, closeUi: true);
+        }
 
         string missionPath = GetMissionPath();
         CampaignFile campaign = LoadCampaign(missionPath);
