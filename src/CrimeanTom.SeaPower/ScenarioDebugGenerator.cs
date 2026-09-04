@@ -10,11 +10,12 @@ using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
-internal static class ScenarioDebugGenerator
+internal static partial class ScenarioDebugGenerator
 {
     private const string ScenarioFolderName = "Crimean Tom Generated";
     private const string CommandLauncherFileName = "Generated Fleet Clash.ini";
     private const string SpectatorLauncherFileName = "Generated Fleet Clash Spectator.ini";
+    private const string RouteOperationLauncherFileName = "Generated Route Operation.ini";
 
     private static int _generationCounter;
 
@@ -41,6 +42,13 @@ internal static class ScenarioDebugGenerator
                     Spectator = true,
                 },
                 useLauncherMetadata: true);
+            GenerateRouteOperationEntry(
+                GetRouteOperationLauncherPath(),
+                new FleetClashGenerationOptions
+                {
+                    SeaState = 1,
+                },
+                useLauncherMetadata: true);
         }
         catch (Exception exception)
         {
@@ -63,6 +71,10 @@ internal static class ScenarioDebugGenerator
             string.Equals(
                 fullPath,
                 Path.GetFullPath(GetSpectatorLauncherPath()),
+                StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(
+                fullPath,
+                Path.GetFullPath(GetRouteOperationLauncherPath()),
                 StringComparison.OrdinalIgnoreCase);
     }
 
@@ -73,13 +85,27 @@ internal static class ScenarioDebugGenerator
             Path.GetFullPath(GetSpectatorLauncherPath()),
             StringComparison.OrdinalIgnoreCase);
 
+    internal static bool IsRouteOperationLauncherPath(string? scenarioPath) =>
+        !string.IsNullOrWhiteSpace(scenarioPath) &&
+        string.Equals(
+            Path.GetFullPath(scenarioPath),
+            Path.GetFullPath(GetRouteOperationLauncherPath()),
+            StringComparison.OrdinalIgnoreCase);
+
     internal static bool GenerateScenario(
         string scenarioPath,
         FleetClashGenerationOptions options)
     {
         try
         {
-            GenerateEntry(scenarioPath, options, useLauncherMetadata: false);
+            if (IsRouteOperationLauncherPath(scenarioPath))
+            {
+                GenerateRouteOperationEntry(scenarioPath, options, useLauncherMetadata: false);
+            }
+            else
+            {
+                GenerateEntry(scenarioPath, options, useLauncherMetadata: false);
+            }
             return true;
         }
         catch (Exception exception)
@@ -153,6 +179,10 @@ internal static class ScenarioDebugGenerator
         GetScenarioDirectory(),
         SpectatorLauncherFileName);
 
+    private static string GetRouteOperationLauncherPath() => Path.Combine(
+        GetScenarioDirectory(),
+        RouteOperationLauncherFileName);
+
     private static string BuildCategoryFile() => """
         [General]
         Type=Scenario
@@ -169,7 +199,8 @@ internal static class ScenarioDebugGenerator
             string name = Path.GetFileName(path);
             if (!string.Equals(name, "_info.ini", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(name, CommandLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, SpectatorLauncherFileName, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(name, SpectatorLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(name, RouteOperationLauncherFileName, StringComparison.OrdinalIgnoreCase))
             {
                 File.Delete(path);
             }
@@ -181,7 +212,8 @@ internal static class ScenarioDebugGenerator
         System.Random random,
         FleetClashSize size,
         string playerTaskforce,
-        double multiplier)
+        double multiplier,
+        bool excludeCarriers = false)
     {
         multiplier = Math.Clamp(multiplier, 0.5d, 2d);
         if (Math.Abs(multiplier - 1d) < 0.001d)
@@ -200,7 +232,12 @@ internal static class ScenarioDebugGenerator
         while (pool.Count < targetCount * 3)
         {
             FleetClashMatch extra = FleetClashBalancer.Generate(random, size, match.Theater);
-            pool.AddRange(playerIsFirst ? extra.Second.Ships : extra.First.Ships);
+            IEnumerable<FleetClashShip> additions = playerIsFirst
+                ? extra.Second.Ships
+                : extra.First.Ships;
+            pool.AddRange(excludeCarriers
+                ? additions.Where(ship => !ship.IsCarrier)
+                : additions);
         }
 
         FleetClashForce? best = null;
@@ -445,11 +482,17 @@ internal static class ScenarioDebugGenerator
     private static void AppendCrimeanTomSettings(
         StringBuilder mission,
         FleetDeployment playerDeployment,
+        bool spectator) =>
+        AppendCrimeanTomSettings(mission, playerDeployment.AlliedReferences, spectator);
+
+    private static void AppendCrimeanTomSettings(
+        StringBuilder mission,
+        IEnumerable<string> alliedReferences,
         bool spectator)
     {
         mission.AppendLine("[CrimeanTom]");
         mission.Append("Mode=").AppendLine(spectator ? "Spectator" : "Command");
-        mission.Append("AlliedAIUnits=").AppendJoin(',', playerDeployment.AlliedReferences).AppendLine();
+        mission.Append("AlliedAIUnits=").AppendJoin(',', alliedReferences).AppendLine();
         mission.Append("GodVision=").AppendLine(spectator ? "True" : "False");
         mission.AppendLine();
     }
@@ -562,7 +605,8 @@ internal static class ScenarioDebugGenerator
                 .Append(unit.X.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
                 .Append(ship.IsSubmarine ? "shallow" : "0").Append(',')
                 .AppendLine(unit.Z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.Append("Telegraph=").AppendLine(ship.IsSubmarine ? "1" : "3");
+            mission.Append("Telegraph=").AppendLine(
+                unit.Telegraph.ToString(CultureInfo.InvariantCulture));
             mission.Append("Heading=").AppendLine(unit.Heading.ToString("0", CultureInfo.InvariantCulture));
             if (unit.Waypoints is not null)
             {

@@ -69,6 +69,7 @@ internal static class FleetOrderOfBattlePlanner
                         : null,
                     ResolveMissionType(group.Kind),
                     ResolveStationRole(group, memberIndex),
+                    member.Ship.IsSubmarine ? 1 : 3,
                     group.Kind == FleetGroupKind.Carrier
                         ? NormalizeHeading(heading + 180f)
                         : heading));
@@ -634,6 +635,7 @@ internal sealed record DeployedFleetUnit(
     string? Waypoints,
     string MissionType,
     string StationRole,
+    int Telegraph,
     float Heading);
 
 internal sealed record DeployedAircraft(
