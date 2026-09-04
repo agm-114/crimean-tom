@@ -1,5 +1,3 @@
 <Solution>
-  <Project Path="src/CrimeanTom.Operations/CrimeanTom.Operations.csproj" />
-  <Project Path="src/CrimeanTom.Operations.Cli/CrimeanTom.Operations.Cli.csproj" />
-  <Project Path="tests/CrimeanTom.Operations.IntegrationTests/CrimeanTom.Operations.IntegrationTests.csproj" />
+  <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
 </Solution>

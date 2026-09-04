@@ -1,24 +1,14 @@
 using AnchorChain;
-
-using HarmonyLib;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
-[ACPlugin("crimean-tom.operations", "Crimean Tom Operations", "0.1.0")]
+[ACPlugin("crimean-tom.operations", "Crimean Tom Operations", "0.2.0")]
 public sealed class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        Harmony harmony = new("crimean-tom.operations");
-        harmony.PatchAll(typeof(Plugin).Assembly);
-
-        GameObject campaignUi = new("Crimean Tom Operations");
-        UnityEngine.Object.DontDestroyOnLoad(campaignUi);
-        campaignUi.AddComponent<CampaignUiBehaviour>();
-
         System.Reflection.Assembly assembly = typeof(Plugin).Assembly;
-        Debug.Log($"[Crimean Tom Operations] loaded v{assembly.GetName().Version} from {assembly.Location}");
+        Debug.Log($"[Crimean Tom Operations] loaded native Task Force Mode shim v{assembly.GetName().Version} from {assembly.Location}");
     }
 }
