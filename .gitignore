@@ -1,19 +1,15 @@
 .vs/
 .vscode/
-.idea/
 
 bin/
 obj/
-TestResults/
+node_modules/
 artifacts/
-.artifacts/
 
 *.user
 *.suo
-*.userprefs
 *.csproj.user
 
 decompiled/
-*.stackdump
 Thumbs.db
 [Dd]esktop.ini
