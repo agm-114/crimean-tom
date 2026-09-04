@@ -102,6 +102,8 @@ internal static partial class TaskForceNationRules
             coalition.EmblemResourcePath,
             isDefault: false));
 
+    internal static IReadOnlyCollection<CoalitionDefinition> GetCoalitions() => Coalitions;
+
     internal static bool IsCoalition(string? selection) => GetCoalition(selection) is not null;
 
     internal static bool ShouldHideStandaloneNation(string? nation) =>
@@ -176,7 +178,7 @@ internal static partial class TaskForceNationRules
 
     private static string ToDisplayName(string nation) => nation.Replace('_', ' ');
 
-    private sealed class CoalitionDefinition
+    internal sealed class CoalitionDefinition
     {
         internal CoalitionDefinition(
             string id,

@@ -130,6 +130,26 @@ internal static class TaskForceRosterGenerator
         _rosterVariants.Any(variant =>
             string.Equals(variant.Nation, nation, StringComparison.OrdinalIgnoreCase));
 
+    internal static int GetVesselBaseCost(string unitType) =>
+        ReadUnitBaseCost("vessels", unitType);
+
+    internal static IReadOnlyCollection<RosterUnitOption> GetVesselOptions(
+        IEnumerable<string> nations)
+    {
+        HashSet<string> selectedNations = new(
+            nations.Where(nation => !string.IsNullOrWhiteSpace(nation)),
+            StringComparer.OrdinalIgnoreCase);
+        return _rosterVariants
+            .Where(variant =>
+                string.Equals(variant.UnitFolder, "vessels", StringComparison.OrdinalIgnoreCase) &&
+                selectedNations.Contains(variant.Nation))
+            .Select(variant => new RosterUnitOption(
+                variant.UnitType,
+                variant.VariantReference,
+                variant.Nation))
+            .ToArray();
+    }
+
     internal static RosterStrength GetRosterStrength(IEnumerable<string> nations)
     {
         HashSet<string> selectedNations = new(
@@ -274,6 +294,7 @@ internal static class TaskForceRosterGenerator
                     variant.Nation,
                     "vessels",
                     shipClass,
+                    variant.Reference,
                     0,
                     role,
                     roleWeight));
@@ -339,6 +360,7 @@ internal static class TaskForceRosterGenerator
                     squadron.Nation,
                     "aircraft",
                     aircraftClass,
+                    squadron.Reference,
                     0,
                     role,
                     roleWeight));
@@ -522,6 +544,7 @@ internal static class TaskForceRosterGenerator
         string nation,
         string unitFolder,
         string unitType,
+        string variantReference,
         int baseCost,
         string role,
         double roleWeight)
@@ -532,6 +555,8 @@ internal static class TaskForceRosterGenerator
 
         internal string UnitType { get; } = unitType;
 
+        internal string VariantReference { get; } = variantReference;
+
         internal int BaseCost { get; private set; } = baseCost;
 
         internal string Role { get; } = role;
@@ -539,6 +564,18 @@ internal static class TaskForceRosterGenerator
         internal double RoleWeight { get; } = roleWeight;
 
         internal void SetBaseCost(int baseCost) => BaseCost = baseCost;
+    }
+
+    internal sealed class RosterUnitOption(
+        string unitType,
+        string variantReference,
+        string nation)
+    {
+        internal string UnitType { get; } = unitType;
+
+        internal string VariantReference { get; } = variantReference;
+
+        internal string Nation { get; } = nation;
     }
 
     internal sealed class RosterStrength(
