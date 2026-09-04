@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <LangVersion>13</LangVersion>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CrimeanTom.SeaPower</AssemblyName>
     <RootNamespace>CrimeanTom.SeaPower</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
@@ -17,6 +17,7 @@
     <CampaignDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\user\campaigns\crimean-tom-operations</CampaignDeployDirectory>
     <CampaignDescriptor>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\campaign.ini</CampaignDescriptor>
     <CampaignRoster>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\player_task_force_roster.ini</CampaignRoster>
+    <CampaignArtDirectory>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\art</CampaignArtDirectory>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
@@ -25,8 +26,24 @@
       <HintPath>$(AnchorChainDll)</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(SeaPowerDir)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Seapower-Scripts">
+      <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Noesis.NoesisGUI">
+      <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(GameManaged)\UnityEngine.ParticleSystemModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -36,18 +53,24 @@
            Text="Sea Power assemblies were not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
     <Error Condition="!Exists('$(AnchorChainDll)')"
            Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
+    <Error Condition="!Exists('$(SeaPowerDir)\BepInEx\core\0Harmony.dll')"
+           Text="Harmony was not found in the Sea Power BepInEx installation." />
   </Target>
 
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
     <ItemGroup>
       <_PluginFile Include="$(TargetPath)" />
       <_PluginFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      <_CampaignArt Include="$(CampaignArtDirectory)\**\*.*" />
     </ItemGroup>
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <MakeDir Directories="$(CampaignDeployDirectory)" />
     <Copy SourceFiles="@(_PluginFile)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignDescriptor)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignRoster)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_CampaignArt)"
+          DestinationFiles="@(_CampaignArt->'$(CampaignDeployDirectory)\art\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
 </Project>
