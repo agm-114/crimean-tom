@@ -5,8 +5,8 @@ namespace CrimeanTom.Campaign.Contracts;
 
 public static class CampaignSchema
 {
-    public const int Version = 17;
-    public const int AlgorithmVersion = 27;
+    public const int Version = 18;
+    public const int AlgorithmVersion = 28;
     public const long TimeQuantumMicroseconds = 1_000_000;
     public const long MaximumTacticalRollbackQuanta = 120;
 }
@@ -202,6 +202,15 @@ public sealed record OperationalSensorCapability(
     string SensorId,
     DistanceMeters MaximumRange,
     DistanceMeters MinimumRange = default,
+    /// <summary>
+    /// Range at which this radar detects a one square metre target, from the
+    /// game's own radar equation. Multiply by a target's
+    /// <see cref="EntityState.RadarReflectivityMilliUnits"/> to get the range
+    /// against that target, because detection range varies with the fourth
+    /// root of cross-section. Zero means the catalog declared no transmitter at
+    /// all, in which case only the declared maximum range applies.
+    /// </summary>
+    DistanceMeters DetectionRangeCoefficient = default,
     bool DetectsAir = false,
     bool DetectsSurface = false,
     bool DetectsLand = false,
@@ -431,7 +440,8 @@ public sealed record RegisterEntityCommand(
     string CatalogLoadoutId = "Default",
     IReadOnlyList<OperationalWeaponCapability>? OperationalWeapons = null,
     EntityId? HostEntityId = null,
-    IReadOnlyList<OperationalSensorCapability>? OperationalSensors = null)
+    IReadOnlyList<OperationalSensorCapability>? OperationalSensors = null,
+    int RadarReflectivityMilliUnits = 0)
     : CampaignCommandData;
 
 public sealed record FormGroupCommand(GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members)

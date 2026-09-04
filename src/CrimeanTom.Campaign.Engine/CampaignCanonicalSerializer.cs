@@ -86,11 +86,13 @@ public static class CampaignCanonicalSerializer
                     sensor.SensorId,
                     DistanceMeters.FromMeters(sensor.MaximumRangeMeters),
                     DistanceMeters.FromMeters(sensor.MinimumRangeMeters),
+                    DistanceMeters.FromMeters(sensor.DetectionRangeCoefficientMeters),
                     sensor.DetectsAir,
                     sensor.DetectsSurface,
                     sensor.DetectsLand,
                     sensor.TargetChannels,
                     sensor.HasDataLink))],
+                item.RadarReflectivityMilliUnits,
                 item.HostEntityId is null
                     ? null
                     : ParseId(item.HostEntityId, value => new EntityId(value))))
@@ -373,6 +375,7 @@ public static class CampaignCanonicalSerializer
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
+            writer.WriteNumber("radarReflectivityMilliUnits", item.RadarReflectivityMilliUnits);
             writer.WriteStartArray("operationalSensors");
             foreach (var sensor in item.OperationalSensors)
             {
@@ -380,6 +383,7 @@ public static class CampaignCanonicalSerializer
                 writer.WriteString("sensorId", sensor.SensorId);
                 writer.WriteNumber("maximumRangeMeters", sensor.MaximumRange.Value);
                 writer.WriteNumber("minimumRangeMeters", sensor.MinimumRange.Value);
+                writer.WriteNumber("detectionRangeCoefficientMeters", sensor.DetectionRangeCoefficient.Value);
                 writer.WriteBoolean("detectsAir", sensor.DetectsAir);
                 writer.WriteBoolean("detectsSurface", sensor.DetectsSurface);
                 writer.WriteBoolean("detectsLand", sensor.DetectsLand);
@@ -919,6 +923,7 @@ public static class CampaignCanonicalSerializer
         public MagazineDocument[] Magazines { get; init; } = [];
         public MountReadyDocument[] MountReadyAt { get; init; } = [];
         public OperationalSensorDocument[] OperationalSensors { get; init; } = [];
+        public int RadarReflectivityMilliUnits { get; init; }
         public int AltitudeOrDepthMeters { get; init; }
         public int FireMilliUnits { get; init; }
         public int FloodMilliUnits { get; init; }
@@ -973,6 +978,7 @@ public static class CampaignCanonicalSerializer
         public required string SensorId { get; init; }
         public required long MaximumRangeMeters { get; init; }
         public long MinimumRangeMeters { get; init; }
+        public long DetectionRangeCoefficientMeters { get; init; }
         public bool DetectsAir { get; init; }
         public bool DetectsSurface { get; init; }
         public bool DetectsLand { get; init; }

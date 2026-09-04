@@ -93,6 +93,19 @@ public sealed record SeaPowerCatalogSensor(
     string SystemName,
     long MinimumRangeMeters,
     long MaximumRangeMeters,
+    /// <summary>
+    /// Range in metres at which this radar detects a one square metre target,
+    /// from Sea Power's own radar equation in <c>RadarCalculator</c>:
+    /// <c>((peakPower * 1000 * gain^2 * waveLength^2 * rcs) /
+    /// (minDetectableReturnPower * 1000 * (4*pi)^3)) ^ 0.25</c>, with gain
+    /// converted from the declared decibels as <c>10^(dB/10)</c> and the
+    /// wavelength taken from the declared frequency band.
+    ///
+    /// Range varies with the fourth root of cross-section, so the whole curve
+    /// is this one number scaled by the target's own fourth root. Splitting it
+    /// that way keeps the campaign's own arithmetic in integers.
+    /// </summary>
+    long DetectionRangeCoefficientMeters,
     bool DetectsAir,
     bool DetectsSurface,
     bool DetectsLand,
@@ -106,6 +119,7 @@ public sealed class SeaPowerOperationalCatalog
     private readonly object _sync = new();
     private readonly Dictionary<(string Unit, string Loadout), IReadOnlyList<SeaPowerCatalogWeapon>> _cache = new();
     private readonly Dictionary<string, IReadOnlyList<SeaPowerCatalogSensor>> _sensorCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _reflectivityCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lazy<IniDocument> _weaponSystems;
     private readonly Lazy<IniDocument> _sensors;
 
@@ -156,6 +170,83 @@ public sealed class SeaPowerOperationalCatalog
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Wavelength in metres for each frequency band the game names, from
+    /// <c>Globals._waveLengthsForFrequencyBands</c>. A band the catalog does
+    /// not name uses the game's own undefined-band value.
+    /// </summary>
+    private static readonly Dictionary<string, double> WaveLengths =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["VHF-Band"] = 1.4989623,
+            ["UHF-Band"] = 0.46121916,
+            ["L-Band"] = 0.19986163,
+            ["S-Band"] = 0.099930815,
+            ["C-Band"] = 0.049965408,
+            ["X-Band"] = 0.033310276,
+            ["Ku-Band"] = 0.019986162,
+            ["K-Band"] = 0.011991698,
+            ["Ka-Band"] = 0.0085654985,
+        };
+
+    private const double UndefinedBandWaveLengthMeters = 0.029979244;
+
+    /// <summary>
+    /// The fourth root of a unit's radar cross-section, in thousandths.
+    ///
+    /// Sea Power reads <c>[SensorData] RCS</c> as either a size name resolved
+    /// through the <c>[RCS]</c> table or a raw square-metre figure, defaulting
+    /// to Medium, and search radars use the broadside value. Detection range
+    /// scales with the fourth root of that area, so the campaign carries the
+    /// root rather than the area and multiplies it by each radar's coefficient
+    /// in integer arithmetic.
+    /// </summary>
+    public int ResolveRadarReflectivityMilliUnits(string unitTypeId)
+    {
+        lock (_sync)
+        {
+            if (_reflectivityCache.TryGetValue(unitTypeId, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        var unitPath = UnitFolders
+            .Select(folder => Path.Combine(_originalRoot, folder, $"{unitTypeId}.ini"))
+            .FirstOrDefault(File.Exists);
+        var declared = unitPath is null
+            ? string.Empty
+            : IniDocument.Load(unitPath).Value("SensorData", "RCS");
+        var area = ResolveCrossSectionSquareMeters(declared);
+        var result = area <= 0
+            ? 0
+            : checked((int)Math.Round(Math.Pow(area, 0.25d) * 1_000d, MidpointRounding.AwayFromZero));
+        lock (_sync)
+        {
+            return _reflectivityCache[unitTypeId] = result;
+        }
+    }
+
+    /// <summary>
+    /// Square metres for a declared cross-section, which the game accepts as
+    /// either a size name from its own table or a plain number. An absent or
+    /// unrecognised value falls back to Medium, as the game does.
+    /// </summary>
+    private double ResolveCrossSectionSquareMeters(string declared)
+    {
+        var trimmed = declared.Trim();
+        if (trimmed.Length > 0
+            && double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var explicitArea)
+            && explicitArea > 0)
+        {
+            return explicitArea;
+        }
+
+        var name = trimmed.Length == 0 ? "Medium" : trimmed;
+        var table = Sensors.NumberOrDefault("RCS", name, 0d);
+        return table > 0 ? table : Sensors.NumberOrDefault("RCS", "Medium", 100d);
     }
 
     /// <summary>
@@ -214,6 +305,7 @@ public sealed class SeaPowerOperationalCatalog
                 systemName,
                 checked((long)Math.Round(Sensors.NumberOrDefault(systemName, "MinRange", 0d) * 1_000d)),
                 checked((long)Math.Round(maximum * 1_000d)),
+                DetectionRangeCoefficientMeters(systemName),
                 air,
                 surface,
                 string.Equals(Sensors.Value(systemName, "CanDetectLandTargets"), "True", StringComparison.OrdinalIgnoreCase),
@@ -225,6 +317,31 @@ public sealed class SeaPowerOperationalCatalog
         {
             return _sensorCache[unitTypeId] = result.ToArray();
         }
+    }
+
+    /// <summary>
+    /// Range in metres at which this radar detects a one square metre target,
+    /// evaluated once here so the campaign never has to.
+    /// </summary>
+    private long DetectionRangeCoefficientMeters(string systemName)
+    {
+        // Defaults match the game's own when a radar leaves a field out.
+        var peakPowerKilowatts = Sensors.NumberOrDefault(systemName, "PeakPower", 100d);
+        var gainFactor = Math.Pow(10d, Sensors.NumberOrDefault(systemName, "Gain", 0d) / 10d);
+        var waveLength = WaveLengths.TryGetValue(Sensors.Value(systemName, "Frequency").Trim(), out var declared)
+            ? declared
+            : UndefinedBandWaveLengthMeters;
+        var minimumReturnPowerKilowatts = Sensors.NumberOrDefault(
+            "RCS", "MinDetectableReturnPowerRadar", 2E-14d);
+        if (peakPowerKilowatts <= 0 || gainFactor <= 0 || minimumReturnPowerKilowatts <= 0)
+        {
+            return 0;
+        }
+
+        var fourPiCubed = Math.Pow(4d * Math.PI, 3d);
+        var ratio = peakPowerKilowatts * 1_000d * gainFactor * gainFactor * waveLength * waveLength
+            / (minimumReturnPowerKilowatts * 1_000d * fourPiCubed);
+        return ratio <= 0 ? 0 : checked((long)Math.Round(Math.Pow(ratio, 0.25d), MidpointRounding.AwayFromZero));
     }
 
     public IReadOnlyList<SeaPowerCatalogWeapon> Resolve(

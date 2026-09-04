@@ -89,6 +89,9 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
             Directory.CreateDirectory(Path.Combine(root, "ammunition"));
             Directory.CreateDirectory(Path.Combine(root, "systems"));
             File.WriteAllText(Path.Combine(root, "vessels", "test_ship.ini"), """
+                [SensorData]
+                RCS=SemiLarge
+
                 [SensorSystems]
                 NumberOfSensorSystems=4
 
@@ -119,6 +122,14 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
                 MinRange=9.3
                 MaxRange=407.4         // km, unlike weapon ranges in nmi
                 TargetChannels=6
+                Gain=42                // dB
+                PeakPower=255.0        // kW
+                Frequency=UHF-Band
+
+                [RCS]
+                Medium=100.0
+                SemiLarge=1000.0
+                MinDetectableReturnPowerRadar=0.00000000000002
 
                 [HullSonar]
                 Kind=Sonar
@@ -141,9 +152,28 @@ public sealed class SeaPowerOperationalCatalogIntegrationTests
             Assert.True(illuminator.DetectsAir);
             Assert.False(illuminator.DetectsSurface);
             Assert.False(illuminator.HasDataLink);
+            // This set declares no gain, power, or band, so the game's own
+            // defaults apply: 100 kW, 0 dB of gain, and the undefined band's
+            // wavelength. That is a transmitter which reaches 218 m against a
+            // one square metre target, so an under-specified radar is nearly
+            // blind rather than unrestricted. Every radar in the installed
+            // build declares all three.
+            Assert.Equal(218, illuminator.DetectionRangeCoefficientMeters);
 
             var search = sensors[1];
             Assert.Equal(407_400, search.MaximumRangeMeters);
+            // Sea Power's radar equation against a one square metre target:
+            // ((255 kW * 1000 * (10^4.2)^2 * 0.46121916^2) /
+            //  (2e-14 * 1000 * (4*pi)^3)) ^ 0.25, which is 136 km. A search set
+            // reaching 407 km therefore only reaches that far against something
+            // large; the range against any target is this scaled by the fourth
+            // root of its cross-section.
+            Assert.Equal(136_121, search.DetectionRangeCoefficientMeters);
+            // A hull declared SemiLarge is 1000 m2, whose fourth root is 5.623.
+            // 136 km * 5.623 is 766 km, so against a ship this size the radar's
+            // own declared maximum is what binds, not the equation.
+            Assert.Equal(5_623, new SeaPowerOperationalCatalog(root)
+                .ResolveRadarReflectivityMilliUnits("test_ship"));
             Assert.True(search.DetectsAir);
             Assert.True(search.DetectsSurface);
             Assert.True(search.DetectsLand);

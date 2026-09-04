@@ -72,6 +72,14 @@ public sealed record EntityState(
     /// blind.
     /// </summary>
     ImmutableArray<OperationalSensorCapability> OperationalSensors,
+    /// <summary>
+    /// The fourth root of this platform's radar cross-section, in thousandths,
+    /// from the size the game declares for it. Detection range varies with that
+    /// fourth root, so a radar's range against this platform is its own
+    /// coefficient scaled by this. Zero means the catalog declared nothing and
+    /// the platform is not sized for the radar equation.
+    /// </summary>
+    int RadarReflectivityMilliUnits,
     EntityId? HostEntityId = null)
 {
     public static readonly ImmutableSortedDictionary<string, int> NoMagazines =

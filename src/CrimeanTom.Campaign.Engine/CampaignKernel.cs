@@ -820,6 +820,7 @@ public static class CampaignKernel
             EntityState.NoMountReadyAt,
             [.. (data.OperationalSensors ?? [])
                 .OrderBy(sensor => sensor.SensorId, StringComparer.Ordinal)],
+            Math.Max(0, data.RadarReflectivityMilliUnits),
             data.HostEntityId);
         return state with { Entities = state.Entities.Add(entry.EntityId, entry) };
     }
