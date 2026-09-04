@@ -1,75 +1,5 @@
 namespace CrimeanTom.Operations;
 
-public enum CampaignPhase
-{
-    Headquarters,
-    ScenarioPrepared,
-}
-
-public sealed record CampaignUnit(
-    string Id,
-    string Name,
-    int Condition,
-    int Fuel,
-    int PrimaryAmmunition,
-    bool Destroyed = false);
-
-public sealed record ScenarioPackage(
-    string CampaignId,
-    long CampaignRevision,
-    string OperationId,
-    string Title,
-    IReadOnlyList<string> UnitIds);
-
-public sealed record UnitAfterAction(
-    string UnitId,
-    int Condition,
-    int Fuel,
-    int PrimaryAmmunition,
-    bool Destroyed);
-
-public sealed record AfterActionReport(
-    string CampaignId,
-    long CampaignRevision,
-    string OperationId,
-    IReadOnlyList<UnitAfterAction> Units);
-
-public sealed record CampaignState(
-    string CampaignId,
-    long Revision,
-    int Turn,
-    CampaignPhase Phase,
-    IReadOnlyList<CampaignUnit> Units,
-    ScenarioPackage? PendingScenario)
-{
-    public static CampaignState Create(string campaignId, IReadOnlyList<CampaignUnit> units)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(campaignId);
-        ArgumentNullException.ThrowIfNull(units);
-
-        if (units.Count == 0)
-        {
-            throw new ArgumentException("A campaign requires at least one unit.", nameof(units));
-        }
-
-        EnsureUniqueIds(units.Select(unit => unit.Id), nameof(units));
-        return new(campaignId, 0, 1, CampaignPhase.Headquarters, units, null);
-    }
-
-    private static void EnsureUniqueIds(IEnumerable<string> ids, string parameterName)
-    {
-        HashSet<string> uniqueIds = new(StringComparer.Ordinal);
-        foreach (string id in ids)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(id, parameterName);
-            if (!uniqueIds.Add(id))
-            {
-                throw new ArgumentException($"Duplicate unit id '{id}'.", parameterName);
-            }
-        }
-    }
-}
-
 public static class CampaignWorkflow
 {
     public static CampaignState PrepareScenario(CampaignState state, ScenarioPackage scenario)
@@ -85,29 +15,39 @@ public static class CampaignWorkflow
         EnsureCampaignVersion(state, scenario.CampaignId, scenario.CampaignRevision);
         ArgumentException.ThrowIfNullOrWhiteSpace(scenario.OperationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(scenario.Title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scenario.Description);
 
-        HashSet<string> availableUnitIds = state.Units
+        Dictionary<string, CampaignUnit> availableUnits = state.Units
             .Where(unit => !unit.Destroyed)
-            .Select(unit => unit.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        HashSet<string> assignedUnitIds = new(StringComparer.Ordinal);
+            .ToDictionary(unit => unit.Id, StringComparer.Ordinal);
+        string[] assignedUnitIds = scenario.PlayerVessels
+            .Select(vessel => vessel.Id)
+            .ToArray();
 
-        foreach (string unitId in scenario.UnitIds)
+        CampaignValidation.EnsureUniqueIds(assignedUnitIds, nameof(scenario));
+        if (assignedUnitIds.Length == 0)
         {
-            if (!assignedUnitIds.Add(unitId))
+            throw new ArgumentException("A scenario requires at least one player vessel.", nameof(scenario));
+        }
+
+        foreach (ScenarioVessel vessel in scenario.PlayerVessels)
+        {
+            if (!availableUnits.TryGetValue(vessel.Id, out CampaignUnit? unit))
             {
-                throw new ArgumentException($"Unit '{unitId}' is assigned more than once.", nameof(scenario));
+                throw new ArgumentException($"Unit '{vessel.Id}' is unavailable.", nameof(scenario));
             }
 
-            if (!availableUnitIds.Contains(unitId))
+            if (!StringComparer.Ordinal.Equals(unit.SeaPowerType, vessel.SeaPowerType))
             {
-                throw new ArgumentException($"Unit '{unitId}' is unavailable.", nameof(scenario));
+                throw new ArgumentException(
+                    $"Unit '{vessel.Id}' must use Sea Power type '{unit.SeaPowerType}'.",
+                    nameof(scenario));
             }
         }
 
-        if (assignedUnitIds.Count == 0)
+        if (scenario.EnemyVessels.Count == 0)
         {
-            throw new ArgumentException("A scenario requires at least one unit.", nameof(scenario));
+            throw new ArgumentException("A scenario requires at least one enemy vessel.", nameof(scenario));
         }
 
         return state with
@@ -131,10 +71,18 @@ public static class CampaignWorkflow
             throw new ArgumentException("The report belongs to a different operation.", nameof(report));
         }
 
+        foreach (UnitAfterAction unit in report.Units)
+        {
+            CampaignValidation.ValidateAfterAction(unit);
+        }
+
         Dictionary<string, UnitAfterAction> reportedUnits = report.Units
             .ToDictionary(unit => unit.UnitId, StringComparer.Ordinal);
+        HashSet<string> assignedUnitIds = scenario.PlayerVessels
+            .Select(vessel => vessel.Id)
+            .ToHashSet(StringComparer.Ordinal);
 
-        if (!scenario.UnitIds.ToHashSet(StringComparer.Ordinal).SetEquals(reportedUnits.Keys))
+        if (!assignedUnitIds.SetEquals(reportedUnits.Keys))
         {
             throw new ArgumentException("The report must contain every assigned unit exactly once.", nameof(report));
         }

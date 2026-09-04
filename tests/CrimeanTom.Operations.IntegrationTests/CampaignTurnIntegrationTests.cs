@@ -7,35 +7,56 @@ namespace CrimeanTom.Operations.IntegrationTests;
 public sealed class CampaignTurnIntegrationTests
 {
     [Fact]
-    public void Scenario_and_after_action_report_complete_a_campaign_turn()
+    public void Campaign_round_trips_through_a_generated_scenario_and_after_action_report()
     {
-        CampaignState campaign = CampaignState.Create(
-            "north-atlantic-1989",
-            [new CampaignUnit("ffg-01", "USS Sample", 100, 100, 40)]);
+        string directory = Path.Combine(Path.GetTempPath(), $"crimean-tom-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
 
-        ScenarioPackage scenario = new(
-            campaign.CampaignId,
-            campaign.Revision,
-            "operation-001",
-            "Convoy Escort",
-            ["ffg-01"]);
+        try
+        {
+            string campaignPath = Path.Combine(directory, "campaign.json");
+            string scenarioPath = Path.Combine(directory, DemoOperation.ScenarioFileName);
+            string afterActionPath = Path.Combine(directory, "after-action.json");
+            CampaignStore store = new();
+            SeaPowerScenarioWriter scenarioWriter = new();
 
-        CampaignState inBattle = CampaignWorkflow.PrepareScenario(campaign, scenario);
+            store.Save(campaignPath, DemoOperation.CreateCampaign());
+            CampaignState campaign = store.Load(campaignPath);
+            ScenarioPackage scenario = DemoOperation.CreateScenario(campaign);
+            campaign = CampaignWorkflow.PrepareScenario(campaign, scenario);
+            store.Save(campaignPath, campaign);
+            scenarioWriter.Write(scenarioPath, scenario);
+            store.SaveAfterAction(afterActionPath, DemoOperation.CreateAfterActionTemplate(campaign));
 
-        AfterActionReport report = new(
-            campaign.CampaignId,
-            campaign.Revision,
-            scenario.OperationId,
-            [new UnitAfterAction("ffg-01", 72, 41, 9, false)]);
+            string scenarioText = File.ReadAllText(scenarioPath);
+            Assert.Contains("Name=Crimean Tom Operations - Surface Trial", scenarioText);
+            Assert.Contains("NumberOfTaskforce1Vessels=1", scenarioText);
+            Assert.Contains("Type=usn_ffg_oliver_hazard_perry", scenarioText);
+            Assert.Contains("Type=wp_mrk_nanuchka", scenarioText);
 
-        CampaignState returned = CampaignWorkflow.ApplyAfterAction(inBattle, report);
+            AfterActionReport report = store.LoadAfterAction(afterActionPath) with
+            {
+                Units = [new UnitAfterAction("ffg-01", 72, 41, 9, false)],
+            };
+            store.SaveAfterAction(afterActionPath, report);
 
-        Assert.Equal(CampaignPhase.Headquarters, returned.Phase);
-        Assert.Null(returned.PendingScenario);
-        Assert.Equal(1, returned.Revision);
-        Assert.Equal(2, returned.Turn);
-        Assert.Equal(72, returned.Units.Single().Condition);
-        Assert.Equal(41, returned.Units.Single().Fuel);
-        Assert.Equal(9, returned.Units.Single().PrimaryAmmunition);
+            CampaignState returned = CampaignWorkflow.ApplyAfterAction(
+                store.Load(campaignPath),
+                store.LoadAfterAction(afterActionPath));
+            store.Save(campaignPath, returned);
+            CampaignState persisted = store.Load(campaignPath);
+
+            Assert.Equal(CampaignPhase.Headquarters, persisted.Phase);
+            Assert.Null(persisted.PendingScenario);
+            Assert.Equal(1, persisted.Revision);
+            Assert.Equal(2, persisted.Turn);
+            Assert.Equal(72, persisted.Units.Single().Condition);
+            Assert.Equal(41, persisted.Units.Single().Fuel);
+            Assert.Equal(9, persisted.Units.Single().PrimaryAmmunition);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
     }
 }
