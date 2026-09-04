@@ -55,7 +55,7 @@ static int Prepare(string workspace)
 
     string scenarioPath = GetScenarioPath(workspace);
     string afterActionPath = GetAfterActionPath(workspace);
-    new SeaPowerScenarioWriter().Write(scenarioPath, scenario);
+    new SeaPowerScenarioWriter().Write(scenarioPath, scenario, afterActionPath);
     store.SaveAfterAction(afterActionPath, DemoOperation.CreateAfterActionTemplate(prepared));
     store.Save(GetCampaignPath(workspace), prepared);
 

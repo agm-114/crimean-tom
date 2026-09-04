@@ -5,7 +5,7 @@ namespace CrimeanTom.Operations;
 
 public sealed class SeaPowerScenarioWriter
 {
-    public string Render(ScenarioPackage scenario)
+    public string Render(ScenarioPackage scenario, string? afterActionReportPath = null)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         EnsureSingleLine(scenario.Title, nameof(scenario.Title));
@@ -40,17 +40,33 @@ public sealed class SeaPowerScenarioWriter
         AddValue(text, "NumberOfTaskforce2Vessels", scenario.EnemyVessels.Count.ToString(CultureInfo.InvariantCulture));
         AddValue(text, "NumberOfTriggers", "0");
 
+        if (!string.IsNullOrWhiteSpace(afterActionReportPath))
+        {
+            string fullReportPath = Path.GetFullPath(afterActionReportPath);
+            EnsureSingleLine(fullReportPath, nameof(afterActionReportPath));
+            AddBlankLine(text);
+            AddSection(text, "CrimeanTomOperations");
+            AddValue(text, "AfterActionPath", fullReportPath);
+            AddValue(text, "OperationId", scenario.OperationId);
+            for (int index = 0; index < scenario.PlayerVessels.Count; index++)
+            {
+                ScenarioVessel vessel = scenario.PlayerVessels[index];
+                AddValue(text, $"PlayerUnit{index + 1}Id", vessel.Id);
+                AddValue(text, $"PlayerUnit{index + 1}Type", vessel.SeaPowerType);
+            }
+        }
+
         AddVessels(text, 1, scenario.PlayerVessels);
         AddVessels(text, 2, scenario.EnemyVessels);
         return text.ToString();
     }
 
-    public void Write(string path, ScenarioPackage scenario)
+    public void Write(string path, ScenarioPackage scenario, string? afterActionReportPath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         string fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        File.WriteAllText(fullPath, Render(scenario), new UTF8Encoding(false));
+        File.WriteAllText(fullPath, Render(scenario, afterActionReportPath), new UTF8Encoding(false));
     }
 
     private static void AddVessels(StringBuilder text, int taskforce, IReadOnlyList<ScenarioVessel> vessels)
