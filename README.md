@@ -1,69 +1,17 @@
 # Crimean Tom
 
-Crimean Tom is pivoting to an operations campaign for Sea Power.
+Crimean Tom currently consists of one lightweight native Task Force Mode entry for Sea Power.
 
-The campaign runs between battles. It prepares a complete, ordinary Sea Power
-scenario, lets Sea Power own the battle, then imports the after-action result to
-update the persistent force. There is no background war simulation, live unit
-streaming, companion process, or mid-battle campaign synchronization.
+Selecting `Crimean Tom Operations` from `CAMPAIGNS` starts Sea Power's own commander onboarding and task-force builder. The repository contains no campaign server, web interface, background simulation, runtime streaming, custom map, or generated artwork. The native game owns campaign UI, saves, force persistence, deployment, battles, debriefs, repair, and rearm.
 
-The repository is intentionally small while that workflow is rebuilt:
+The one stock-backed mission reference is temporary launch scaffolding. Gameplay and campaign structure will be designed after the native entry is proven.
 
-- `src/CrimeanTom.Operations` owns campaign state and the scenario/result boundary.
-- `tests/CrimeanTom.Operations.IntegrationTests` exercises one complete campaign
-  turn instead of maintaining many narrow tests.
-- `apps/campaign-monitor` is the retained campaign interface, trimmed to run
-  inside Sea Power without the retired campaign service.
+The DLL only registers the mod through AnchorChain and writes a load marker. The entry itself lives in `content/campaigns/crimean-tom-operations`.
 
-Build and test with:
+Build and deploy with:
 
 ```powershell
-dotnet test CrimeanTom.slnx
+dotnet test CrimeanTom.slnx --configuration Release
 ```
 
-## First playable slice
-
-The current trial creates one persistent frigate, generates a standalone surface
-battle, and writes an editable after-action report. Run these commands from the
-repository root:
-
-```powershell
-dotnet run --project src/CrimeanTom.Operations.Cli -- init
-dotnet run --project src/CrimeanTom.Operations.Cli -- prepare
-dotnet run --project src/CrimeanTom.Operations.Cli -- install
-```
-
-Launch Sea Power and select `Crimean Tom Operations - Surface Trial` from user
-missions. After the battle, edit `artifacts/demo-campaign/after-action.json` with
-the frigate's remaining condition, fuel, and ammunition. Then apply it:
-
-```powershell
-dotnet run --project src/CrimeanTom.Operations.Cli -- resolve
-dotnet run --project src/CrimeanTom.Operations.Cli -- status
-```
-
-Result capture is manual in this first slice. The next game-side component should
-write that after-action file from the completed tactical session.
-
-The first game-side adapter now does that for the surface trial. Build and deploy
-it before launching Sea Power:
-
-```powershell
-dotnet build CrimeanTom.SeaPower.slnx
-```
-
-When the Sea Power debrief opens, the adapter matches the campaign frigate by its
-database type and updates `after-action.json`. It currently records the mission
-result and maps Sea Power's intact, damaged, and destroyed states to 100, 50, and
-0 condition. Fuel and ammunition remain at their prepared values until the next
-adapter pass reads those systems directly.
-
-Open Sea Power's `CAMPAIGNS` menu, select `Crimean Tom Operations`, and choose
-`PLAY` to enter campaign headquarters. The embedded screen reads the local
-campaign save, shows the prepared force and objective, and launches the generated
-scenario through Sea Power's normal mission loader. Press `Esc`, `F10`, or the
-`CAMPAIGNS` button to return to Sea Power's campaign browser. The web bundle is
-generated during the game-side build and remains git-ignored.
-
-The retired implementation and its documentation remain available on
-`codex/archive-server-simulation-2026-09-04`.
+The retired implementation remains available on `codex/archive-server-simulation-2026-09-04`.

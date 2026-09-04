@@ -6,18 +6,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CrimeanTom.SeaPower</AssemblyName>
     <RootNamespace>CrimeanTom.SeaPower</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
     <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
-    <BepInExCore>$(SeaPowerDir)\BepInEx\core</BepInExCore>
     <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\CrimeanTomOperations</PluginDeployDirectory>
     <CampaignDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\user\campaigns\crimean-tom-operations</CampaignDeployDirectory>
     <CampaignDescriptor>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\campaign.ini</CampaignDescriptor>
-    <CampaignUiDirectory>$(MSBuildProjectDirectory)\..\..\apps\campaign-monitor</CampaignUiDirectory>
+    <CampaignRoster>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\player_task_force_roster.ini</CampaignRoster>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
@@ -26,58 +25,14 @@
       <HintPath>$(AnchorChainDll)</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>$(BepInExCore)\0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine">
-      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule">
-      <HintPath>$(GameManaged)\UnityEngine.UIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UI">
-      <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Seapower-Scripts">
-      <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Noesis.NoesisGUI">
-      <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="System.Text.Json">
-      <HintPath>$(GameManaged)\System.Text.Json.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Vuplex.WebView">
-      <HintPath>$(GameManaged)\Vuplex.WebView.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
   </ItemGroup>
 
-  <Target Name="BuildCampaignUi" BeforeTargets="Build">
-    <Exec Command="pnpm --dir &quot;$(CampaignUiDirectory)&quot; build" />
-  </Target>
-
   <Target Name="EnsureSeaPowerReferences" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(GameManaged)\Seapower-Scripts.dll')"
+    <Error Condition="!Exists('$(GameManaged)\UnityEngine.CoreModule.dll')"
            Text="Sea Power assemblies were not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
     <Error Condition="!Exists('$(AnchorChainDll)')"
            Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
@@ -89,12 +44,10 @@
       <_PluginFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
     </ItemGroup>
     <MakeDir Directories="$(PluginDeployDirectory)" />
-    <MakeDir Directories="$(PluginDeployDirectory)\ui" />
     <MakeDir Directories="$(CampaignDeployDirectory)" />
     <Copy SourceFiles="@(_PluginFile)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(CampaignUiDirectory)\dist\index.html" DestinationFolder="$(PluginDeployDirectory)\ui" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignDescriptor)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
-    <RemoveDir Directories="$(CampaignUiDirectory)\dist" />
+    <Copy SourceFiles="$(CampaignRoster)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
 </Project>
