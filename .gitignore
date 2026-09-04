@@ -490,3 +490,4 @@ decompiled/
 
 # Generated web application bundles
 **/wwwroot/monitor/
+apps/campaign-monitor/dist/

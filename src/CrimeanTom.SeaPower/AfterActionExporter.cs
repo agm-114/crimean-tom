@@ -10,7 +10,7 @@ namespace CrimeanTom.SeaPower;
 
 internal static class AfterActionExporter
 {
-    private const string SectionName = "CrimeanTomOperations";
+    internal const string SectionName = "CrimeanTomOperations";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -86,7 +86,7 @@ internal static class AfterActionExporter
         Debug.Log($"[Crimean Tom Operations] wrote after-action report for {report.OperationId} to {reportPath}");
     }
 
-    private static Dictionary<string, string> ReadSection(string path, string sectionName)
+    internal static Dictionary<string, string> ReadSection(string path, string sectionName)
     {
         Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
         bool inSection = false;

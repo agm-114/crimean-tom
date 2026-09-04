@@ -1,0 +1,8 @@
+{
+  "name": "crimean-tom",
+  "private": true,
+  "packageManager": "pnpm@10.9.0",
+  "scripts": {
+    "ui:build": "pnpm --filter @crimean-tom/campaign-monitor build"
+  }
+}
