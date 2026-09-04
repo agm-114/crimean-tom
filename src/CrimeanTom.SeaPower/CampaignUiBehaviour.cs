@@ -26,7 +26,7 @@ internal sealed class CampaignUiBehaviour : MonoBehaviour
         if (_canvasObject is not null
             && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.F10)))
         {
-            Close();
+            _ = CloseAsync();
         }
     }
 
@@ -107,7 +107,7 @@ internal sealed class CampaignUiBehaviour : MonoBehaviour
         Debug.Log("[Crimean Tom Operations] opened campaign headquarters");
     }
 
-    private void Close()
+    private async System.Threading.Tasks.Task CloseAsync()
     {
         if (_canvasObject is not null)
         {
@@ -122,6 +122,8 @@ internal sealed class CampaignUiBehaviour : MonoBehaviour
             Destroy(_eventSystemObject);
             _eventSystemObject = null;
         }
+
+        await StandaloneWebView.TerminateBrowserProcess();
     }
 
     private async void OnMessageEmitted(object sender, Vuplex.WebView.EventArgs<string> eventArgs)
@@ -131,14 +133,13 @@ internal sealed class CampaignUiBehaviour : MonoBehaviour
             CampaignBridgeResult result = CampaignBridge.Handle(eventArgs.Value);
             if (result.CloseUi)
             {
-                Close();
+                await CloseAsync();
                 return;
             }
 
             if (!string.IsNullOrWhiteSpace(result.MissionPath))
             {
-                Close();
-                await StandaloneWebView.TerminateBrowserProcess();
+                await CloseAsync();
                 Globals.currentMissionFilePath = result.MissionPath;
                 Debug.Log($"[Crimean Tom Operations] launching prepared operation {result.MissionPath}");
                 MissionManager.DoLoad();
