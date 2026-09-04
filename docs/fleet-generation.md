@@ -326,6 +326,20 @@ Surface action groups use `AntiSurface` tasking. Carrier groups and independent 
 
 Victory occurs when roughly 75% of an opposing force's surface and submarine combatants are destroyed. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken.
 
+## Route operations
+
+`Generated Route Operation` opens a second setup panel in the same scenario category. It supports three protected groups:
+
+- civilian shipping;
+- supply ships;
+- minesweepers.
+
+The player can escort the group or attack it. Both perspectives use the same generated route, forces, weather, and victory thresholds. The protected ships move under AI control when the player escorts them. The player controls only the assigned warships, subject to the existing control-percentage setting.
+
+Small, medium, and large missions contain progressively longer routes and larger protected groups. About two thirds of the protected ships must reach the destination. The escort wins when that threshold enters the marked destination area. The attacker wins once losses make the threshold impossible. Neither outcome uses a timer.
+
+Escort groups follow the protected route at convoy speed instead of racing ahead. Raider groups approach an interception point from a flank. Route operations omit carriers until the generator can give them a credible anti-ship air plan. Minesweeper groups prefer classes and national variants already present in the escort coalition. All six combinations reroll their theater and order of battle whenever the player launches the scenario.
+
 ## Known limitations
 
 The current balance model is class-level. A variant can change loadout, sensors, or system availability without changing the class's authored capability values.

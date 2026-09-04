@@ -26,6 +26,19 @@ internal enum FleetControlPriority
     WeakestFirst,
 }
 
+internal enum RouteOperationPerspective
+{
+    Escort,
+    Interdict,
+}
+
+internal enum RouteOperationVariant
+{
+    CivilianShipping,
+    SupplyGroup,
+    MinesweepingGroup,
+}
+
 internal sealed class FleetClashGenerationOptions
 {
     internal FleetClashSize? Size { get; set; }
@@ -48,6 +61,12 @@ internal sealed class FleetClashGenerationOptions
     internal bool CivilianAirTraffic { get; set; }
 
     internal bool CivilianNavalTraffic { get; set; }
+
+    internal RouteOperationPerspective RoutePerspective { get; set; } =
+        RouteOperationPerspective.Escort;
+
+    internal RouteOperationVariant RouteVariant { get; set; } =
+        RouteOperationVariant.CivilianShipping;
 }
 
 internal sealed class FleetSidePlan(
