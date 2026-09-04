@@ -106,6 +106,111 @@ public sealed class DeterministicCampaignKernelIntegrationTests
     }
 
     /// <summary>
+    /// A long-range air search radar does not see ships at its air-search
+    /// range, because the earth curves away first. A Knox's SPS-40 reaches
+    /// 407 km and covers surface contacts, so range alone would have it
+    /// tracking a frigate most of the way across the Black Sea; masthead to
+    /// masthead the horizon is about 45 km.
+    ///
+    /// The same radar does see an aircraft far beyond that, because the target
+    /// is high enough to clear the horizon, and it sees a smaller aircraft less
+    /// far because detection range follows the fourth root of cross-section.
+    /// </summary>
+    [Fact]
+    public void Radar_range_is_bounded_by_the_horizon_and_by_target_size()
+    {
+        // A search set reaching far past the horizon against a large target.
+        var radar = new OperationalSensorCapability(
+            "SensorSystem1",
+            DistanceMeters.FromMeters(407_400),
+            DistanceMeters.FromMeters(9_300),
+            DistanceMeters.FromMeters(136_121),
+            DetectsAir: true,
+            DetectsSurface: true);
+
+        // Beyond the horizon the contact is not merely unlikely, it is
+        // impossible, so no number of attempts finds it.
+        Assert.False(DetectsAcross(200_000, radar, SimulationDomain.Maritime, altitudeMeters: 0));
+        // Well inside the horizon it is found.
+        Assert.True(DetectsAcross(20_000, radar, SimulationDomain.Maritime, altitudeMeters: 0));
+
+        // An aircraft at altitude clears the horizon and is seen far beyond the
+        // range at which the same radar loses a ship.
+        Assert.True(DetectsAcross(200_000, radar, SimulationDomain.Air, altitudeMeters: 9_000));
+        // A missile-sized return at the same altitude and range is not, because
+        // 136 km against one square metre becomes 77 km against a tenth of one.
+        // Nothing but the target's size differs between these two.
+        Assert.False(DetectsAcross(
+            200_000, radar, SimulationDomain.Air, altitudeMeters: 9_000, reflectivityMilliUnits: 562));
+    }
+
+    /// <summary>
+    /// Whether a ship carrying this radar ever reports a contact at this
+    /// separation. Detection inside the horizon is a roll each tick, so this
+    /// watches for a while; beyond the horizon the score is zero and no run
+    /// length can produce a contact.
+    /// </summary>
+    private static bool DetectsAcross(
+        long separationMeters,
+        OperationalSensorCapability radar,
+        SimulationDomain targetDomain,
+        int altitudeMeters,
+        // A frigate-sized hull, whose fourth root of cross-section is 5.623.
+        int reflectivityMilliUnits = 5_623)
+    {
+        // One degree of latitude is about 111.32 km.
+        var offset = (int)(separationMeters * 1_000_000L / 111_320L);
+        var watcher = OperationalEntity(Ids.ExchangeActor, Ids.BlueCoalition, SimulationDomain.Maritime,
+            "Blue radar picket", "synthetic-radar-picket", []) with
+        {
+            OperationalSensors = [radar],
+            RadarReflectivityMilliUnits = 5_623,
+            Coordinate = GeoCoordinate.FromMicrodegrees(50_000_000, 10_000_000),
+        };
+        var contact = OperationalEntity(Ids.ExchangeTarget, Ids.RedCoalition, targetDomain,
+            "Red contact", "synthetic-contact", []) with
+        {
+            RadarReflectivityMilliUnits = reflectivityMilliUnits,
+            Coordinate = GeoCoordinate.FromMicrodegrees(50_000_000 + offset, 10_000_000),
+            Analogue = AnalogueTacticalCondition.Healthy with
+            {
+                AltitudeOrDepthMeters = altitudeMeters,
+            },
+        };
+
+        var state = CampaignState.Create(new CampaignMetadata(
+            Ids.Campaign,
+            "Radar horizon",
+            0x5241444152,
+            "sha256:radar-horizon-catalog-v1",
+            CampaignSchema.Version,
+            CampaignSchema.AlgorithmVersion)) with
+        {
+            Regions = new[]
+            {
+                new RegionState(Ids.ExchangeRegion, "Radar horizon area",
+                    ImmutableSortedSet<RegionId>.Empty, new EntityRevision(1)),
+            }.ToImmutableSortedDictionary(item => item.RegionId, item => item),
+            Entities = new[] { watcher, contact }
+                .ToImmutableSortedDictionary(item => item.EntityId, item => item),
+        };
+        CampaignStateValidator.Validate(state);
+
+        var sequence = 900;
+        for (var quanta = 10L; quanta <= 200; quanta += 10)
+        {
+            state = SimulateForTest(state, sequence++, new CampaignTime(quanta));
+            if (state.RecentOperationalOutcomes.Any(item =>
+                    item.Kind == OperationalOutcomeKind.Detection
+                    && item.ActorEntityId == Ids.ExchangeActor))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// A simulated tick reaches the campaign only through the fields its event
     /// describes. Magazine counts and reload timers were once absent from that
     /// event, so rounds spent resolving a tick were silently discarded and a
@@ -133,7 +238,7 @@ public sealed class DeterministicCampaignKernelIntegrationTests
         [
             "Name", "CatalogUnitId", "CatalogLoadoutId", "CoalitionId", "HomeBaseId", "Fidelity",
             "SimulationDomain", "MaximumFidelity", "ClassifiedTruthTag", "OperationalWeapons",
-            "OperationalSensors", "HostEntityId",
+            "OperationalSensors", "RadarReflectivityMilliUnits", "HostEntityId",
         ];
         Assert.Equal(
             [.. carried.Concat(fixedForLife).Order()],
@@ -461,11 +566,11 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             CampaignCanonicalSerializer.ComputeHash(simulated));
         var longHorizon = AdvanceLongHorizon(simulatedTheater);
         Assert.True(
-            longHorizon.Hash == "1564579b3e63f7e0e4aae11d71eace26403ff323b364ae2f6ea68230d38ed201",
+            longHorizon.Hash == "f2e52bd85e76eb0dc1e1303e0e4f46dd06d10db6388e1eeaea15a067ef88ce12",
             $"Long-horizon canonical hash: {longHorizon.Hash}");
         var migrated = ProveFencedShadowMigration(longHorizon);
         Assert.True(
-            migrated.Hash == "bef19ef1b9919d010d64d1d29731285d4ef81da4be17a61ba2535b43a0fce4da",
+            migrated.Hash == "d3b96e57e9ddfa4f7a5682c0b1b1ddacc46a19a8b44d13b58b24ae0b3553a124",
             $"Migrated canonical hash: {migrated.Hash}");
         await ProveDurableJournalAsync(migrated);
         await ProveAtomicBatchJournalAsync(migrated);
@@ -1362,7 +1467,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
             AnalogueTacticalCondition.Healthy,
             FullMagazines(weapons),
             EntityState.NoMountReadyAt,
-            []);
+            [],
+            RadarReflectivityMilliUnits: 0);
 
     /// <summary>
     /// Mirrors the engine's entry rule: a unit starts with every countable
@@ -1393,8 +1499,8 @@ public sealed class DeterministicCampaignKernelIntegrationTests
 
     private static TheaterResult AdvanceLongHorizon(TheaterResult theater)
     {
-        Assert.Equal(17, CampaignSchema.Version);
-        Assert.Equal(27, CampaignSchema.AlgorithmVersion);
+        Assert.Equal(18, CampaignSchema.Version);
+        Assert.Equal(28, CampaignSchema.AlgorithmVersion);
         var single = theater.State;
         var parallel = theater.State;
         var commands = theater.Commands.ToList();

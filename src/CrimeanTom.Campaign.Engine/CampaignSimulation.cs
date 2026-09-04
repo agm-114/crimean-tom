@@ -2435,7 +2435,7 @@ internal static class CampaignSimulation
     private static long SensorHorizonMeters(EntityState sensor, EntityState target)
     {
         var targetClass = Classify(target);
-        if (CataloguedSensorHorizonMeters(sensor, targetClass) is { } catalogued)
+        if (CataloguedSensorHorizonMeters(sensor, target, targetClass) is { } catalogued)
         {
             return catalogued;
         }
@@ -2466,12 +2466,24 @@ internal static class CampaignSimulation
     }
 
     /// <summary>
-    /// The longest range among this platform's radars that can see the target's
-    /// class, or null when no carried radar covers it. Radar cannot see a
-    /// submerged contact at all, so that class never resolves here.
+    /// How far this platform's radars can see this target, or null when no
+    /// carried radar covers its class. Radar cannot see a submerged contact at
+    /// all, so that class never resolves here.
+    ///
+    /// Sea Power's <c>SensorSystemRadar</c> takes the smallest of three limits
+    /// for each radar: what the radar equation returns against the target's own
+    /// cross-section, the radar's declared maximum range, and the radar horizon.
+    /// The platform sees as far as its best radar, so the equation and maximum
+    /// are resolved per radar and the horizon, which belongs to the geometry
+    /// rather than to any one set, is applied to the result.
+    ///
+    /// Without the horizon the equation alone would report a warship detecting
+    /// another warship several hundred kilometres away, which is further than
+    /// the earth allows and further than the constants this replaced.
     /// </summary>
     private static long? CataloguedSensorHorizonMeters(
         EntityState sensor,
+        EntityState target,
         ContactClassification targetClass)
     {
         if (targetClass == ContactClassification.Subsurface)
@@ -2488,12 +2500,84 @@ internal static class CampaignSimulation
                 ContactClassification.Surface => radar.DetectsSurface,
                 _ => radar.DetectsLand,
             };
-            if (covers && radar.MaximumRange.Value > best)
+            if (!covers)
             {
-                best = radar.MaximumRange.Value;
+                continue;
+            }
+
+            // Detection range varies with the fourth root of cross-section, so
+            // the radar's one-square-metre range scales by the target's own
+            // root. A radar with no declared transmitter keeps only its
+            // declared maximum.
+            var reach = radar.DetectionRangeCoefficient.Value > 0 && target.RadarReflectivityMilliUnits > 0
+                ? Math.Min(
+                    radar.MaximumRange.Value,
+                    radar.DetectionRangeCoefficient.Value * target.RadarReflectivityMilliUnits / 1_000)
+                : radar.MaximumRange.Value;
+            if (reach > best)
+            {
+                best = reach;
             }
         }
-        return best > 0 ? best : null;
+
+        if (best <= 0)
+        {
+            return null;
+        }
+
+        return Math.Min(best, RadarHorizonMeters(sensor) + RadarHorizonMeters(target));
+    }
+
+    /// <summary>
+    /// How far the radar horizon reaches for one platform's own height, from
+    /// Sea Power's <c>RadarCalculator.getRadarHorizon</c>. That is the standard
+    /// four-thirds-earth form, whose constant 16 989 357 is twice an effective
+    /// radius of 8494.7 km expressed so the whole calculation stays in metres
+    /// and in integers.
+    ///
+    /// Aircraft and helicopters use the altitude the campaign already tracks
+    /// for them. Everything else uses a declared height for its antenna or
+    /// superstructure, because the game takes that from the unit's own model
+    /// geometry, which the catalog does not expose. Those heights are
+    /// approximations, not measured tolerances.
+    /// </summary>
+    private static long RadarHorizonMeters(EntityState entity)
+    {
+        var height = entity.SimulationDomain switch
+        {
+            SimulationDomain.Air or SimulationDomain.RotaryWing =>
+                Math.Max(300, entity.Analogue.AltitudeOrDepthMeters),
+            SimulationDomain.Installation => 30,
+            SimulationDomain.Ground or SimulationDomain.LandAbstract => 10,
+            _ => Classify(entity) == ContactClassification.Subsurface ? 10 : 30,
+        };
+        return IntegerSquareRoot(16_989_357L * height);
+    }
+
+    /// <summary>
+    /// Integer square root, so the horizon stays bit-identical wherever the
+    /// campaign runs. A floating-point root would put the deterministic hash at
+    /// the mercy of the host's maths library.
+    /// </summary>
+    private static long IntegerSquareRoot(long value)
+    {
+        if (value <= 0)
+        {
+            return 0;
+        }
+
+        var estimate = (long)Math.Sqrt(value);
+        // Correct the seed rather than trust it: only the comparisons below
+        // decide the result, and they are exact.
+        while (estimate > 0 && estimate * estimate > value)
+        {
+            estimate--;
+        }
+        while ((estimate + 1) * (estimate + 1) <= value)
+        {
+            estimate++;
+        }
+        return estimate;
     }
 
     private static long EffectiveSensorHorizonMeters(EntityState sensor, EntityState target)

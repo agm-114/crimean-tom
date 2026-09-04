@@ -36,7 +36,9 @@ every tick and a twin installation bursts before it goes quiet.
 Magazine and reload state is carried on the simulation event, so expenditure
 persists across ticks rather than resetting each one. Radar detection range
 comes from the radars a hull actually carries rather than one constant per
-domain, so a Knox and a Ticonderoga no longer see equally far. The model still does not reproduce Sea Power's
+domain, so a Knox and a Ticonderoga no longer see equally far, and it now
+follows the game's own radar equation against the target's declared size,
+bounded by the declared maximum range and the radar horizon. The model still does not reproduce Sea Power's
 complete timing, sensors, weapon flight, damage, aviation, acoustics, collision,
 or tactical AI. Its current memory and throughput numbers therefore describe an
 incomplete simulator. They are not performance targets for the finished design.

@@ -249,6 +249,7 @@ internal static partial class FuldaGapCampaignSeed
             effectiveDomain, maximumFidelity,
             operationalWeapons ?? ResolveOperationalWeapons(catalogUnitId, catalogLoadoutId, effectiveDomain),
             ResolveOperationalSensors(catalogUnitId),
+            OperationalCatalog.Value?.ResolveRadarReflectivityMilliUnits(catalogUnitId) ?? 0,
             hostEntityKey);
     }
 
@@ -298,6 +299,7 @@ internal static partial class FuldaGapCampaignSeed
                 item.SensorId,
                 DistanceMeters.FromMeters(item.MaximumRangeMeters),
                 DistanceMeters.FromMeters(item.MinimumRangeMeters),
+                DistanceMeters.FromMeters(item.DetectionRangeCoefficientMeters),
                 item.DetectsAir,
                 item.DetectsSurface,
                 item.DetectsLand,
@@ -460,6 +462,7 @@ internal sealed record FuldaEntitySeed(
     FidelityState MaximumFidelity,
     IReadOnlyList<OperationalWeaponCapability> OperationalWeapons,
     IReadOnlyList<OperationalSensorCapability> OperationalSensors,
+    int RadarReflectivityMilliUnits,
     string? HostEntityKey);
 internal sealed record FuldaGroupSeed(string Key, GroupId GroupId, string Name, CoalitionId CoalitionId, IReadOnlyList<EntityId> Members);
 internal sealed record FuldaOrderSeed(OrderId OrderId, GroupId GroupId, OrderKind Kind, RegionId DestinationRegionId);

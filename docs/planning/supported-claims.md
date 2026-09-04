@@ -147,8 +147,31 @@ The target and gap inventory are in
   `ActiveRange`, and a visual sensor declares a multiplier rather than a range,
   so submerged contacts and platforms whose sensors do not resolve keep the
   approximate horizons. Those remain approximations, not measured tolerances.
-  Scan timing, altitude limits, target channels, datalink reach, line of sight,
-  and radar-cross-section dependence are still not modelled.
+  Scan timing, altitude limits, target channels, datalink reach, and line of
+  sight are still not modelled.
+- Radar range depends on how large the target is and on how far the earth lets
+  the radar see, following the three limits Sea Power's own
+  `SensorSystemRadar` takes the smallest of. The first is the game's radar
+  equation, reimplemented from `RadarCalculator`: peak power, gain converted
+  from decibels as `10^(dB/10)`, and the wavelength of the declared frequency
+  band, against the target's radar cross-section taken from the size the game
+  declares for it. Range varies with the fourth root of cross-section, so the
+  campaign stores each radar's range against one square metre and each
+  platform's own fourth root, and multiplies them in integers. Read against the
+  installed build, a Knox's SPS-40 reaches 136 km against one square metre,
+  so 407 km against a large ship but 242 km against a fighter-sized return and
+  77 km against a missile-sized one. The second limit is the declared maximum
+  range. The third is the radar horizon, from `RadarCalculator.getRadarHorizon`,
+  which is the four-thirds-earth form.
+- Without the horizon the previous claim was wrong in an important way: a Knox's
+  SPS-40 covers surface contacts, so range alone had it tracking a frigate at
+  407 km. Masthead to masthead the real limit is about 45 km. Aircraft and
+  helicopters use the altitude the campaign already tracks, so they are seen
+  much further; everything else uses a declared antenna or superstructure
+  height, because the game reads that from model geometry the catalog does not
+  expose. Those heights are approximations, not measured tolerances. The
+  horizon uses an integer square root so the deterministic hash does not depend
+  on the host's maths library.
 - Simultaneous engagements are bounded by native fire-control channels instead
   of fixed constants. A mount's guidance capacity is summed from the
   `WeaponChannels` of the sensors its weapon system is associated with, through
