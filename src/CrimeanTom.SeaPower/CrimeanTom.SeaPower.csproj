@@ -90,6 +90,7 @@
     <MakeDir Directories="$(PluginDeployDirectory)\ui" />
     <Copy SourceFiles="@(_PluginFile)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignUiDirectory)\dist\index.html" DestinationFolder="$(PluginDeployDirectory)\ui" SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(CampaignUiDirectory)\dist" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
 </Project>
