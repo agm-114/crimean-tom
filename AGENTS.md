@@ -15,5 +15,8 @@ Do not reintroduce background war simulation, live unit streaming, a companion
 process, or a server-authoritative tactical simulation without an explicit new
 decision.
 
+Use [`$sea-power-testing`](.agents/skills/sea-power-testing/SKILL.md) whenever a
+change needs verification in the installed Sea Power application.
+
 Use `pnpm` instead of `npm` or `npx` if a JavaScript workspace is added later.
 Prefer a small number of broad integration tests over narrow unit tests.
