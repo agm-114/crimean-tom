@@ -1,0 +1,65 @@
+{
+  "targetDirectory": "content/campaigns/crimean-tom-operations/art/coalitions",
+  "assets": [
+    {
+      "fileName": "nato.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/NATO.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/NATO.png",
+      "sourceSha256": "4C82E788E55207E489A703FBB429CE05C2E48AA6677D97540141D80C757357D2",
+      "outputWidth": 400,
+      "outputHeight": 200
+    },
+    {
+      "fileName": "warsaw-pact.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/NSWP.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/NSWP.png",
+      "sourceSha256": "E4D386A5ECAEB31EF1C1A8BBF2321612423F3E9BD369B683295D33816F8D25F6",
+      "outputWidth": 400,
+      "outputHeight": 200
+    },
+    {
+      "fileName": "arab-league.png",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/Flag_of_the_Arab_League.svg/250px-Flag_of_the_Arab_League.svg.png",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Flag_of_the_Arab_League.svg",
+      "sourceSha256": "578020F29605D284B0AAF9E8A86BC87B0A823D79B59184C0BAEB4DC983410043"
+    },
+    {
+      "fileName": "blue-dragons.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/BD.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/BD.png",
+      "sourceSha256": "74BBB74C96EBFAF547008BB4DE9175E4F8E65BB8AA1B6DB5157EAAEF747419D5",
+      "outputWidth": 400,
+      "outputHeight": 200
+    },
+    {
+      "fileName": "commonwealth.png",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/Commonwealth_Flag_2013.png/250px-Commonwealth_Flag_2013.png",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Commonwealth_Flag_2013.png",
+      "sourceSha256": "D952EC220874CD8861142CF540AF4583C9EEFFF39A0286F50EAACAB068DFF9FD"
+    },
+    {
+      "fileName": "eurocorps.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/EU.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/EU.png",
+      "sourceSha256": "EE68C7DBB068116C7452051CCC0C81CE68EB44B732C2CF25711BA52B4036241B",
+      "outputWidth": 400,
+      "outputHeight": 200
+    },
+    {
+      "fileName": "red-dragons.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/RD.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/RD.png",
+      "sourceSha256": "FEC570838E789190C44872CB6AB7B6FAE9301A360BAAE2A7E1C76CA6CD23C458",
+      "outputWidth": 400,
+      "outputHeight": 200
+    },
+    {
+      "fileName": "scandinavia.png",
+      "downloadUrl": "https://raw.githubusercontent.com/Wilkob/Wargame-deck-drafter/gh-pages/flags/SCA.png",
+      "sourcePage": "https://github.com/Wilkob/Wargame-deck-drafter/blob/gh-pages/flags/SCA.png",
+      "sourceSha256": "A372657EC2CBFBB3C344DA727D291BB668AFA8B29B223D45A728465232D59ECB",
+      "outputWidth": 400,
+      "outputHeight": 200
+    }
+  ]
+}
