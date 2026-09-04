@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/CrimeanTom.Operations/CrimeanTom.Operations.csproj" />
+  <Project Path="tests/CrimeanTom.Operations.IntegrationTests/CrimeanTom.Operations.IntegrationTests.csproj" />
+</Solution>
