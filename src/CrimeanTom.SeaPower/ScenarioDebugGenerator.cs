@@ -542,9 +542,9 @@ internal static class ScenarioDebugGenerator
             mission.Append("Type=").AppendLine(ship.UnitType);
             mission.Append("VariantReference=").AppendLine(ship.VariantReference);
             mission.Append("Nation=").AppendLine(maskFirstNation && unit.SourceIndex == 0 ? "Unknown" : ship.Nation);
-            if (!ship.IsSubmarine && ship.StationRole != "Default")
+            if (unit.StationRole != "Default")
             {
-                mission.Append("StationRole=").AppendLine(ship.StationRole);
+                mission.Append("StationRole=").AppendLine(unit.StationRole);
             }
 
             mission.Append("MissionType=").AppendLine(unit.MissionType);
@@ -682,8 +682,7 @@ internal static class ScenarioDebugGenerator
     {
         mission.AppendLine("[Trigger1]");
         mission.AppendLine("Name=Start message");
-        mission.AppendLine("Condition_Condition1_Type=Time");
-        mission.AppendLine("Condition_Condition1_Time=2");
+        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
         mission.AppendLine("ConditionsCompleted=<Condition1>");
         mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
         mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
@@ -717,7 +716,6 @@ internal static class ScenarioDebugGenerator
         mission.Append("Action_ObjectivesCompleted=").Append(winningTaskforce)
             .Append("BreakEnemy,").Append(winningTaskforce).AppendLine("PreserveForce");
         mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine("Action_EndMissionDelay=5");
         mission.AppendLine();
     }
 
