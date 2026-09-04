@@ -67,7 +67,8 @@ internal static class FleetOrderOfBattlePlanner
                             group.Kind,
                             engagementSeparationNm)
                         : null,
-                    "AntiSurface",
+                    ResolveMissionType(group.Kind),
+                    ResolveStationRole(group, memberIndex),
                     group.Kind == FleetGroupKind.Carrier
                         ? NormalizeHeading(heading + 180f)
                         : heading));
@@ -396,6 +397,47 @@ internal static class FleetOrderOfBattlePlanner
         return specialty;
     }
 
+    private static string ResolveMissionType(FleetGroupKind kind) => kind switch
+    {
+        FleetGroupKind.Carrier => "Patrol",
+        FleetGroupKind.SubmarinePatrol => "Patrol",
+        _ => "AntiSurface",
+    };
+
+    private static string ResolveStationRole(FleetGroupPlan group, int memberIndex)
+    {
+        if (group.Kind == FleetGroupKind.SubmarinePatrol)
+        {
+            return "Default";
+        }
+
+        if (memberIndex == 0)
+        {
+            return "Core";
+        }
+
+        FleetClashShip ship = group.Members[memberIndex].Ship;
+        if (ship.StationRole is "AAW" or "ASW")
+        {
+            return ship.StationRole;
+        }
+
+        if (group.Kind == FleetGroupKind.Carrier)
+        {
+            if (ship.AirDefenseCapability > ship.AswCapability && ship.AirDefenseCapability > 0)
+            {
+                return "AAW";
+            }
+
+            if (ship.AswCapability > 0)
+            {
+                return "ASW";
+            }
+        }
+
+        return "Default";
+    }
+
     private static (float Longitudinal, float Lateral) GetGroupOffset(
         int index,
         FleetGroupKind kind)
@@ -591,6 +633,7 @@ internal sealed record DeployedFleetUnit(
     float Z,
     string? Waypoints,
     string MissionType,
+    string StationRole,
     float Heading);
 
 internal sealed record DeployedAircraft(

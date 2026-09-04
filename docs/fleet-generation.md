@@ -282,11 +282,11 @@ The entry is a launcher, not an authored fixed battle. Confirming the setup rewr
 
 ## Formation and AI output
 
-The selected role becomes a Sea Power formation station where appropriate:
+The planner assigns formation stations after it builds each tactical group:
 
-- command becomes `Core`;
-- air defence becomes `AAW`;
-- ASW becomes `ASW`;
+- every surface group leader becomes `Core`, including the carrier in a carrier group;
+- air-defence escorts become `AAW`;
+- ASW escorts become `ASW`;
 - strike and general escort use the default station behavior.
 
 The force is no longer emitted as one fleet-wide box. It is partitioned into:
@@ -316,12 +316,13 @@ Every tactical group receives:
 
 - explicit non-overlapping positions;
 - an intercepting route;
-- `AntiSurface` tactical tasking;
 - free weapon release;
 - normal AI radar management;
 - equal training and morale;
 - withdrawal after primary weapons are expended;
 - a side-specific retreat anchor.
+
+Surface action groups use `AntiSurface` tasking. Carrier groups and independent submarine patrols use the shipped `Patrol` tasking, with routes that keep carriers clear of the surface advance and move submarines into flank patrol areas.
 
 Victory occurs when roughly 75% of an opposing force's surface and submarine combatants are destroyed. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken.
 
