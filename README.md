@@ -12,8 +12,8 @@ The repository is intentionally small while that workflow is rebuilt:
 - `src/CrimeanTom.Operations` owns campaign state and the scenario/result boundary.
 - `tests/CrimeanTom.Operations.IntegrationTests` exercises one complete campaign
   turn instead of maintaining many narrow tests.
-- `references/ui/campaign-monitor.css` preserves the useful visual language from
-  the retired campaign monitor. It is reference material, not a runnable app.
+- `apps/campaign-monitor` is the retained campaign interface, trimmed to run
+  inside Sea Power without the retired campaign service.
 
 Build and test with:
 
@@ -57,6 +57,11 @@ database type and updates `after-action.json`. It currently records the mission
 result and maps Sea Power's intact, damaged, and destroyed states to 100, 50, and
 0 condition. Fuel and ammunition remain at their prepared values until the next
 adapter pass reads those systems directly.
+
+Press `F10` on Sea Power's main menu to open campaign headquarters. The embedded
+screen reads the local campaign save, shows the prepared force and objective, and
+launches the generated scenario through Sea Power's normal mission loader. The
+web bundle is generated during the game-side build and remains git-ignored.
 
 The retired implementation and its documentation remain available on
 `codex/archive-server-simulation-2026-09-04`.

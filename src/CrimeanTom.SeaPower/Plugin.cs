@@ -14,6 +14,10 @@ public sealed class Plugin : IAnchorChainMod
         Harmony harmony = new("crimean-tom.operations");
         harmony.PatchAll(typeof(Plugin).Assembly);
 
+        GameObject campaignUi = new("Crimean Tom Operations");
+        UnityEngine.Object.DontDestroyOnLoad(campaignUi);
+        campaignUi.AddComponent<CampaignUiBehaviour>();
+
         System.Reflection.Assembly assembly = typeof(Plugin).Assembly;
         Debug.Log($"[Crimean Tom Operations] loaded v{assembly.GetName().Version} from {assembly.Location}");
     }
