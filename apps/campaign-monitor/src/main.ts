@@ -189,6 +189,7 @@ app.innerHTML = `
         <div class="campaign-heading min-w-0"><div class="metric-label">Campaign headquarters</div><h1 id="campaign-title" class="truncate font-normal uppercase">No campaign open</h1></div>
       </div>
       <div class="flex h-full items-center text-right">
+        <button id="return-to-campaigns" class="campaign-back mr-5">← CAMPAIGNS</button>
         <div><div class="metric-label">Campaign time</div><div id="campaign-time" class="metric-value">PAUSED</div></div>
         <div class="ml-5 border-l border-[#252525] pl-5"><div class="metric-label">Save head</div><div id="save-head" class="metric-value">—</div></div>
         <div class="ml-5 flex items-center gap-2 border-l border-[#252525] pl-5"><span id="health-dot" class="status-mark warning"></span><span id="health-label" class="text-[10px] uppercase">Starting</span></div>
@@ -200,16 +201,10 @@ app.innerHTML = `
 
     <aside class="dock dock-left">
       <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN</span><span class="text-[#626262]">LOCAL PLAYER</span></div>
-      <div class="campaign-link-panel grid gap-1 p-2">
-        <label class="metric-label" for="campaign-picker">Saved campaigns</label>
-        <select id="campaign-picker" class="command-input campaign-picker" aria-label="Saved campaigns"><option value="">LOADING…</option></select>
-        <button id="open-campaign" class="command-cell command-cell-primary">OPEN CAMPAIGN</button>
-        <div class="section-rule my-1"></div>
-        <label class="metric-label" for="campaign-name">New campaign name</label>
-        <input id="campaign-name" class="command-input" maxlength="80" value="North Atlantic, 1989" disabled />
-        <label class="metric-label" for="campaign-coalition">Player coalition</label>
-        <select id="campaign-coalition" class="command-input"><option value="Blue">NATO AND ALIGNED</option><option value="Red">WARSAW PACT AND ALIGNED</option></select>
-        <button id="create-campaign" class="command-cell" disabled>NEW CAMPAIGN — LATER</button>
+      <div class="campaign-link-panel p-2">
+        <div class="metric-label">Active campaign</div>
+        <div class="campaign-current">NORTH ATLANTIC OPERATIONS, 1989</div>
+        <div class="section-rule mt-2 px-2 py-2 text-[9px] text-[#a8a8a8]">SEA POWER CAMPAIGN SAVE // LOADED AUTOMATICALLY</div>
       </div>
       <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>TIME AND SAVE</span><span id="run-state" class="text-[#e2e2e2]">PAUSED</span></div>
       <div class="grid grid-cols-3 gap-1 p-2">
@@ -247,7 +242,7 @@ app.innerHTML = `
       <span class="friendly mr-5">□ FRIENDLY FORCE</span>
       <span class="hostile mr-5">△ KNOWN CONTACT</span>
       <span class="warning mr-5">◇ FRIENDLY BASE</span>
-      <span class="ml-auto">F10 CLOSES CAMPAIGN HEADQUARTERS</span>
+      <span class="ml-auto">ESC RETURN TO CAMPAIGNS</span>
     </footer>
   </div>`;
 
@@ -777,17 +772,11 @@ async function getSeaPowerBridge(): Promise<SeaPowerBridge> {
   return connectedBridge;
 }
 
-async function loadCampaigns(preferred = ""): Promise<PlayerCampaignSummary[]> {
-  const campaigns = await request<PlayerCampaignSummary[]>("/player/campaigns");
-  const picker = byId<HTMLSelectElement>("campaign-picker");
-  picker.innerHTML = campaigns.length
-    ? campaigns.map(item => `<option value="${item.campaignId}">${escapeHtml(item.name.toUpperCase())} // ${item.paused ? "PAUSED" : "RUNNING"} // C${item.commitPosition}</option>`).join("")
-    : `<option value="">NO SAVED CAMPAIGNS</option>`;
-  if (preferred && campaigns.some(item => item.campaignId === preferred)) picker.value = preferred;
-  return campaigns;
+async function loadCampaigns(): Promise<PlayerCampaignSummary[]> {
+  return request<PlayerCampaignSummary[]>("/player/campaigns");
 }
 
-async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").value): Promise<void> {
+async function openCampaign(id: string): Promise<void> {
   if (!id) return;
   window.clearInterval(pollHandle);
   const data = await request<PlayerCampaign>(`/player/campaigns/${id}`);
@@ -809,24 +798,6 @@ async function openCampaign(id = byId<HTMLSelectElement>("campaign-picker").valu
   pollHandle = window.setInterval(() => request<PlayerCampaign>(`/player/campaigns/${id}`).then(renderCampaign).catch(showError), 2_000);
 }
 
-async function createCampaign(): Promise<void> {
-  const button = byId<HTMLButtonElement>("create-campaign");
-  button.disabled = true;
-  byId("connection-message").textContent = "CREATING AND SAVING THE CAMPAIGN";
-  try {
-    const created = await request<PlayerCampaign>("/player/campaigns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: byId<HTMLInputElement>("campaign-name").value, coalition: byId<HTMLSelectElement>("campaign-coalition").value }),
-    });
-    await loadCampaigns(created.campaignId);
-    byId<HTMLSelectElement>("campaign-picker").value = created.campaignId;
-    await openCampaign(created.campaignId);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 async function mutate(action: "pause" | "resume" | "save"): Promise<void> {
   if (!campaign) return;
   await request(`/player/campaigns/${campaign.campaignId}/${action}`, { method: "POST" });
@@ -843,8 +814,7 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]!);
 }
 
-byId("open-campaign").addEventListener("click", () => void openCampaign().catch(showError));
-byId("create-campaign").addEventListener("click", () => void createCampaign().catch(showError));
+byId("return-to-campaigns").addEventListener("click", () => void request("/ui/close", { method: "POST" }));
 byId("resume-campaign").addEventListener("click", () => void mutate("resume").catch(showError));
 byId("pause-campaign").addEventListener("click", () => void mutate("pause").catch(showError));
 byId("save-campaign").addEventListener("click", () => void mutate("save").catch(showError));
@@ -853,9 +823,8 @@ engine.runRenderLoop(() => scene.render());
 
 void (async () => {
   await request("/player/status");
-  const linked = new URLSearchParams(window.location.search).get("campaign") ?? "";
-  const campaigns = await loadCampaigns(linked);
-  const target = campaigns.find(item => item.campaignId === linked)?.campaignId ?? campaigns[0]?.campaignId;
+  const campaigns = await loadCampaigns();
+  const target = campaigns[0]?.campaignId;
   if (target) await openCampaign(target);
   else {
     byId("health-dot").className = "status-mark friendly";

@@ -10,36 +10,39 @@ namespace CrimeanTom.SeaPower;
 
 internal sealed class CampaignUiBehaviour : MonoBehaviour
 {
+    internal static CampaignUiBehaviour? Instance { get; private set; }
+
     private GameObject? _canvasObject;
     private GameObject? _eventSystemObject;
     private CanvasWebViewPrefab? _webViewPrefab;
 
+    private void Awake()
+    {
+        Instance = this;
+    }
+
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.F10))
+        if (_canvasObject is not null
+            && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.F10)))
         {
-            Toggle();
+            Close();
         }
     }
 
-    private void OnGUI()
+    private void OnDestroy()
     {
-        if (_canvasObject is null
-            && GUI.Button(new Rect(Screen.width - 190, 12, 178, 30), "CAMPAIGN HQ  [F10]"))
+        if (ReferenceEquals(Instance, this))
         {
-            Open();
+            Instance = null;
         }
     }
 
-    private void Toggle()
+    internal void OpenFromCampaignMenu()
     {
         if (_canvasObject is null)
         {
             Open();
-        }
-        else
-        {
-            Close();
         }
     }
 
@@ -126,6 +129,12 @@ internal sealed class CampaignUiBehaviour : MonoBehaviour
         try
         {
             CampaignBridgeResult result = CampaignBridge.Handle(eventArgs.Value);
+            if (result.CloseUi)
+            {
+                Close();
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(result.MissionPath))
             {
                 Close();
