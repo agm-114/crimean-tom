@@ -25,7 +25,7 @@ public sealed class CampaignTurnIntegrationTests
             ScenarioPackage scenario = DemoOperation.CreateScenario(campaign);
             campaign = CampaignWorkflow.PrepareScenario(campaign, scenario);
             store.Save(campaignPath, campaign);
-            scenarioWriter.Write(scenarioPath, scenario);
+            scenarioWriter.Write(scenarioPath, scenario, afterActionPath);
             store.SaveAfterAction(afterActionPath, DemoOperation.CreateAfterActionTemplate(campaign));
 
             string scenarioText = File.ReadAllText(scenarioPath);
@@ -33,6 +33,8 @@ public sealed class CampaignTurnIntegrationTests
             Assert.Contains("NumberOfTaskforce1Vessels=1", scenarioText);
             Assert.Contains("Type=usn_ffg_oliver_hazard_perry", scenarioText);
             Assert.Contains("Type=wp_mrk_nanuchka", scenarioText);
+            Assert.Contains("[CrimeanTomOperations]", scenarioText);
+            Assert.Contains($"AfterActionPath={afterActionPath}", scenarioText);
 
             AfterActionReport report = store.LoadAfterAction(afterActionPath) with
             {

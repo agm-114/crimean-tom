@@ -56,7 +56,8 @@ public sealed record AfterActionReport(
     string CampaignId,
     long CampaignRevision,
     string OperationId,
-    IReadOnlyList<UnitAfterAction> Units);
+    IReadOnlyList<UnitAfterAction> Units,
+    string Outcome = "Pending");
 
 public sealed record CampaignState(
     string CampaignId,

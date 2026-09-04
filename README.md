@@ -45,5 +45,18 @@ dotnet run --project src/CrimeanTom.Operations.Cli -- status
 Result capture is manual in this first slice. The next game-side component should
 write that after-action file from the completed tactical session.
 
+The first game-side adapter now does that for the surface trial. Build and deploy
+it before launching Sea Power:
+
+```powershell
+dotnet build CrimeanTom.SeaPower.slnx
+```
+
+When the Sea Power debrief opens, the adapter matches the campaign frigate by its
+database type and updates `after-action.json`. It currently records the mission
+result and maps Sea Power's intact, damaged, and destroyed states to 100, 50, and
+0 condition. Fuel and ammunition remain at their prepared values until the next
+adapter pass reads those systems directly.
+
 The retired implementation and its documentation remain available on
 `codex/archive-server-simulation-2026-09-04`.
