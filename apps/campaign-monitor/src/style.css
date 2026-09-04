@@ -31,9 +31,8 @@ button, input, select { border-radius: 0; font: inherit; }
 button, select { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--focus); outline-offset: -2px; }
 
-.command-shell { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: var(--field); }
+.command-shell { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: linear-gradient(145deg, #565853 0%, #3d3f3b 100%); }
 .command-shell::after { position: absolute; z-index: 5; inset: 0; background: radial-gradient(circle at 55% 45%, transparent 20%, rgb(14 15 14 / 28%) 100%); content: ""; pointer-events: none; }
-#campaign-map { filter: grayscale(.4) saturate(.55) contrast(.92); }
 
 .instrument-strip { position: absolute; z-index: 30; top: 0; right: 0; left: 0; height: 72px; border-bottom: 1px solid var(--line); background: var(--panel-strong); box-shadow: 0 3px 16px rgb(0 0 0 / 22%); }
 .brand-block { width: 206px; flex: none; }
@@ -49,9 +48,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .dock-left { left: 0; width: 360px; border-right: 1px solid var(--line); }
 .dock-right { right: 0; width: 400px; border-left: 1px solid var(--line); }
 .command-footer { position: absolute; z-index: 30; right: 0; bottom: 0; left: 0; height: 32px; border-top: 1px solid var(--line); background: var(--panel-strong); font-size: 10px; }
-.map-annotation { position: absolute; z-index: 10; top: 86px; color: rgb(240 239 233 / 66%); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-shadow: 0 1px 2px #000; pointer-events: none; }
-.map-annotation-left { left: 376px; }
-.map-annotation-right { right: 416px; text-align: right; }
+.briefing-stage { position: absolute; z-index: 20; top: 72px; right: 400px; bottom: 32px; left: 360px; overflow: auto; padding: 42px; }
+.briefing-card { width: min(880px, 100%); margin: 0 auto; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 8px 28px rgb(0 0 0 / 24%); }
+.briefing-copy { padding: 34px 38px 38px; }
+.briefing-copy h2 { margin: 8px 0 14px; color: var(--bright); font-size: 28px; font-weight: 400; letter-spacing: .035em; text-transform: uppercase; }
+.briefing-copy p { max-width: 680px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.55; }
+.briefing-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 34px; border: 1px solid var(--line); }
+.briefing-grid div { min-width: 0; border-right: 1px solid var(--line); padding: 14px; }
+.briefing-grid div:last-child { border-right: 0; }
+.briefing-grid span { display: block; color: var(--dim); font-size: 9px; letter-spacing: .08em; }
+.briefing-grid strong { display: block; margin-top: 7px; color: var(--bright); font-size: 13px; font-weight: 500; }
+.commander-intent { padding: 20px 38px 24px; color: var(--text); font-size: 12px; line-height: 1.55; }
+.commander-intent strong { color: var(--bright); }
 
 .window-title { min-height: 31px; border-bottom: 1px solid var(--line); background: rgb(8 9 8 / 28%); color: var(--bright); font-size: 11px; font-weight: 600; letter-spacing: .09em; }
 .window-title::before { width: 3px; align-self: stretch; margin-right: 7px; background: var(--accent); content: ""; }
@@ -129,7 +137,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 @media (max-width: 1280px) {
   .dock-left { width: 320px; }
   .dock-right { width: 348px; }
-  .map-annotation-left { left: 336px; }
-  .map-annotation-right { right: 364px; }
+  .briefing-stage { right: 348px; left: 320px; padding: 24px; }
   .brand-block { width: 180px; }
+  .briefing-grid { grid-template-columns: repeat(2, 1fr); }
+  .briefing-grid div:nth-child(2) { border-right: 0; }
+  .briefing-grid div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
 }

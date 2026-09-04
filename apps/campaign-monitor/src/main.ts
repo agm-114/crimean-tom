@@ -1,17 +1,3 @@
-import { ActionManager } from "@babylonjs/core/Actions/actionManager.js";
-import { ExecuteCodeAction } from "@babylonjs/core/Actions/directActions.js";
-import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
-import "@babylonjs/core/Culling/ray.js";
-import { Engine } from "@babylonjs/core/Engines/engine.js";
-import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
-import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
-import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
-import { Scene } from "@babylonjs/core/scene.js";
-import { mesh as topologyMesh } from "topojson-client";
-import worldLand from "world-atlas/land-110m.json";
 import "./style.css";
 
 type FriendlyEntity = {
@@ -182,7 +168,6 @@ type Selection =
 const app = document.querySelector<HTMLElement>("#app")!;
 app.innerHTML = `
   <div class="command-shell">
-    <canvas id="campaign-map" class="absolute inset-0 h-full w-full outline-none" aria-label="Coalition campaign map"></canvas>
     <header class="instrument-strip flex items-center justify-between px-3">
       <div class="flex min-w-0 items-center gap-4">
         <div class="brand-block"><div class="brand-title">CRIMEAN TOM</div><div class="brand-rule"></div><div class="brand-subtitle">NAVAL OPERATIONS CAMPAIGN</div></div>
@@ -196,8 +181,24 @@ app.innerHTML = `
       </div>
     </header>
 
-    <div class="map-annotation map-annotation-left">COALITION PICTURE // FRIENDLIES AND KNOWN CONTACTS ONLY</div>
-    <div class="map-annotation map-annotation-right">DRAG TO ORBIT // WHEEL TO ZOOM // SELECT A SYMBOL</div>
+    <main class="briefing-stage">
+      <section class="briefing-card">
+        <div class="window-title flex items-center justify-between px-2"><span>CURRENT OPERATION</span><span id="operation-state">AWAITING DATA</span></div>
+        <div class="briefing-copy">
+          <div class="metric-label">Operation order</div>
+          <h2 id="operation-name">NO OPERATION PREPARED</h2>
+          <p id="operation-summary">Campaign headquarters is loading the current operation.</p>
+          <div class="briefing-grid">
+            <div><span>AREA</span><strong id="operation-region">—</strong></div>
+            <div><span>PLAYER FORCE</span><strong id="operation-force">—</strong></div>
+            <div><span>KNOWN CONTACTS</span><strong id="operation-contacts">—</strong></div>
+            <div><span>CAMPAIGN DAY</span><strong id="operation-day">—</strong></div>
+          </div>
+        </div>
+        <div class="window-title flex items-center justify-between border-t border-[#3b3b3b] px-2"><span>COMMANDER'S INTENT</span><span>SEA POWER TACTICAL SESSION</span></div>
+        <div class="commander-intent">Review the assigned force and its readiness. When ready, choose <strong>PLAY OPERATION</strong> under Tactical Entry. Sea Power will load the generated scenario and conduct the battle normally.</div>
+      </section>
+    </main>
 
     <aside class="dock dock-left">
       <div class="window-title flex items-center justify-between px-2"><span>CAMPAIGN</span><span class="text-[#626262]">LOCAL PLAYER</span></div>
@@ -247,35 +248,8 @@ app.innerHTML = `
   </div>`;
 
 const byId = <T extends HTMLElement>(id: string) => document.querySelector<T>(`#${id}`)!;
-const canvas = byId<HTMLCanvasElement>("campaign-map");
-const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
-const scene = new Scene(engine);
-scene.clearColor = new Color4(0.32, 0.33, 0.31, 1);
-const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.82, 74, Vector3.Zero(), scene);
-camera.lowerRadiusLimit = 8;
-camera.upperRadiusLimit = 135;
-camera.attachControl(canvas, true);
-new HemisphericLight("map-light", new Vector3(0.2, 1, -0.3), scene).intensity = 0.4;
-
-const gridLines: Vector3[][] = [];
-for (let longitude = -180; longitude <= 180; longitude += 15) gridLines.push([worldPosition(longitude, -85), worldPosition(longitude, 85)]);
-for (let latitude = -75; latitude <= 75; latitude += 15) gridLines.push([worldPosition(-180, latitude), worldPosition(180, latitude)]);
-const plotGrid = MeshBuilder.CreateLineSystem("plot-grid", { lines: gridLines }, scene);
-plotGrid.color = new Color3(0.17, 0.18, 0.17);
-plotGrid.alpha = 0.28;
-plotGrid.isPickable = false;
-const topology = worldLand as unknown as Parameters<typeof topologyMesh>[0];
-const coastlineGeometry = topologyMesh(topology, topology.objects.land);
-const coastlineLines = coastlineGeometry.coordinates.flatMap(coordinates => splitDateLine(coordinates)
-  .filter(segment => segment.length > 1)
-  .map(segment => segment.map(([longitude, latitude]) => worldPosition(longitude, latitude, 0.02))));
-const coastline = MeshBuilder.CreateLineSystem("world-coastline", { lines: coastlineLines }, scene);
-coastline.color = new Color3(0.1, 0.11, 0.1);
-coastline.alpha = 0.82;
-coastline.isPickable = false;
 
 let campaign: PlayerCampaign | null = null;
-let dynamicMeshes: Mesh[] = [];
 let selection: Selection | null = null;
 let orderGroupId = "";
 let destinationRegionId = "";
@@ -285,66 +259,6 @@ let tacticalExit: TacticalExit | null = null;
 let tacticalLoading = false;
 let tacticalMessage = "SELECT A GROUP TO CHECK SEA POWER";
 let pollHandle: number | undefined;
-
-function worldPosition(longitude: number, latitude: number, y = 0): Vector3 {
-  return new Vector3(longitude / 3, y, latitude / 3);
-}
-
-function mapPosition(latitude: number, longitude: number, y = 0): Vector3 {
-  return worldPosition(longitude / 1_000_000, latitude / 1_000_000, y);
-}
-
-function splitDateLine(coordinates: number[][]): number[][][] {
-  const segments: number[][][] = [[]];
-  for (const coordinate of coordinates) {
-    if (segments.at(-1)!.length && Math.abs(segments.at(-1)!.at(-1)![0] - coordinate[0]) > 180) segments.push([]);
-    segments.at(-1)!.push(coordinate);
-  }
-  return segments;
-}
-
-function material(name: string, color: Color3): StandardMaterial {
-  const value = new StandardMaterial(name, scene);
-  value.diffuseColor = color;
-  value.emissiveColor = color.scale(0.5);
-  return value;
-}
-
-const friendlyMaterial = material("friendly-material", new Color3(0.21, 0.91, 0.54));
-const contactMaterial = material("contact-material", new Color3(1, 0.25, 0.32));
-const baseMaterial = material("base-material", new Color3(0.94, 0.7, 0.2));
-
-function selectable(mesh: Mesh, next: Selection): void {
-  mesh.isPickable = true;
-  mesh.actionManager = new ActionManager(scene);
-  mesh.actionManager.registerAction(new ExecuteCodeAction(ActionManager.OnPickTrigger, () => select(next)));
-}
-
-function renderMap(data: PlayerCampaign): void {
-  dynamicMeshes.forEach(mesh => mesh.dispose());
-  dynamicMeshes = [];
-  for (const entity of data.friendlyEntities) {
-    const mesh = MeshBuilder.CreateBox(`friendly:${entity.entityId}`, { size: 0.34 }, scene);
-    mesh.position = mapPosition(entity.latitudeMicrodegrees, entity.longitudeMicrodegrees, 0.25);
-    mesh.material = friendlyMaterial;
-    selectable(mesh, { kind: "friendly", id: entity.entityId });
-    dynamicMeshes.push(mesh);
-  }
-  for (const contact of data.contacts) {
-    const mesh = MeshBuilder.CreateCylinder(`contact:${contact.trackId}`, { diameterTop: 0, diameterBottom: 0.42, height: 0.5, tessellation: 3 }, scene);
-    mesh.position = mapPosition(contact.estimatedLatitudeMicrodegrees, contact.estimatedLongitudeMicrodegrees, 0.3);
-    mesh.material = contactMaterial;
-    selectable(mesh, { kind: "contact", id: contact.trackId });
-    dynamicMeshes.push(mesh);
-  }
-  for (const base of data.friendlyBases) {
-    const mesh = MeshBuilder.CreateCylinder(`base:${base.baseId}`, { diameter: 0.32, height: 0.12, tessellation: 4 }, scene);
-    mesh.position = mapPosition(base.latitudeMicrodegrees, base.longitudeMicrodegrees, 0.12);
-    mesh.material = baseMaterial;
-    selectable(mesh, { kind: "base", id: base.baseId });
-    dynamicMeshes.push(mesh);
-  }
-}
 
 function renderCampaign(data: PlayerCampaign): void {
   campaign = data;
@@ -360,6 +274,16 @@ function renderCampaign(data: PlayerCampaign): void {
   byId("base-count").textContent = data.friendlyBases.length.toLocaleString();
   byId("schema-version").textContent = `V${data.saveSchemaVersion}`;
   byId("algorithm-version").textContent = `V${data.algorithmVersion}`;
+  const objective = data.objectives[0];
+  byId("operation-state").textContent = data.trustBoundary.toUpperCase();
+  byId("operation-name").textContent = objective?.kind.toUpperCase() ?? "NO OPERATION PREPARED";
+  byId("operation-summary").textContent = objective
+    ? `Proceed to ${objective.regionName.toUpperCase()} and complete the assigned objective with the available force.`
+    : "No tactical operation is currently available.";
+  byId("operation-region").textContent = objective?.regionName.toUpperCase() ?? "—";
+  byId("operation-force").textContent = `${data.friendlyEntities.length} UNIT${data.friendlyEntities.length === 1 ? "" : "S"}`;
+  byId("operation-contacts").textContent = String(data.contacts.length);
+  byId("operation-day").textContent = String(Math.floor(data.timeQuanta * data.tempo.simulatedSecondsPerQuantum / 86_400) + 1);
   byId<HTMLButtonElement>("resume-campaign").disabled = true;
   byId<HTMLButtonElement>("resume-campaign").textContent = "TURN-BASED";
   byId<HTMLButtonElement>("pause-campaign").disabled = true;
@@ -370,7 +294,6 @@ function renderCampaign(data: PlayerCampaign): void {
   byId("connection-message").textContent = `${data.paused ? "PAUSED" : "RUNNING"} // ${data.trustBoundary.toUpperCase()}`;
   byId("unit-count").textContent = `${data.friendlyEntities.length.toLocaleString()} UNITS`;
   renderForceHierarchy(data);
-  renderMap(data);
   renderObjectives(data);
   if (!orderGroupId && data.friendlyGroups.length) {
     orderGroupId = data.friendlyGroups[0].groupId;
@@ -818,9 +741,6 @@ byId("return-to-campaigns").addEventListener("click", () => void request("/ui/cl
 byId("resume-campaign").addEventListener("click", () => void mutate("resume").catch(showError));
 byId("pause-campaign").addEventListener("click", () => void mutate("pause").catch(showError));
 byId("save-campaign").addEventListener("click", () => void mutate("save").catch(showError));
-window.addEventListener("resize", () => engine.resize());
-engine.runRenderLoop(() => scene.render());
-
 void (async () => {
   await request("/player/status");
   const campaigns = await loadCampaigns();
