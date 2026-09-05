@@ -98,7 +98,7 @@ internal static partial class ScenarioDebugGenerator
             $"{match.First.PointCost}/{match.Second.PointCost}, sea state {parameters.SeaState}");
     }
 
-    private static FleetClashMatch GenerateRouteMatch(
+    internal static FleetClashMatch GenerateRouteMatch(
         System.Random random,
         FleetClashSize size,
         string? region)

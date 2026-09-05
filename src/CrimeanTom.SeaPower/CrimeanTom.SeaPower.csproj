@@ -18,6 +18,7 @@
     <CampaignDescriptor>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\campaign.ini</CampaignDescriptor>
     <CampaignRoster>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\player_task_force_roster.ini</CampaignRoster>
     <CampaignArtDirectory>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\art</CampaignArtDirectory>
+    <CampaignMissionDirectory>$(MSBuildProjectDirectory)\..\..\content\campaigns\crimean-tom-operations\missions</CampaignMissionDirectory>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
@@ -42,6 +43,10 @@
       <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.ParticleSystemModule">
       <HintPath>$(GameManaged)\UnityEngine.ParticleSystemModule.dll</HintPath>
       <Private>false</Private>
@@ -62,6 +67,7 @@
       <_PluginFile Include="$(TargetPath)" />
       <_PluginFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
       <_CampaignArt Include="$(CampaignArtDirectory)\**\*.*" />
+      <_CampaignMission Include="$(CampaignMissionDirectory)\**\*.*" />
     </ItemGroup>
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <MakeDir Directories="$(CampaignDeployDirectory)" />
@@ -70,6 +76,9 @@
     <Copy SourceFiles="$(CampaignRoster)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_CampaignArt)"
           DestinationFiles="@(_CampaignArt->'$(CampaignDeployDirectory)\art\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_CampaignMission)"
+          DestinationFiles="@(_CampaignMission->'$(CampaignDeployDirectory)\missions\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
