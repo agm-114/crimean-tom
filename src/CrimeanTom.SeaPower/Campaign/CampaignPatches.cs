@@ -1,11 +1,10 @@
-using System;
 using System.Reflection;
-using System.Linq;
 
 using HarmonyLib;
 
-using SeapowerUI.ViewModels;
 using SeaPower;
+
+using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;
 

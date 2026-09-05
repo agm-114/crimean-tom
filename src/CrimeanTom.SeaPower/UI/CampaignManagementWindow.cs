@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-
 using HarmonyLib;
 
 using Noesis;

@@ -1,5 +1,3 @@
-using System;
-
 using SeaPower;
 
 namespace CrimeanTom.SeaPower;
