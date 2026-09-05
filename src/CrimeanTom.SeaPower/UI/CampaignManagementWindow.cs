@@ -1,12 +1,11 @@
-using HarmonyLib;
-
 using Noesis;
 
 using SeapowerUI;
-
 using SeapowerUI.ViewModels;
 
 using UnityEngine;
+
+using static CrimeanTom.SeaPower.NativeUi;
 
 namespace CrimeanTom.SeaPower;
 
@@ -14,24 +13,6 @@ internal static class CampaignManagementWindow
 {
     private static FrameworkElement? _openPanel;
     private static string _statusMessage = string.Empty;
-
-    private static readonly SolidColorBrush OverlayBrush =
-        new(Noesis.Color.FromArgb(190, 9, 11, 13));
-
-    private static readonly SolidColorBrush PanelBrush =
-        new(Noesis.Color.FromArgb(255, 35, 38, 41));
-
-    private static readonly SolidColorBrush RowBrush =
-        new(Noesis.Color.FromArgb(255, 49, 53, 56));
-
-    private static readonly SolidColorBrush BorderBrush =
-        new(Noesis.Color.FromArgb(255, 87, 95, 101));
-
-    private static readonly SolidColorBrush TextBrush =
-        new(Noesis.Color.FromArgb(255, 232, 234, 235));
-
-    private static readonly SolidColorBrush MutedTextBrush =
-        new(Noesis.Color.FromArgb(255, 164, 171, 176));
 
     internal static void Show()
     {
@@ -175,7 +156,7 @@ internal static class CampaignManagementWindow
         };
         content.Children.Add(finish);
 
-        Grid overlay = CreateOverlay(content, host);
+        Grid overlay = CreateCampaignOverlay(content, host, 720f, 1000f, scrollable: true);
         finish.Click += (_, _) =>
         {
             CampaignOperationsState.CompleteManagement();
@@ -197,46 +178,6 @@ internal static class CampaignManagementWindow
         _openPanel = null;
         CampaignDebugController.RunNextFrame(Show);
         Debug.Log($"[Crimean Tom Operations] {message}");
-    }
-
-    private static FrameworkElement? GetCampaignHost()
-    {
-        Type? type = AccessTools.TypeByName("SeapowerUI.LinearCampaignView");
-        return type is null
-            ? null
-            : AccessTools.Field(type, "Instance")?.GetValue(null) as FrameworkElement;
-    }
-
-    private static Grid CreateOverlay(StackPanel content, FrameworkElement host)
-    {
-        float hostWidth = host.ActualWidth > 0f ? host.ActualWidth : Screen.width;
-        float hostHeight = host.ActualHeight > 0f ? host.ActualHeight : Screen.height;
-        ScrollViewer scroll = new()
-        {
-            Content = content,
-            MaxHeight = Math.Max(440f, hostHeight - 60f),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
-        Border dialog = new()
-        {
-            Child = scroll,
-            Width = Math.Min(1000f, Math.Max(720f, hostWidth - 100f)),
-            MaxHeight = Math.Max(440f, hostHeight - 60f),
-            Background = PanelBrush,
-            BorderBrush = BorderBrush,
-            BorderThickness = new Thickness(1f),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid overlay = new()
-        {
-            Background = OverlayBrush,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
-        overlay.Children.Add(dialog);
-        return overlay;
     }
 
     private static Border CreateActionRow(
@@ -280,13 +221,6 @@ internal static class CampaignManagementWindow
         hint.Margin = new Thickness(0f, 0f, 0f, 8f);
         return hint;
     }
-
-    private static TextBlock CreateText(string text, float size, Brush brush) => new()
-    {
-        Text = text,
-        FontSize = size,
-        Foreground = brush,
-    };
 
     private static void Close(FrameworkElement panel, FrameworkElement host)
     {
