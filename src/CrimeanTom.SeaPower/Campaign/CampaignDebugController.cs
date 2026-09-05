@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
-internal sealed class CampaignDebugController : MonoBehaviour
+internal class CampaignDebugController : MonoBehaviour
 {
     private static CampaignDebugController? _instance;
 

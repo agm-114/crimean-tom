@@ -3,7 +3,7 @@ using Noesis;
 namespace CrimeanTom.SeaPower;
 
 // Keep native UI binding on strings while mapping each label directly to its typed value.
-internal sealed class ChoicePicker<T>(
+internal class ChoicePicker<T>(
     (string Label, T Value)[] choices, int selectedIndex = 0, T fallback = default!)
 {
     internal ComboBox Control { get; } = new()

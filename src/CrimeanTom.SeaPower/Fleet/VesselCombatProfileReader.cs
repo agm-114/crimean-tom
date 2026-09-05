@@ -1,5 +1,4 @@
 using System.Globalization;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -119,7 +118,7 @@ internal static class VesselCombatProfileReader
             : 0d;
 }
 
-internal sealed class VesselCombatProfile(
+internal class VesselCombatProfile(
     int approximatePointCost,
     int surfaceCapability,
     int airDefenseCapability,
@@ -128,14 +127,9 @@ internal sealed class VesselCombatProfile(
     bool isCarrier)
 {
     internal int ApproximatePointCost { get; } = approximatePointCost;
-
     internal int SurfaceCapability { get; } = surfaceCapability;
-
     internal int AirDefenseCapability { get; } = airDefenseCapability;
-
     internal int AswCapability { get; } = aswCapability;
-
     internal double Resilience { get; } = resilience;
-
     internal bool IsCarrier { get; } = isCarrier;
 }

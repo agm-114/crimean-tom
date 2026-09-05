@@ -1,10 +1,9 @@
 using System.Collections;
-
 using HarmonyLib;
 
 namespace CrimeanTom.SeaPower;
 
-internal sealed record CampaignContractOffer(
+internal record CampaignContractOffer(
     int Seed, FleetClashSize Size, FleetClashMatch Match, RouteOperationVariant Variant,
     int Payment, int CapReward)
 {

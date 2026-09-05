@@ -1,9 +1,6 @@
 using HarmonyLib;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -31,7 +28,6 @@ internal static partial class CampaignOperationsState
     }
 
     internal static int Turn => Math.Max(1, ReadInt(TurnKey, 1));
-
     internal static int SalvageShares => Math.Max(0, ReadInt(SalvageSharesKey, 0));
 
     internal static int ContractSeed
@@ -60,7 +56,6 @@ internal static partial class CampaignOperationsState
 
     internal static bool HasPendingBattle =>
         IsActiveCampaign && !string.IsNullOrWhiteSpace(Read(PendingBattleKey));
-
     internal static int PendingMissionIndex => ReadInt(ActiveMissionKey, 0);
 
     internal static void RecordLaunch(int missionIndex, string generatedMissionPath)

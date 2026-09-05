@@ -1,9 +1,6 @@
 using System.Globalization;
-
 using HarmonyLib;
-
 using SeaPower;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;

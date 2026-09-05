@@ -1,5 +1,4 @@
 using System.Globalization;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;

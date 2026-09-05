@@ -1,11 +1,8 @@
 using System.Collections;
 using System.Globalization;
 using System.Reflection;
-
 using HarmonyLib;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;

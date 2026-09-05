@@ -1,13 +1,11 @@
 using AnchorChain;
-
 using HarmonyLib;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
 [ACPlugin("crimean-tom.operations", "Crimean Tom Operations", "0.3.0")]
-public sealed class Plugin : IAnchorChainMod
+public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {

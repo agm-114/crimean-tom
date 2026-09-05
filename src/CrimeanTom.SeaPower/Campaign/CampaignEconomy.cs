@@ -1,10 +1,9 @@
 using SeaPower;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;
 
-internal sealed record CampaignUnitOffer(
+internal record CampaignUnitOffer(
     string UnitType,
     string VariantReference,
     string Nation,
@@ -14,7 +13,7 @@ internal sealed record CampaignUnitOffer(
     internal (string Type, string Variant) Unit => (UnitType, VariantReference);
 }
 
-internal sealed record CampaignSalvageCandidate(
+internal record CampaignSalvageCandidate(
     string Key,
     string UnitFolder,
     string UnitType,

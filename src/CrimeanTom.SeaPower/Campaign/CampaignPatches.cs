@@ -1,9 +1,6 @@
 using System.Reflection;
-
 using HarmonyLib;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;

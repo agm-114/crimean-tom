@@ -1,5 +1,4 @@
 using HarmonyLib;
-
 using SeaPower;
 
 namespace CrimeanTom.SeaPower;

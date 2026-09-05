@@ -1,11 +1,7 @@
 using Noesis;
-
 using SeaPower;
-
 using SeapowerUI;
-
 using UnityEngine;
-
 using static CrimeanTom.SeaPower.NativeUi;
 
 namespace CrimeanTom.SeaPower;

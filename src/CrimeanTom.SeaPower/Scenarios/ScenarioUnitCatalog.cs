@@ -301,12 +301,12 @@ internal static class ScenarioUnitCatalog
     }
 }
 
-internal sealed record ScenarioSubmarineOption(
+internal record ScenarioSubmarineOption(
     string UnitType,
     string VariantReference,
     string Nation);
 
-internal sealed record CarrierAirPlan(
+internal record CarrierAirPlan(
     string AircraftType,
     string SquadronReference,
     string LoadoutVariant,
@@ -315,7 +315,7 @@ internal sealed record CarrierAirPlan(
     int AvailableCount,
     string? SonobuoyAmmunition);
 
-internal sealed record CarrierAirPackage(
+internal record CarrierAirPackage(
     CarrierAirPlan? CombatAirPatrol,
     CarrierAirPlan? AirborneEarlyWarning,
     CarrierAirPlan? AswPatrol);

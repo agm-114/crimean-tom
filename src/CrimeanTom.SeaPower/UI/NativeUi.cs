@@ -1,7 +1,5 @@
 using HarmonyLib;
-
 using Noesis;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;

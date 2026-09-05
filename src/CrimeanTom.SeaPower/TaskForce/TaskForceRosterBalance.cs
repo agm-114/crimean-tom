@@ -1,7 +1,5 @@
 using System.Globalization;
-
 using HarmonyLib;
-
 using SeaPower;
 
 namespace CrimeanTom.SeaPower;
@@ -176,7 +174,7 @@ internal static partial class TaskForceNationRules
                 StringComparison.OrdinalIgnoreCase);
     }
 
-    internal sealed class NationTier(
+    internal class NationTier(
         string label,
         float discount,
         bool isRare,
@@ -186,17 +184,11 @@ internal static partial class TaskForceNationRules
         double strengthScore)
     {
         internal string Label { get; } = label;
-
         internal float Discount { get; } = discount;
-
         internal bool IsRare { get; } = isRare;
-
         internal int ClassCount { get; } = classCount;
-
         internal int VariantCount { get; } = variantCount;
-
         internal int RoleCount { get; } = roleCount;
-
         internal double StrengthScore { get; } = strengthScore;
     }
 }
