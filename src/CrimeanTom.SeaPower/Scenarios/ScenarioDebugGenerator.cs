@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -362,7 +361,7 @@ internal static partial class ScenarioDebugGenerator
     private static string NormalizeLineEndings(string contents) =>
         contents.Replace("\r\n", "\n").Replace("\n", System.Environment.NewLine);
 
-    private sealed class ScenarioParameters(
+    private class ScenarioParameters(
         int seed,
         int hour,
         int minute,
@@ -377,27 +376,16 @@ internal static partial class ScenarioDebugGenerator
         int neutralAircraftCount)
     {
         internal int Seed { get; } = seed;
-
         internal int Hour { get; } = hour;
-
         internal int Minute { get; } = minute;
-
         internal int SeaState { get; } = seaState;
-
         internal string Clouds { get; } = clouds;
-
         internal string WindDirection { get; } = windDirection;
-
         internal float SeparationNm { get; } = separationNm;
-
         internal float LateralOffsetNm { get; } = lateralOffsetNm;
-
         internal bool CivilianNavalTraffic { get; } = civilianNavalTraffic;
-
         internal bool CivilianAirTraffic { get; } = civilianAirTraffic;
-
         internal int NeutralVesselCount { get; } = neutralVesselCount;
-
         internal int NeutralAircraftCount { get; } = neutralAircraftCount;
 
         internal static ScenarioParameters Create(

@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -631,14 +630,14 @@ internal static partial class ScenarioDebugGenerator
         _ => "Civilian shipping",
     };
 
-    private sealed record RouteOperationPlan(
+    private record RouteOperationPlan(
         FleetDeployment FirstDeployment,
         FleetDeployment SecondDeployment,
         IReadOnlyList<RouteProtectedUnit> ProtectedUnits,
         int RequiredArrivals,
         float DestinationX);
 
-    private sealed record RouteProtectedUnit(
+    private record RouteProtectedUnit(
         string Reference,
         string UnitType,
         string VariantReference,
@@ -648,7 +647,7 @@ internal static partial class ScenarioDebugGenerator
         string? Waypoints,
         string StationRole);
 
-    private sealed record RouteProtectedUnitOption(
+    private record RouteProtectedUnitOption(
         string UnitType,
         string VariantReference,
         string? Nation);

@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Text;
-
 using SeaPower;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;

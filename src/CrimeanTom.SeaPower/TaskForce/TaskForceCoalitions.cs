@@ -1,7 +1,5 @@
 using Noesis;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;
@@ -174,7 +172,7 @@ internal static partial class TaskForceNationRules
 
     private static string ToDisplayName(string nation) => nation.Replace('_', ' ');
 
-    internal sealed class CoalitionDefinition
+    internal class CoalitionDefinition
     {
         internal CoalitionDefinition(
             string id,
@@ -193,15 +191,10 @@ internal static partial class TaskForceNationRules
         }
 
         internal string Id { get; }
-
         internal string DisplayName { get; }
-
         internal string Category { get; }
-
         internal string EmblemResourcePath { get; }
-
         internal string FlagNation { get; }
-
         internal HashSet<string> MemberNations { get; }
     }
 }

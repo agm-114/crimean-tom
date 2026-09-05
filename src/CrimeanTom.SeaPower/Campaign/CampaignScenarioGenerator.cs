@@ -1,13 +1,9 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
-
 using HarmonyLib;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;

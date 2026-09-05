@@ -1,12 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Reflection;
-
 using HarmonyLib;
-
 using Noesis;
-
 using SeaPower;
-
 using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;

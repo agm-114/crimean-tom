@@ -591,9 +591,9 @@ internal static class FleetOrderOfBattlePlanner
         _ => 1.8f,
     };
 
-    private sealed record IndexedShip(int SourceIndex, FleetClashShip Ship, string Reference);
+    private record IndexedShip(int SourceIndex, FleetClashShip Ship, string Reference);
 
-    private sealed record FleetGroupPlan(
+    private record FleetGroupPlan(
         IReadOnlyList<IndexedShip> Members,
         string Name,
         FleetGroupKind Kind);
@@ -607,7 +607,7 @@ internal enum FleetGroupKind
     SubmarinePatrol,
 }
 
-internal sealed record FleetDeployment(
+internal record FleetDeployment(
     IReadOnlyList<DeployedFleetUnit> Units,
     IReadOnlyList<FleetFormationPlan> Formations,
     IReadOnlyList<DeployedAircraft> Aircraft,
@@ -622,7 +622,7 @@ internal sealed record FleetDeployment(
         .ToArray();
 }
 
-internal sealed record DeployedFleetUnit(
+internal record DeployedFleetUnit(
     int SourceIndex,
     FleetClashShip Ship,
     string Reference,
@@ -634,7 +634,7 @@ internal sealed record DeployedFleetUnit(
     int Telegraph,
     float Heading);
 
-internal sealed record DeployedAircraft(
+internal record DeployedAircraft(
     int ParentSourceIndex,
     string Reference,
     string HomeBaseReference,
@@ -646,7 +646,7 @@ internal sealed record DeployedAircraft(
     float Heading,
     string StationRole);
 
-internal sealed record FleetFormationPlan(
+internal record FleetFormationPlan(
     IReadOnlyList<string> References,
     string Name,
     string Pattern,

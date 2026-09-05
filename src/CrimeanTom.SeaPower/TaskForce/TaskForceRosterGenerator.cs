@@ -1,11 +1,8 @@
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-
 using HarmonyLib;
-
 using SeapowerUI.ViewModels;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -539,14 +536,13 @@ internal static class TaskForceRosterGenerator
     private static string GetUnitKey(string unitFolder, string unitType) =>
         $"{unitFolder}/{unitType}";
 
-    private sealed class VariantDefinition(string reference, string nation)
+    private class VariantDefinition(string reference, string nation)
     {
         internal string Reference { get; } = reference;
-
         internal string Nation { get; } = nation;
     }
 
-    private sealed class RosterVariant(
+    private class RosterVariant(
         string nation,
         string unitFolder,
         string unitType,
@@ -556,48 +552,36 @@ internal static class TaskForceRosterGenerator
         double roleWeight)
     {
         internal string Nation { get; } = nation;
-
         internal string UnitFolder { get; } = unitFolder;
-
         internal string UnitType { get; } = unitType;
-
         internal string VariantReference { get; } = variantReference;
-
         internal int BaseCost { get; private set; } = baseCost;
-
         internal string Role { get; } = role;
-
         internal double RoleWeight { get; } = roleWeight;
 
         internal void SetBaseCost(int baseCost) => BaseCost = baseCost;
     }
 
-    internal sealed class RosterUnitOption(
+    internal class RosterUnitOption(
         string unitType,
         string variantReference,
         string nation)
     {
         internal string UnitType { get; } = unitType;
-
         internal string VariantReference { get; } = variantReference;
-
         internal string Nation { get; } = nation;
     }
 
-    internal sealed class RosterStrength(
+    internal class RosterStrength(
         double score,
         int classCount,
         int variantCount,
         int roleCount)
     {
         internal static RosterStrength Empty { get; } = new(0d, 0, 0, 0);
-
         internal double Score { get; } = score;
-
         internal int ClassCount { get; } = classCount;
-
         internal int VariantCount { get; } = variantCount;
-
         internal int RoleCount { get; } = roleCount;
     }
 }

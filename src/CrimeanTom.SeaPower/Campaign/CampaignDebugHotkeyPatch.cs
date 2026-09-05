@@ -1,11 +1,7 @@
 using System.Reflection;
-
 using HarmonyLib;
-
 using Noesis;
-
 using SeapowerUI;
-
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
