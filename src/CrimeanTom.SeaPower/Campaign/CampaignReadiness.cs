@@ -1,3 +1,4 @@
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 using System.Globalization;
 using SeapowerUI.ViewModels;
 

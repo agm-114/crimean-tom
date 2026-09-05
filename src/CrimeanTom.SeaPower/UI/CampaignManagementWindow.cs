@@ -25,7 +25,7 @@ internal static class CampaignManagementWindow
             return;
         }
 
-        LinearCampaignTaskForceSnapshot snapshot = CampaignOperationsState.ReadCurrentSnapshot();
+        LinearCampaignTaskForceSnapshot snapshot = NativeCampaignAccess.ReadCurrentSnapshot();
         TextBlock status = CreateText(_statusMessage, 14f, TextBrush);
         status.TextWrapping = TextWrapping.Wrap;
         status.Margin = new Thickness(0f, 12f, 0f, 0f);

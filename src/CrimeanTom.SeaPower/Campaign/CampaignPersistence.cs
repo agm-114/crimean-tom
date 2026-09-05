@@ -1,9 +1,5 @@
-using System.Collections;
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 using System.Globalization;
-using System.Reflection;
-using HarmonyLib;
-using SeaPower;
-using SeapowerUI.ViewModels;
 
 namespace CrimeanTom.SeaPower;
 
@@ -19,36 +15,6 @@ internal static partial class CampaignOperationsState
     private const string GroupAssignmentsKey = "CrimeanTomGroupAssignments";
     private const string FatigueKey = "CrimeanTomFatigue";
     private const string AutoresolveCounterKey = "CrimeanTomAutoresolveCounter";
-
-    private static readonly MethodInfo? ReadSnapshotMethod = AccessTools.Method(
-        AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceSaveManager"),
-        "ReadCurrentTaskForceSnapshot",
-        Type.EmptyTypes);
-
-    private static readonly MethodInfo? CommitPurchasesMethod = AccessTools.Method(
-        AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceSaveManager"),
-        "CommitBuilderPurchases");
-
-    private static readonly MethodInfo? OpenCampaignStateMethod = AccessTools.Method(
-        AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceModeRules"),
-        "OpenCampaignStateIni");
-
-    private static readonly Type? LinearCampaignType = AccessTools.TypeByName("SeaPower.LinearCampaign");
-
-    private static readonly PropertyInfo? LinearCampaignInstanceProperty = LinearCampaignType is null
-        ? null
-        : AccessTools.Property(typeof(Singleton<>).MakeGenericType(LinearCampaignType), "Instance");
-
-    internal static int GetMissionIndex(object? mission) =>
-        mission is null
-            ? 0
-            : AccessTools.Field(mission.GetType(), "_index")?.GetValue(mission) is int index
-                ? index
-                : 0;
-
-    internal static LinearCampaignTaskForceSnapshot ReadCurrentSnapshot() =>
-        ReadSnapshotMethod?.Invoke(null, null) as LinearCampaignTaskForceSnapshot ??
-        LinearCampaignTaskForceSnapshot.Empty;
 
     private static void ClearReusableMissionState(int missionIndex)
     {
@@ -78,9 +44,6 @@ internal static partial class CampaignOperationsState
         }
         stateIni.saveFile(overwrite: true);
     }
-
-    private static IniHandler? OpenCampaignState() =>
-        OpenCampaignStateMethod?.Invoke(null, null) as IniHandler;
 
     private static string DebriefSection(int missionIndex) =>
         $"Mission_{missionIndex}_TaskForceDebrief";
@@ -137,35 +100,6 @@ internal static partial class CampaignOperationsState
 
     private static void Write<T>(string key, T value) where T : IFormattable =>
         Write(key, value.ToString(null, CultureInfo.InvariantCulture));
-
-    private static object? GetCampaign() => LinearCampaignInstanceProperty?.GetValue(null);
-
-    private static Dictionary<string, string>? GetPersistentData()
-    {
-        object? campaign = GetCampaign();
-        return campaign is null
-            ? null
-            : AccessTools.Property(campaign.GetType(), "PersistentData")?.GetValue(campaign)
-                as Dictionary<string, string>;
-    }
-
-    private static IEnumerable GetMissions()
-    {
-        object? campaign = GetCampaign();
-        return campaign is null
-            ? Array.Empty<object>()
-            : AccessTools.Property(campaign.GetType(), "Missions")?.GetValue(campaign)
-                as IEnumerable ?? Array.Empty<object>();
-    }
-
-    private static void SaveCampaign()
-    {
-        object? campaign = GetCampaign();
-        if (campaign is not null)
-        {
-            AccessTools.Method(campaign.GetType(), "SaveCampaignPersistentData")?.Invoke(campaign, null);
-        }
-    }
 
     private static int StableHash(string value)
     {

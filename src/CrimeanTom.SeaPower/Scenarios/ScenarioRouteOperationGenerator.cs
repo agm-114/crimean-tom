@@ -225,13 +225,13 @@ internal static partial class ScenarioDebugGenerator
             float lane = isDefender
                 ? unit.Z * 0.45f
                 : attackLane * Math.Max(2f, 7f - (groupIndex * 2f));
-            string height = unit.Ship.IsSubmarine ? "shallow" : "0";
-            string? waypoints = leaders.Contains(unit.Reference) && !unit.Ship.IsCarrier
-                ? isDefender
-                    ? FormattableString.Invariant(
-                        $"0,{height},{lane:0.##}|{destinationX:0.##},{height},{lane:0.##}/SetWeaponStatus,Free")
-                    : FormattableString.Invariant(
-                        $"{destinationX + 8f:0.##},{height},{lane:0.##}|{destinationX:0.##},{height},{lane:0.##}/SetWeaponStatus,Free")
+            string? depth = unit.Ship.IsSubmarine ? "shallow" : null;
+            IReadOnlyList<MissionWaypoint>? waypoints = leaders.Contains(unit.Reference) && !unit.Ship.IsCarrier
+                ?
+                [
+                    new(new(isDefender ? 0 : destinationX + 8f, 0, lane, depth)),
+                    new(new(destinationX, 0, lane, depth), WaypointOrder.WeaponsFree),
+                ]
                 : unit.Waypoints;
             return unit with
             {
@@ -279,7 +279,7 @@ internal static partial class ScenarioDebugGenerator
                 routeStart + longitudinal,
                 lateral,
                 index == 0
-                    ? FormattableString.Invariant($"0,0,0|{routeEnd:0.##},0,0")
+                    ? [new(new(0, 0, 0)), new(new(routeEnd, 0, 0))]
                     : null,
                 index == 0 ? "Core" : "Default"));
         }
@@ -471,38 +471,20 @@ internal static partial class ScenarioDebugGenerator
         RouteOperationPlan route,
         string playerTaskforce)
     {
-        string references = string.Join(',', route.ProtectedUnits.Select(unit => unit.Reference));
+        string[] references = route.ProtectedUnits.Select(unit => unit.Reference).ToArray();
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
         AppendStartTrigger(mission, "Issue route-operation orders");
 
-        mission.Section("Trigger2");
-        mission.Write("Name", "Protected group reaches destination");
-        mission.Write("Condition_Condition1_Type", "UnitsInTheArea");
-        mission.WritePosition("Condition_Condition1_PositionNM", route.DestinationX, 0, 0);
-        mission.Write("Condition_Condition1_AreaRadiusNM", 6);
-        mission.Write("Condition_Condition1_AreaDisplaySide", playerTaskforce == "Taskforce1" ? "Blue" : "Red");
-        mission.Write("Condition_Condition1_Units", references);
-        mission.Write("Condition_Condition1_MinimumUnits", route.RequiredArrivals);
-        mission.Write("ConditionsCompleted", "<Condition1>");
-        mission.Write("Action_Taskforce1_Message", "Taskforce1RouteVictoryMessage");
-        mission.Write("Action_Taskforce2_Message", "Taskforce2RouteDefeatMessage");
-        mission.Write("Action_Victory", "Taskforce1");
-        mission.Write("Action_ObjectivesCompleted", "Taskforce1DeliverProtectedGroup");
-        mission.Write("Action_ObjectivesFailed", "Taskforce2StopProtectedGroup");
-        mission.Write("Action_EndMission", true);
+        new MissionTrigger(2, "Protected group reaches destination",
+            new(references, route.RequiredArrivals,
+                new(new(route.DestinationX, 0, 0), 6, playerTaskforce == "Taskforce1" ? "Blue" : "Red")),
+            new("Taskforce1", "Taskforce1RouteVictoryMessage", "Taskforce2RouteDefeatMessage",
+                ["Taskforce1DeliverProtectedGroup"], ["Taskforce2StopProtectedGroup"])).WriteTo(mission);
 
-        mission.Section("Trigger3");
-        mission.Write("Name", "Protected group can no longer complete route");
-        mission.Write("Condition_Condition1_Type", "UnitDestroyed");
-        mission.Write("Condition_Condition1_Units", references);
-        mission.Write("Condition_Condition1_MinimumUnits", lossThreshold);
-        mission.Write("ConditionsCompleted", "<Condition1>");
-        mission.Write("Action_Taskforce2_Message", "Taskforce2RouteVictoryMessage");
-        mission.Write("Action_Taskforce1_Message", "Taskforce1RouteDefeatMessage");
-        mission.Write("Action_Victory", "Taskforce2");
-        mission.Write("Action_ObjectivesCompleted", "Taskforce2StopProtectedGroup");
-        mission.Write("Action_ObjectivesFailed", "Taskforce1DeliverProtectedGroup");
-        mission.Write("Action_EndMission", true);
+        new MissionTrigger(3, "Protected group can no longer complete route",
+            new(references, lossThreshold),
+            new("Taskforce2", "Taskforce2RouteVictoryMessage", "Taskforce1RouteDefeatMessage",
+                ["Taskforce2StopProtectedGroup"], ["Taskforce1DeliverProtectedGroup"])).WriteTo(mission);
     }
 
     private static string GetRouteVariantName(RouteOperationVariant variant) => variant switch
@@ -526,7 +508,7 @@ internal static partial class ScenarioDebugGenerator
         string? Nation,
         float X,
         float Z,
-        string? Waypoints,
+        IReadOnlyList<MissionWaypoint>? Waypoints,
         string StationRole)
     {
         internal void WriteTo(MissionWriter mission)
@@ -537,10 +519,10 @@ internal static partial class ScenarioDebugGenerator
             if (!string.IsNullOrWhiteSpace(Nation)) mission.Write("Nation", Nation);
             if (StationRole != "Default") mission.Write("StationRole", StationRole);
             mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", X, 0, Z);
+            mission.WritePosition("RelativePositionInNM", new(X, 0, Z));
             mission.Write("Telegraph", 2);
             mission.Write("Heading", 90);
-            if (Waypoints is not null) mission.Write("Waypoints", Waypoints);
+            if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
         }
     }
 

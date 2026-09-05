@@ -362,7 +362,7 @@ internal static class CampaignContractGenerationPatch
             CampaignOperationsState.ApplyGroupsToGeneratedMission(generatedMissionPath);
             ScenarioDebugGenerator.FinalizeCampaignContract(generatedMissionPath);
             CampaignOperationsState.RecordLaunch(
-                CampaignOperationsState.GetMissionIndex(mission), generatedMissionPath);
+                NativeCampaignAccess.GetMissionIndex(mission), generatedMissionPath);
         }
         catch (Exception exception)
         {

@@ -33,7 +33,7 @@ internal record DeployedFleetUnit(
     string Reference,
     float X,
     float Z,
-    string? Waypoints,
+    IReadOnlyList<MissionWaypoint>? Waypoints,
     string MissionType,
     string StationRole,
     int Telegraph,
@@ -54,10 +54,10 @@ internal record DeployedFleetUnit(
         mission.Write("CrewSkill", "Trained");
         mission.Write("Morale", 3);
         mission.Write("RetreatAfterWeaponsExpended", true);
-        mission.WritePosition("RelativePositionInNM", X, Ship.IsSubmarine ? "shallow" : "0", Z);
+        mission.WritePosition("RelativePositionInNM", new(X, 0, Z, Ship.IsSubmarine ? "shallow" : null));
         mission.Write("Telegraph", Telegraph);
         mission.Write("Heading", Heading, "0");
-        if (Waypoints is not null) mission.Write("Waypoints", Waypoints);
+        if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
     }
 }
 
@@ -69,7 +69,7 @@ internal record DeployedAircraft(
     float X,
     float Z,
     float Altitude,
-    string? Waypoints,
+    IReadOnlyList<MissionWaypoint>? Waypoints,
     float Heading,
     string StationRole)
 {
@@ -84,10 +84,10 @@ internal record DeployedAircraft(
         mission.Write("WeaponStatus", "Free");
         mission.Write("RadarsActive", StationRole == "AEW" || !AirPlan.IsHelicopter);
         mission.Write("CrewSkill", "Trained");
-        mission.WritePosition("RelativePositionInNM", X, Altitude, Z);
+        mission.WritePosition("RelativePositionInNM", new(X, Altitude, Z));
         mission.Write("Telegraph", StationRole == "AEW" ? 2 : 3);
         mission.Write("Heading", Heading, "0");
-        if (Waypoints is not null) mission.Write("Waypoints", Waypoints);
+        if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
         mission.Write("HomeBase", HomeBaseReference);
     }
 }

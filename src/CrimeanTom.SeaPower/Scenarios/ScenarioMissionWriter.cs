@@ -222,10 +222,10 @@ internal static partial class ScenarioDebugGenerator
             mission.Write("Type", vesselTypes[random.Next(vesselTypes.Length)]);
             mission.Write("VariantReference", "Random");
             mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", x, 0, z);
+            mission.WritePosition("RelativePositionInNM", new(x, 0, z));
             mission.Write("Telegraph", 2);
             mission.Write("Heading", heading, "0");
-            mission.WritePosition("Waypoints", (-x), 0, z);
+            mission.WriteWaypoints([new(new(-x, 0, z))]);
         }
 
         string[] aircraftTypes =
@@ -248,10 +248,10 @@ internal static partial class ScenarioDebugGenerator
             mission.Write("Type", aircraftTypes[random.Next(aircraftTypes.Length)]);
             mission.Write("SquadronReference", "Random");
             mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", x, altitude, z);
+            mission.WritePosition("RelativePositionInNM", new(x, altitude, z));
             mission.Write("Telegraph", 3);
             mission.Write("Heading", heading, "0");
-            mission.WritePosition("Waypoints", destinationX, altitude, z);
+            mission.WriteWaypoints([new(new(destinationX, altitude, z))]);
         }
     }
 
@@ -285,18 +285,11 @@ internal static partial class ScenarioDebugGenerator
         int lossesToBreak)
     {
         string winningTaskforce = losingTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1";
-        mission.Section($"Trigger{triggerNumber}");
-        mission.Write("Name", $"{losingTaskforce} loses combat cohesion");
-        mission.Write("Condition_Condition1_Type", "UnitDestroyed");
-        mission.WriteList("Condition_Condition1_Units", unitReferences);
-        mission.Write("Condition_Condition1_MinimumUnits", lossesToBreak);
-        mission.Write("ConditionsCompleted", "<Condition1>");
-        mission.Write($"Action_{losingTaskforce}_Message", $"{losingTaskforce}DefeatMessage");
-        mission.Write($"Action_{winningTaskforce}_Message", $"{winningTaskforce}VictoryMessage");
-        mission.Write("Action_Victory", winningTaskforce);
-        mission.Write("Action_ObjectivesFailed", $"{losingTaskforce}BreakEnemy,{losingTaskforce}PreserveForce");
-        mission.Write("Action_ObjectivesCompleted", $"{winningTaskforce}BreakEnemy,{winningTaskforce}PreserveForce");
-        mission.Write("Action_EndMission", true);
+        new MissionTrigger(triggerNumber, $"{losingTaskforce} loses combat cohesion",
+            new(unitReferences.ToArray(), lossesToBreak),
+            new(winningTaskforce, $"{winningTaskforce}VictoryMessage", $"{losingTaskforce}DefeatMessage",
+                [$"{winningTaskforce}BreakEnemy", $"{winningTaskforce}PreserveForce"],
+                [$"{losingTaskforce}BreakEnemy", $"{losingTaskforce}PreserveForce"])).WriteTo(mission);
     }
 
     private static void AppendOpposedObjectives(MissionWriter mission, string firstObjective, string secondObjective)

@@ -61,7 +61,7 @@ internal static class CampaignContractPaymentPatch
     {
         if (!CampaignOperationsState.IsActiveCampaign ||
             key is not ("TaskForceModeCompletionPoints" or "TaskForceModeCompletionCapPoints")) return;
-        int index = CampaignOperationsState.GetMissionIndex(mission);
+        int index = NativeCampaignAccess.GetMissionIndex(mission);
         if (index is < 1 or > 4) return;
         var offer = CampaignContractOffers.Get(index);
         __result = !CampaignOperationsState.BattleWon(index) ? 0 :
@@ -151,7 +151,7 @@ internal static class CampaignPendingManagementLaunchPatch
     {
         if (CampaignOperationsState.IsActiveCampaign && !CampaignOperationsState.HasPendingBattle)
         {
-            var roster = CampaignOperationsState.ReadCurrentSnapshot();
+            var roster = NativeCampaignAccess.ReadCurrentSnapshot();
             if (roster.Items.Any(item => !item.IsAirUnit) &&
                 !CampaignOperationsState.FilterFatiguedUnits(roster).Items.Any(item => !item.IsAirUnit))
             {

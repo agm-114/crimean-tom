@@ -26,8 +26,11 @@ internal class MissionWriter
     internal void WriteList(string key, IEnumerable<string> values) =>
         Write(key, string.Join(',', values));
 
-    internal void WritePosition(string key, float x, object altitude, float z) =>
-        Write(key, $"{x:0.##},{Format(altitude, "0")},{z:0.##}");
+    internal void WritePosition(string key, MissionPosition position) =>
+        Write(key, position.ToMissionValue());
+
+    internal void WriteWaypoints(IEnumerable<MissionWaypoint> waypoints) =>
+        Write("Waypoints", MissionWaypoint.FormatRoute(waypoints));
 
     public override string ToString() => text.ToString();
 

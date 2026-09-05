@@ -1,4 +1,4 @@
-using HarmonyLib;
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 using SeaPower;
 using SeapowerUI.ViewModels;
 using UnityEngine;
@@ -11,10 +11,7 @@ internal static partial class CampaignOperationsState
     {
         get
         {
-            object? campaign = GetCampaign();
-            string? path = campaign is null
-                ? null
-                : AccessTools.Field(campaign.GetType(), "currentCampaignFilePath")?.GetValue(campaign) as string;
+            string? path = CurrentCampaignPath;
             if (TaskForceNationRules.IsOurCampaignPath(path))
             {
                 return true;
@@ -148,7 +145,7 @@ internal static partial class CampaignOperationsState
         Write("TaskForceModeCampaignCompleted", bool.FalseString);
         foreach (object mission in GetMissions())
         {
-            AccessTools.Property(mission.GetType(), "IsComplete")?.SetValue(mission, false);
+            SetMissionComplete(mission, false);
             CampaignContractOffers.Describe(mission);
         }
         SaveCampaign();
