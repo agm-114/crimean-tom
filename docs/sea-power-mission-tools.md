@@ -1,5 +1,7 @@
 # Sea Power mission-generation tooling
 
+> Mission-format reference. See [development-guide.md](development-guide.md) for the current runtime flow and known risks. Some sequencing notes below describe the original implementation order and are no longer a status report.
+
 This is the working reference for generated Crimean Tom scenarios. It is based on the mission parser and editor in the currently installed game, checked against shipped standalone and campaign scenarios.
 
 The generator should first produce small missions that reliably load and fight. More elaborate contracts should be assembled from the same tested pieces instead of introducing a separate simulation layer.
