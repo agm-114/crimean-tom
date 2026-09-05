@@ -1,7 +1,3 @@
-using System.Globalization;
-using System.Text;
-using UnityEngine;
-
 namespace CrimeanTom.SeaPower;
 
 internal static partial class ScenarioDebugGenerator
@@ -43,38 +39,33 @@ internal static partial class ScenarioDebugGenerator
         FleetDeployment playerDeployment = playerTaskforce == "Taskforce1"
             ? firstDeployment
             : secondDeployment;
-        StringBuilder mission = new();
+        MissionWriter mission = new();
 
-        mission.AppendLine("[Debug]");
-        mission.AppendLine("AllowAIRadarRoutine=True");
+        mission.Section("Debug");
+        mission.Write("AllowAIRadarRoutine", true);
         if (options.Spectator)
         {
-            mission.AppendLine("ShowUnidentifiedUnitsIn3D=True");
+            mission.Write("ShowUnidentifiedUnitsIn3D", true);
         }
-        mission.AppendLine();
-        mission.AppendLine("[Language_en]");
+
+        mission.Section("Language_en");
         if (useLauncherMetadata)
         {
-            mission.AppendLine(options.Spectator
-                ? "Name=Generated Fleet Clash - Spectator"
-                : "Name=Generated Fleet Clash");
-            mission.AppendLine(options.Spectator
-                ? "Description=Configure a fresh fleet clash and watch both AI forces from a Blue observer side."
-                : "Description=Select this entry to configure and generate a fresh fleet clash.");
+            mission.Write("Name", options.Spectator
+                ? "Generated Fleet Clash - Spectator"
+                : "Generated Fleet Clash");
+            mission.Write("Description", options.Spectator
+                ? "Configure a fresh fleet clash and watch both AI forces from a Blue observer side."
+                : "Select this entry to configure and generate a fresh fleet clash.");
         }
         else
         {
-            mission.Append("Name=Generated Fleet Clash - ").Append(size).Append(" - ")
-                .Append(options.Spectator
+            mission.Write("Name", $"Generated Fleet Clash - {size} - {(options.Spectator
                     ? "Spectator"
-                    : playerIsFirst ? "Blue Command" : "Red Command").AppendLine();
-            mission.Append("Description=").Append(match.Theater).Append(options.Spectator
+                    : playerIsFirst ? "Blue Command" : "Red Command")}");
+            mission.Write("Description", $"{match.Theater}{(options.Spectator
                     ? ": observe the "
-                    : ": command the ")
-                .Append(playerName).Append(" against the ").Append(enemyName).Append(". ")
-                .Append("Estimated points ").Append(match.First.PointCost).Append(" vs ")
-                .Append(match.Second.PointCost).Append("; generation seed ")
-                .Append(parameters.Seed.ToString(CultureInfo.InvariantCulture)).AppendLine(".");
+                    : ": command the ")}{playerName} against the {enemyName}. Estimated points {match.First.PointCost} vs {match.Second.PointCost}; generation seed {parameters.Seed}.");
         }
         AppendMessagesAndObjectiveText(mission, match, firstLossesToBreak, secondLossesToBreak);
         AppendCrimeanTomSettings(
@@ -90,14 +81,8 @@ internal static partial class ScenarioDebugGenerator
             parameters,
             firstDeployment,
             secondDeployment);
-        AppendFleet(
-            mission,
-            firstDeployment,
-            useLauncherMetadata && playerTaskforce == "Taskforce1");
-        AppendFleet(
-            mission,
-            secondDeployment,
-            useLauncherMetadata && playerTaskforce == "Taskforce2");
+        firstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
+        secondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
         AppendCivilianTraffic(mission, parameters);
         AppendTriggers(
             mission,
@@ -111,66 +96,58 @@ internal static partial class ScenarioDebugGenerator
     }
 
     private static void AppendMessagesAndObjectiveText(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetClashMatch match,
         int firstLossesToBreak,
         int secondLossesToBreak)
     {
-        mission.Append("Taskforce1StartMessage=FLEET CLASH|").Append(match.FirstName)
-            .Append(" forces are engaging the ").Append(match.SecondName)
-            .AppendLine(". Break the enemy formation while preserving a combat-capable ship.|Commence action");
-        mission.Append("Taskforce2StartMessage=FLEET CLASH|").Append(match.SecondName)
-            .Append(" forces are engaging the ").Append(match.FirstName)
-            .AppendLine(". Break the enemy formation while preserving a combat-capable ship.|Commence action");
-        mission.AppendLine("Taskforce1VictoryMessage=VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
-        mission.AppendLine("Taskforce2VictoryMessage=VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
-        mission.AppendLine("Taskforce1DefeatMessage=DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
-        mission.AppendLine("Taskforce2DefeatMessage=DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
-        mission.Append("Objective_Taskforce1BreakEnemy=Destroy at least ").Append(secondLossesToBreak).AppendLine(" enemy ships");
-        mission.AppendLine("Objective_Taskforce1PreserveForce=Keep at least one ship combat-capable");
-        mission.Append("Objective_Taskforce2BreakEnemy=Destroy at least ").Append(firstLossesToBreak).AppendLine(" enemy ships");
-        mission.AppendLine("Objective_Taskforce2PreserveForce=Keep at least one ship combat-capable");
-        mission.AppendLine();
+        mission.Write("Taskforce1StartMessage", $"FLEET CLASH|{match.FirstName} forces are engaging the {match.SecondName}. Break the enemy formation while preserving a combat-capable ship.|Commence action");
+        mission.Write("Taskforce2StartMessage", $"FLEET CLASH|{match.SecondName} forces are engaging the {match.FirstName}. Break the enemy formation while preserving a combat-capable ship.|Commence action");
+        mission.Write("Taskforce1VictoryMessage", "VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
+        mission.Write("Taskforce2VictoryMessage", "VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
+        mission.Write("Taskforce1DefeatMessage", "DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
+        mission.Write("Taskforce2DefeatMessage", "DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
+        mission.Write("Objective_Taskforce1BreakEnemy", $"Destroy at least {secondLossesToBreak} enemy ships");
+        mission.Write("Objective_Taskforce1PreserveForce", "Keep at least one ship combat-capable");
+        mission.Write("Objective_Taskforce2BreakEnemy", $"Destroy at least {firstLossesToBreak} enemy ships");
+        mission.Write("Objective_Taskforce2PreserveForce", "Keep at least one ship combat-capable");
     }
 
     private static void AppendCrimeanTomSettings(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetDeployment playerDeployment,
         bool spectator) =>
         AppendCrimeanTomSettings(mission, playerDeployment.AlliedReferences, spectator);
 
     private static void AppendCrimeanTomSettings(
-        StringBuilder mission,
+        MissionWriter mission,
         IEnumerable<string> alliedReferences,
         bool spectator)
     {
-        mission.AppendLine("[CrimeanTom]");
-        mission.Append("Mode=").AppendLine(spectator ? "Spectator" : "Command");
-        mission.Append("AlliedAIUnits=").AppendJoin(',', alliedReferences).AppendLine();
-        mission.Append("GodVision=").AppendLine(spectator ? "True" : "False");
-        mission.AppendLine();
+        mission.Section("CrimeanTom");
+        mission.Write("Mode", spectator ? "Spectator" : "Command");
+        mission.WriteList("AlliedAIUnits", alliedReferences);
+        mission.Write("GodVision", spectator);
     }
 
     private static void AppendEnvironment(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetClashMatch match,
         ScenarioParameters parameters)
     {
-        mission.AppendLine("[Environment]");
-        mission.AppendLine("Date=1985,6,15");
-        mission.Append("Time=").Append(parameters.Hour).Append(',')
-            .AppendLine(parameters.Minute.ToString(CultureInfo.InvariantCulture));
-        mission.Append("SeaState=").AppendLine(parameters.SeaState.ToString(CultureInfo.InvariantCulture));
-        mission.Append("Clouds=").AppendLine(parameters.Clouds);
-        mission.Append("WindDirection=").AppendLine(parameters.WindDirection);
-        mission.Append("MapCenterLatitude=").AppendLine(match.Latitude.ToString("0.####", CultureInfo.InvariantCulture));
-        mission.Append("MapCenterLongitude=").AppendLine(match.Longitude.ToString("0.####", CultureInfo.InvariantCulture));
-        mission.AppendLine("LoadBackgroundData=False");
-        mission.AppendLine();
+        mission.Section("Environment");
+        mission.Write("Date", "1985,6,15");
+        mission.Write("Time", $"{parameters.Hour},{parameters.Minute}");
+        mission.Write("SeaState", parameters.SeaState);
+        mission.Write("Clouds", parameters.Clouds);
+        mission.Write("WindDirection", parameters.WindDirection);
+        mission.Write("MapCenterLatitude", match.Latitude, "0.####");
+        mission.Write("MapCenterLongitude", match.Longitude, "0.####");
+        mission.Write("LoadBackgroundData", false);
     }
 
     private static void AppendMission(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetClashMatch match,
         FleetClashSize size,
         string playerTaskforce,
@@ -180,129 +157,49 @@ internal static partial class ScenarioDebugGenerator
         int additionalFirstVessels = 0,
         IReadOnlyList<FleetFormationPlan>? firstFormations = null)
     {
-        mission.AppendLine("[Mission]");
-        mission.Append("Difficulty=").AppendLine(size switch
+        mission.Section("Mission");
+        mission.Write("Difficulty", size switch
         {
-            FleetClashSize.Small => "2",
-            FleetClashSize.Medium => "3",
-            FleetClashSize.Large => "4",
-            _ => "3",
+            FleetClashSize.Small => 2,
+            FleetClashSize.Medium => 3,
+            FleetClashSize.Large => 4,
+            _ => 3,
         });
-        mission.Append("PlayerTaskforce=").AppendLine(playerTaskforce);
-        mission.Append("EnemyTaskforce=").AppendLine(
-            playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1");
-        mission.Append("Taskforce1_Nation=").AppendLine(match.First.PrimaryNation);
-        mission.Append("Taskforce2_Nation=").AppendLine(match.Second.PrimaryNation);
-        mission.AppendLine("AllowMoraleToAffectAI=True");
-        mission.Append("NumberOfTaskforce1Vessels=").AppendLine((firstDeployment.Units.Count(unit => !unit.Ship.IsSubmarine) + additionalFirstVessels).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Vessels=").AppendLine(secondDeployment.Units.Count(unit => !unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Submarines=").AppendLine(firstDeployment.Units.Count(unit => unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Submarines=").AppendLine(secondDeployment.Units.Count(unit => unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Aircraft=").AppendLine(firstDeployment.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Aircraft=").AppendLine(secondDeployment.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Helicopters=").AppendLine(firstDeployment.Aircraft.Count(unit => unit.AirPlan.IsHelicopter).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Helicopters=").AppendLine(secondDeployment.Aircraft.Count(unit => unit.AirPlan.IsHelicopter).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralVessels=").AppendLine(parameters.NeutralVesselCount.ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralAircraft=").AppendLine(parameters.NeutralAircraftCount.ToString(CultureInfo.InvariantCulture));
+        mission.Write("PlayerTaskforce", playerTaskforce);
+        mission.Write("EnemyTaskforce", playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1");
+        mission.Write("Taskforce1_Nation", match.First.PrimaryNation);
+        mission.Write("Taskforce2_Nation", match.Second.PrimaryNation);
+        mission.Write("AllowMoraleToAffectAI", true);
+        mission.Write("NumberOfTaskforce1Vessels", firstDeployment.VesselCount + additionalFirstVessels);
+        mission.Write("NumberOfTaskforce2Vessels", secondDeployment.VesselCount);
+        mission.Write("NumberOfTaskforce1Submarines", firstDeployment.SubmarineCount);
+        mission.Write("NumberOfTaskforce2Submarines", secondDeployment.SubmarineCount);
+        mission.Write("NumberOfTaskforce1Aircraft", firstDeployment.FixedWingCount);
+        mission.Write("NumberOfTaskforce2Aircraft", secondDeployment.FixedWingCount);
+        mission.Write("NumberOfTaskforce1Helicopters", firstDeployment.HelicopterCount);
+        mission.Write("NumberOfTaskforce2Helicopters", secondDeployment.HelicopterCount);
+        mission.Write("NumberOfNeutralVessels", parameters.NeutralVesselCount);
+        mission.Write("NumberOfNeutralAircraft", parameters.NeutralAircraftCount);
         AppendFormations(mission, "Taskforce1", firstFormations ?? firstDeployment.Formations);
         AppendFormations(mission, "Taskforce2", secondDeployment.Formations);
-        mission.AppendLine("NumberOfTriggers=3");
-        mission.AppendLine();
+        mission.Write("NumberOfTriggers", 3);
     }
 
     private static void AppendFormations(
-        StringBuilder mission,
+        MissionWriter mission,
         string taskforce,
         IReadOnlyList<FleetFormationPlan> formations)
     {
-        mission.Append(taskforce).Append("_NumberOfFormations=")
-            .AppendLine(formations.Count.ToString(CultureInfo.InvariantCulture));
+        mission.Write($"{taskforce}_NumberOfFormations", formations.Count);
         for (int index = 0; index < formations.Count; index++)
         {
             FleetFormationPlan formation = formations[index];
-            mission.Append(taskforce).Append("_Formation").Append(index + 1).Append('=')
-                .AppendJoin(',', formation.References)
-                .Append('|').Append(formation.Name)
-                .Append('|').Append(formation.Pattern)
-                .Append('|').Append(formation.Spacing.ToString("0.##", CultureInfo.InvariantCulture))
-                .AppendLine("|OverrideSpawnPositions");
-        }
-    }
-
-    private static void AppendFleet(
-        StringBuilder mission,
-        FleetDeployment deployment,
-        bool maskFirstNation)
-    {
-        foreach (DeployedFleetUnit unit in deployment.Units)
-        {
-            FleetClashShip ship = unit.Ship;
-            mission.Append('[').Append(unit.Reference).AppendLine("]");
-            mission.Append("Type=").AppendLine(ship.UnitType);
-            mission.Append("VariantReference=").AppendLine(ship.VariantReference);
-            mission.Append("Nation=").AppendLine(maskFirstNation && unit.SourceIndex == 0 ? "Unknown" : ship.Nation);
-            if (unit.StationRole != "Default")
-            {
-                mission.Append("StationRole=").AppendLine(unit.StationRole);
-            }
-
-            mission.Append("MissionType=").AppendLine(unit.MissionType);
-            mission.AppendLine("WeaponStatus=Free");
-            mission.AppendLine("RadarsActive=False");
-            mission.AppendLine("ActiveSonarsEnabled=False");
-            if (ship.IsSubmarine)
-            {
-                mission.AppendLine("TowedArrayDeployed=True");
-            }
-            mission.AppendLine("CrewSkill=Trained");
-            mission.AppendLine("Morale=3");
-            mission.AppendLine("RetreatAfterWeaponsExpended=True");
-            mission.Append("RelativePositionInNM=")
-                .Append(unit.X.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
-                .Append(ship.IsSubmarine ? "shallow" : "0").Append(',')
-                .AppendLine(unit.Z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.Append("Telegraph=").AppendLine(
-                unit.Telegraph.ToString(CultureInfo.InvariantCulture));
-            mission.Append("Heading=").AppendLine(unit.Heading.ToString("0", CultureInfo.InvariantCulture));
-            if (unit.Waypoints is not null)
-            {
-                mission.Append("Waypoints=").AppendLine(unit.Waypoints);
-            }
-
-            mission.AppendLine();
-        }
-
-        foreach (DeployedAircraft aircraft in deployment.Aircraft)
-        {
-            mission.Append('[').Append(aircraft.Reference).AppendLine("]");
-            mission.Append("Type=").AppendLine(aircraft.AirPlan.AircraftType);
-            mission.Append("SquadronReference=").AppendLine(aircraft.AirPlan.SquadronReference);
-            mission.Append("LoadoutVariant=").AppendLine(aircraft.AirPlan.LoadoutVariant);
-            mission.Append("MissionType=").AppendLine(aircraft.AirPlan.MissionType);
-            mission.Append("StationRole=").AppendLine(aircraft.StationRole);
-            mission.AppendLine("WeaponStatus=Free");
-            mission.Append("RadarsActive=").AppendLine(
-                aircraft.StationRole == "AEW" || !aircraft.AirPlan.IsHelicopter
-                    ? "True"
-                    : "False");
-            mission.AppendLine("CrewSkill=Trained");
-            mission.Append("RelativePositionInNM=")
-                .Append(aircraft.X.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
-                .Append(aircraft.Altitude.ToString("0", CultureInfo.InvariantCulture)).Append(',')
-                .AppendLine(aircraft.Z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.Append("Telegraph=").AppendLine(aircraft.StationRole == "AEW" ? "2" : "3");
-            mission.Append("Heading=").AppendLine(aircraft.Heading.ToString("0", CultureInfo.InvariantCulture));
-            if (aircraft.Waypoints is not null)
-            {
-                mission.Append("Waypoints=").AppendLine(aircraft.Waypoints);
-            }
-            mission.Append("HomeBase=").AppendLine(aircraft.HomeBaseReference);
-            mission.AppendLine();
+            mission.Write($"{taskforce}_Formation{index + 1}", formation.ToMissionValue());
         }
     }
 
     private static void AppendCivilianTraffic(
-        StringBuilder mission,
+        MissionWriter mission,
         ScenarioParameters parameters)
     {
         System.Random random = new(parameters.Seed ^ 0x43A9E27);
@@ -321,19 +218,14 @@ internal static partial class ScenarioDebugGenerator
             float x = RandomRange(random, -parameters.SeparationNm * 0.35f, parameters.SeparationNm * 0.35f);
             float z = RandomRange(random, 12f, 32f) * (index % 2 == 0 ? 1f : -1f);
             float heading = index % 2 == 0 ? 80f : -100f;
-            mission.Append("[NeutralVessel").Append(index + 1).AppendLine("]");
-            mission.Append("Type=").AppendLine(vesselTypes[random.Next(vesselTypes.Length)]);
-            mission.AppendLine("VariantReference=Random");
-            mission.AppendLine("CrewSkill=Trained");
-            mission.Append("RelativePositionInNM=")
-                .Append(x.ToString("0.##", CultureInfo.InvariantCulture)).Append(",0,")
-                .AppendLine(z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.AppendLine("Telegraph=2");
-            mission.Append("Heading=").AppendLine(heading.ToString("0", CultureInfo.InvariantCulture));
-            mission.Append("Waypoints=")
-                .Append((-x).ToString("0.##", CultureInfo.InvariantCulture)).Append(",0,")
-                .AppendLine(z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.AppendLine();
+            mission.Section($"NeutralVessel{index + 1}");
+            mission.Write("Type", vesselTypes[random.Next(vesselTypes.Length)]);
+            mission.Write("VariantReference", "Random");
+            mission.Write("CrewSkill", "Trained");
+            mission.WritePosition("RelativePositionInNM", x, 0, z);
+            mission.Write("Telegraph", 2);
+            mission.Write("Heading", heading, "0");
+            mission.WritePosition("Waypoints", (-x), 0, z);
         }
 
         string[] aircraftTypes =
@@ -352,37 +244,29 @@ internal static partial class ScenarioDebugGenerator
             int altitude = random.Next(2, 8) * 5000;
             float destinationX = -x;
             float heading = x < 0f ? 90f : -90f;
-            mission.Append("[NeutralAircraft").Append(index + 1).AppendLine("]");
-            mission.Append("Type=").AppendLine(aircraftTypes[random.Next(aircraftTypes.Length)]);
-            mission.AppendLine("SquadronReference=Random");
-            mission.AppendLine("CrewSkill=Trained");
-            mission.Append("RelativePositionInNM=")
-                .Append(x.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
-                .Append(altitude).Append(',')
-                .AppendLine(z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.AppendLine("Telegraph=3");
-            mission.Append("Heading=").AppendLine(heading.ToString("0", CultureInfo.InvariantCulture));
-            mission.Append("Waypoints=")
-                .Append(destinationX.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
-                .Append(altitude).Append(',')
-                .AppendLine(z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.AppendLine();
+            mission.Section($"NeutralAircraft{index + 1}");
+            mission.Write("Type", aircraftTypes[random.Next(aircraftTypes.Length)]);
+            mission.Write("SquadronReference", "Random");
+            mission.Write("CrewSkill", "Trained");
+            mission.WritePosition("RelativePositionInNM", x, altitude, z);
+            mission.Write("Telegraph", 3);
+            mission.Write("Heading", heading, "0");
+            mission.WritePosition("Waypoints", destinationX, altitude, z);
         }
     }
 
-    private static void AppendStartTrigger(StringBuilder mission, string name)
+    private static void AppendStartTrigger(MissionWriter mission, string name)
     {
-        mission.AppendLine("[Trigger1]");
-        mission.Append("Name=").AppendLine(name);
-        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
-        mission.AppendLine();
+        mission.Section("Trigger1");
+        mission.Write("Name", name);
+        mission.Write("Condition_Condition1_Type", "OnMissionStart");
+        mission.Write("ConditionsCompleted", "<Condition1>");
+        mission.Write("Action_Taskforce1_Message", "Taskforce1StartMessage");
+        mission.Write("Action_Taskforce2_Message", "Taskforce2StartMessage");
     }
 
     private static void AppendTriggers(
-        StringBuilder mission,
+        MissionWriter mission,
         IEnumerable<string> firstReferences,
         IEnumerable<string> secondReferences,
         int firstLossesToBreak,
@@ -394,80 +278,70 @@ internal static partial class ScenarioDebugGenerator
     }
 
     private static void AppendOutcomeTrigger(
-        StringBuilder mission,
+        MissionWriter mission,
         int triggerNumber,
         string losingTaskforce,
         IEnumerable<string> unitReferences,
         int lossesToBreak)
     {
         string winningTaskforce = losingTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1";
-        mission.Append("[Trigger").Append(triggerNumber).AppendLine("]");
-        mission.Append("Name=").Append(losingTaskforce).AppendLine(" loses combat cohesion");
-        mission.AppendLine("Condition_Condition1_Type=UnitDestroyed");
-        mission.Append("Condition_Condition1_Units=")
-            .AppendJoin(',', unitReferences).AppendLine();
-        mission.Append("Condition_Condition1_MinimumUnits=").AppendLine(lossesToBreak.ToString(CultureInfo.InvariantCulture));
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.Append("Action_").Append(losingTaskforce).Append("_Message=")
-            .Append(losingTaskforce).AppendLine("DefeatMessage");
-        mission.Append("Action_").Append(winningTaskforce).Append("_Message=")
-            .Append(winningTaskforce).AppendLine("VictoryMessage");
-        mission.Append("Action_Victory=").AppendLine(winningTaskforce);
-        mission.Append("Action_ObjectivesFailed=").Append(losingTaskforce)
-            .Append("BreakEnemy,").Append(losingTaskforce).AppendLine("PreserveForce");
-        mission.Append("Action_ObjectivesCompleted=").Append(winningTaskforce)
-            .Append("BreakEnemy,").Append(winningTaskforce).AppendLine("PreserveForce");
-        mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine();
+        mission.Section($"Trigger{triggerNumber}");
+        mission.Write("Name", $"{losingTaskforce} loses combat cohesion");
+        mission.Write("Condition_Condition1_Type", "UnitDestroyed");
+        mission.WriteList("Condition_Condition1_Units", unitReferences);
+        mission.Write("Condition_Condition1_MinimumUnits", lossesToBreak);
+        mission.Write("ConditionsCompleted", "<Condition1>");
+        mission.Write($"Action_{losingTaskforce}_Message", $"{losingTaskforce}DefeatMessage");
+        mission.Write($"Action_{winningTaskforce}_Message", $"{winningTaskforce}VictoryMessage");
+        mission.Write("Action_Victory", winningTaskforce);
+        mission.Write("Action_ObjectivesFailed", $"{losingTaskforce}BreakEnemy,{losingTaskforce}PreserveForce");
+        mission.Write("Action_ObjectivesCompleted", $"{winningTaskforce}BreakEnemy,{winningTaskforce}PreserveForce");
+        mission.Write("Action_EndMission", true);
     }
 
-    private static void AppendOpposedObjectives(StringBuilder mission, string firstObjective, string secondObjective)
+    private static void AppendOpposedObjectives(MissionWriter mission, string firstObjective, string secondObjective)
     {
-        mission.AppendLine("[Taskforce1_Objectives]");
-        mission.Append(firstObjective).AppendLine("=50,-50,,Main");
-        mission.AppendLine();
-        mission.AppendLine("[Taskforce2_Objectives]");
-        mission.Append(secondObjective).AppendLine("=50,-50,,Main");
-        mission.AppendLine();
+        mission.Section("Taskforce1_Objectives");
+        mission.Write(firstObjective, "50,-50,,Main");
+
+        mission.Section("Taskforce2_Objectives");
+        mission.Write(secondObjective, "50,-50,,Main");
     }
 
-    private static void AppendObjectives(StringBuilder mission)
+    private static void AppendObjectives(MissionWriter mission)
     {
-        mission.AppendLine("[Taskforce1_Objectives]");
-        mission.AppendLine("Taskforce1BreakEnemy=25,-25,,Main");
-        mission.AppendLine("Taskforce1PreserveForce=10,-10,");
-        mission.AppendLine();
-        mission.AppendLine("[Taskforce2_Objectives]");
-        mission.AppendLine("Taskforce2BreakEnemy=25,-25,,Main");
-        mission.AppendLine("Taskforce2PreserveForce=10,-10,");
-        mission.AppendLine();
+        mission.Section("Taskforce1_Objectives");
+        mission.Write("Taskforce1BreakEnemy", "25,-25,,Main");
+        mission.Write("Taskforce1PreserveForce", "10,-10,");
+
+        mission.Section("Taskforce2_Objectives");
+        mission.Write("Taskforce2BreakEnemy", "25,-25,,Main");
+        mission.Write("Taskforce2PreserveForce", "10,-10,");
     }
 
-    private static void AppendRetreatAnchors(StringBuilder mission, FleetClashMatch match)
+    private static void AppendRetreatAnchors(MissionWriter mission, FleetClashMatch match)
     {
-        mission.AppendLine("[GameplayAnchors]");
-        mission.AppendLine("NumberOfAnchors=2");
-        mission.AppendLine("Anchor1=RetreatPoint_Blue_1");
-        mission.AppendLine("Anchor2=RetreatPoint_Red_1");
-        mission.AppendLine();
+        mission.Section("GameplayAnchors");
+        mission.Write("NumberOfAnchors", 2);
+        mission.Write("Anchor1", "RetreatPoint_Blue_1");
+        mission.Write("Anchor2", "RetreatPoint_Red_1");
+
         AppendRetreatAnchor(mission, "RetreatPoint_Blue_1", "Blue", match.Latitude, match.Longitude - 3f);
         AppendRetreatAnchor(mission, "RetreatPoint_Red_1", "Red", match.Latitude, match.Longitude + 3f);
     }
 
     private static void AppendRetreatAnchor(
-        StringBuilder mission,
+        MissionWriter mission,
         string name,
         string side,
         float latitude,
         float longitude)
     {
-        mission.Append('[').Append(name).AppendLine("]");
-        mission.AppendLine("Type=GameplayAnchor");
-        mission.Append("Side=").AppendLine(side);
-        mission.Append("GeoPoint=").Append(latitude.ToString("0.####", CultureInfo.InvariantCulture))
-            .Append(',').AppendLine(longitude.ToString("0.####", CultureInfo.InvariantCulture));
-        mission.AppendLine("AltitudeM=0");
-        mission.AppendLine("RetreatPoint=True");
-        mission.AppendLine();
+        mission.Section(name);
+        mission.Write("Type", "GameplayAnchor");
+        mission.Write("Side", side);
+        mission.Write("GeoPoint", $"{latitude:0.####},{longitude:0.####}");
+        mission.Write("AltitudeM", 0);
+        mission.Write("RetreatPoint", true);
     }
 }

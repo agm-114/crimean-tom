@@ -42,6 +42,10 @@ The campaign state class is split into `CampaignOperationsState.cs` for lifecycl
 
 `Scenarios/ScenarioMissionWriter.cs` contains the fleet-clash writer and shared mission headers, unit counts, startup triggers, and opposed objective declarations. Route and passage writers reuse these helpers but keep their mission-specific victory conditions. Route missions pass their extra protected ships and formations to the common header writer.
 
+`Scenarios/MissionWriter.cs` writes INI sections and typed values in memory, with invariant numeric formatting, comma-separated lists, position formatting, and escaped newlines. It is not a parser and does not touch Sea Power's global INI cache. Keep native `IniHandler` for reading and editing campaign files. `Fleet/FleetDeployment.cs` owns deployed ship and aircraft serialization through `WriteTo(MissionWriter)`; formations provide `ToMissionValue()`. Protected convoy records also write their own fields. Generators choose the units and orders, then ask these records to write them.
+
+Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit sections. Use `mission.Write("Heading", heading, "0")` for a formatted number and `mission.WritePosition("RelativePositionInNM", x, altitude, z)` for a position. Pass interpolated values directly to `Write` so its `FormattableString` overload formats numbers with invariant culture.
+
 `UI/` contains all three windows, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
 
 Folders do not change the `CrimeanTom.SeaPower` namespace, reflected type names or deployment locations. The project already enables SDK implicit usings; avoid repeating those imports in every file.
@@ -184,6 +188,8 @@ The current branch has compiled and deployed successfully, and a fresh `Player.l
 The subsequent design-adjustment build on 2026-09-05 compiled without warnings. Its DLL SHA256 is `2F98A089C8258020004B5B5948ECA3BB51C44E7C202C73F65DD109CC0692344C`. The fresh launch attempt was blocked before game startup: Steam's `console_log.txt` at 08:14:13 reported `SynchronizingCloud "cloudconflict"` and was waiting for the user's response. No new Sea Power process or Player.log appeared within 55 seconds. The earlier startup marker is not verification of this build. Do not resolve the cloud conflict by choosing a save on the user's behalf.
 
 The cleanup build on 2026-09-05 compiled with zero warnings and errors. Sea Power `0.8.2-23444+s358` launched successfully and wrote a fresh mod-load marker at `03:11:49 UTC`, without a Harmony patch exception. Its DLL SHA256 is `AD20781BD87F0D1E769892767F4B166435FBD00A303B514BFBCA65BDCF21EA69`. The agent-launched game was closed afterward. This verifies startup only, not the refactored windows or a complete battle cycle. No automated tests were added or run.
+
+The MissionWriter build on 2026-09-05 also passed startup and generated all three scenario templates under Sea Power `0.8.2-23444+s358`. File checks confirmed unit counts, formation references, submarine depth tokens, and aircraft fields and home bases; both fleet-clash templates contained seven deployed aircraft/helicopters. The fresh load marker appeared at `04:10:35 UTC`. DLL SHA256: `329A1F5E641FA522157260BCB52F1233888F03DC2861C99B7B7B97D353040E0A`. This did not verify tactical loading or the campaign passage mission.
 
 Before calling the integration playable, manually verify this complete path:
 
