@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace CrimeanTom.SeaPower;
 
 // Campaign economics, independent of Unity and the native UI.

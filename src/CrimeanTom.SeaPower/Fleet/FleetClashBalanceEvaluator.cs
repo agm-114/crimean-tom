@@ -1,5 +1,3 @@
-using System;
-
 namespace CrimeanTom.SeaPower;
 
 internal static class FleetClashBalanceEvaluator
