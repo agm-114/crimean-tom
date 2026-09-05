@@ -101,7 +101,7 @@ internal static partial class ScenarioDebugGenerator
             .AppendLine(routeEnd.ToString("0.##", CultureInfo.InvariantCulture));
         mission.AppendLine();
         AppendEnvironment(mission, match, parameters);
-        AppendPassageMission(mission, match, size, parameters, passageForce, blockingForce);
+        AppendMission(mission, match, size, "Taskforce1", parameters, passageForce, blockingForce);
         AppendFleet(mission, passageForce, maskFirstNation: false);
         AppendFleet(mission, blockingForce, maskFirstNation: false);
         AppendCivilianTraffic(mission, parameters);
@@ -111,64 +111,9 @@ internal static partial class ScenarioDebugGenerator
             requiredArrivals,
             lossThreshold,
             passageTargets);
-        AppendPassageObjectives(mission);
+        AppendOpposedObjectives(mission, "Taskforce1ForcePassage", "Taskforce2DenyPassage");
         AppendRetreatAnchors(mission, match);
         return mission.ToString();
-    }
-
-    private static void AppendPassageMission(
-        StringBuilder mission,
-        FleetClashMatch match,
-        FleetClashSize size,
-        ScenarioParameters parameters,
-        FleetDeployment passageForce,
-        FleetDeployment blockingForce)
-    {
-        mission.AppendLine("[Mission]");
-        mission.Append("Difficulty=").AppendLine(size switch
-        {
-            FleetClashSize.Small => "2",
-            FleetClashSize.Medium => "3",
-            FleetClashSize.Large => "4",
-            _ => "3",
-        });
-        mission.AppendLine("PlayerTaskforce=Taskforce1");
-        mission.AppendLine("EnemyTaskforce=Taskforce2");
-        mission.Append("Taskforce1_Nation=").AppendLine(match.First.PrimaryNation);
-        mission.Append("Taskforce2_Nation=").AppendLine(match.Second.PrimaryNation);
-        mission.AppendLine("AllowMoraleToAffectAI=True");
-        mission.Append("NumberOfTaskforce1Vessels=").AppendLine(
-            passageForce.Units.Count(unit => !unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Vessels=").AppendLine(
-            blockingForce.Units.Count(unit => !unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Submarines=").AppendLine(
-            passageForce.Units.Count(unit => unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Submarines=").AppendLine(
-            blockingForce.Units.Count(unit => unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Aircraft=").AppendLine(
-            passageForce.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Aircraft=").AppendLine(
-            blockingForce.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Helicopters=").AppendLine(
-            passageForce.Aircraft.Count(unit => unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Helicopters=").AppendLine(
-            blockingForce.Aircraft.Count(unit => unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralVessels=").AppendLine(
-            parameters.NeutralVesselCount.ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralAircraft=").AppendLine(
-            parameters.NeutralAircraftCount.ToString(CultureInfo.InvariantCulture));
-        AppendFormations(mission, "Taskforce1", passageForce.Formations);
-        AppendFormations(mission, "Taskforce2", blockingForce.Formations);
-        mission.AppendLine("NumberOfTriggers=3");
-        mission.AppendLine();
     }
 
     private static void AppendPassageTriggers(
@@ -179,13 +124,7 @@ internal static partial class ScenarioDebugGenerator
         IEnumerable<string> passageUnitReferences)
     {
         string joinedReferences = string.Join(',', passageUnitReferences);
-        mission.AppendLine("[Trigger1]");
-        mission.AppendLine("Name=Issue passage orders");
-        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
-        mission.AppendLine();
+        AppendStartTrigger(mission, "Issue passage orders");
 
         mission.AppendLine("[Trigger2]");
         mission.AppendLine("Name=Task force reaches the passage exit");
@@ -220,16 +159,6 @@ internal static partial class ScenarioDebugGenerator
         mission.AppendLine("Action_ObjectivesCompleted=Taskforce2DenyPassage");
         mission.AppendLine("Action_ObjectivesFailed=Taskforce1ForcePassage");
         mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine();
-    }
-
-    private static void AppendPassageObjectives(StringBuilder mission)
-    {
-        mission.AppendLine("[Taskforce1_Objectives]");
-        mission.AppendLine("Taskforce1ForcePassage=50,-50,,Main");
-        mission.AppendLine();
-        mission.AppendLine("[Taskforce2_Objectives]");
-        mission.AppendLine("Taskforce2DenyPassage=50,-50,,Main");
         mission.AppendLine();
     }
 

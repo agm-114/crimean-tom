@@ -40,7 +40,9 @@ Do not add a campaign server, background war simulation, live unit streaming, a 
 
 The campaign state class is split into `CampaignOperationsState.cs` for lifecycle, `CampaignEconomy.cs` for purchases and salvage, `CampaignReadiness.cs` for groups and refit, `CampaignPersistence.cs` for save access, and `CampaignDebug.cs` for autoresolve. These are partial declarations of the same type, so private state, save keys and external callers stay unchanged.
 
-`Scenarios/ScenarioMissionWriter.cs` contains the fleet-clash INI writer separately from launch and generation orchestration. `UI/` contains all three windows, shared `NativeUi` styling, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
+`Scenarios/ScenarioMissionWriter.cs` contains the fleet-clash writer and shared mission headers, unit counts, startup triggers, and opposed objective declarations. Route and passage writers reuse these helpers but keep their mission-specific victory conditions. Route missions pass their extra protected ships and formations to the common header writer.
+
+`UI/` contains all three windows, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
 
 Folders do not change the `CrimeanTom.SeaPower` namespace, reflected type names or deployment locations. The project already enables SDK implicit usings; avoid repeating those imports in every file.
 

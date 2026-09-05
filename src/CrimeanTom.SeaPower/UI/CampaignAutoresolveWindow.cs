@@ -97,7 +97,7 @@ internal static class CampaignAutoresolveWindow
         content.Children.Add(status);
 
         Grid overlay = CreateCampaignOverlay(content, host, 600f, 760f);
-        cancel.Click += (_, _) => Close(overlay, host);
+        cancel.Click += (_, _) => CloseWindow(overlay, host, ref _openPanel);
         defeat.Click += (_, _) => Resolve(mission.SelectedIndex + 1, false, status, overlay, host);
         victory.Click += (_, _) => Resolve(mission.SelectedIndex + 1, true, status, overlay, host);
         _openPanel = overlay;
@@ -120,17 +120,8 @@ internal static class CampaignAutoresolveWindow
         status.Text = message + " Opening post-battle management...";
         CampaignDebugController.RunNextFrame(() =>
         {
-            Close(panel, host);
+            CloseWindow(panel, host, ref _openPanel);
             CampaignDebugController.RunNextFrame(CampaignManagementWindow.Show);
         });
-    }
-
-    private static void Close(FrameworkElement panel, FrameworkElement host)
-    {
-        WindowHostCommands.CloseWindowCommand.Execute(panel, host);
-        if (ReferenceEquals(_openPanel, panel))
-        {
-            _openPanel = null;
-        }
     }
 }
