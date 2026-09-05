@@ -1,4 +1,3 @@
-using System.Globalization;
 using SeaPower;
 using UnityEngine;
 
@@ -110,37 +109,18 @@ internal static partial class ScenarioDebugGenerator
         int lossThreshold,
         IEnumerable<string> passageUnitReferences)
     {
-        string joinedReferences = string.Join(',', passageUnitReferences);
+        string[] references = passageUnitReferences.ToArray();
         AppendStartTrigger(mission, "Issue passage orders");
 
-        mission.Section("Trigger2");
-        mission.Write("Name", "Task force reaches the passage exit");
-        mission.Write("Condition_Condition1_Type", "UnitsInTheArea");
-        mission.WritePosition("Condition_Condition1_PositionNM", destinationX, 0, 0);
-        mission.Write("Condition_Condition1_AreaRadiusNM", 6);
-        mission.Write("Condition_Condition1_AreaDisplaySide", "Blue");
-        mission.Write("Condition_Condition1_Units", joinedReferences);
-        mission.Write("Condition_Condition1_MinimumUnits", requiredArrivals);
-        mission.Write("ConditionsCompleted", "<Condition1>");
-        mission.Write("Action_Taskforce1_Message", "Taskforce1PassageVictoryMessage");
-        mission.Write("Action_Taskforce2_Message", "Taskforce2PassageDefeatMessage");
-        mission.Write("Action_Victory", "Taskforce1");
-        mission.Write("Action_ObjectivesCompleted", "Taskforce1ForcePassage");
-        mission.Write("Action_ObjectivesFailed", "Taskforce2DenyPassage");
-        mission.Write("Action_EndMission", true);
+        new MissionTrigger(2, "Task force reaches the passage exit",
+            new(references, requiredArrivals, new(new(destinationX, 0, 0), 6, "Blue")),
+            new("Taskforce1", "Taskforce1PassageVictoryMessage", "Taskforce2PassageDefeatMessage",
+                ["Taskforce1ForcePassage"], ["Taskforce2DenyPassage"])).WriteTo(mission);
 
-        mission.Section("Trigger3");
-        mission.Write("Name", "Task force can no longer force the passage");
-        mission.Write("Condition_Condition1_Type", "UnitDestroyed");
-        mission.Write("Condition_Condition1_Units", joinedReferences);
-        mission.Write("Condition_Condition1_MinimumUnits", lossThreshold);
-        mission.Write("ConditionsCompleted", "<Condition1>");
-        mission.Write("Action_Taskforce2_Message", "Taskforce2PassageVictoryMessage");
-        mission.Write("Action_Taskforce1_Message", "Taskforce1PassageDefeatMessage");
-        mission.Write("Action_Victory", "Taskforce2");
-        mission.Write("Action_ObjectivesCompleted", "Taskforce2DenyPassage");
-        mission.Write("Action_ObjectivesFailed", "Taskforce1ForcePassage");
-        mission.Write("Action_EndMission", true);
+        new MissionTrigger(3, "Task force can no longer force the passage",
+            new(references, lossThreshold),
+            new("Taskforce2", "Taskforce2PassageVictoryMessage", "Taskforce1PassageDefeatMessage",
+                ["Taskforce2DenyPassage"], ["Taskforce1ForcePassage"])).WriteTo(mission);
     }
 
     internal static void FinalizeCampaignContract(string generatedMissionPath)
@@ -197,14 +177,12 @@ internal static partial class ScenarioDebugGenerator
                     performLogging: false);
                 string[] coordinates = position.Split(',');
                 string depth = coordinates.Length > 1 ? coordinates[1].Trim() : "0";
-                string lane = coordinates.Length > 2 ? coordinates[2].Trim() : "0";
                 missionIni.writeValue(reference, "Heading", 90);
                 missionIni.writeValue(reference, "Telegraph", 2);
                 missionIni.writeValue(
                     reference,
                     "Waypoints",
-                    FormattableString.Invariant(
-                        $"{destinationX:0.##},{depth},0/SetWeaponStatus,Free"));
+                    new MissionWaypoint(new(destinationX, 0, 0, depth), WaypointOrder.WeaponsFree).ToMissionValue());
             }
 
             missionIni.saveFile(overwrite: true);

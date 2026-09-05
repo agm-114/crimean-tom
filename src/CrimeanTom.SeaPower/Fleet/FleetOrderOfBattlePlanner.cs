@@ -478,7 +478,7 @@ internal static class FleetOrderOfBattlePlanner
         };
     }
 
-    private static string BuildRoute(
+    private static IReadOnlyList<MissionWaypoint> BuildRoute(
         float groupX,
         float baseX,
         float groupZ,
@@ -492,8 +492,11 @@ internal static class FleetOrderOfBattlePlanner
             float withdrawalDrift = ((groupIndex % 2 == 0) ? 1f : -1f) * 4f;
             float firstWithdrawal = Math.Clamp(engagementSeparationNm * 0.18f, 20f, 32f);
             float secondWithdrawal = Math.Clamp(engagementSeparationNm * 0.36f, 42f, 62f);
-            return FormattableString.Invariant(
-                $"{groupX - (direction * firstWithdrawal):0.##},0,{groupZ + withdrawalDrift:0.##}|{groupX - (direction * secondWithdrawal):0.##},0,{groupZ + (withdrawalDrift * 0.5f):0.##}");
+            return
+            [
+                new(new(groupX - (direction * firstWithdrawal), 0, groupZ + withdrawalDrift)),
+                new(new(groupX - (direction * secondWithdrawal), 0, groupZ + (withdrawalDrift * 0.5f))),
+            ];
         }
 
         float firstLeg = kind == FleetGroupKind.SubmarinePatrol
@@ -501,12 +504,15 @@ internal static class FleetOrderOfBattlePlanner
             : Math.Clamp(engagementSeparationNm * 0.28f, 24f, 45f);
         float lateralDrift = ((groupIndex % 2 == 0) ? 1f : -1f) *
             (kind == FleetGroupKind.SubmarinePatrol ? 8f : 4f);
-        string height = kind == FleetGroupKind.SubmarinePatrol ? "shallow" : "0";
-        return FormattableString.Invariant(
-            $"{groupX + (direction * firstLeg):0.##},{height},{groupZ + lateralDrift:0.##}|{-baseX:0.##},{height},{groupZ + (lateralDrift * 0.5f):0.##}/SetWeaponStatus,Free");
+        string? depth = kind == FleetGroupKind.SubmarinePatrol ? "shallow" : null;
+        return
+        [
+            new(new(groupX + (direction * firstLeg), 0, groupZ + lateralDrift, depth)),
+            new(new(-baseX, 0, groupZ + (lateralDrift * 0.5f), depth), WaypointOrder.WeaponsFree),
+        ];
     }
 
-    private static string BuildAirPatrolRoute(
+    private static IReadOnlyList<MissionWaypoint> BuildAirPatrolRoute(
         float groupX,
         float groupZ,
         float direction,
@@ -518,11 +524,16 @@ internal static class FleetOrderOfBattlePlanner
         float innerStation = Math.Clamp(engagementSeparationNm * 0.22f, 18f, 36f);
         float outerStation = Math.Clamp(engagementSeparationNm * 0.42f, 35f, 68f);
         float returnStation = Math.Clamp(engagementSeparationNm * 0.13f, 8f, 22f);
-        return FormattableString.Invariant(
-            $"{groupX + (direction * innerStation):0.##},{altitude:0},{groupZ + (lane * 12f):0.##}|{groupX + (direction * outerStation):0.##},{altitude:0},{groupZ + (lane * 5f):0.##}|{groupX + (direction * innerStation):0.##},{altitude:0},{groupZ - (lane * 7f):0.##}|{groupX + (direction * returnStation):0.##},{altitude:0},{groupZ + (lane * 6f):0.##}");
+        return
+        [
+            new(new(groupX + (direction * innerStation), altitude, groupZ + (lane * 12f))),
+            new(new(groupX + (direction * outerStation), altitude, groupZ + (lane * 5f))),
+            new(new(groupX + (direction * innerStation), altitude, groupZ - (lane * 7f))),
+            new(new(groupX + (direction * returnStation), altitude, groupZ + (lane * 6f))),
+        ];
     }
 
-    private static string BuildSonobuoyBarrierRoute(
+    private static IReadOnlyList<MissionWaypoint> BuildSonobuoyBarrierRoute(
         float groupX,
         float groupZ,
         float direction,
@@ -531,26 +542,23 @@ internal static class FleetOrderOfBattlePlanner
         string? sonobuoyAmmunition,
         float engagementSeparationNm)
     {
-        List<string> waypoints = [];
+        List<MissionWaypoint> waypoints = [];
         float start = Math.Clamp(engagementSeparationNm * 0.1f, 9f, 17f);
         float interval = Math.Clamp(engagementSeparationNm * 0.035f, 3.5f, 6f);
         for (int index = 0; index < 6; index++)
         {
             float x = groupX + (direction * (start + (index * interval)));
             float z = groupZ + (lane * (5f + ((index % 2) * 9f)));
-            string waypoint = FormattableString.Invariant($"{x:0.##},{altitude:0},{z:0.##}");
-            if (sonobuoyAmmunition is not null)
-            {
-                waypoint += FormattableString.Invariant(
-                    $"/AttackAtWaypoint,{sonobuoyAmmunition},{x:0.##}:{altitude:0}:{z:0.##},1");
-            }
-            waypoints.Add(waypoint);
+            MissionPosition position = new(x, altitude, z);
+            waypoints.Add(new(position, sonobuoyAmmunition is null
+                ? null
+                : new AttackAtWaypointOrder(sonobuoyAmmunition, position)));
         }
 
-        return string.Join("|", waypoints);
+        return waypoints;
     }
 
-    private static string BuildAewOrbitRoute(
+    private static IReadOnlyList<MissionWaypoint> BuildAewOrbitRoute(
         float groupX,
         float groupZ,
         float direction,
@@ -559,8 +567,13 @@ internal static class FleetOrderOfBattlePlanner
     {
         float innerStation = Math.Clamp(engagementSeparationNm * 0.28f, 16f, 48f);
         float outerStation = Math.Clamp(engagementSeparationNm * 0.36f, 24f, 62f);
-        return FormattableString.Invariant(
-            $"{groupX + (direction * innerStation):0.##},{altitude:0},{groupZ + 7f:0.##}|{groupX + (direction * outerStation):0.##},{altitude:0},{groupZ + 3f:0.##}|{groupX + (direction * outerStation):0.##},{altitude:0},{groupZ - 7f:0.##}|{groupX + (direction * innerStation):0.##},{altitude:0},{groupZ - 3f:0.##}");
+        return
+        [
+            new(new(groupX + (direction * innerStation), altitude, groupZ + 7f)),
+            new(new(groupX + (direction * outerStation), altitude, groupZ + 3f)),
+            new(new(groupX + (direction * outerStation), altitude, groupZ - 7f)),
+            new(new(groupX + (direction * innerStation), altitude, groupZ - 3f)),
+        ];
     }
 
     private static float NormalizeHeading(float heading)

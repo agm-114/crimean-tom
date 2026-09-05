@@ -1,5 +1,5 @@
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 using System.Globalization;
-using HarmonyLib;
 using SeaPower;
 using UnityEngine;
 
@@ -56,9 +56,8 @@ internal static partial class CampaignOperationsState
         stateIni.saveFile(overwrite: true);
 
         CampaignContractOffer contract = CampaignContractOffers.Get(missionIndex);
-        AccessTools.Method(AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceSaveManager"),
-            "ApplyCompletionRewards")?.Invoke(null,
-                [stateIni, missionIndex, playerVictory ? contract.Payment : 0, playerVictory ? contract.CapReward : 0]);
+        ApplyCompletionRewards(stateIni, missionIndex,
+            playerVictory ? contract.Payment : 0, playerVictory ? contract.CapReward : 0);
         stateIni.saveFile(overwrite: true);
 
         Write(AutoresolveCounterKey, sequence);

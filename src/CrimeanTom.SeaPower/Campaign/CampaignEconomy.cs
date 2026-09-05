@@ -1,3 +1,4 @@
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 using SeaPower;
 using SeapowerUI.ViewModels;
 
@@ -230,7 +231,7 @@ internal static partial class CampaignOperationsState
         int pointsCharged)
     {
         LinearCampaignTaskForceSnapshot snapshot = ReadCurrentSnapshot();
-        if (CommitPurchasesMethod is null)
+        if (!CanCommitPurchases)
         {
             return false;
         }
@@ -241,9 +242,8 @@ internal static partial class CampaignOperationsState
             variantReference,
             fullPrice);
         int remaining = Math.Max(0, snapshot.AvailablePoints - Math.Max(0, pointsCharged));
-        object? result = CommitPurchasesMethod.Invoke(
-            null,
-            [snapshot.TaskForceName, new[] { item }, remaining, snapshot.CapPoints]);
+        LinearCampaignTaskForceSnapshot? result = CommitPurchases(
+            snapshot.TaskForceName, [item], remaining, snapshot.CapPoints);
         return result is LinearCampaignTaskForceSnapshot updated && updated.Items.Count > snapshot.Items.Count;
     }
 

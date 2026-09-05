@@ -1,5 +1,4 @@
-using System.Collections;
-using HarmonyLib;
+using static CrimeanTom.SeaPower.NativeCampaignAccess;
 
 namespace CrimeanTom.SeaPower;
 
@@ -62,20 +61,11 @@ internal static class CampaignContractOffers
 
     internal static void Describe(object? mission)
     {
-        int index = CampaignOperationsState.GetMissionIndex(mission);
+        int index = GetMissionIndex(mission);
         if (!CampaignOperationsState.IsActiveCampaign || index is < 1 or > 4 || mission is null) return;
         CampaignContractOffer offer = Get(index);
-        if (AccessTools.Property(mission.GetType(), "LanguageDataItems")?.GetValue(mission) is IEnumerable languages)
-        {
-            foreach (object language in languages)
-            {
-                foreach (string property in new[] { "MissionIntro", "MissionDescription" })
-                    AccessTools.Property(language.GetType(), property)?.SetValue(language, offer.Description(index));
-                AccessTools.Property(language.GetType(), "MissionResupplyRules")?.SetValue(language,
-                    "Initial hull purchases use the builder. After the first sortie, buy hulls in the market. Aircraft, repair, rearm and loadouts remain available in native preparation.");
-            }
-        }
-        AccessTools.Property(mission.GetType(), "MissionDifficulty")?.SetValue(mission, (int)offer.Size + 1);
-        AccessTools.Method(mission.GetType(), "NotifyPropertyChanged", [typeof(string)])?.Invoke(mission, ["SelectedLanguage"]);
+        DescribeMission(mission, offer.Description(index),
+            "Initial hull purchases use the builder. After the first sortie, buy hulls in the market. Aircraft, repair, rearm and loadouts remain available in native preparation.",
+            (int)offer.Size + 1);
     }
 }
