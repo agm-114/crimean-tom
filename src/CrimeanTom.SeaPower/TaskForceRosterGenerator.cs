@@ -150,6 +150,16 @@ internal static class TaskForceRosterGenerator
             .ToArray();
     }
 
+    internal static IReadOnlyCollection<RosterUnitOption> GetAllVesselOptions() =>
+        _rosterVariants
+            .Where(variant =>
+                string.Equals(variant.UnitFolder, "vessels", StringComparison.OrdinalIgnoreCase))
+            .Select(variant => new RosterUnitOption(
+                variant.UnitType,
+                variant.VariantReference,
+                variant.Nation))
+            .ToArray();
+
     internal static RosterStrength GetRosterStrength(IEnumerable<string> nations)
     {
         HashSet<string> selectedNations = new(

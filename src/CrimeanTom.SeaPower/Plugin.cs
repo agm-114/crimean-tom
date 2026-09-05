@@ -9,6 +9,7 @@ public sealed class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
+        CampaignDebugController.EnsureInstalled();
         TaskForceRosterGenerator.WriteNativeRoster();
         new Harmony("crimean-tom.operations").PatchAll(typeof(Plugin).Assembly);
         ScenarioDebugGenerator.WriteDebugScenarios();

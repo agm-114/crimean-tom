@@ -1,0 +1,194 @@
+using System;
+
+using HarmonyLib;
+
+using Noesis;
+
+using SeapowerUI;
+
+using UnityEngine;
+
+namespace CrimeanTom.SeaPower;
+
+internal static class CampaignAutoresolveWindow
+{
+    private static FrameworkElement? _openPanel;
+
+    private static readonly SolidColorBrush OverlayBrush =
+        new(Noesis.Color.FromArgb(190, 9, 11, 13));
+
+    private static readonly SolidColorBrush PanelBrush =
+        new(Noesis.Color.FromArgb(255, 35, 38, 41));
+
+    private static readonly SolidColorBrush BorderBrush =
+        new(Noesis.Color.FromArgb(255, 87, 95, 101));
+
+    private static readonly SolidColorBrush TextBrush =
+        new(Noesis.Color.FromArgb(255, 232, 234, 235));
+
+    private static readonly SolidColorBrush MutedTextBrush =
+        new(Noesis.Color.FromArgb(255, 164, 171, 176));
+
+    internal static void Show()
+    {
+        if (CampaignOperationsState.HasPendingBattle)
+        {
+            CampaignManagementWindow.Show();
+            return;
+        }
+
+        FrameworkElement? host = GetCampaignHost();
+        if (host is null || !CampaignOperationsState.IsActiveCampaign)
+        {
+            return;
+        }
+
+        if (_openPanel is not null)
+        {
+            return;
+        }
+
+        StackPanel content = new()
+        {
+            Margin = new Thickness(26f),
+        };
+        content.Children.Add(CreateText("CAMPAIGN AUTORESOLVE", 26f, TextBrush));
+        TextBlock explanation = CreateText(
+            "Debug tool: writes a deterministic after-action result and opens the real post-battle management flow. It does not simulate tactical damage, ammunition, or combat duration.",
+            14f,
+            MutedTextBrush);
+        explanation.TextWrapping = TextWrapping.Wrap;
+        explanation.Margin = new Thickness(0f, 6f, 0f, 18f);
+        content.Children.Add(explanation);
+
+        Grid selectorRow = new()
+        {
+            Margin = new Thickness(0f, 0f, 0f, 18f),
+        };
+        selectorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1f, GridUnitType.Star) });
+        selectorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        selectorRow.Children.Add(CreateText("Contract to resolve", 16f, TextBrush));
+        ComboBox mission = new()
+        {
+            Width = 260f,
+            ItemsSource = new[]
+            {
+                "1  Fleet Clash",
+                "2  Route Escort",
+                "3  Route Interdiction",
+                "4  Strait Passage",
+            },
+            SelectedIndex = 3,
+        };
+        Grid.SetColumn(mission, 1);
+        selectorRow.Children.Add(mission);
+        content.Children.Add(selectorRow);
+
+        TextBlock status = CreateText(string.Empty, 14f, TextBrush);
+        status.TextWrapping = TextWrapping.Wrap;
+        status.Margin = new Thickness(0f, 12f, 0f, 0f);
+
+        StackPanel actions = new()
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        Button cancel = new()
+        {
+            Content = "Cancel",
+            MinWidth = 120f,
+            Margin = new Thickness(0f, 0f, 8f, 0f),
+        };
+        Button defeat = new()
+        {
+            Content = "Simulate defeat",
+            MinWidth = 160f,
+            Margin = new Thickness(0f, 0f, 8f, 0f),
+        };
+        Button victory = new()
+        {
+            Content = "Simulate victory",
+            MinWidth = 160f,
+        };
+        actions.Children.Add(cancel);
+        actions.Children.Add(defeat);
+        actions.Children.Add(victory);
+        content.Children.Add(actions);
+        content.Children.Add(status);
+
+        Grid overlay = CreateOverlay(content, host);
+        cancel.Click += (_, _) => Close(overlay, host);
+        defeat.Click += (_, _) => Resolve(mission.SelectedIndex + 1, false, status, overlay, host);
+        victory.Click += (_, _) => Resolve(mission.SelectedIndex + 1, true, status, overlay, host);
+        _openPanel = overlay;
+        WindowHostCommands.OpenWindowCommand.Execute(overlay, host);
+    }
+
+    private static void Resolve(
+        int missionIndex,
+        bool victory,
+        TextBlock status,
+        FrameworkElement panel,
+        FrameworkElement host)
+    {
+        if (!CampaignOperationsState.DebugAutoresolve(missionIndex, victory, out string message))
+        {
+            status.Text = message;
+            return;
+        }
+
+        status.Text = message + " Opening post-battle management...";
+        CampaignDebugController.RunNextFrame(() =>
+        {
+            Close(panel, host);
+            CampaignDebugController.RunNextFrame(CampaignManagementWindow.Show);
+        });
+    }
+
+    private static Grid CreateOverlay(StackPanel content, FrameworkElement host)
+    {
+        float hostWidth = host.ActualWidth > 0f ? host.ActualWidth : Screen.width;
+        Border dialog = new()
+        {
+            Child = content,
+            Width = Math.Min(760f, Math.Max(600f, hostWidth - 100f)),
+            Background = PanelBrush,
+            BorderBrush = BorderBrush,
+            BorderThickness = new Thickness(1f),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid overlay = new()
+        {
+            Background = OverlayBrush,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        overlay.Children.Add(dialog);
+        return overlay;
+    }
+
+    private static FrameworkElement? GetCampaignHost()
+    {
+        Type? type = AccessTools.TypeByName("SeapowerUI.LinearCampaignView");
+        return type is null
+            ? null
+            : AccessTools.Field(type, "Instance")?.GetValue(null) as FrameworkElement;
+    }
+
+    private static TextBlock CreateText(string text, float size, Brush brush) => new()
+    {
+        Text = text,
+        FontSize = size,
+        Foreground = brush,
+    };
+
+    private static void Close(FrameworkElement panel, FrameworkElement host)
+    {
+        WindowHostCommands.CloseWindowCommand.Execute(panel, host);
+        if (ReferenceEquals(_openPanel, panel))
+        {
+            _openPanel = null;
+        }
+    }
+}

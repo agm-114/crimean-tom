@@ -27,11 +27,13 @@ internal static class VesselCombatProfileReader
 
     private static VesselCombatProfile? ReadFromDisk(string unitType)
     {
-        string path = Path.Combine(
-            Application.streamingAssetsPath,
-            "original",
-            "vessels",
-            $"{unitType}.ini");
+        string path = new[] { "vessels", "submarines" }
+            .Select(folder => Path.Combine(
+                Application.streamingAssetsPath,
+                "original",
+                folder,
+                $"{unitType}.ini"))
+            .FirstOrDefault(File.Exists) ?? string.Empty;
         if (!File.Exists(path))
         {
             return null;
