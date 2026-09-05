@@ -394,42 +394,30 @@ internal static partial class ScenarioDebugGenerator
                 route.ProtectedUnits.Select(unit => unit.Reference));
         }
 
-        StringBuilder mission = new();
-        mission.AppendLine("[Debug]");
-        mission.AppendLine("AllowAIRadarRoutine=True");
-        mission.AppendLine();
-        mission.AppendLine("[Language_en]");
+        MissionWriter mission = new();
+        mission.Section("Debug");
+        mission.Write("AllowAIRadarRoutine", true);
+
+        mission.Section("Language_en");
         if (useLauncherMetadata)
         {
-            mission.AppendLine("Name=Generated Route Operation");
-            mission.AppendLine("Description=Configure an escort or interdiction mission with a protected group on the move.");
+            mission.Write("Name", "Generated Route Operation");
+            mission.Write("Description", "Configure an escort or interdiction mission with a protected group on the move.");
         }
         else
         {
-            mission.Append("Name=Generated ").Append(variantName).Append(" - ")
-                .Append(options.RoutePerspective).Append(" - ").AppendLine(size.ToString());
-            mission.Append("Description=").Append(match.Theater).Append(": ")
-                .Append(escortPerspective ? "escort " : "interdict ")
-                .Append(variantName.ToLowerInvariant()).Append(". ")
-                .Append(escortPerspective
+            mission.Write("Name", $"Generated {variantName} - {options.RoutePerspective} - {size}");
+            mission.Write("Description", $"{match.Theater}: {(escortPerspective ? "escort " : "interdict ")}{variantName.ToLowerInvariant()}. {(escortPerspective
                     ? $"Get {route.RequiredArrivals} of {route.ProtectedUnits.Count} protected ships through. "
-                    : $"Stop {route.ProtectedUnits.Count - route.RequiredArrivals + 1} protected ships. ")
-                .Append("Generation seed ")
-                .Append(parameters.Seed.ToString(CultureInfo.InvariantCulture)).AppendLine(".");
+                    : $"Stop {route.ProtectedUnits.Count - route.RequiredArrivals + 1} protected ships. ")}Generation seed {parameters.Seed}.");
         }
         AppendRouteMessagesAndObjectiveText(mission, match, route, variantName);
         AppendCrimeanTomSettings(mission, alliedReferences, spectator: false);
         AppendEnvironment(mission, match, parameters);
         AppendRouteMission(mission, match, size, playerTaskforce, parameters, route);
-        AppendFleet(
-            mission,
-            route.FirstDeployment,
-            useLauncherMetadata && playerTaskforce == "Taskforce1");
-        AppendProtectedGroup(mission, route.ProtectedUnits);
-        AppendFleet(
-            mission,
-            route.SecondDeployment,
-            useLauncherMetadata && playerTaskforce == "Taskforce2");
+        route.FirstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
+        foreach (RouteProtectedUnit unit in route.ProtectedUnits) unit.WriteTo(mission);
+        route.SecondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
         AppendCivilianTraffic(mission, parameters);
         AppendRouteTriggers(mission, route, playerTaskforce);
         AppendOpposedObjectives(mission, "Taskforce1DeliverProtectedGroup", "Taskforce2StopProtectedGroup");
@@ -438,33 +426,24 @@ internal static partial class ScenarioDebugGenerator
     }
 
     private static void AppendRouteMessagesAndObjectiveText(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetClashMatch match,
         RouteOperationPlan route,
         string variantName)
     {
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
-        mission.Append("Taskforce1StartMessage=ESCORT OPERATION|").Append(match.FirstName)
-            .Append(" escorts are covering a ").Append(variantName.ToLowerInvariant())
-            .Append(" group. Keep formation and get at least ").Append(route.RequiredArrivals)
-            .AppendLine(" protected ships into the marked destination area.|Take station");
-        mission.Append("Taskforce2StartMessage=INTERDICTION OPERATION|").Append(match.SecondName)
-            .Append(" forces must stop the ").Append(variantName.ToLowerInvariant())
-            .Append(" group. Destroy at least ").Append(lossThreshold)
-            .AppendLine(" protected ships before the remainder reaches safety.|Begin search");
-        mission.AppendLine("Taskforce1RouteVictoryMessage=ROUTE COMPLETED|Enough protected ships reached the destination. The route is secure.|End mission");
-        mission.AppendLine("Taskforce2RouteVictoryMessage=ROUTE DENIED|The protected group can no longer complete its mission.|End mission");
-        mission.AppendLine("Taskforce1RouteDefeatMessage=ROUTE DENIED|Too many protected ships were lost. Withdraw the remaining escorts.|End mission");
-        mission.AppendLine("Taskforce2RouteDefeatMessage=TARGETS ESCAPED|Enough protected ships reached safety. Break contact and withdraw.|End mission");
-        mission.Append("Objective_Taskforce1DeliverProtectedGroup=Get at least ")
-            .Append(route.RequiredArrivals).AppendLine(" protected ships to the destination");
-        mission.Append("Objective_Taskforce2StopProtectedGroup=Destroy at least ")
-            .Append(lossThreshold).AppendLine(" protected ships");
-        mission.AppendLine();
+        mission.Write("Taskforce1StartMessage", $"ESCORT OPERATION|{match.FirstName} escorts are covering a {variantName.ToLowerInvariant()} group. Keep formation and get at least {route.RequiredArrivals} protected ships into the marked destination area.|Take station");
+        mission.Write("Taskforce2StartMessage", $"INTERDICTION OPERATION|{match.SecondName} forces must stop the {variantName.ToLowerInvariant()} group. Destroy at least {lossThreshold} protected ships before the remainder reaches safety.|Begin search");
+        mission.Write("Taskforce1RouteVictoryMessage", "ROUTE COMPLETED|Enough protected ships reached the destination. The route is secure.|End mission");
+        mission.Write("Taskforce2RouteVictoryMessage", "ROUTE DENIED|The protected group can no longer complete its mission.|End mission");
+        mission.Write("Taskforce1RouteDefeatMessage", "ROUTE DENIED|Too many protected ships were lost. Withdraw the remaining escorts.|End mission");
+        mission.Write("Taskforce2RouteDefeatMessage", "TARGETS ESCAPED|Enough protected ships reached safety. Break contact and withdraw.|End mission");
+        mission.Write("Objective_Taskforce1DeliverProtectedGroup", $"Get at least {route.RequiredArrivals} protected ships to the destination");
+        mission.Write("Objective_Taskforce2StopProtectedGroup", $"Destroy at least {lossThreshold} protected ships");
     }
 
     private static void AppendRouteMission(
-        StringBuilder mission,
+        MissionWriter mission,
         FleetClashMatch match,
         FleetClashSize size,
         string playerTaskforce,
@@ -487,40 +466,8 @@ internal static partial class ScenarioDebugGenerator
             firstFormations: firstFormations);
     }
 
-    private static void AppendProtectedGroup(
-        StringBuilder mission,
-        IReadOnlyList<RouteProtectedUnit> units)
-    {
-        foreach (RouteProtectedUnit unit in units)
-        {
-            mission.Append('[').Append(unit.Reference).AppendLine("]");
-            mission.Append("Type=").AppendLine(unit.UnitType);
-            mission.Append("VariantReference=").AppendLine(unit.VariantReference);
-            if (!string.IsNullOrWhiteSpace(unit.Nation))
-            {
-                mission.Append("Nation=").AppendLine(unit.Nation);
-            }
-            if (unit.StationRole != "Default")
-            {
-                mission.Append("StationRole=").AppendLine(unit.StationRole);
-            }
-            mission.AppendLine("CrewSkill=Trained");
-            mission.Append("RelativePositionInNM=")
-                .Append(unit.X.ToString("0.##", CultureInfo.InvariantCulture))
-                .Append(",0,")
-                .AppendLine(unit.Z.ToString("0.##", CultureInfo.InvariantCulture));
-            mission.AppendLine("Telegraph=2");
-            mission.AppendLine("Heading=90");
-            if (unit.Waypoints is not null)
-            {
-                mission.Append("Waypoints=").AppendLine(unit.Waypoints);
-            }
-            mission.AppendLine();
-        }
-    }
-
     private static void AppendRouteTriggers(
-        StringBuilder mission,
+        MissionWriter mission,
         RouteOperationPlan route,
         string playerTaskforce)
     {
@@ -528,41 +475,34 @@ internal static partial class ScenarioDebugGenerator
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
         AppendStartTrigger(mission, "Issue route-operation orders");
 
-        mission.AppendLine("[Trigger2]");
-        mission.AppendLine("Name=Protected group reaches destination");
-        mission.AppendLine("Condition_Condition1_Type=UnitsInTheArea");
-        mission.Append("Condition_Condition1_PositionNM=")
-            .Append(route.DestinationX.ToString("0.##", CultureInfo.InvariantCulture))
-            .AppendLine(",0,0");
-        mission.AppendLine("Condition_Condition1_AreaRadiusNM=6");
-        mission.Append("Condition_Condition1_AreaDisplaySide=")
-            .AppendLine(playerTaskforce == "Taskforce1" ? "Blue" : "Red");
-        mission.Append("Condition_Condition1_Units=").AppendLine(references);
-        mission.Append("Condition_Condition1_MinimumUnits=").AppendLine(
-            route.RequiredArrivals.ToString(CultureInfo.InvariantCulture));
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1RouteVictoryMessage");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2RouteDefeatMessage");
-        mission.AppendLine("Action_Victory=Taskforce1");
-        mission.AppendLine("Action_ObjectivesCompleted=Taskforce1DeliverProtectedGroup");
-        mission.AppendLine("Action_ObjectivesFailed=Taskforce2StopProtectedGroup");
-        mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine();
+        mission.Section("Trigger2");
+        mission.Write("Name", "Protected group reaches destination");
+        mission.Write("Condition_Condition1_Type", "UnitsInTheArea");
+        mission.WritePosition("Condition_Condition1_PositionNM", route.DestinationX, 0, 0);
+        mission.Write("Condition_Condition1_AreaRadiusNM", 6);
+        mission.Write("Condition_Condition1_AreaDisplaySide", playerTaskforce == "Taskforce1" ? "Blue" : "Red");
+        mission.Write("Condition_Condition1_Units", references);
+        mission.Write("Condition_Condition1_MinimumUnits", route.RequiredArrivals);
+        mission.Write("ConditionsCompleted", "<Condition1>");
+        mission.Write("Action_Taskforce1_Message", "Taskforce1RouteVictoryMessage");
+        mission.Write("Action_Taskforce2_Message", "Taskforce2RouteDefeatMessage");
+        mission.Write("Action_Victory", "Taskforce1");
+        mission.Write("Action_ObjectivesCompleted", "Taskforce1DeliverProtectedGroup");
+        mission.Write("Action_ObjectivesFailed", "Taskforce2StopProtectedGroup");
+        mission.Write("Action_EndMission", true);
 
-        mission.AppendLine("[Trigger3]");
-        mission.AppendLine("Name=Protected group can no longer complete route");
-        mission.AppendLine("Condition_Condition1_Type=UnitDestroyed");
-        mission.Append("Condition_Condition1_Units=").AppendLine(references);
-        mission.Append("Condition_Condition1_MinimumUnits=").AppendLine(
-            lossThreshold.ToString(CultureInfo.InvariantCulture));
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2RouteVictoryMessage");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1RouteDefeatMessage");
-        mission.AppendLine("Action_Victory=Taskforce2");
-        mission.AppendLine("Action_ObjectivesCompleted=Taskforce2StopProtectedGroup");
-        mission.AppendLine("Action_ObjectivesFailed=Taskforce1DeliverProtectedGroup");
-        mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine();
+        mission.Section("Trigger3");
+        mission.Write("Name", "Protected group can no longer complete route");
+        mission.Write("Condition_Condition1_Type", "UnitDestroyed");
+        mission.Write("Condition_Condition1_Units", references);
+        mission.Write("Condition_Condition1_MinimumUnits", lossThreshold);
+        mission.Write("ConditionsCompleted", "<Condition1>");
+        mission.Write("Action_Taskforce2_Message", "Taskforce2RouteVictoryMessage");
+        mission.Write("Action_Taskforce1_Message", "Taskforce1RouteDefeatMessage");
+        mission.Write("Action_Victory", "Taskforce2");
+        mission.Write("Action_ObjectivesCompleted", "Taskforce2StopProtectedGroup");
+        mission.Write("Action_ObjectivesFailed", "Taskforce1DeliverProtectedGroup");
+        mission.Write("Action_EndMission", true);
     }
 
     private static string GetRouteVariantName(RouteOperationVariant variant) => variant switch
@@ -587,7 +527,22 @@ internal static partial class ScenarioDebugGenerator
         float X,
         float Z,
         string? Waypoints,
-        string StationRole);
+        string StationRole)
+    {
+        internal void WriteTo(MissionWriter mission)
+        {
+            mission.Section(Reference);
+            mission.Write("Type", UnitType);
+            mission.Write("VariantReference", VariantReference);
+            if (!string.IsNullOrWhiteSpace(Nation)) mission.Write("Nation", Nation);
+            if (StationRole != "Default") mission.Write("StationRole", StationRole);
+            mission.Write("CrewSkill", "Trained");
+            mission.WritePosition("RelativePositionInNM", X, 0, Z);
+            mission.Write("Telegraph", 2);
+            mission.Write("Heading", 90);
+            if (Waypoints is not null) mission.Write("Waypoints", Waypoints);
+        }
+    }
 
     private record RouteProtectedUnitOption(
         string UnitType,
