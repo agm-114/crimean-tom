@@ -1,5 +1,7 @@
 # Mercenary naval contract and scenario catalog
 
+> Design catalog. See [development-guide.md](development-guide.md) for the contract families currently implemented and their verification status.
+
 ## Structure
 
 Use eight reusable mission families. Do not create a separate template for every subject, location, and side.

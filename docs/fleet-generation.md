@@ -1,5 +1,7 @@
 # Fleet generation
 
+> Design reference. See [development-guide.md](development-guide.md) for the implemented architecture, verification status, and current risks.
+
 Crimean Tom fleet generation should produce task groups that look as if a naval staff assembled them for a real operation. It should not select a bag of individually strong ships, and it should not return the same optimal formation every time.
 
 The generator therefore works in layers:
@@ -324,7 +326,7 @@ Every tactical group receives:
 
 Surface action groups use `AntiSurface` tasking. Carrier groups and independent submarine patrols use the shipped `Patrol` tasking, with routes that keep carriers clear of the surface advance and move submarines into flank patrol areas.
 
-Victory occurs when roughly 75% of an opposing force's surface and submarine combatants are destroyed. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken.
+Standalone fleet clashes end when roughly 75% of an opposing force's surface and submarine combatants are destroyed. Campaign clashes instead count 75% of undiscounted ship value, using native per-hull destruction triggers and loss counters. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken. Campaign enemies are fixed in the turn's offer before player deployment; the close-match logic below applies to standalone skirmishes.
 
 ## Route operations
 
