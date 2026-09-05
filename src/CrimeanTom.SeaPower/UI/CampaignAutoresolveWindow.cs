@@ -1,31 +1,16 @@
-using HarmonyLib;
-
 using Noesis;
 
 using SeapowerUI;
 
 using UnityEngine;
 
+using static CrimeanTom.SeaPower.NativeUi;
+
 namespace CrimeanTom.SeaPower;
 
 internal static class CampaignAutoresolveWindow
 {
     private static FrameworkElement? _openPanel;
-
-    private static readonly SolidColorBrush OverlayBrush =
-        new(Noesis.Color.FromArgb(190, 9, 11, 13));
-
-    private static readonly SolidColorBrush PanelBrush =
-        new(Noesis.Color.FromArgb(255, 35, 38, 41));
-
-    private static readonly SolidColorBrush BorderBrush =
-        new(Noesis.Color.FromArgb(255, 87, 95, 101));
-
-    private static readonly SolidColorBrush TextBrush =
-        new(Noesis.Color.FromArgb(255, 232, 234, 235));
-
-    private static readonly SolidColorBrush MutedTextBrush =
-        new(Noesis.Color.FromArgb(255, 164, 171, 176));
 
     internal static void Show()
     {
@@ -114,7 +99,7 @@ internal static class CampaignAutoresolveWindow
         content.Children.Add(actions);
         content.Children.Add(status);
 
-        Grid overlay = CreateOverlay(content, host);
+        Grid overlay = CreateCampaignOverlay(content, host, 600f, 760f);
         cancel.Click += (_, _) => Close(overlay, host);
         defeat.Click += (_, _) => Resolve(mission.SelectedIndex + 1, false, status, overlay, host);
         victory.Click += (_, _) => Resolve(mission.SelectedIndex + 1, true, status, overlay, host);
@@ -142,44 +127,6 @@ internal static class CampaignAutoresolveWindow
             CampaignDebugController.RunNextFrame(CampaignManagementWindow.Show);
         });
     }
-
-    private static Grid CreateOverlay(StackPanel content, FrameworkElement host)
-    {
-        float hostWidth = host.ActualWidth > 0f ? host.ActualWidth : Screen.width;
-        Border dialog = new()
-        {
-            Child = content,
-            Width = Math.Min(760f, Math.Max(600f, hostWidth - 100f)),
-            Background = PanelBrush,
-            BorderBrush = BorderBrush,
-            BorderThickness = new Thickness(1f),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid overlay = new()
-        {
-            Background = OverlayBrush,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
-        overlay.Children.Add(dialog);
-        return overlay;
-    }
-
-    private static FrameworkElement? GetCampaignHost()
-    {
-        Type? type = AccessTools.TypeByName("SeapowerUI.LinearCampaignView");
-        return type is null
-            ? null
-            : AccessTools.Field(type, "Instance")?.GetValue(null) as FrameworkElement;
-    }
-
-    private static TextBlock CreateText(string text, float size, Brush brush) => new()
-    {
-        Text = text,
-        FontSize = size,
-        Foreground = brush,
-    };
 
     private static void Close(FrameworkElement panel, FrameworkElement host)
     {
