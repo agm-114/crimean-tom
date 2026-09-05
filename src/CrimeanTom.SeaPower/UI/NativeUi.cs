@@ -1,5 +1,6 @@
 using HarmonyLib;
 using Noesis;
+using SeapowerUI;
 using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
@@ -12,6 +13,13 @@ internal static class NativeUi
     internal static readonly SolidColorBrush TextBrush = new(Noesis.Color.FromArgb(255, 232, 234, 235));
     internal static readonly SolidColorBrush MutedTextBrush = new(Noesis.Color.FromArgb(255, 164, 171, 176));
     private static readonly SolidColorBrush CampaignOverlayBrush = new(Noesis.Color.FromArgb(190, 9, 11, 13));
+
+    internal static void CloseWindow(
+        FrameworkElement panel, FrameworkElement host, ref FrameworkElement? openPanel)
+    {
+        WindowHostCommands.CloseWindowCommand.Execute(panel, host);
+        if (ReferenceEquals(openPanel, panel)) openPanel = null;
+    }
 
     internal static TextBlock CreateText(string text, float size, Brush brush) => new()
     {

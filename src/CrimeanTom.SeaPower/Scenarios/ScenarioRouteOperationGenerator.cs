@@ -432,7 +432,7 @@ internal static partial class ScenarioDebugGenerator
             useLauncherMetadata && playerTaskforce == "Taskforce2");
         AppendCivilianTraffic(mission, parameters);
         AppendRouteTriggers(mission, route, playerTaskforce);
-        AppendRouteObjectives(mission);
+        AppendOpposedObjectives(mission, "Taskforce1DeliverProtectedGroup", "Taskforce2StopProtectedGroup");
         AppendRetreatAnchors(mission, match);
         return mission.ToString();
     }
@@ -481,52 +481,10 @@ internal static partial class ScenarioDebugGenerator
                     1.5f),
             ])
             .ToArray();
-        mission.AppendLine("[Mission]");
-        mission.Append("Difficulty=").AppendLine(size switch
-        {
-            FleetClashSize.Small => "2",
-            FleetClashSize.Medium => "3",
-            FleetClashSize.Large => "4",
-            _ => "3",
-        });
-        mission.Append("PlayerTaskforce=").AppendLine(playerTaskforce);
-        mission.Append("EnemyTaskforce=").AppendLine(
-            playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1");
-        mission.Append("Taskforce1_Nation=").AppendLine(match.First.PrimaryNation);
-        mission.Append("Taskforce2_Nation=").AppendLine(match.Second.PrimaryNation);
-        mission.AppendLine("AllowMoraleToAffectAI=True");
-        mission.Append("NumberOfTaskforce1Vessels=").AppendLine(
-            (route.FirstDeployment.Units.Count(unit => !unit.Ship.IsSubmarine) +
-             route.ProtectedUnits.Count).ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Vessels=").AppendLine(
-            route.SecondDeployment.Units.Count(unit => !unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Submarines=").AppendLine(
-            route.FirstDeployment.Units.Count(unit => unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Submarines=").AppendLine(
-            route.SecondDeployment.Units.Count(unit => unit.Ship.IsSubmarine)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Aircraft=").AppendLine(
-            route.FirstDeployment.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Aircraft=").AppendLine(
-            route.SecondDeployment.Aircraft.Count(unit => !unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce1Helicopters=").AppendLine(
-            route.FirstDeployment.Aircraft.Count(unit => unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfTaskforce2Helicopters=").AppendLine(
-            route.SecondDeployment.Aircraft.Count(unit => unit.AirPlan.IsHelicopter)
-                .ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralVessels=").AppendLine(
-            parameters.NeutralVesselCount.ToString(CultureInfo.InvariantCulture));
-        mission.Append("NumberOfNeutralAircraft=").AppendLine(
-            parameters.NeutralAircraftCount.ToString(CultureInfo.InvariantCulture));
-        AppendFormations(mission, "Taskforce1", firstFormations);
-        AppendFormations(mission, "Taskforce2", route.SecondDeployment.Formations);
-        mission.AppendLine("NumberOfTriggers=3");
-        mission.AppendLine();
+        AppendMission(mission, match, size, playerTaskforce, parameters,
+            route.FirstDeployment, route.SecondDeployment,
+            additionalFirstVessels: route.ProtectedUnits.Count,
+            firstFormations: firstFormations);
     }
 
     private static void AppendProtectedGroup(
@@ -568,13 +526,7 @@ internal static partial class ScenarioDebugGenerator
     {
         string references = string.Join(',', route.ProtectedUnits.Select(unit => unit.Reference));
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
-        mission.AppendLine("[Trigger1]");
-        mission.AppendLine("Name=Issue route-operation orders");
-        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
-        mission.AppendLine();
+        AppendStartTrigger(mission, "Issue route-operation orders");
 
         mission.AppendLine("[Trigger2]");
         mission.AppendLine("Name=Protected group reaches destination");
@@ -610,16 +562,6 @@ internal static partial class ScenarioDebugGenerator
         mission.AppendLine("Action_ObjectivesCompleted=Taskforce2StopProtectedGroup");
         mission.AppendLine("Action_ObjectivesFailed=Taskforce1DeliverProtectedGroup");
         mission.AppendLine("Action_EndMission=True");
-        mission.AppendLine();
-    }
-
-    private static void AppendRouteObjectives(StringBuilder mission)
-    {
-        mission.AppendLine("[Taskforce1_Objectives]");
-        mission.AppendLine("Taskforce1DeliverProtectedGroup=50,-50,,Main");
-        mission.AppendLine();
-        mission.AppendLine("[Taskforce2_Objectives]");
-        mission.AppendLine("Taskforce2StopProtectedGroup=50,-50,,Main");
         mission.AppendLine();
     }
 

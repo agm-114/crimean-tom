@@ -158,7 +158,7 @@ internal static class CampaignManagementWindow
         {
             CampaignOperationsState.CompleteManagement();
             _statusMessage = string.Empty;
-            Close(overlay, host);
+            CloseWindow(overlay, host, ref _openPanel);
         };
         _openPanel = overlay;
         WindowHostCommands.OpenWindowCommand.Execute(overlay, host);
@@ -170,7 +170,7 @@ internal static class CampaignManagementWindow
         FrameworkElement? host = GetCampaignHost();
         if (_openPanel is not null && host is not null)
         {
-            Close(_openPanel, host);
+            CloseWindow(_openPanel, host, ref _openPanel);
         }
         _openPanel = null;
         CampaignDebugController.RunNextFrame(Show);
@@ -217,14 +217,5 @@ internal static class CampaignManagementWindow
         hint.TextWrapping = TextWrapping.Wrap;
         hint.Margin = new Thickness(0f, 0f, 0f, 8f);
         return hint;
-    }
-
-    private static void Close(FrameworkElement panel, FrameworkElement host)
-    {
-        WindowHostCommands.CloseWindowCommand.Execute(panel, host);
-        if (ReferenceEquals(_openPanel, panel))
-        {
-            _openPanel = null;
-        }
     }
 }

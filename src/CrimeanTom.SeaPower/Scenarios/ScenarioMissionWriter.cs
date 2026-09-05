@@ -176,7 +176,9 @@ internal static partial class ScenarioDebugGenerator
         string playerTaskforce,
         ScenarioParameters parameters,
         FleetDeployment firstDeployment,
-        FleetDeployment secondDeployment)
+        FleetDeployment secondDeployment,
+        int additionalFirstVessels = 0,
+        IReadOnlyList<FleetFormationPlan>? firstFormations = null)
     {
         mission.AppendLine("[Mission]");
         mission.Append("Difficulty=").AppendLine(size switch
@@ -192,7 +194,7 @@ internal static partial class ScenarioDebugGenerator
         mission.Append("Taskforce1_Nation=").AppendLine(match.First.PrimaryNation);
         mission.Append("Taskforce2_Nation=").AppendLine(match.Second.PrimaryNation);
         mission.AppendLine("AllowMoraleToAffectAI=True");
-        mission.Append("NumberOfTaskforce1Vessels=").AppendLine(firstDeployment.Units.Count(unit => !unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
+        mission.Append("NumberOfTaskforce1Vessels=").AppendLine((firstDeployment.Units.Count(unit => !unit.Ship.IsSubmarine) + additionalFirstVessels).ToString(CultureInfo.InvariantCulture));
         mission.Append("NumberOfTaskforce2Vessels=").AppendLine(secondDeployment.Units.Count(unit => !unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
         mission.Append("NumberOfTaskforce1Submarines=").AppendLine(firstDeployment.Units.Count(unit => unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
         mission.Append("NumberOfTaskforce2Submarines=").AppendLine(secondDeployment.Units.Count(unit => unit.Ship.IsSubmarine).ToString(CultureInfo.InvariantCulture));
@@ -202,7 +204,7 @@ internal static partial class ScenarioDebugGenerator
         mission.Append("NumberOfTaskforce2Helicopters=").AppendLine(secondDeployment.Aircraft.Count(unit => unit.AirPlan.IsHelicopter).ToString(CultureInfo.InvariantCulture));
         mission.Append("NumberOfNeutralVessels=").AppendLine(parameters.NeutralVesselCount.ToString(CultureInfo.InvariantCulture));
         mission.Append("NumberOfNeutralAircraft=").AppendLine(parameters.NeutralAircraftCount.ToString(CultureInfo.InvariantCulture));
-        AppendFormations(mission, "Taskforce1", firstDeployment.Formations);
+        AppendFormations(mission, "Taskforce1", firstFormations ?? firstDeployment.Formations);
         AppendFormations(mission, "Taskforce2", secondDeployment.Formations);
         mission.AppendLine("NumberOfTriggers=3");
         mission.AppendLine();
@@ -368,6 +370,17 @@ internal static partial class ScenarioDebugGenerator
         }
     }
 
+    private static void AppendStartTrigger(StringBuilder mission, string name)
+    {
+        mission.AppendLine("[Trigger1]");
+        mission.Append("Name=").AppendLine(name);
+        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
+        mission.AppendLine("ConditionsCompleted=<Condition1>");
+        mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
+        mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
+        mission.AppendLine();
+    }
+
     private static void AppendTriggers(
         StringBuilder mission,
         IEnumerable<string> firstReferences,
@@ -375,13 +388,7 @@ internal static partial class ScenarioDebugGenerator
         int firstLossesToBreak,
         int secondLossesToBreak)
     {
-        mission.AppendLine("[Trigger1]");
-        mission.AppendLine("Name=Start message");
-        mission.AppendLine("Condition_Condition1_Type=OnMissionStart");
-        mission.AppendLine("ConditionsCompleted=<Condition1>");
-        mission.AppendLine("Action_Taskforce1_Message=Taskforce1StartMessage");
-        mission.AppendLine("Action_Taskforce2_Message=Taskforce2StartMessage");
-        mission.AppendLine();
+        AppendStartTrigger(mission, "Start message");
         AppendOutcomeTrigger(mission, 2, "Taskforce1", firstReferences, firstLossesToBreak);
         AppendOutcomeTrigger(mission, 3, "Taskforce2", secondReferences, secondLossesToBreak);
     }
@@ -411,6 +418,16 @@ internal static partial class ScenarioDebugGenerator
         mission.Append("Action_ObjectivesCompleted=").Append(winningTaskforce)
             .Append("BreakEnemy,").Append(winningTaskforce).AppendLine("PreserveForce");
         mission.AppendLine("Action_EndMission=True");
+        mission.AppendLine();
+    }
+
+    private static void AppendOpposedObjectives(StringBuilder mission, string firstObjective, string secondObjective)
+    {
+        mission.AppendLine("[Taskforce1_Objectives]");
+        mission.Append(firstObjective).AppendLine("=50,-50,,Main");
+        mission.AppendLine();
+        mission.AppendLine("[Taskforce2_Objectives]");
+        mission.Append(secondObjective).AppendLine("=50,-50,,Main");
         mission.AppendLine();
     }
 
