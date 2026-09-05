@@ -218,14 +218,8 @@ internal static partial class ScenarioDebugGenerator
             float x = RandomRange(random, -parameters.SeparationNm * 0.35f, parameters.SeparationNm * 0.35f);
             float z = RandomRange(random, 12f, 32f) * (index % 2 == 0 ? 1f : -1f);
             float heading = index % 2 == 0 ? 80f : -100f;
-            mission.Section($"NeutralVessel{index + 1}");
-            mission.Write("Type", vesselTypes[random.Next(vesselTypes.Length)]);
-            mission.Write("VariantReference", "Random");
-            mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", new(x, 0, z));
-            mission.Write("Telegraph", 2);
-            mission.Write("Heading", heading, "0");
-            mission.WriteWaypoints([new(new(-x, 0, z))]);
+            new CivilianTrafficUnit($"NeutralVessel{index + 1}",
+                vesselTypes[random.Next(vesselTypes.Length)], new(x, 0, z), heading).WriteTo(mission);
         }
 
         string[] aircraftTypes =
@@ -242,16 +236,10 @@ internal static partial class ScenarioDebugGenerator
             float x = parameters.SeparationNm * (index % 2 == 0 ? -1.1f : 1.1f);
             float z = RandomRange(random, -24f, 24f);
             int altitude = random.Next(2, 8) * 5000;
-            float destinationX = -x;
             float heading = x < 0f ? 90f : -90f;
-            mission.Section($"NeutralAircraft{index + 1}");
-            mission.Write("Type", aircraftTypes[random.Next(aircraftTypes.Length)]);
-            mission.Write("SquadronReference", "Random");
-            mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", new(x, altitude, z));
-            mission.Write("Telegraph", 3);
-            mission.Write("Heading", heading, "0");
-            mission.WriteWaypoints([new(new(destinationX, altitude, z))]);
+            new CivilianTrafficUnit($"NeutralAircraft{index + 1}",
+                aircraftTypes[random.Next(aircraftTypes.Length)], new(x, altitude, z), heading,
+                IsAircraft: true).WriteTo(mission);
         }
     }
 

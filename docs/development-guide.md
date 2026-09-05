@@ -46,6 +46,8 @@ The campaign state class is split into `CampaignOperationsState.cs` for lifecycl
 
 `Scenarios/MissionWaypoint.cs` owns typed positions, waypoints, weapon-status orders, and attack-at-waypoint orders. Routes stay as `IReadOnlyList<MissionWaypoint>` until written. Position coordinates are X, altitude, Z; optional named depth overrides altitude for submarines. Formatting preserves horizontal `0.##`, altitude `0`, pipe-separated routes, and colon-separated attack targets. A null route omits the key so formation followers keep their native behavior.
 
+`Scenarios/CivilianTrafficUnit.cs` shares civilian ship and aircraft serialization, including their crossing waypoint. `AppendCivilianTraffic` keeps the separate spawn rules and seeded random draw order; the record selects the native variant/squadron key and telegraph setting.
+
 Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit sections. Use `mission.Write("Heading", heading, "0")` for a formatted number, `mission.WritePosition("RelativePositionInNM", new(x, altitude, z))` for a position, and `mission.WriteWaypoints(route)` for orders. Pass interpolated values directly to `Write` so its `FormattableString` overload formats numbers with invariant culture.
 
 `UI/` contains all three windows, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
