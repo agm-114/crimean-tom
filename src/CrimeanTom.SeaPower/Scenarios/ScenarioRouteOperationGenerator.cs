@@ -132,120 +132,27 @@ internal static partial class ScenarioDebugGenerator
         int playerControlledCount,
         RouteOperationVariant variant)
     {
-        float routeLength = size switch
-        {
-            FleetClashSize.Small => 48f,
-            FleetClashSize.Medium => 62f,
-            FleetClashSize.Large => 78f,
-            _ => 62f,
-        };
-        float routeStart = -routeLength / 2f;
-        float routeEnd = routeLength / 2f;
-        float interceptX = routeLength * 0.12f;
-        float attackLane = random.Next(2) == 0 ? 1f : -1f;
-
-        FleetDeployment firstDeployment = FleetOrderOfBattlePlanner.Plan(
-            "Taskforce1",
-            match.First,
-            routeStart - 7f,
-            90f,
-            parameters.LateralOffsetNm,
-            routeLength,
-            playerTaskforce == "Taskforce1" ? playerControlledCount : match.First.Ships.Count,
-            playerTaskforce == "Taskforce1" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy");
-        firstDeployment = RetaskRouteFleet(
-            firstDeployment,
-            routeEnd,
-            90f,
-            isDefender: true,
-            attackLane: 0f);
-
-        FleetDeployment secondDeployment = FleetOrderOfBattlePlanner.Plan(
-            "Taskforce2",
-            match.Second,
-            interceptX + 20f,
-            -90f,
-            attackLane * 22f,
-            routeLength,
-            playerTaskforce == "Taskforce2" ? playerControlledCount : match.Second.Ships.Count,
-            playerTaskforce == "Taskforce2" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy");
-        secondDeployment = RetaskRouteFleet(
-            secondDeployment,
-            interceptX,
-            -90f,
-            isDefender: false,
-            attackLane);
+        RouteCorridor corridor = CreateRouteCorridor(
+            match, size, parameters.LateralOffsetNm, random.Next(2) == 0 ? 1f : -1f,
+            playerTaskforce, playerControlledCount);
 
         int protectedCount = GetProtectedGroupSize(size, variant);
-        int vesselIndexOffset = firstDeployment.Units.Count(unit => !unit.Ship.IsSubmarine);
+        int vesselIndexOffset = corridor.First.VesselCount;
         IReadOnlyList<RouteProtectedUnit> protectedUnits = CreateProtectedUnits(
             random,
             match.First,
             variant,
             protectedCount,
             vesselIndexOffset,
-            routeStart,
-            routeEnd);
+            corridor.StartX,
+            corridor.DestinationX);
         int requiredArrivals = Math.Max(1, (int)Math.Ceiling(protectedCount * (2d / 3d)));
         return new RouteOperationPlan(
-            firstDeployment,
-            secondDeployment,
+            corridor.First,
+            corridor.Second,
             protectedUnits,
             requiredArrivals,
-            routeEnd);
-    }
-
-    private static FleetDeployment RetaskRouteFleet(
-        FleetDeployment deployment,
-        float destinationX,
-        float heading,
-        bool isDefender,
-        float attackLane)
-    {
-        Dictionary<string, int> groupByReference = [];
-        for (int groupIndex = 0; groupIndex < deployment.Formations.Count; groupIndex++)
-        {
-            foreach (string reference in deployment.Formations[groupIndex].References)
-            {
-                groupByReference[reference] = groupIndex;
-            }
-        }
-
-        HashSet<string> leaders = deployment.Formations
-            .Where(formation => formation.References.Count > 0)
-            .Select(formation => formation.References[0])
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        DeployedFleetUnit[] units = deployment.Units.Select(unit =>
-        {
-            int groupIndex = groupByReference.TryGetValue(unit.Reference, out int found)
-                ? found
-                : 0;
-            float lane = isDefender
-                ? unit.Z * 0.45f
-                : attackLane * Math.Max(2f, 7f - (groupIndex * 2f));
-            string? depth = unit.Ship.IsSubmarine ? "shallow" : null;
-            IReadOnlyList<MissionWaypoint>? waypoints = leaders.Contains(unit.Reference) && !unit.Ship.IsCarrier
-                ?
-                [
-                    new(new(isDefender ? 0 : destinationX + 8f, 0, lane, depth)),
-                    new(new(destinationX, 0, lane, depth), WaypointOrder.WeaponsFree),
-                ]
-                : unit.Waypoints;
-            return unit with
-            {
-                Waypoints = waypoints,
-                Telegraph = isDefender && !unit.Ship.IsSubmarine ? 2 : unit.Telegraph,
-                Heading = unit.Ship.IsCarrier ? unit.Heading : heading,
-            };
-        }).ToArray();
-
-        return new FleetDeployment(
-            units,
-            deployment.Formations,
-            deployment.Aircraft,
-            deployment.ControlledCount);
+            corridor.DestinationX);
     }
 
     private static IReadOnlyList<RouteProtectedUnit> CreateProtectedUnits(

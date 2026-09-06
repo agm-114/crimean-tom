@@ -1,21 +1,6 @@
 # Scenario generation
 
-Duplication between the route, passage and fleet-clash generators, and the launcher-file
-registry that is written four different ways.
-
-## 4. Duplicated route-corridor setup
-
-`Scenarios/ScenarioPassageOperationGenerator.cs:15-58` and
-`Scenarios/ScenarioRouteOperationGenerator.cs:129-170` are near-identical:
-
-- the same `routeLength` switch (48 / 62 / 78),
-- the same `routeStart` / `routeEnd` / `interceptX` derivation,
-- the same two `FleetOrderOfBattlePlanner.Plan` calls with the same offsets
-  (`routeStart - 7f`, `interceptX + 20f`, `attackLane * 22f`),
-- the same two `RetaskRouteFleet` calls.
-
-One helper returning the corridor geometry plus both deployments removes about 35 lines
-and makes the two contracts provably share their layout.
+Repeated trigger setup and the launcher-file registry.
 
 ## 12. The launcher-file registry, written four ways
 

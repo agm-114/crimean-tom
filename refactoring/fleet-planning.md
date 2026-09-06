@@ -3,10 +3,10 @@
 Scattered tuning tables in `Fleet/`, plus one duplicated switch
 that is a live desynchronization risk.
 
-## 10. Thirteen `FleetClashSize` switch tables
+## 10. Scattered `FleetClashSize` tuning tables
 
-The size tuning surface is scattered across four files as 13 separate
-`size switch { Small => ..., Medium => ..., Large => ... }` expressions, eight of which
+Size tuning is scattered across fleet and scenario files as repeated
+`size switch { Small => ..., Medium => ..., Large => ... }` expressions. Several also
 repeat a `_ => throw new ArgumentOutOfRangeException(nameof(size))` arm:
 
 - `Fleet/FleetClashBalancer.cs:51, 59, 67` — ship count, minimum and maximum separation.
@@ -14,12 +14,12 @@ repeat a `_ => throw new ArgumentOutOfRangeException(nameof(size))` arm:
   command chance, allied detachment, regional partner (twice), lead nation. Plus the
   `Blueprints` dictionary at `:5-17`, which is the same table in another form.
 - `Scenarios/ScenarioMissionWriter.cs:163` — mission difficulty.
-- `Scenarios/ScenarioRouteOperationGenerator.cs:137, 366` — route length, protected group size.
-- `Scenarios/ScenarioPassageOperationGenerator.cs:17` — route length again (see [item 4](scenario-generation.md)).
+- `Scenarios/ScenarioRouteOperationGenerator.cs` — protected group size.
+- `Scenarios/ScenarioRouteCorridor.cs` — shared route and passage corridor length.
 
-One `FleetClashSizeProfile` record looked up by size gives a single tuning table instead of
-13 sites, and removes all eight throw arms because a record lookup is total. This is the
-game-balance surface; having it in one place is worth more than the line count.
+One `FleetClashSizeProfile` record looked up by size could collect these tuning values.
+Preserve each caller's current unknown-size behavior; a lookup is not automatically total.
+Having the game-balance values in one place is worth more than the line count.
 
 ## 13. Duplicate spacing table inside one file
 

@@ -12,51 +12,11 @@ internal static partial class ScenarioDebugGenerator
         int playerUnitCount,
         FleetClashGenerationOptions options)
     {
-        float routeLength = size switch
-        {
-            FleetClashSize.Small => 48f,
-            FleetClashSize.Medium => 62f,
-            FleetClashSize.Large => 78f,
-            _ => 62f,
-        };
-        float routeStart = -routeLength / 2f;
-        float routeEnd = routeLength / 2f;
-        float interceptX = routeLength * 0.12f;
-        float attackLane = parameters.LateralOffsetNm < 0f ? -1f : 1f;
-
-        FleetDeployment passageForce = FleetOrderOfBattlePlanner.Plan(
-            "Taskforce1",
-            match.First,
-            routeStart - 7f,
-            90f,
-            parameters.LateralOffsetNm,
-            routeLength,
-            playerUnitCount,
-            "Player",
-            "Friendly AI");
-        passageForce = RetaskRouteFleet(
-            passageForce,
-            routeEnd,
-            90f,
-            isDefender: true,
-            attackLane: 0f);
-
-        FleetDeployment blockingForce = FleetOrderOfBattlePlanner.Plan(
-            "Taskforce2",
-            match.Second,
-            interceptX + 20f,
-            -90f,
-            attackLane * 22f,
-            routeLength,
-            match.Second.Ships.Count,
-            "Enemy",
-            "Enemy");
-        blockingForce = RetaskRouteFleet(
-            blockingForce,
-            interceptX,
-            -90f,
-            isDefender: false,
-            attackLane);
+        RouteCorridor corridor = CreateRouteCorridor(
+            match, size, parameters.LateralOffsetNm, parameters.LateralOffsetNm < 0f ? -1f : 1f,
+            "Taskforce1", playerUnitCount);
+        FleetDeployment passageForce = corridor.First;
+        FleetDeployment blockingForce = corridor.Second;
 
         string[] passageTargets = CampaignContractRules.PassageTargets(
             passageForce.Units.Select(unit => (unit.Reference, unit.Ship.PointCost)));
@@ -84,7 +44,7 @@ internal static partial class ScenarioDebugGenerator
         AppendCrimeanTomSettings(mission, passageForce.AlliedReferences, spectator: false);
         mission.Write("PassageContract", true);
         mission.WriteList("PassageAllUnits", passageForce.Units.Select(unit => unit.Reference));
-        mission.Write("PassageDestinationX", routeEnd, "0.##");
+        mission.Write("PassageDestinationX", corridor.DestinationX, "0.##");
 
         AppendEnvironment(mission, match, parameters);
         AppendMission(mission, match, size, "Taskforce1", parameters, passageForce, blockingForce);
@@ -93,7 +53,7 @@ internal static partial class ScenarioDebugGenerator
         AppendCivilianTraffic(mission, parameters);
         AppendPassageTriggers(
             mission,
-            routeEnd,
+            corridor.DestinationX,
             requiredArrivals,
             lossThreshold,
             passageTargets);
