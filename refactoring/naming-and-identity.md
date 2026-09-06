@@ -1,62 +1,58 @@
 # Naming and identity
 
-Conventions the code depends on but no type owns: taskforce sides, contract indexes,
-and the campaign folder name.
+## 19. Make contract identity explicit
 
-## 6. `playerTaskforce == "Taskforce1"` — 21 sites
+`CampaignContractKind` already names the four contracts, but
+`CampaignContractOffers.cs` and `CampaignContractRules.cs` branch on mission indexes.
+`CampaignPatches.cs` guards the native one-based range, and
+`CampaignScenarioGenerator.ResolveCampaignContract` uses filename substrings.
 
-69 `"Taskforce1"` / `"Taskforce2"` literals across 8 files, with 21 ternaries branching on
-the comparison. Worst instances:
+Introduce one explicit conversion between native indexes 1 through 4 and contract kinds.
+Keep persisted indexes and the seed arithmetic unchanged. Use the enum within offer
+descriptions, enemy selection, and payment rules; keep validation at native boundaries.
+An enum can contain invalid values and does not make a switch automatically total.
 
-- `Scenarios/ScenarioMissionWriter.cs:19-40` — three consecutive ternaries inside each of
-  two otherwise-identical `Plan` calls.
-- `Campaign/CampaignScenarioGenerator.cs:216-232` (`BuildCampaignMatch`) — four more.
+Source templates contain `[CrimeanTomCampaign] Contract=`, which repository C# does
+not read. Generated missions instead write `[CrimeanTom] CampaignContract=`.
+Do not switch to reading the source key without accounting for the rewritten files.
+An exact filename mapping may be simpler. Preserve or explicitly decide the current
+unknown-filename fallback to fleet clash; remove misleading unused metadata only
+after checking its consumers.
 
-A small `TaskforceSide` record (`Name`, `Other`, `IsFirst`, `LabelFor(role)`) turns those
-six into two arguments and removes the stringly-typed comparisons in
-`CampaignValueObjectives`, `MissionTrigger`, and `ScenarioMissionWriter.AppendOutcomeTrigger`.
+Check all four filenames, indexes, enemy sides, payments, descriptions, and offer
+seeds. Also check missing/invalid indexes and repeated launches from rewritten files.
 
-## 19. Contract indexes are raw ints even though the enum exists
+## 6. Name taskforce-side operations
 
-`CampaignContractKind` (FleetClash / RouteEscort / RouteInterdiction / Passage) is declared
-in `Campaign/CampaignScenarioGenerator.cs:11-17` and `ResolveCampaignContract` maps mission
-filenames onto it — but the offer, rules, and patch layers all work in raw 1-to-4 ints,
-converting with `(int)contract + 1`:
+Player/enemy force selection and opponent naming repeat in
+`Scenarios/ScenarioDebugGenerator.cs`, `Scenarios/ScenarioMissionWriter.cs`,
+`Scenarios/MissionTrigger.cs`, and `Campaign/CampaignScenarioGenerator.cs`.
 
-- `CampaignContractOffer.Enemy:8` and `Description:13-23` — `mission == 3`, then a
-  four-arm switch on `1 / 2 / 3 / _`.
-- `CampaignContractOffers.Get:53-56` — `mission == 1`, `mission == 3`.
-- `CampaignContractRules.Payment:19` — `mission == 4 ? 10 : mission == 1 ? 0 : 5`.
-- `CampaignContractOffers.Describe:66`, `CampaignPatches.cs:66, 90` — `is < 1 or > 4`.
+After [match-copy cleanup](models.md#11-simplify-match-copies), reassess how much
+duplication remains. Prefer a small side helper for opponent and force selection.
+A side model should not absorb ship references, UI labels, physical positions,
+and campaign policy into one object.
 
-About a dozen sites where the domain already has a name for the thing. Using the enum makes
-the switches total and removes the three bounds checks. This supersedes the
-`missionIndex is < 1 or > 4` note in [item 18](campaign-state.md).
+Preserve native `Taskforce1`/`Taskforce2` output. Player side, world-side identity,
+and Blue/Red display perspective are not interchangeable. Compare both command
+sides, escort/interdiction, and the Blue-aligned spectator with zero player control.
 
-## 23. Campaign folder name declared three ways
+## 23. Share runtime campaign paths
 
-`"crimean-tom-operations"` appears as three unrelated constructs:
+Three TaskForce files encode the same campaign folder:
 
-- `TaskForce/TaskForceRosterGenerator.cs:12` — `const string CampaignFolderName`
-- `TaskForce/TaskForceNationRules.cs:19` — the substring `"/crimean-tom-operations/"`
-- `TaskForce/TaskForceCoalitions.cs:9` — embedded in `"campaigns/crimean-tom-operations/art/coalitions"`
+- `TaskForceRosterGenerator.CampaignFolderName`.
+- `TaskForceNationRules.IsOurCampaignPath`.
+- `TaskForceCoalitions.CoalitionArtPath`.
 
-Folds naturally into the `GamePaths` item in [item 9](small-items.md). (Minor sibling: the plugin id
-`"crimean-tom.operations"` is written twice in `Plugin.cs:7, 14` and extended by hand in
-`ScenarioSelectionPatches.cs:32`.)
+Share the folder name and derive the runtime paths locally. Preserve slash
+normalization, case-insensitive campaign detection, and folder boundaries.
+Keep game resource paths separate from filesystem paths.
 
-## 28. Item 23 is bigger than it looked
-
-Widening the earlier finding beyond C#, `crimean-tom-operations` is written as a path
-component in six kinds of file: three C# constructs (item 23), five places in the csproj,
-`scripts/coalition-art.sources.json:2`, four `MissionFile=` lines in `campaign.ini`, and the
-self-referential `Base=` line in each of the four mission templates.
-
-The JSON manifest and `TaskForceCoalitions.cs:9` describe the *same* art directory in two
-different roots — `content/campaigns/.../art/coalitions` versus
-`campaigns/.../art/coalitions` — so the repo-relative and game-relative forms have to be
-kept in step by hand.
-
----
+The csproj, repository art manifest, and native INI files also contain this name,
+but their roots differ. Do not generate these formats from C# merely to remove
+literal repetition. Check that they still resolve to the same installed campaign
+and art assets. The build-only path cleanup is in
+[item 27](content-and-build.md#27-reduce-build-metadata-duplication).
 
 Back to the [index](README.md).

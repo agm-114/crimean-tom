@@ -1,64 +1,41 @@
-# Model shapes
+# Models
 
-Restated constructor parameters, a capability bundle that five types carry, and the
-argument-by-argument rebuilds that a record would make free.
+## 11. Simplify match copies
 
-## 1. Restated properties that `record` would delete outright
+`Fleet/FleetClashModels.cs` defines `FleetClashMatch` with eight constructor-backed
+properties. Three callers repeat every field to replace a force or display name:
 
-Commit `41b833e7` compacted these models but left the primary-constructor-plus-property
-form. The codebase already uses `record` for `DeployedFleetUnit`, `FleetFormationPlan`,
-`IndexedShip`, and `CarrierAirPlan`, so this finishes a conversion already underway.
+- `Scenarios/ScenarioDebugGenerator.cs`: `ApplyEnemyMultiplier`, `ReorderPlayerForce`.
+- `Campaign/CampaignScenarioGenerator.cs`: `BuildCampaignMatch`.
 
-| File | `{ get; } = x` lines |
-|---|---|
-| `Fleet/FleetClashModels.cs:57-196` | 52 |
-| `TaskForce/TaskForceRosterGenerator.cs:539-585` | 16 |
-| `Scenarios/ScenarioDebugGenerator.cs:364` (`ScenarioParameters`) | 12 |
-| `TaskForce/TaskForceRosterBalance.cs:177` (`NationTier`) | 7 |
-| `Fleet/VesselCombatProfileReader.cs:121` (`VesselCombatProfile`) | 6 |
-| `TaskForce/TaskForceCoalitions.cs:175` (`CoalitionDefinition`) | explicit ctor, ~15 lines |
+Convert this type to a record and use `with` at those callers. Preserve the untouched
+force, theater coordinates, names, and `BalanceError`, including when the player is
+Taskforce2. Compare both command sides and the multiplier no-op path.
 
-Roughly 130 lines including braces. Computed members survive unchanged in a record body:
-`FleetClashForce.PrimaryNation`, `FleetClashShip.CombatValue`, and `FleetCandidate`'s five
-`ships.Sum(...)` initializers.
+Do not turn this into a blanket model conversion. Records change equality and
+expose init properties. `IndexedShip` is already a record, but converting its
+`FleetClashShip` member would change its equality too. `FleetCandidate` caches sums
+at construction; replacing `Ships` with `with` would not recompute them.
+`RosterVariant` mutates its base cost, and `CoalitionDefinition` constructs a
+case-insensitive set. Those need separate justification.
 
-Two cautions:
+## 2. Group fleet capability data
 
-- `RosterVariant.SetBaseCost` mutates, so `BaseCost` needs `{ get; set; }` in the record
-  body rather than a positional parameter.
-- `List.Remove` on `IndexedShip` / `FleetUnitArchetype` (`Fleet/FleetOrderOfBattlePlanner.cs:294-372`)
-  moves from reference to value equality. Safe as written because `SourceIndex` and
-  unit type / nation disambiguate, but it is a real semantic change.
+The cost, surface, air-defense, ASW, and resilience fields travel together through
+`VesselCombatProfile`, `FleetUnitArchetype`, `FleetCandidate`, `FleetClashShip`, and
+`FleetClashForce`. The copying is visible in `FleetClashForceGenerator.Finalize`,
+`AddArchetypes`, `AddSubmarineArchetypes`, and `BuildCampaignPlayerForce`.
+`CreateForce` and the `FleetCandidate` constructor also repeat the five sums.
 
-## 2. A `FleetCapability` bundle carried through five types
+A small capability value could shorten those constructors. Proceed only if callers
+can use it directly, without retaining five forwarding properties on every type.
+Keep approximate AI point cost distinct from native purchase price and retain the
+campaign fallback values.
 
-`PointCost, SurfaceCapability, AirDefenseCapability, AswCapability, Resilience` is restated
-on `VesselCombatProfile`, `FleetUnitArchetype`, `FleetCandidate`, `FleetClashShip`, and
-`FleetClashForce`, then copied field-by-field at six call sites:
-
-- `Fleet/FleetClashForceGenerator.cs:51-66, 127-133, 161-166`
-- `Scenarios/ScenarioDebugGenerator.cs:341-346` (`CreateForce`)
-- `Campaign/CampaignScenarioGenerator.cs:178-190`
-
-One record with an addition operator turns the copies into `profile.Capability` and
-`ships.Sum(...)` one-liners. About 45 lines. Same move as `CivilianTrafficUnit`: give the
-shared data a name and let it own its own construction.
-
-## 11. `FleetClashMatch` rebuilt argument-by-argument, 3 sites
-
-Each site re-lists all eight constructor arguments to change one or two:
-
-- `Scenarios/ScenarioDebugGenerator.cs:257-266` (`ApplyEnemyMultiplier`)
-- `Scenarios/ScenarioDebugGenerator.cs:320-329` (`ReorderPlayerForce`)
-- `Campaign/CampaignScenarioGenerator.cs:216-232` (`BuildCampaignMatch`)
-
-This is a direct payoff of item 1: once `FleetClashMatch` is a record, each collapses to
-`match with { Second = scaledEnemy }`. About 27 lines beyond the property-block savings.
-
-Similarly `ScoreScaledForce` (`ScenarioDebugGenerator.cs:279-291`) is five near-identical
-`RelativeDifference(candidate.X, original.X * multiplier) * weight` terms, which the
-`FleetCapability` record from item 2 turns into a weighted zip.
-
----
+LINQ `Sum` does not support arbitrary records merely because they define addition.
+Any shared aggregation must preserve integer overflow behavior and floating-point
+summation order. Leave the explicit weighted terms in `ScoreScaledForce` readable;
+a generic weighted zip is unnecessary. Compare totals and selected fleets for
+fixed seeds before accepting the change.
 
 Back to the [index](README.md).
