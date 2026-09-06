@@ -1,18 +1,7 @@
 # Fleet planning
 
-Parameter bundles and scattered tuning tables in `Fleet/`, plus one duplicated switch
+Scattered tuning tables in `Fleet/`, plus one duplicated switch
 that is a live desynchronization risk.
-
-## 3. Carrier air-package parameter plumbing
-
-`AddCombatAirPatrol` (`:129`), `AddAirborneEarlyWarning` (`:194`), and `AddAswPatrol`
-(`:233`) in `Fleet/FleetOrderOfBattlePlanner.cs` each take 10-12 parameters that are the
-same bundle — `taskforce, group, carrier, groupX, groupZ, direction, heading,
-engagementSeparationNm` plus `ref` counters. The three call sites at `:86-118` spend 34
-lines re-listing them.
-
-A `CarrierAirContext` record holding the geometry, with the aircraft and helicopter
-counters as instance fields, removes about 55 lines of signature and argument text.
 
 ## 10. Thirteen `FleetClashSize` switch tables
 
