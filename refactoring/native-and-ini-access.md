@@ -1,47 +1,47 @@
 # Native and INI access
 
-Three hand-rolled readers for one game file format, and the reflected type names that a
-game update would send you hunting for.
+## 5. Reuse parsed unit metadata
 
-## 5. Three INI parsers for the same game files
+`Scenarios/ScenarioUnitCatalog.cs` repeatedly opens aircraft files through
+`ReadIniValue`, `ReadFirstIniValue`, and `ReadSonobuoyAmmunition`.
+Start by parsing each aircraft once per air-package read and passing the ordered
+sections to those lookups. This does not require a global cache or a new dependency.
 
-`Scenarios/ScenarioUnitCatalog.ReadSections` (`:262-293`) is already a general
-section/key/value reader. Two other files reimplement it:
+Sharing a reader with `Fleet/VesselCombatProfileReader.cs` and
+`TaskForce/TaskForceRosterGenerator.cs` is a separate step. Their current behavior
+is not interchangeable:
 
-- `Fleet/VesselCombatProfileReader.ReadFromDisk:36-64` walks lines inline to find `[AI]`.
-  Its `StripComment` at `:95` is a behavioural duplicate of `ScenarioUnitCatalog.StripComment`
-  at `:295` — same rule, one written as a `switch`, one as nested ternaries.
-- `TaskForce/TaskForceRosterGenerator.FindReferences:400-470` is a 70-line state machine
-  over the same file format, backed by three regexes (`VariantSectionPattern`,
-  `SquadronSectionPattern`, `AnySectionPattern`) plus a private `ParseIniValue` at `:452`.
+| Reader | Behavior to preserve |
+|---|---|
+| `ScenarioUnitCatalog.ReadSections` | Trims section names, retains repeated sections in order, keeps the last duplicate key within a section. Lookup helpers return the first matching section containing the key. |
+| `VesselCombatProfileReader.ReadFromDisk` | Recognizes an exact case-insensitive `[AI]` header, leaves AI on any line starting with `[`, and accumulates values across repeated AI sections. |
+| `TaskForceRosterGenerator.FindReferences` | Recognizes numbered Variant/Squadron headers by prefix regex, canonicalizes their numbers, and applies the Default nation known when each reference is flushed. It recognizes `Nation=`, not `Nation =`. |
 
-Promoting `ReadSections` to its own file and using it from both would cut
-`VesselCombatProfileReader.ReadFromDisk` to roughly five lines and let
-`TaskForceRosterGenerator` drop its regexes and state machine. This is the same shape as
-`NativeCampaignAccess`: one wrapper for a native-format contract instead of three
-independent readings of it.
+The readers strip `//` and `#` comments, but not at the same stage.
+Do not replace ordered sections with one dictionary keyed by section name.
+Keep roster inheritance and variant sorting outside a generic reader.
 
-Related, in the same file: `ReadIniValue` and `ReadFirstIniValue` re-read and re-parse the
-whole file per call. `ReadCarrierAirPackage` calls them once per aircraft and
-`ReadSonobuoyAmmunition` calls `ReadFirstIniValue` again inside a loop. Parsing once into a
-dictionary is both shorter and cheaper.
+Compare extracted profiles, variants, CAP/AEW/ASW choices, and dated sonobuoy
+ammunition on installed metadata. Check duplicate sections/keys, header whitespace,
+comments, missing nations, and Default section ordering with bounded comparisons.
+Do not replace native campaign INI access or change cache lifetime in this cleanup.
 
-## 15. Native type names repeated across patch files
+## 15. Share repeated native names
 
-`AccessTools.TypeByName("SeapowerUI.ViewModels....")` resolves the same four type names 12
-times: `LinearCampaignTaskForceCommanderManager` (4), `LinearCampaignTaskForceSaveManager`
-(3), `LinearCampaignTaskForceDebriefViewModel` (3), `LinearCampaignTaskForceModeRules` (2).
-These are the reflected-name contract the development guide says to verify with `ilspycmd`
-before changing, so a game update currently means finding every copy.
+`Campaign/CampaignPatches.cs`, `Campaign/NativeCampaignAccess.cs`,
+`TaskForce/TaskForceCommanderPatches.cs`, and `TaskForce/TaskForceRosterGenerator.cs`
+repeat private native type names for the save manager, debrief, commander manager,
+and mode rules.
 
-Note the constraint: the guide deliberately keeps *patch-target lookups* in the patches.
-Sharing the type-name constants does not violate that; hoisting the `MethodBase` resolution
-would.
+When editing these integrations, share repeated type-name constants with the
+access wrapper. Keep Harmony target-method resolution in each patch. Do not change
+resolution timing or add a general reflection registry.
 
-Also in `Campaign/CampaignPatches.cs:92`: `$"Mission_{missionIndex}_TaskForceDebrief"` is
-built inline even though `CampaignPersistence.DebriefSection(int)` exists for exactly this.
-It is `private` to a different partial file; making it `internal` fixes the divergence.
-
----
+The debrief section string in `CampaignRewardApplicationPatch` also duplicates
+`DebriefSection` in `Campaign/CampaignPersistence.cs`, a partial declaration of
+`CampaignOperationsState`. Reuse or move that naming helper without changing how
+either reward hook obtains its result. One hook reads the supplied state INI before
+the debrief is available; the other uses `BattleWon`. They are not duplicate
+state-access paths. Verify target names and emitted section names remain identical.
 
 Back to the [index](README.md).

@@ -1,35 +1,33 @@
 # UI
 
-Work that commit `e0619323` started and left unfinished, plus the widgets `NativeUi`
-still does not own.
+## 7. Share window construction where layouts agree
 
-## 7. `ScenarioSetupWindow` never got the `NativeUi` treatment
+`UI/ScenarioSetupWindow.cs` still builds text, overlays, and close behavior beside
+the helpers in `UI/NativeUi.cs`. Use the existing text helper where it preserves
+defaults. A wrapped-text helper could also serve `CampaignManagementWindow` and
+`CampaignAutoresolveWindow`.
 
-Commit `e0619323` centralized overlay creation and window closing for the two campaign
-windows and left the third window out.
+Overlay creation is similar, not identical:
 
-- `UI/ScenarioSetupWindow.CreateOverlay:160-190` duplicates `UI/NativeUi.CreateCampaignOverlay:37-72`:
-  same Border + ScrollViewer + Grid, same brushes, same `ActualWidth > 0f ? : Screen.width`
-  fallback, same clamping. Differs only in the overlay brush and in assigning `_openPanel`.
-  About 33 lines to 5.
-- `ScenarioSetupWindow.Close:223` duplicates `NativeUi.CloseWindow`, whose existing
-  `(panel, host, ref openPanel)` signature already covers this case.
-- The window builds seven `TextBlock`s by hand (`:48-53, 57-63, 64-72, 88-95`) and never
-  calls `NativeUi.CreateText` at all.
+| Setting | Scenario setup | Campaign helper |
+|---|---|---|
+| Width | 500 to 760, host minus 48 | Caller limits, host minus 100 |
+| Scroll height | Minimum 420, host minus 48 | Minimum 440, host minus 60 |
+| Root sizing | Explicit host width/height | Stretch alignment |
+| Background | Scenario overlay brush | Campaign overlay brush |
 
-## 17. Further UI repetition
+Share the border/scroll construction only if these differences remain explicit
+without a large options object. `CloseWindow` can replace the local close method,
+but it clears the reference only when it matches the panel being closed.
 
-Extending item 7:
+The label/control rows also differ. Setup has fixed/star columns and one label;
+management has star/auto columns, a subtitle, and a border; autoresolve has
+star/auto columns. A two-child grid helper may be enough. Keep salvage and market
+transactions and event handlers local.
 
-- **The two-column label/control row is built three times**, all Grid + `ColumnDefinitions`
-  + label in column 0 + control in column 1: `CampaignManagementWindow.CreateActionRow:174-205`,
-  `ScenarioSetupWindow.AddField:192-217`, and the inline `selectorRow` in
-  `CampaignAutoresolveWindow.cs:42-53`. It is the most repeated widget in the UI and the
-  only common one `NativeUi` does not own.
-- **The salvage and market list blocks** (`CampaignManagementWindow.cs:47-68, 70-93`) share
-  one shape: heading, hint, empty-state hint, then a foreach building a button whose click
-  calls a `Try...` method and refreshes. About 22 lines each.
-
----
+Use the Sea Power testing skill to check setup, management, and autoresolve at
+small and large resolutions. Verify clipping, scrolling, reopen/cancel, launch
+failure, and management refresh. A build cannot validate Noesis layout or host
+ownership.
 
 Back to the [index](README.md).
