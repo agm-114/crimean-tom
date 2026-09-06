@@ -18,12 +18,11 @@ numbers stable so cross-references still work; gaps are expected.
 |---|---|---|
 | 1 | Restated properties that `record` would delete outright | [Model shapes](models.md) |
 | 2 | A `FleetCapability` bundle carried through five types | [Model shapes](models.md) |
-| 4 | Duplicated route-corridor setup | [Scenario generation](scenario-generation.md) |
 | 5 | Three INI parsers for the same game files | [Native and INI access](native-and-ini-access.md) |
 | 6 | `playerTaskforce == "Taskforce1"` — 21 sites | [Naming and identity](naming-and-identity.md) |
 | 7 | `ScenarioSetupWindow` never got the `NativeUi` treatment | [UI](ui.md) |
 | 9 | Smaller, independent items | [Small items](small-items.md) |
-| 10 | Thirteen `FleetClashSize` switch tables | [Fleet planning](fleet-planning.md) |
+| 10 | Scattered `FleetClashSize` tuning tables | [Fleet planning](fleet-planning.md) |
 | 11 | `FleetClashMatch` rebuilt argument-by-argument, 3 sites | [Model shapes](models.md) |
 | 12 | The launcher-file registry, written four ways | [Scenario generation](scenario-generation.md) |
 | 13 | Duplicate spacing table inside one file | [Fleet planning](fleet-planning.md) |
@@ -61,7 +60,7 @@ is ordinary GDI+ disposal. `.github/` contains no workflow files.
 
 Take 1 and 2 together first — same files, mechanical, about 175 lines with the compiler
 verifying every step. Item 11 falls out of item 1 for free, so do it in the same pass.
-Then 4, 5, and 10, which reduce coupling rather than just volume.
+Then 5 and 10, which reduce coupling rather than just volume.
 7 and 17 are the UI cleanup and close out work `e0619323` started.
 13 is six lines but fixes a real desynchronization risk, so it is worth doing early.
 19 is worth doing before anything else touches the contract layer, since every later change
