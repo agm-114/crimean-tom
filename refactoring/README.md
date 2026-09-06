@@ -4,7 +4,7 @@ Outstanding suggestions checked against source at `5f3adae9` on 2026-09-06.
 This was a source and call-site audit, not an in-game verification.
 Items are candidates, not instructions to implement the whole list.
 
-Start with 13, 24, or 11 for a bounded cleanup. Item 5 has broader value but needs
+Start with 13, 24, or 21 for a bounded cleanup. Item 5 has broader value but needs
 parser comparisons first. Take one item at a time and keep gameplay unchanged.
 
 ## Index
@@ -13,7 +13,6 @@ parser comparisons first. Take one item at a time and keep gameplay unchanged.
 |---|---|---|
 | 13 | Small | [Reuse the formation-spacing switch](fleet-planning.md#13-reuse-the-formation-spacing-switch) |
 | 24 | Small | [Remove unused members](dead-code.md#24-remove-unused-members) |
-| 11 | Small | [Simplify match copies](models.md#11-simplify-match-copies) |
 | 21 | Small | [Share commander selection lookup](campaign-state.md#21-share-commander-selection-lookup) |
 | 12 | Small | [Centralize launcher identity](scenario-generation.md#12-centralize-launcher-identity) |
 | 19 | Cross-cutting | [Make contract identity explicit](naming-and-identity.md#19-make-contract-identity-explicit) |

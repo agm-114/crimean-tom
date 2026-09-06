@@ -252,15 +252,7 @@ internal static partial class ScenarioDebugGenerator
         }
 
         FleetClashForce scaledEnemy = best ?? originalEnemy;
-        return new FleetClashMatch(
-            match.Theater,
-            match.Latitude,
-            match.Longitude,
-            match.FirstName,
-            match.SecondName,
-            playerIsFirst ? match.First : scaledEnemy,
-            playerIsFirst ? scaledEnemy : match.Second,
-            match.BalanceError);
+        return playerIsFirst ? match with { Second = scaledEnemy } : match with { First = scaledEnemy };
     }
 
     private static double ScoreScaledForce(
@@ -318,15 +310,7 @@ internal static partial class ScenarioDebugGenerator
             .ToArray();
         FleetClashForce reordered = CreateForce(
             ranked.Take(controlledCount).Concat(ranked.Skip(controlledCount)));
-        return new FleetClashMatch(
-            match.Theater,
-            match.Latitude,
-            match.Longitude,
-            match.FirstName,
-            match.SecondName,
-            playerIsFirst ? reordered : match.First,
-            playerIsFirst ? match.Second : reordered,
-            match.BalanceError);
+        return playerIsFirst ? match with { First = reordered } : match with { Second = reordered };
     }
 
     private static FleetClashForce GetPlayerForce(
