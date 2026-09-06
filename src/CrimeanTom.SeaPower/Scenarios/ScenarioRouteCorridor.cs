@@ -45,13 +45,8 @@ internal static partial class ScenarioDebugGenerator
         float attackLane)
     {
         Dictionary<string, int> groupByReference = [];
-        for (int groupIndex = 0; groupIndex < deployment.Formations.Count; groupIndex++)
-        {
-            foreach (string reference in deployment.Formations[groupIndex].References)
-            {
-                groupByReference[reference] = groupIndex;
-            }
-        }
+        deployment.Formations.ForEach((formation, groupIndex) =>
+            formation.References.ForEach(reference => groupByReference[reference] = groupIndex));
 
         HashSet<string> leaders = deployment.Formations
             .Where(formation => formation.References.Count > 0)

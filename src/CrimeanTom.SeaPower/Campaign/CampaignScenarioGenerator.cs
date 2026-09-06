@@ -115,11 +115,9 @@ internal static partial class ScenarioDebugGenerator
             if (contract == CampaignContractKind.FleetClash)
             {
                 Dictionary<string, int> values = new(StringComparer.OrdinalIgnoreCase);
-                foreach (var side in new[] { ("Taskforce1", match.First), ("Taskforce2", match.Second) })
-                {
-                    foreach (var entry in MissionUnitReferences.NumberHulls(side.Item1, side.Item2.Ships, ship => ship.IsSubmarine))
-                        values[entry.Reference] = entry.Unit.PointCost;
-                }
+                new[] { ("Taskforce1", match.First), ("Taskforce2", match.Second) }.ForEach(side =>
+                    MissionUnitReferences.NumberHulls(side.Item1, side.Item2.Ships, ship => ship.IsSubmarine)
+                        .ForEach(entry => values[entry.Reference] = entry.Unit.PointCost));
                 CampaignValueObjectives.Apply(template.Data, values, seed);
             }
             // Use the same classified force and source order as deployment, including folder-only submarines.

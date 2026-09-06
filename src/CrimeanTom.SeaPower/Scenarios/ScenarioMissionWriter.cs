@@ -191,11 +191,8 @@ internal static partial class ScenarioDebugGenerator
         IReadOnlyList<FleetFormationPlan> formations)
     {
         mission.Write($"{taskforce}_NumberOfFormations", formations.Count);
-        for (int index = 0; index < formations.Count; index++)
-        {
-            FleetFormationPlan formation = formations[index];
-            mission.Write($"{taskforce}_Formation{index + 1}", formation.ToMissionValue());
-        }
+        formations.ForEach((formation, index) =>
+            mission.Write($"{taskforce}_Formation{index + 1}", formation.ToMissionValue()));
     }
 
     private static void AppendCivilianTraffic(

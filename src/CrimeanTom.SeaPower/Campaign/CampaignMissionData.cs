@@ -97,12 +97,13 @@ internal static class CampaignMissionData
             }
         }
         data["Mission"][side + "_NumberOfFormations"] = formations.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        for (int i = 0; i < formations.Count; i++) data["Mission"][side + "_Formation" + (i + 1)] = formations[i];
+        formations.ForEach((formation, index) => data["Mission"][side + "_Formation" + (index + 1)] = formation);
 
-        foreach (var section in data.Where(section =>
-                     section.Key.StartsWith("Trigger", StringComparison.OrdinalIgnoreCase) ||
-                     section.Key.Equals("CrimeanTom", StringComparison.OrdinalIgnoreCase)))
-            foreach (string key in section.Value.Keys.ToArray()) section.Value[key] = Remap(section.Value[key]);
+        data.Where(section =>
+                section.Key.StartsWith("Trigger", StringComparison.OrdinalIgnoreCase) ||
+                section.Key.Equals("CrimeanTom", StringComparison.OrdinalIgnoreCase))
+            .ForEach(section => section.Value.Keys.ToArray()
+                .ForEach(key => section.Value[key] = Remap(section.Value[key])));
         Regex aircraft = MissionUnitReferences.AirNamesFor(side);
         foreach (var section in data.Where(section => aircraft.IsMatch(section.Key)))
             if (section.Value.TryGetValue("HomeBase", out var homeBase)) section.Value["HomeBase"] = Remap(homeBase);

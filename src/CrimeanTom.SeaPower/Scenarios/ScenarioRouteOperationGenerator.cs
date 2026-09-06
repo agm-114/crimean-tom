@@ -323,7 +323,7 @@ internal static partial class ScenarioDebugGenerator
         AppendEnvironment(mission, match, parameters);
         AppendRouteMission(mission, match, size, playerTaskforce, parameters, route);
         route.FirstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
-        foreach (RouteProtectedUnit unit in route.ProtectedUnits) unit.WriteTo(mission);
+        route.ProtectedUnits.ForEach(unit => unit.WriteTo(mission));
         route.SecondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
         AppendCivilianTraffic(mission, parameters);
         AppendRouteTriggers(mission, route, playerTaskforce);

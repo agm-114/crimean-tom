@@ -20,10 +20,8 @@ internal record FleetDeployment(
 
     internal void WriteTo(MissionWriter mission, bool maskFirstNation = false)
     {
-        foreach (DeployedFleetUnit unit in Units)
-            unit.WriteTo(mission, maskFirstNation && unit.SourceIndex == 0);
-        foreach (DeployedAircraft aircraft in Aircraft)
-            aircraft.WriteTo(mission);
+        Units.ForEach(unit => unit.WriteTo(mission, maskFirstNation && unit.SourceIndex == 0));
+        Aircraft.ForEach(aircraft => aircraft.WriteTo(mission));
     }
 }
 

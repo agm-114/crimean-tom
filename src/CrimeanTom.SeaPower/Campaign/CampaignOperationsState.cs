@@ -159,7 +159,7 @@ internal static partial class CampaignOperationsState
         if (!CanWaitInPort) return;
         DecrementFatigue();
         Write(TurnKey, (Turn + 1));
-        foreach (object mission in GetMissions()) CampaignContractOffers.Describe(mission);
+        GetMissions().ForEach(CampaignContractOffers.Describe);
         SaveCampaign();
     }
 
