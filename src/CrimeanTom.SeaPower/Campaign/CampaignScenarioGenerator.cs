@@ -29,7 +29,8 @@ internal static partial class ScenarioDebugGenerator
         try
         {
             CampaignContractKind contract = ResolveCampaignContract(sourceMissionPath);
-            FleetClashForce playerForce = BuildCampaignPlayerForce(snapshot);
+            var playerUnits = snapshot.Items.Where(item => item is not null && !item.IsAirUnit).ToArray();
+            FleetClashForce playerForce = BuildCampaignPlayerForce(playerUnits);
             if (playerForce.Ships.Count == 0)
             {
                 throw new InvalidOperationException("The task force has no deployable ships or submarines.");
@@ -116,23 +117,15 @@ internal static partial class ScenarioDebugGenerator
                 Dictionary<string, int> values = new(StringComparer.OrdinalIgnoreCase);
                 foreach (var side in new[] { ("Taskforce1", match.First), ("Taskforce2", match.Second) })
                 {
-                    int surface = 0, submarine = 0;
-                    foreach (var ship in side.Item2.Ships)
-                        values[side.Item1 + (ship.IsSubmarine ? "Submarine" + (++submarine) : "Vessel" + (++surface))] = ship.PointCost;
+                    foreach (var entry in MissionUnitReferences.NumberHulls(side.Item1, side.Item2.Ships, ship => ship.IsSubmarine))
+                        values[entry.Reference] = entry.Unit.PointCost;
                 }
                 CampaignValueObjectives.Apply(template.Data, values, seed);
             }
-            Dictionary<string, string> originalUnitIds = new(StringComparer.OrdinalIgnoreCase);
-            int surfaceIndex = 0;
-            int submarineIndex = 0;
-            foreach (var item in snapshot.Items.Where(item => !item.IsAirUnit))
-            {
-                bool submarine = string.Equals(item.Category, "Submarine", StringComparison.OrdinalIgnoreCase);
-                string reference = playerTaskforce + (submarine
-                    ? "Submarine" + (++submarineIndex)
-                    : "Vessel" + (++surfaceIndex));
-                originalUnitIds.Add(reference, item.InstanceId);
-            }
+            // Use the same classified force and source order as deployment, including folder-only submarines.
+            var originalUnitIds = MissionUnitReferences.NumberHulls(playerTaskforce, playerForce.Ships, ship => ship.IsSubmarine)
+                .Zip(playerUnits, (entry, item) => (entry.Reference, item.InstanceId))
+                .ToDictionary(entry => entry.Reference, entry => entry.InstanceId, StringComparer.OrdinalIgnoreCase);
             CampaignMissionData.Remember(template.Data, originalUnitIds);
             template.saveFile(overwrite: true);
             Debug.Log(
@@ -168,10 +161,9 @@ internal static partial class ScenarioDebugGenerator
     }
 
     private static FleetClashForce BuildCampaignPlayerForce(
-        LinearCampaignTaskForceSnapshot snapshot)
+        IReadOnlyList<LinearCampaignTaskForceBuilderRosterItem> playerUnits)
     {
-        FleetClashShip[] ships = snapshot.Items
-            .Where(item => item is not null && !item.IsAirUnit)
+        FleetClashShip[] ships = playerUnits
             .Select(item =>
             {
                 VesselCombatProfile? profile = VesselCombatProfileReader.Read(item.UnitType);
@@ -261,15 +253,11 @@ internal static partial class ScenarioDebugGenerator
             contents,
             playerTaskforce,
             contract);
-        Regex playerUnitSection = new(
-            $@"^\[(?<{nameof(playerTaskforce)}>" +
-            Regex.Escape(playerTaskforce) +
-            @"(?:Vessel|Submarine)\d+)\]\r?$",
-            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        Regex playerUnitSection = MissionUnitReferences.HullSectionsFor(playerTaskforce);
         bool anchorWritten = false;
         return playerUnitSection.Replace(contents, match =>
         {
-            string reference = match.Groups[nameof(playerTaskforce)].Value;
+            string reference = match.Groups["reference"].Value;
             string marker = protectedReferences.Contains(reference)
                 ? "TaskForceModeIgnoreUnit=True"
                 : "TaskForceModePlaceholderUnit=True";

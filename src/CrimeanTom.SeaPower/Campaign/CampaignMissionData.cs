@@ -39,7 +39,7 @@ internal static class CampaignMissionData
         if (!data.TryGetValue(Plan, out var plan))
             throw new InvalidOperationException("The campaign mission has no saved tactical plan.");
         string side = data["Mission"]["PlayerTaskforce"];
-        Regex hull = new("^" + Regex.Escape(side) + @"(?:Vessel|Submarine)\d+$", RegexOptions.IgnoreCase);
+        Regex hull = MissionUnitReferences.HullNamesFor(side);
         var actual = data.Where(section => hull.IsMatch(section.Key) &&
                 section.Value.ContainsKey("CampaignTag"))
             .ToDictionary(section => section.Value["CampaignTag"], section => section.Key,
@@ -62,9 +62,7 @@ internal static class CampaignMissionData
             }
         }
 
-        Regex referencePattern = new(@"\bTaskforce[12](?:Vessel|Submarine)\d+\b", RegexOptions.IgnoreCase);
-        string Remap(string value) => referencePattern.Replace(value,
-            match => mapping.TryGetValue(match.Value, out var replacement) ? replacement : match.Value);
+        string Remap(string value) => MissionUnitReferences.RemapHulls(value, mapping);
 
         // Native formations already contain final hull identifiers. Do not remap them a second time.
         List<string> formations = [];
@@ -105,14 +103,14 @@ internal static class CampaignMissionData
                      section.Key.StartsWith("Trigger", StringComparison.OrdinalIgnoreCase) ||
                      section.Key.Equals("CrimeanTom", StringComparison.OrdinalIgnoreCase)))
             foreach (string key in section.Value.Keys.ToArray()) section.Value[key] = Remap(section.Value[key]);
-        foreach (var section in data.Where(section =>
-                     Regex.IsMatch(section.Key, "^" + Regex.Escape(side) + @"(?:Aircraft|Helicopter)\d+$")))
+        Regex aircraft = MissionUnitReferences.AirNamesFor(side);
+        foreach (var section in data.Where(section => aircraft.IsMatch(section.Key)))
             if (section.Value.TryGetValue("HomeBase", out var homeBase)) section.Value["HomeBase"] = Remap(homeBase);
 
         foreach (var trigger in data.Where(section => section.Key.StartsWith("Trigger", StringComparison.OrdinalIgnoreCase)))
             foreach (var condition in trigger.Value.Where(pair => pair.Key.EndsWith("_Units", StringComparison.OrdinalIgnoreCase)))
-                foreach (Match reference in referencePattern.Matches(condition.Value))
-                    if (!data.ContainsKey(reference.Value))
-                        throw new InvalidOperationException($"Objective references missing unit {reference.Value}.");
+                foreach (string reference in MissionUnitReferences.FindHulls(condition.Value))
+                    if (!data.ContainsKey(reference))
+                        throw new InvalidOperationException($"Objective references missing unit {reference}.");
     }
 }

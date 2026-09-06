@@ -272,7 +272,7 @@ internal static partial class ScenarioDebugGenerator
             float longitudinal = (index / 2) * -1.5f;
             float lateral = index == 0 ? 0f : (index % 2 == 0 ? 1f : -1f) * 1.4f;
             units.Add(new RouteProtectedUnit(
-                $"Taskforce1Vessel{vesselIndexOffset + index + 1}",
+                MissionUnitReferences.FormatHull("Taskforce1", vesselIndexOffset + index + 1),
                 available[index % available.Length].UnitType,
                 available[index % available.Length].VariantReference,
                 available[index % available.Length].Nation,

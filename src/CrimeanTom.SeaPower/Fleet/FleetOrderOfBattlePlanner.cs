@@ -13,17 +13,8 @@ internal static class FleetOrderOfBattlePlanner
         string controlledLabel,
         string delegatedLabel)
     {
-        List<IndexedShip> indexed = [];
-        int vesselNumber = 0;
-        int submarineNumber = 0;
-        for (int index = 0; index < force.Ships.Count; index++)
-        {
-            FleetClashShip ship = force.Ships[index];
-            string reference = ship.IsSubmarine
-                ? $"{taskforce}Submarine{++submarineNumber}"
-                : $"{taskforce}Vessel{++vesselNumber}";
-            indexed.Add(new IndexedShip(index, ship, reference));
-        }
+        List<IndexedShip> indexed = MissionUnitReferences.NumberHulls(taskforce, force.Ships, ship => ship.IsSubmarine)
+            .Select((entry, index) => new IndexedShip(index, entry.Unit, entry.Reference)).ToList();
 
         int split = Math.Clamp(controlledCount, 0, indexed.Count);
         List<FleetGroupPlan> groups = [];
