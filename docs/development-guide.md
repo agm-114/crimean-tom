@@ -48,6 +48,8 @@ The campaign state class is split into `CampaignOperationsState.cs` for lifecycl
 
 `Scenarios/CivilianTrafficUnit.cs` shares civilian ship and aircraft serialization, including their crossing waypoint. `AppendCivilianTraffic` keeps the separate spawn rules and seeded random draw order; the record selects the native variant/squadron key and telegraph setting.
 
+`Scenarios/MissionUnitReferences.cs` owns hull numbering and the reference matchers used by campaign remapping. `NumberHulls()` numbers vessels and submarines separately in source order, before tactical grouping. Deployment, destruction-value objectives, and persistent instance IDs use that same sequence. The campaign ID map uses the classified player force, so a submarine identified only by its native folder still receives a submarine reference. `FormatHull()` also handles protected convoy offsets. Matching preserves existing word boundaries, section line endings, and the different hull/aircraft case rules.
+
 Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit sections. Use `mission.Write("Heading", heading, "0")` for a formatted number, `mission.WritePosition("RelativePositionInNM", new(x, altitude, z))` for a position, and `mission.WriteWaypoints(route)` for orders. Pass interpolated values directly to `Write` so its `FormattableString` overload formats numbers with invariant culture.
 
 `UI/` contains all three windows, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
