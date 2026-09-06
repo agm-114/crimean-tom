@@ -78,25 +78,15 @@ internal class FleetClashTheater(
     internal FleetSidePlan Second { get; } = second;
 }
 
-internal class FleetClashMatch(
-    string theater,
-    float latitude,
-    float longitude,
-    string firstName,
-    string secondName,
-    FleetClashForce first,
-    FleetClashForce second,
-    double balanceError)
-{
-    internal string Theater { get; } = theater;
-    internal float Latitude { get; } = latitude;
-    internal float Longitude { get; } = longitude;
-    internal string FirstName { get; } = firstName;
-    internal string SecondName { get; } = secondName;
-    internal FleetClashForce First { get; } = first;
-    internal FleetClashForce Second { get; } = second;
-    internal double BalanceError { get; } = balanceError;
-}
+internal record FleetClashMatch(
+    string Theater,
+    float Latitude,
+    float Longitude,
+    string FirstName,
+    string SecondName,
+    FleetClashForce First,
+    FleetClashForce Second,
+    double BalanceError);
 
 internal class FleetClashForce(
     IReadOnlyList<FleetClashShip> ships,

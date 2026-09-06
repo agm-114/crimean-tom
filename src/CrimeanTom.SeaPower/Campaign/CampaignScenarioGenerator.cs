@@ -219,19 +219,17 @@ internal static partial class ScenarioDebugGenerator
         FleetClashForce playerForce,
         string taskForceName)
     {
-        return new FleetClashMatch(
-                generated.Theater,
-                generated.Latitude,
-                generated.Longitude,
-                playerTaskforce == "Taskforce1"
-                    ? FirstNonEmpty(taskForceName, "Player Task Force")
-                    : generated.FirstName,
-                playerTaskforce == "Taskforce2"
-                    ? FirstNonEmpty(taskForceName, "Player Task Force")
-                    : generated.SecondName,
-                playerTaskforce == "Taskforce1" ? playerForce : generated.First,
-                playerTaskforce == "Taskforce2" ? playerForce : generated.Second,
-                generated.BalanceError);
+        return generated with
+        {
+            FirstName = playerTaskforce == "Taskforce1"
+                ? FirstNonEmpty(taskForceName, "Player Task Force")
+                : generated.FirstName,
+            SecondName = playerTaskforce == "Taskforce2"
+                ? FirstNonEmpty(taskForceName, "Player Task Force")
+                : generated.SecondName,
+            First = playerTaskforce == "Taskforce1" ? playerForce : generated.First,
+            Second = playerTaskforce == "Taskforce2" ? playerForce : generated.Second,
+        };
     }
 
     private static string MarkCampaignTemplate(

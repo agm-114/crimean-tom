@@ -28,8 +28,7 @@ Player/enemy force selection and opponent naming repeat in
 `Scenarios/ScenarioDebugGenerator.cs`, `Scenarios/ScenarioMissionWriter.cs`,
 `Scenarios/MissionTrigger.cs`, and `Campaign/CampaignScenarioGenerator.cs`.
 
-After [match-copy cleanup](models.md#11-simplify-match-copies), reassess how much
-duplication remains. Prefer a small side helper for opponent and force selection.
+Focus on the remaining opponent and force selection, using a small side helper.
 A side model should not absorb ship references, UI labels, physical positions,
 and campaign policy into one object.
 
