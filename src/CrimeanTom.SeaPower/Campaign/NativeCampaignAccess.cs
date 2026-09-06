@@ -69,8 +69,8 @@ internal static class NativeCampaignAccess
         {
             foreach (object language in languages)
             {
-                foreach (string property in new[] { "MissionIntro", "MissionDescription" })
-                    AccessTools.Property(language.GetType(), property)?.SetValue(language, description);
+                new[] { "MissionIntro", "MissionDescription" }.ForEach(property =>
+                    AccessTools.Property(language.GetType(), property)?.SetValue(language, description));
                 AccessTools.Property(language.GetType(), "MissionResupplyRules")?.SetValue(language, resupplyRules);
             }
         }

@@ -277,10 +277,7 @@ internal static class FleetOrderOfBattlePlanner
                 .OrderByDescending(ship => ship.Ship.SurfaceCapability + ship.Ship.AswCapability)
                 .Take(take)
                 .ToList();
-            foreach (IndexedShip member in members)
-            {
-                submarines.Remove(member);
-            }
+            members.ForEach(member => submarines.Remove(member));
 
             output.Add(new FleetGroupPlan(
                 members,

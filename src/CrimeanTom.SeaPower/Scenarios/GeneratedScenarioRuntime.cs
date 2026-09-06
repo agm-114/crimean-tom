@@ -157,11 +157,9 @@ internal static class GeneratedScenarioRuntime
         _previousTruthValue = DM_Sensors._showTruthForPlayer;
         _spectatorTruthActive = true;
         DM_Sensors._showTruthForPlayer = true;
-        foreach (ObjectBase unit in Singleton<ObjectsManager>.Instance._listOfAllObjects
-                     .Where(candidate => candidate is not null && candidate.isUnit())
-                     .ToArray())
-        {
-            unit.CreateEternalTrackForPlayer();
-        }
+        Singleton<ObjectsManager>.Instance._listOfAllObjects
+            .Where(candidate => candidate is not null && candidate.isUnit())
+            .ToArray()
+            .ForEach(unit => unit.CreateEternalTrackForPlayer());
     }
 }

@@ -221,10 +221,7 @@ internal static class TaskForceRosterGenerator
                 return false;
             }
 
-            foreach (RosterVariant variant in _rosterVariants)
-            {
-                variant.SetBaseCost(costs[GetUnitKey(variant.UnitFolder, variant.UnitType)]);
-            }
+            _rosterVariants.ForEach(variant => variant.SetBaseCost(costs[GetUnitKey(variant.UnitFolder, variant.UnitType)]));
 
             _medianBaseCost = CalculateMedianBaseCost(_rosterVariants);
             _baseCostsLoaded = true;
@@ -290,18 +287,15 @@ internal static class TaskForceRosterGenerator
                 .AppendLine();
 
             (string role, double roleWeight) = ResolveShipRole(shipClass);
-            foreach (VariantDefinition variant in variants.Where(variant =>
-                !string.IsNullOrWhiteSpace(variant.Nation)))
-            {
-                rosterVariants.Add(new RosterVariant(
+            variants.Where(variant => !string.IsNullOrWhiteSpace(variant.Nation))
+                .ForEach(variant => rosterVariants.Add(new RosterVariant(
                     variant.Nation,
                     "vessels",
                     shipClass,
                     variant.Reference,
                     0,
                     role,
-                    roleWeight));
-            }
+                    roleWeight)));
         }
 
         roster.AppendLine().AppendLine("[AllowedHelicopters]");
@@ -356,18 +350,15 @@ internal static class TaskForceRosterGenerator
                 aircraftDirectory,
                 aircraftClass,
                 includeHelicopters);
-            foreach (VariantDefinition squadron in squadrons.Where(squadron =>
-                !string.IsNullOrWhiteSpace(squadron.Nation)))
-            {
-                rosterVariants.Add(new RosterVariant(
+            squadrons.Where(squadron => !string.IsNullOrWhiteSpace(squadron.Nation))
+                .ForEach(squadron => rosterVariants.Add(new RosterVariant(
                     squadron.Nation,
                     "aircraft",
                     aircraftClass,
                     squadron.Reference,
                     0,
                     role,
-                    roleWeight));
-            }
+                    roleWeight)));
         }
     }
 

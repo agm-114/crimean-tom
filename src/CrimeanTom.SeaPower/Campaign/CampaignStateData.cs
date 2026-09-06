@@ -26,10 +26,10 @@ internal static class CampaignStateData
             }
             if (!data.ContainsKey(source)) continue;
             string target = UnitPrefix(id);
-            foreach (string section in data.Keys.Where(section => Matches(section, target)).ToArray())
-                data.Remove(section);
-            foreach (var section in data.Where(section => Matches(section.Key, source)).ToArray())
-                data[target + section.Key[source.Length..]] = new(section.Value, StringComparer.OrdinalIgnoreCase);
+            data.Keys.Where(section => Matches(section, target)).ToArray()
+                .ForEach(section => data.Remove(section));
+            data.Where(section => Matches(section.Key, source)).ToArray()
+                .ForEach(section => data[target + section.Key[source.Length..]] = new(section.Value, StringComparer.OrdinalIgnoreCase));
         }
     }
 
@@ -37,9 +37,9 @@ internal static class CampaignStateData
     {
         string native = $"Mission_{mission}_";
         string snapshots = $"TaskForceMode_Mission{mission}_";
-        foreach (string section in data.Keys.Where(section =>
-                     section.StartsWith(native, StringComparison.OrdinalIgnoreCase) ||
-                     section.StartsWith(snapshots, StringComparison.OrdinalIgnoreCase)).ToArray())
-            data.Remove(section);
+        data.Keys.Where(section =>
+                section.StartsWith(native, StringComparison.OrdinalIgnoreCase) ||
+                section.StartsWith(snapshots, StringComparison.OrdinalIgnoreCase)).ToArray()
+            .ForEach(section => data.Remove(section));
     }
 }
