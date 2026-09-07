@@ -17,7 +17,6 @@ parser comparisons first. Take one item at a time and keep gameplay unchanged.
 | 12 | Small | [Centralize launcher identity](scenario-generation.md#12-centralize-launcher-identity) |
 | 19 | Cross-cutting | [Make contract identity explicit](naming-and-identity.md#19-make-contract-identity-explicit) |
 | 5 | Cross-cutting | [Reuse parsed unit metadata](native-and-ini-access.md#5-reuse-parsed-unit-metadata) |
-| 29 | Cross-cutting | [Share coalition definitions across commander and fleet generation](fleet-planning.md#29-share-coalition-definitions-across-commander-and-fleet-generation) |
 | 7 | UI | [Share window construction where layouts agree](ui.md#7-share-window-construction-where-layouts-agree) |
 | 2 | Conditional | [Group fleet capability data](models.md#2-group-fleet-capability-data) |
 | 10 | Conditional | [Group fleet-size tuning](fleet-planning.md#10-group-fleet-size-tuning) |
@@ -40,7 +39,7 @@ parser comparisons first. Take one item at a time and keep gameplay unchanged.
 - Do not add test projects or permanent test files. Use the existing build and
   bounded comparisons; use the Sea Power testing skill when live proof is needed.
 
-Keep theater regional selection policy separate from commander coalition eligibility.
-Share whole-coalition membership only where the theater explicitly intends it.
+Keep nation theater assignments separate from commander coalition eligibility.
+Coalitions inherit theater coverage; that does not make all their members local.
 Keep mission-specific trigger rules explicit around `MissionTrigger`.
 Do not introduce template generators just to deduplicate the small native INI files.

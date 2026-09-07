@@ -20,10 +20,10 @@ internal static class CoalitionBuilderNationFilterSortPatch
         string __state,
         ref string ____selectedNationFilter)
     {
-        string selectedFilter = TaskForceNationRules.IsCoalition(__state)
+        string selectedFilter = FactionCatalog.IsCoalition(__state)
             ? __state
             : ____selectedNationFilter;
-        if (TaskForceNationRules.IsCoalition(__state))
+        if (FactionCatalog.IsCoalition(__state))
         {
             ____selectedNationFilter = __state;
         }
@@ -88,7 +88,7 @@ internal static class CoalitionBuilderFilterDisplayNamePatch
         LinearCampaignTaskForceBuilderNationFilter __instance,
         ref string __result)
     {
-        string displayName = TaskForceNationRules.GetCoalitionDisplayName(__instance.Nation);
+        string displayName = FactionCatalog.GetCoalition(__instance.Nation)?.DisplayName ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(displayName))
         {
             __result = displayName;
@@ -103,7 +103,7 @@ internal static class CoalitionBuilderFilterTooltipPatch
         LinearCampaignTaskForceBuilderNationFilter __instance,
         ref string __result)
     {
-        string displayName = TaskForceNationRules.GetCoalitionDisplayName(__instance.Nation);
+        string displayName = FactionCatalog.GetCoalition(__instance.Nation)?.DisplayName ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(displayName))
         {
             int count = TaskForceNationRules.GetCoalitionShipVariantCount(__instance.Nation);

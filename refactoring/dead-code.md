@@ -4,7 +4,6 @@
 
 Repository C# searches found no callers for:
 
-- `TaskForce/TaskForceCoalitions.cs`: `GetCoalitions`.
 - `Fleet/FleetClashBalancer.cs`: `GetShipCount`.
 - `TaskForce/TaskForceRosterBalance.cs`: `NationTier.StrengthScore` and
   `NationTier.RoleCount`.

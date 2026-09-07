@@ -57,7 +57,7 @@ internal static class CoalitionMissingFlagPatch
         LinearCampaignTaskForceCommanderNation __instance,
         ref TextureSource __result)
     {
-        if (!TaskForceNationRules.IsCoalition(__instance.Nation))
+        if (!FactionCatalog.IsCoalition(__instance.Nation))
         {
             return true;
         }
@@ -193,7 +193,7 @@ internal static class CommanderDiscountSummaryPatch
 
         TaskForceNationRules.NationTier tier = TaskForceNationRules.GetTier(nation);
         int percent = (int)Math.Round(tier.Discount * 100f);
-        __result = TaskForceNationRules.IsCoalition(nation)
+        __result = FactionCatalog.IsCoalition(nation)
             ? $"{tier.Label}: {percent}% member discount. {tier.ClassCount} classes, {tier.VariantCount} variants."
             : $"{tier.Label}: {percent}% national discount. {tier.ClassCount} classes, {tier.VariantCount} variants.";
     }

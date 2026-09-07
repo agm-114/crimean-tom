@@ -38,11 +38,11 @@ sides, escort/interdiction, and the Blue-aligned spectator with zero player cont
 
 ## 23. Share runtime campaign paths
 
-Three TaskForce files encode the same campaign folder:
+Three files encode the same campaign folder:
 
 - `TaskForceRosterGenerator.CampaignFolderName`.
 - `TaskForceNationRules.IsOurCampaignPath`.
-- `TaskForceCoalitions.CoalitionArtPath`.
+- `Fleet/FactionCatalog.cs`: `CoalitionArtPath`.
 
 Share the folder name and derive the runtime paths locally. Preserve slash
 normalization, case-insensitive campaign detection, and folder boundaries.

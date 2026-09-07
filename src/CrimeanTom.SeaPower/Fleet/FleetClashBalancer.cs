@@ -10,17 +10,17 @@ internal static class FleetClashBalancer
         FleetClashSize size,
         string? region = null)
     {
-        FleetClashTheater theater = FleetClashTheaterCatalog.Pick(
+        var (theater, firstSide, secondSide) = FleetClashTheaterCatalog.Pick(
             random,
             FleetClashForceGenerator.IsViable,
             region);
         FleetCandidate[] firstFleets = FleetClashForceGenerator.GenerateCandidates(
-            theater.First,
+            firstSide,
             size,
             CandidateFleetCount,
             random).ToArray();
         FleetCandidate[] secondFleets = FleetClashForceGenerator.GenerateCandidates(
-            theater.Second,
+            secondSide,
             size,
             CandidateFleetCount,
             random).ToArray();
@@ -39,8 +39,8 @@ internal static class FleetClashBalancer
             theater.Name,
             theater.Latitude,
             theater.Longitude,
-            theater.First.DisplayName,
-            theater.Second.DisplayName,
+            firstSide.DisplayName,
+            secondSide.DisplayName,
             FleetClashForceGenerator.Finalize(match.First, random),
             FleetClashForceGenerator.Finalize(match.Second, random),
             match.Error);
