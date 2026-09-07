@@ -28,6 +28,7 @@ internal class CampaignDebugController : MonoBehaviour
 
     private void Update()
     {
+        GeneratedScenarioRuntime.RefreshFriendlyTracks();
         int count = _nextFrame.Count;
         for (int index = 0; index < count; index++)
         {
