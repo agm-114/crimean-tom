@@ -6,26 +6,23 @@ This is the working reference for generated Crimean Tom scenarios. It is based o
 
 The generator should first produce small missions that reliably load and fight. More elaborate contracts should be assembled from the same tested pieces instead of introducing a separate simulation layer.
 
-## First playable slice: fleet clash
+## Current generated missions
 
-The initial generator writes two versions of one engagement into a native `Crimean Tom Generated` scenario category:
+The generators provide fleet clash, Blue-aligned spectator play, escort/interdiction
+variants, and a campaign passage contract. Their current behavior is described in
+[fleet-generation.md](fleet-generation.md).
 
-- NATO command: the player controls the western surface action group.
-- Soviet command: the player controls the same engagement from the other side.
+They use role-based forces, separate tactical formations, carrier withdrawal,
+embarked patrol aircraft, sonobuoy waypoint attacks, convoy follow routes, arrival
+and destruction conditions, objectives, and retreat anchors. Patrol routes use the
+native `Loop` token, and convoy screens use `FollowLoose,target,ownPos`, both found
+in shipped scenarios.
 
-Each side receives four combatants selected from role-based class pools. Both groups start in a box formation, steam toward one another, use the `AntiSurface` tactical mission, and have free weapon release. Three losses break a group's combat cohesion and end the mission. The generated pair shares one seed and identical forces, weather, time, spacing, and geometry.
-
-This slice proves the parts every later contract needs:
-
-- native scenario discovery and direct launch;
-- repeatable random order-of-battle generation;
-- player and opposing-force side swapping;
-- formation membership and station roles;
-- AI movement, detection, targeting, and weapon employment;
-- objectives, victory, defeat, and delayed mission end;
-- morale-aware withdrawal toward side-specific retreat points.
-
-Do not add aircraft, submarines, reinforcements, or multi-stage triggers until this loop works in both directions.
+The catalog below lists available tools, not features every mission must use.
+Add a tool when it creates a useful decision or fixes an AI problem. Reinforcements,
+weather transitions, detection-triggered ROE, and actual mine clearance still need
+separate gameplay design and live verification. Do not add a deadline merely to
+force a battle to end.
 
 ## Scenario structure
 

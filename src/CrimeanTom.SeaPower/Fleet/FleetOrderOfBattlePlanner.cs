@@ -25,7 +25,7 @@ internal static class FleetOrderOfBattlePlanner
         List<DeployedFleetUnit> units = [];
         List<FleetFormationPlan> formations = [];
         List<DeployedAircraft> aircraft = [];
-        CarrierAirDeployment airDeployment = new(
+        EmbarkedAirDeployment airDeployment = new(
             taskforce, direction, heading, engagementSeparationNm, aircraft, formations);
         for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
         {
@@ -76,29 +76,42 @@ internal static class FleetOrderOfBattlePlanner
             {
                 airDeployment.Add(new(carrier, group.Name, groupX, groupZ), airPackage);
             }
+            if (airPackage?.AswPatrol is not { IsHelicopter: true, AvailableCount: > 0 } &&
+                group.Kind != FleetGroupKind.SubmarinePatrol)
+            {
+                foreach (IndexedShip host in group.Members.Where(member => !member.Ship.IsCarrier)
+                    .OrderByDescending(member => member.Ship.AswCapability))
+                {
+                    CarrierAirPlan? patrol = ScenarioUnitCatalog.GetCarrierAirPackage(host.Ship.UnitType)?.AswPatrol;
+                    if (patrol is not { IsHelicopter: true, AvailableCount: > 0 }) continue;
+                    DeployedFleetUnit position = units.First(unit => unit.SourceIndex == host.SourceIndex);
+                    airDeployment.AddAswPatrol(new(host, group.Name, position.X, position.Z), patrol);
+                    break;
+                }
+            }
         }
 
         return new FleetDeployment(units, formations, aircraft, split);
     }
 
-    private record CarrierAirStation(IndexedShip Carrier, string GroupName, float X, float Z);
+    private record EmbarkedAirStation(IndexedShip Host, string GroupName, float X, float Z);
 
     // One builder per fleet side, so aircraft IDs keep increasing across carrier groups.
-    private class CarrierAirDeployment(
+    private class EmbarkedAirDeployment(
         string taskforce, float direction, float heading, float engagementSeparationNm,
         ICollection<DeployedAircraft> aircraft, ICollection<FleetFormationPlan> formations)
     {
         private int _aircraftNumber;
         private int _helicopterNumber;
 
-        internal void Add(CarrierAirStation station, CarrierAirPackage package)
+        internal void Add(EmbarkedAirStation station, CarrierAirPackage package)
         {
             AddCombatAirPatrol(station, package.CombatAirPatrol);
             AddAirborneEarlyWarning(station, package.AirborneEarlyWarning);
             AddAswPatrol(station, package.AswPatrol);
         }
 
-        private void AddCombatAirPatrol(CarrierAirStation station, CarrierAirPlan? plan)
+        private void AddCombatAirPatrol(EmbarkedAirStation station, CarrierAirPlan? plan)
         {
             if (plan is null)
             {
@@ -120,9 +133,9 @@ internal static class FleetOrderOfBattlePlanner
                     string reference = $"{taskforce}Aircraft{++_aircraftNumber}";
                     pair.Add(reference);
                     aircraft.Add(new DeployedAircraft(
-                        station.Carrier.SourceIndex,
+                        station.Host.SourceIndex,
                         reference,
-                        station.Carrier.Reference,
+                        station.Host.Reference,
                         plan,
                         station.X + (direction * (8f + pairIndex)),
                         station.Z + (pairIndex == 0 ? 6f : -6f) + (memberIndex * 0.1f),
@@ -151,7 +164,7 @@ internal static class FleetOrderOfBattlePlanner
             }
         }
 
-        private void AddAirborneEarlyWarning(CarrierAirStation station, CarrierAirPlan? plan)
+        private void AddAirborneEarlyWarning(EmbarkedAirStation station, CarrierAirPlan? plan)
         {
             if (plan is null || plan.AvailableCount < 1)
             {
@@ -162,9 +175,9 @@ internal static class FleetOrderOfBattlePlanner
             int number = plan.IsHelicopter ? ++_helicopterNumber : ++_aircraftNumber;
             float altitude = plan.IsHelicopter ? 10000f : 30000f;
             aircraft.Add(new DeployedAircraft(
-                station.Carrier.SourceIndex,
+                station.Host.SourceIndex,
                 $"{taskforce}{unitKind}{number}",
-                station.Carrier.Reference,
+                station.Host.Reference,
                 plan,
                 station.X + (direction * 16f),
                 station.Z,
@@ -179,7 +192,7 @@ internal static class FleetOrderOfBattlePlanner
                 "AEW"));
         }
 
-        private void AddAswPatrol(CarrierAirStation station, CarrierAirPlan? plan)
+        internal void AddAswPatrol(EmbarkedAirStation station, CarrierAirPlan? plan)
         {
             if (plan is null || !plan.IsHelicopter)
             {
@@ -192,9 +205,9 @@ internal static class FleetOrderOfBattlePlanner
                 string reference = $"{taskforce}Helicopter{++_helicopterNumber}";
                 float lane = index == 0 ? 1f : -1f;
                 aircraft.Add(new DeployedAircraft(
-                    station.Carrier.SourceIndex,
+                    station.Host.SourceIndex,
                     reference,
-                    station.Carrier.Reference,
+                    station.Host.Reference,
                     plan,
                     station.X + (direction * 6f),
                     station.Z + (lane * 8f),

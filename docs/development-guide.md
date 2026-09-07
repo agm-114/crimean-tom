@@ -52,7 +52,7 @@ The campaign state class is split into `CampaignOperationsState.cs` for lifecycl
 
 `Scenarios/MissionUnitReferences.cs` owns hull numbering and the reference matchers used by campaign remapping. `NumberHulls()` numbers vessels and submarines separately in source order, before tactical grouping. Deployment, destruction-value objectives, and persistent instance IDs use that same sequence. The campaign ID map uses the classified player force, so a submarine identified only by its native folder still receives a submarine reference. `FormatHull()` also handles protected convoy offsets. Matching preserves existing word boundaries, section line endings, and the different hull/aircraft case rules.
 
-Inside `FleetOrderOfBattlePlanner`, one `CarrierAirDeployment` builder per fleet side owns aircraft/helicopter counters and output collections. `CarrierAirStation` carries each group's carrier and geometry. CAP, AEW, and ASW are added in that order. Do not create a builder per carrier, because counters must span all carrier groups on the side.
+Inside `FleetOrderOfBattlePlanner`, one `EmbarkedAirDeployment` builder per fleet side owns aircraft/helicopter counters and output collections. `EmbarkedAirStation` carries the host ship and geometry. Carrier CAP, AEW, and ASW are added in that order. If the carrier cannot provide ASW helicopters, or the group has no carrier, one helicopter-equipped escort supplies the patrol. Counters span all groups on the side. CAP and AEW leaders loop their routes; sonobuoy-laying routes do not loop.
 
 Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit sections. Use `mission.Write("Heading", heading, "0")` for a formatted number, `mission.WritePosition("RelativePositionInNM", new(x, altitude, z))` for a position, and `mission.WriteWaypoints(route)` for orders. Pass interpolated values directly to `Write` so its `FormattableString` overload formats numbers with invariant culture.
 
@@ -224,6 +224,10 @@ Close an agent-launched game after testing unless the user asks to keep it open.
 
 ## Known risks and next work
 
+- The 2026-09-07 gameplay pass passed a build and 326 in-memory mission checks using installed aircraft/loadout data and fixture fleets. Loose-follow screens, looping air patrols, carrier-free ASW cover, and revised objective text still need live verification. No game was launched because desktop control was unavailable.
+- Convoy screen orders follow the initial protected leader. Verify native formation succession after that ship sinks; the escort briefing tells the player to retask the screen. In interdiction play, the AI defender must be checked too.
+- Generated coastal spawns and routes are not terrain-validated. Check Baltic, Mediterranean, and South China Sea seeds for land or shallow-water conflicts before treating every regional draw as playable.
+- Minesweeper escort protects a moving group; it does not create a minefield or simulate clearance. Civilian traffic adds contacts, not an attributed civilian-casualty scoring rule.
 - The management loop has passed a native-UI, two-turn autoresolve test. A two-battle test using real tactical debriefs and a save/load boundary is still required.
 - The latest-state and mission-reference fixes still need full native battle/debrief/save/load verification.
 - The campaign shows four native contract nodes with fixed-per-turn briefings rather than a dedicated contract-board UI. Confirm offer text, payment and actual opponents agree in a real launch.

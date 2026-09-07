@@ -333,7 +333,9 @@ Each carrier can start with up to four fighters airborne as two native two-aircr
 
 If the embarked wing includes an AEW aircraft, one starts airborne on a radar-active orbit toward the threat. It remains separate from the fighter formations but sits inside their patrol area, so the CAP covers it while it extends the group's radar horizon. The generator does not substitute a generic AWACS for carriers whose installed air group lacks one.
 
-Up to two embarked ASW helicopters also deploy from the carrier's stock wing. Each flies an independent barrier pattern ahead of the carrier and receives native `AttackAtWaypoint` orders to drop six sonobuoys. The generator resolves the buoy ammunition from the selected helicopter loadout, including date-based substitutions, and assigns the carrier as home base. This produces an actual sensor barrier while keeping the helicopters free to investigate contacts separately.
+CAP and AEW leaders repeat their patrol routes with the native `Loop` token. Fighters in the same pair follow their leader. Fuel and recovery remain under normal game behavior.
+
+Up to two ASW helicopters deploy from each surface group's available embarked stock, preferring the carrier and otherwise using a helicopter-equipped escort. Each flies an independent barrier pattern and receives native `AttackAtWaypoint` orders to drop six sonobuoys when its loadout supports them. The generator resolves buoy ammunition, including date-based substitutions, and assigns the supplying ship as home base. These routes do not loop, so helicopters do not endlessly repeat buoy drops. Submarine groups do not receive aircraft.
 
 ### Battle geometry
 
@@ -353,7 +355,7 @@ Every tactical group receives:
 
 Surface action groups use `AntiSurface` tasking. Carrier groups and independent submarine patrols use the shipped `Patrol` tasking, with routes that keep carriers clear of the surface advance and move submarines into flank patrol areas.
 
-Standalone fleet clashes end when roughly 75% of an opposing force's surface and submarine combatants are destroyed. Campaign clashes instead count 75% of undiscounted ship value, using native per-hull destruction triggers and loss counters. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken. Campaign enemies are fixed in the turn's offer before player deployment; the close-match logic below applies to standalone skirmishes.
+Standalone fleet clashes end when roughly 75% of an opposing force's surface and submarine combatants are destroyed, capped below total annihilation for fleets with more than one ship. A three-ship side therefore breaks after two losses. Objectives state both the enemy loss target and the friendly loss limit. Campaign clashes instead count 75% of undiscounted ship value, using native per-hull destruction triggers and loss counters; their preservation text also uses points. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken. Campaign enemies are fixed in the turn's offer before player deployment; the close-match logic below applies to standalone skirmishes.
 
 ## Route operations
 
@@ -367,7 +369,7 @@ The player can escort the group or attack it. Both perspectives use the same gen
 
 Small, medium, and large missions contain progressively longer routes and larger protected groups. About two thirds of the protected ships must reach the destination. The escort wins when that threshold enters the marked destination area. The attacker wins once losses make the threshold impossible. Neither outcome uses a timer.
 
-Escort groups follow the protected route at convoy speed instead of racing ahead. Raider groups approach an interception point from a flank. Route operations omit carriers until the generator can give them a credible anti-ship air plan. Minesweeper groups prefer classes and national variants already present in the escort coalition. All six combinations reroll their theater and order of battle whenever the player launches the scenario.
+Surface escort leaders start ahead of the convoy and use native loose-follow orders around its lead ship. Their formation followers keep their stations, while submarines retain independent search routes. If the protected leader sinks, the screen may need new follow orders; native succession still needs a live check. Raider groups approach an interception point from a flank. Passage routes finish at the exit center rather than leaving separate groups parked outside the scoring area. Route generation prefers carrier-free forces. Minesweeper groups prefer classes and national variants already present in the escort coalition. All six combinations reroll their theater and order of battle whenever the player launches the scenario.
 
 ## Known limitations
 
