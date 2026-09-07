@@ -26,6 +26,8 @@ internal static class NativeCampaignAccess
     private static readonly PropertyInfo? PersistentDataProperty = AccessTools.Property(CampaignType, "PersistentData");
     private static readonly PropertyInfo? MissionsProperty = AccessTools.Property(CampaignType, "Missions");
     private static readonly MethodInfo? SaveMethod = AccessTools.Method(CampaignType, "SaveCampaignPersistentData");
+    private static readonly MethodInfo? LaunchMethod = AccessTools.Method(
+        AccessTools.TypeByName("SeaPower.LinearCampaignMission"), "LaunchMission");
 
     internal static string? CurrentCampaignPath => GetCampaign() is { } campaign
         ? CampaignPathField?.GetValue(campaign) as string : null;
@@ -43,6 +45,9 @@ internal static class NativeCampaignAccess
     {
         if (GetCampaign() is { } campaign) SaveMethod?.Invoke(campaign, null);
     }
+
+    internal static void LaunchMission(object mission) =>
+        (LaunchMethod ?? throw new MissingMethodException("SeaPower.LinearCampaignMission.LaunchMission")).Invoke(mission, null);
 
     internal static IniHandler? OpenCampaignState() => OpenStateMethod?.Invoke(null, null) as IniHandler;
 

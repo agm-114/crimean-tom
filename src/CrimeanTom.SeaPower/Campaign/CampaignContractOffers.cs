@@ -4,9 +4,10 @@ namespace CrimeanTom.SeaPower;
 
 internal record CampaignContractOffer(
     int Seed, FleetClashSize Size, FleetClashMatch Match, RouteOperationVariant Variant,
-    int Payment, int CapReward)
+    int Payment, int CapReward, ScenarioActivityPlan Activity, double ChaseAllowance)
 {
     internal FleetClashForce Enemy(int mission) => mission == 3 ? Match.First : Match.Second;
+    internal int MinimumDeploymentPoints => (int)Math.Ceiling(Math.Max(Activity.Cost("Taskforce1"), Activity.Cost("Taskforce2")) / 0.4);
 
     internal string Description(int mission)
     {
@@ -19,10 +20,15 @@ internal record CampaignContractOffer(
             3 => "Stop the protected group from reaching its destination.",
             _ => "Get the designated high-value ships through the defended passage.",
         };
-        string subject = mission is 2 or 3 ? $" Protected group: {Variant}." : string.Empty;
+        string subject = mission is 2 or 3 ? $" Protected group: {Variant}. Route: {ShippingRoutes.Pick(Match.Theater, Seed, Size, RouteEncounterKind.Random).Summary}." : string.Empty;
         return $"{Size} contract in {Match.Theater}. Enemy: {enemy}.\n" +
+            CampaignOperationsState.Difficulty.Label + "\n" +
+            $"Composition: {ScenarioDebugGenerator.GetComposition(force)}.\n" +
             $"Estimated threat: surface {Band(force.SurfaceCapability)}, air defence {Band(force.AirDefenseCapability)}, ASW {Band(force.AswCapability)}.\n" +
             $"{task}{subject}\n" +
+            Activity.Summary + "\n" +
+            (MinimumDeploymentPoints > 0 ? $"Deploy at least {MinimumDeploymentPoints} ship points to keep nearby activity within its 40% limit.\n" : string.Empty) +
+            (ChaseAllowance > 0 ? $"Pursuit allowance: {ChaseAllowance:P0}, already included in these forces.\n" : string.Empty) +
             $"Victory pays {Payment} points, +{CapReward} point cap, and {CampaignContractRules.SalvageAward(true, Payment)} salvage shares. Defeat pays nothing.\n" +
             "Calm seas. No deadline. Enemy force and terms stay fixed until the next turn; choose your deployment accordingly.";
     }
@@ -39,7 +45,8 @@ internal static class CampaignContractOffers
     {
         int campaignSeed = CampaignOperationsState.ContractSeed;
         int turn = CampaignOperationsState.Turn;
-        string board = $"{campaignSeed}:{turn}";
+        ScenarioDifficulty difficulty = CampaignOperationsState.Difficulty;
+        string board = $"{campaignSeed}:{turn}:{difficulty.Id}";
         if (_board != board)
         {
             Cache.Clear();
@@ -49,14 +56,45 @@ internal static class CampaignContractOffers
         if (Cache.TryGetValue(key, out CampaignContractOffer? offer)) return offer;
         int seed = CampaignContractRules.OfferSeed(campaignSeed, turn, mission);
         FleetClashSize size = (FleetClashSize)CampaignContractRules.OfferSize(turn, mission);
+        for (int attempt = 0; attempt < 16; attempt++)
+        {
+            try
+            {
+                offer = Create(mission, unchecked(seed + attempt * 104729), size, difficulty);
+                Cache[key] = offer;
+                return offer;
+            }
+            catch (InvalidOperationException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("No valid contract layout could be generated.");
+    }
+
+    private static CampaignContractOffer Create(int mission, int seed, FleetClashSize size, ScenarioDifficulty difficulty)
+    {
         Random random = new(seed);
-        FleetClashMatch match = mission == 1 ? FleetClashBalancer.Generate(random, size)
-            : ScenarioDebugGenerator.GenerateRouteMatch(random, size, null);
+        string playerTaskforce = mission == 3 ? "Taskforce2" : "Taskforce1";
+        FleetClashMatch match = mission == 1 ? FleetClashBalancer.Generate(random, size, playerTaskforce: playerTaskforce)
+            : ScenarioDebugGenerator.GenerateRouteMatch(random, size, null, playerTaskforce);
+        match = ScenarioDebugGenerator.ApplyEnemyMultiplier(match, random, size,
+            mission == 3 ? "Taskforce2" : "Taskforce1", difficulty.Multiplier, excludeCarriers: mission != 1,
+            preserveComposition: false);
+        RouteOperationVariant variant = (RouteOperationVariant)random.Next(3);
+        double chaseAllowance = 0;
+        if (mission is 2 or 3)
+            (match, chaseAllowance) = ScenarioDebugGenerator.ApplyRouteChaseAllowance(match, seed, size, variant,
+                RouteEncounterKind.Random, persistentAttackers: mission == 3);
         FleetClashForce enemy = mission == 3 ? match.First : match.Second;
-        offer = new(seed, size, match, (RouteOperationVariant)random.Next(3),
-            CampaignContractRules.Payment((int)size, enemy.PointCost, mission), 10 + (int)size * 10);
-        Cache[key] = offer;
-        return offer;
+        FleetClashMatch activityMatch = match;
+        if (mission is 2 or 3)
+        {
+            RouteEncounter encounter = ShippingRoutes.Pick(match.Theater, seed, size, RouteEncounterKind.Random);
+            activityMatch = match with { Latitude = (float)encounter.Center.Latitude, Longitude = (float)encounter.Center.Longitude };
+        }
+        ScenarioActivityPlan activity = ScenarioActivityPlan.Generate(activityMatch, seed, ScenarioActivitySettings.Campaign,
+            playerTaskforce, CampaignOperationsState.ContractActivityBudget);
+        return new(seed, size, match, variant,
+            CampaignContractRules.Payment((int)size, enemy.PointCost + activity.Cost(playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1"), mission),
+            10 + (int)size * 10, activity, chaseAllowance);
     }
 
     internal static void Describe(object? mission)

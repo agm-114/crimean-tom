@@ -147,7 +147,7 @@ internal static class CampaignPendingManagementLaunchPatch
         AccessTools.TypeByName("SeaPower.LinearCampaignMission"),
         "LaunchMission");
 
-    private static bool Prefix()
+    private static bool Prefix(object __instance)
     {
         if (CampaignOperationsState.IsActiveCampaign && !CampaignOperationsState.HasPendingBattle)
         {
@@ -161,7 +161,7 @@ internal static class CampaignPendingManagementLaunchPatch
         }
         if (!CampaignOperationsState.HasPendingBattle)
         {
-            return true;
+            return !CampaignOperationsState.IsActiveCampaign || CampaignPreparationWindow.ConfirmLaunch(__instance);
         }
 
         CampaignManagementWindow.Show();
