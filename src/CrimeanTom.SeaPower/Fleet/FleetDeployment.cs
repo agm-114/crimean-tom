@@ -45,7 +45,7 @@ internal record DeployedFleetUnit(
         mission.Write("VariantReference", Ship.VariantReference);
         mission.Write("Nation", maskNation ? "Unknown" : Ship.Nation);
         if (StationRole != "Default") mission.Write("StationRole", StationRole);
-        mission.Write("MissionType", MissionType);
+        if (MissionType.Length > 0) mission.Write("MissionType", MissionType);
         mission.Write("WeaponStatus", "Free");
         mission.Write("RadarsActive", false);
         mission.Write("ActiveSonarsEnabled", false);
@@ -73,7 +73,8 @@ internal record DeployedAircraft(
     float Altitude,
     IReadOnlyList<MissionWaypoint>? Waypoints,
     float Heading,
-    string StationRole)
+    string StationRole,
+    bool PreloadOrders = true)
 {
     internal void WriteTo(MissionWriter mission)
     {
@@ -81,7 +82,7 @@ internal record DeployedAircraft(
         mission.Write("Type", AirPlan.AircraftType);
         mission.Write("SquadronReference", AirPlan.SquadronReference);
         mission.Write("LoadoutVariant", AirPlan.LoadoutVariant);
-        mission.Write("MissionType", AirPlan.MissionType);
+        if (PreloadOrders) mission.Write("MissionType", AirPlan.MissionType);
         mission.Write("StationRole", StationRole);
         mission.Write("WeaponStatus", "Free");
         mission.Write("RadarsActive", StationRole == "AEW" || !AirPlan.IsHelicopter);
@@ -99,8 +100,9 @@ internal record FleetFormationPlan(
     IReadOnlyList<string> References,
     string Name,
     string Pattern,
-    float Spacing)
+    float Spacing,
+    string? ControlMode = null)
 {
     internal string ToMissionValue() => FormattableString.Invariant(
-        $"{string.Join(',', References)}|{Name}|{Pattern}|{Spacing:0.##}|OverrideSpawnPositions");
+        $"{string.Join(',', References)}|{(ControlMode is null ? string.Empty : ControlMode + "|")}{Name}|{Pattern}|{Spacing:0.##}|OverrideSpawnPositions");
 }
