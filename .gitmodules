@@ -1,0 +1,3 @@
+[submodule "external/AnchorChain"]
+	path = external/AnchorChain
+	url = https://github.com/SeaPower-Modders/AnchorChain.git
