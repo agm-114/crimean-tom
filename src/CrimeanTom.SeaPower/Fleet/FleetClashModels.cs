@@ -56,26 +56,22 @@ internal class FleetClashGenerationOptions
 
 internal class FleetSidePlan(
     string displayName,
-    IReadOnlyList<string> regionalSelections,
-    IReadOnlyList<string> alliedSelections)
+    IReadOnlyList<string> regionalNations,
+    IReadOnlyList<string> alliedNations)
 {
     internal string DisplayName { get; } = displayName;
-    internal IReadOnlyList<string> RegionalSelections { get; } = regionalSelections;
-    internal IReadOnlyList<string> AlliedSelections { get; } = alliedSelections;
+    internal IReadOnlyList<string> RegionalNations { get; } = regionalNations;
+    internal IReadOnlyList<string> AlliedNations { get; } = alliedNations;
 }
 
 internal class FleetClashTheater(
     string name,
     float latitude,
-    float longitude,
-    FleetSidePlan first,
-    FleetSidePlan second)
+    float longitude)
 {
     internal string Name { get; } = name;
     internal float Latitude { get; } = latitude;
     internal float Longitude { get; } = longitude;
-    internal FleetSidePlan First { get; } = first;
-    internal FleetSidePlan Second { get; } = second;
 }
 
 internal record FleetClashMatch(

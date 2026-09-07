@@ -69,8 +69,8 @@ internal static class FleetClashForceGenerator
 
     private static IReadOnlyList<FleetUnitArchetype> BuildPool(FleetSidePlan side)
     {
-        HashSet<string> regionalNations = ExpandSelections(side.RegionalSelections);
-        HashSet<string> alliedNations = ExpandSelections(side.AlliedSelections);
+        HashSet<string> regionalNations = new(side.RegionalNations, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> alliedNations = new(side.AlliedNations, StringComparer.OrdinalIgnoreCase);
         alliedNations.ExceptWith(regionalNations);
         List<FleetUnitArchetype> output = [];
         AddArchetypes(output, regionalNations, isRegional: true);
@@ -78,26 +78,6 @@ internal static class FleetClashForceGenerator
         AddSubmarineArchetypes(output, regionalNations, isRegional: true);
         AddSubmarineArchetypes(output, alliedNations, isRegional: false);
         return output;
-    }
-
-    private static HashSet<string> ExpandSelections(IEnumerable<string> selections)
-    {
-        HashSet<string> nations = new(StringComparer.OrdinalIgnoreCase);
-        foreach (string selection in selections)
-        {
-            IReadOnlyCollection<string> coalitionNations =
-                TaskForceNationRules.GetCoalitionMemberNations(selection);
-            if (coalitionNations.Count > 0)
-            {
-                nations.UnionWith(coalitionNations);
-            }
-            else
-            {
-                nations.Add(selection);
-            }
-        }
-
-        return nations;
     }
 
     private static void AddArchetypes(

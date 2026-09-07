@@ -73,12 +73,9 @@ Surface strike and air defence remain the largest weights, while submarine selec
 
 ## Theater model
 
-A theater contains:
-
-- a name and map center;
-- two opposing force plans;
-- regional nation or coalition selections for each side;
-- allied selections that may contribute detachments.
+A theater contains only its name and map center. Nation definitions supply the
+participants. Each nation has a scenario alignment, local theaters, and reinforcement
+theaters. The generator builds opposing force plans from those entries.
 
 The initial theater catalog includes:
 
@@ -93,7 +90,36 @@ The initial theater catalog includes:
 
 The North Atlantic appears more than once in the weighted catalog. This preserves the expected NATO-versus-Soviet fight as a common result without making it the only result.
 
-Nearby navies are listed directly in each theater. This prevents global coalition members such as Cuba or Vietnam from counting as local Baltic forces. Coalition membership still supplies the wider reinforcement pools and comes from the same definitions used by the campaign screens.
+`Fleet/FactionCatalog.cs` holds nations, coalitions, and theater locations together.
+`FactionDefinition` represents either a nation or a coalition. A nation's membership
+contains just itself; a coalition lists its member nations. Commander screens still
+distinguish the two, so national options keep native flags and coalition tabs are not
+duplicated for individual nations.
+
+Nations are named instances such as `FactionCatalog.Denmark`. Coalition declarations
+reference those instances, for example `[Denmark, Norway, Sweden]`, and inherit
+theaters directly from them. String nation IDs remain for native roster filters and
+saved campaign data. Declare nations before coalitions so their references are ready
+during static initialization; keep the `Nations` list order stable for seeded fleets.
+
+Nations own their theater assignments. Coalitions inherit the union of their members'
+local and reinforcement theaters. Optional coalition theater additions cover edge
+cases; the current coalitions need none. Inherited coverage means some members are
+active there, not that every member is local. Fleet generation always checks nations,
+so adding a country to a coalition does not automatically deploy it in that coalition's
+other regions. India and Pakistan remain local in the Arabian Sea, while Britain and
+Australia can reinforce them.
+
+The Western and Eastern scenario alignments preserve the existing opposing pools.
+They describe scenario sides, not strict historical alliances. Coalition membership
+does not override a nation's alignment. Nations without theater assignments remain
+available through the campaign roster but do not enter generated fleets.
+
+Both North Atlantic locations retain their separate reinforcement pools. The
+nation-owned catalog preserves country eligibility and selection weights, but its
+new enumeration order changes the fleets produced by older seeds. New runs remain
+repeatable. Side labels come from a sole regional nation or the smallest coalition
+covering the regional participants, with an alignment label as a fallback.
 
 ## Force sources
 
@@ -123,7 +149,8 @@ This mechanism matters because many smaller navies have only one or two usable c
 
 ### Distant allied detachment
 
-A distant allied pool is formed from the theater's supporting coalitions after removing nations already counted as regional.
+A distant allied pool contains same-alignment nations whose reinforcement list
+includes the selected location, excluding nations already counted as regional.
 
 The base per-slot attachment chance is:
 

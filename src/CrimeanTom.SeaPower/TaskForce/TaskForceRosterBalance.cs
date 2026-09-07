@@ -80,7 +80,7 @@ internal static partial class TaskForceNationRules
         }
 
         string[] selections = TaskForceRosterGenerator.GetKnownNations()
-            .Concat(Coalitions.Select(coalition => coalition.Id))
+            .Concat(FactionCatalog.Coalitions.Select(coalition => coalition.Id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         Dictionary<string, TaskForceRosterGenerator.RosterStrength> strengths =
@@ -98,17 +98,17 @@ internal static partial class TaskForceNationRules
             pair => pair.Key,
             pair => CreateTier(
                 pair.Value,
-                IsCoalition(pair.Key),
+                FactionCatalog.IsCoalition(pair.Key),
                 GetStrengthPercentile(pair.Value, logarithmicScores)),
             StringComparer.OrdinalIgnoreCase);
     }
 
     private static TaskForceRosterGenerator.RosterStrength GetRosterStrength(string selection)
     {
-        CoalitionDefinition? coalition = GetCoalition(selection);
-        IEnumerable<string> nations = coalition is null
+        FactionDefinition? faction = FactionCatalog.Get(selection);
+        IEnumerable<string> nations = faction is null
             ? [selection]
-            : coalition.MemberNations;
+            : faction.MemberNations;
         return TaskForceRosterGenerator.GetRosterStrength(nations);
     }
 
@@ -165,7 +165,7 @@ internal static partial class TaskForceNationRules
 
     private static bool SelectionIncludesNation(string? selection, string? unitNation)
     {
-        CoalitionDefinition? coalition = GetCoalition(selection);
+        FactionDefinition? coalition = FactionCatalog.GetCoalition(selection);
         return coalition is not null
             ? coalition.MemberNations.Contains(unitNation ?? string.Empty)
             : string.Equals(
