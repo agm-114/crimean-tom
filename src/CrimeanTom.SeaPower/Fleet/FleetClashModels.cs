@@ -22,6 +22,8 @@ internal enum FleetControlPriority
     WeakestFirst,
 }
 
+internal enum FleetComposition { Random, SurfaceFocused, Mixed, SubmarineHeavy }
+
 internal enum RouteOperationPerspective
 {
     Escort,
@@ -42,6 +44,7 @@ internal class FleetClashGenerationOptions
     internal int? SeaState { get; set; }
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;
+    internal FleetComposition EnemyComposition { get; set; } = FleetComposition.Random;
     internal int PlayerControlPercentage { get; set; } = 100;
     internal FleetControlPriority ControlPriority { get; set; } =
         FleetControlPriority.StrongestFirst;

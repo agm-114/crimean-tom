@@ -8,7 +8,10 @@ internal static class FleetClashBalancer
     internal static FleetClashMatch Generate(
         System.Random random,
         FleetClashSize size,
-        string? region = null)
+        string? region = null,
+        string? playerTaskforce = null,
+        FleetComposition composition = FleetComposition.Random,
+        bool excludeCarriers = false)
     {
         var (theater, firstSide, secondSide) = FleetClashTheaterCatalog.Pick(
             random,
@@ -18,12 +21,12 @@ internal static class FleetClashBalancer
             firstSide,
             size,
             CandidateFleetCount,
-            random).ToArray();
+            random, playerTaskforce == "Taskforce2" ? composition : null, excludeCarriers).ToArray();
         FleetCandidate[] secondFleets = FleetClashForceGenerator.GenerateCandidates(
             secondSide,
             size,
             CandidateFleetCount,
-            random).ToArray();
+            random, playerTaskforce == "Taskforce1" ? composition : null, excludeCarriers).ToArray();
         (FleetCandidate First, FleetCandidate Second, double Error)[] matches =
             (from first in firstFleets
              from second in secondFleets

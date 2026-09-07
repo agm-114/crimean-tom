@@ -17,23 +17,44 @@ internal static class FleetClashForceGenerator
         };
 
     internal static bool IsViable(FleetSidePlan side) =>
-        BuildPool(side).Any(candidate => candidate.IsRegional);
+        BuildPool(side).Any(candidate => candidate.IsRegional && !candidate.IsSubmarine);
 
     internal static IReadOnlyList<FleetCandidate> GenerateCandidates(
         FleetSidePlan side,
         FleetClashSize size,
         int count,
-        System.Random random)
+        System.Random random,
+        FleetComposition? composition = null,
+        bool excludeCarriers = false)
     {
-        IReadOnlyList<FleetUnitArchetype> pool = BuildPool(side);
-        if (pool.Count == 0 || !pool.Any(candidate => candidate.IsRegional))
+        IReadOnlyList<FleetUnitArchetype> pool = BuildPool(side).Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
+        if (pool.Count == 0 || !pool.Any(candidate => candidate.IsRegional &&
+            (!candidate.IsSubmarine || composition == FleetComposition.SubmarineHeavy)))
         {
             throw new InvalidOperationException($"{side.DisplayName} has no usable regional combatants.");
         }
 
-        return Enumerable.Range(0, count)
-            .Select(_ => GenerateCandidate(pool, size, random))
-            .ToArray();
+        bool randomProfile = composition == FleetComposition.Random;
+        if (randomProfile)
+        {
+            int profile = ScenarioRandomization.PickIndex(random, ScenarioRandomization.CompositionWeights);
+            composition = !pool.Any(unit => unit.IsSubmarine) ? FleetComposition.SurfaceFocused : (FleetComposition)(profile + 1);
+        }
+        if (composition is FleetComposition.Mixed or FleetComposition.SubmarineHeavy && !pool.Any(unit => unit.IsSubmarine))
+            throw new InvalidOperationException($"{side.DisplayName} has no submarines available for {composition}.");
+        List<FleetCandidate> candidates = [];
+        for (int attempt = 0; candidates.Count < count && attempt < count * 12; attempt++)
+        {
+            FleetCandidate candidate = GenerateCandidate(pool, size, random, composition);
+            double subShare = (double)candidate.Ships.Where(ship => ship.IsSubmarine).Sum(ship => ship.PointCost) / Math.Max(1, candidate.PointCost);
+            if (composition == FleetComposition.Mixed && (subShare <= 0 || subShare >= 0.5)) continue;
+            if (composition == FleetComposition.SubmarineHeavy && subShare < 0.5) continue;
+            candidates.Add(candidate);
+        }
+        if (candidates.Count == 0 && randomProfile)
+            return GenerateCandidates(side, size, count, random, FleetComposition.SurfaceFocused, excludeCarriers);
+        if (candidates.Count == 0) throw new InvalidOperationException($"{side.DisplayName} cannot build a viable {composition} force at this size.");
+        return candidates;
     }
 
     internal static FleetClashForce Finalize(FleetCandidate fleet, System.Random random)
@@ -67,7 +88,7 @@ internal static class FleetClashForceGenerator
             fleet.Resilience);
     }
 
-    private static IReadOnlyList<FleetUnitArchetype> BuildPool(FleetSidePlan side)
+    internal static IReadOnlyList<FleetUnitArchetype> BuildPool(FleetSidePlan side)
     {
         HashSet<string> regionalNations = new(side.RegionalNations, StringComparer.OrdinalIgnoreCase);
         HashSet<string> alliedNations = new(side.AlliedNations, StringComparer.OrdinalIgnoreCase);
@@ -152,10 +173,13 @@ internal static class FleetClashForceGenerator
     private static FleetCandidate GenerateCandidate(
         IReadOnlyList<FleetUnitArchetype> pool,
         FleetClashSize size,
-        System.Random random)
+        System.Random random,
+        FleetComposition? composition = null)
     {
         FleetRole[] roles = Blueprints[size];
         FleetUnitArchetype[] surfacePool = pool.Where(candidate => !candidate.IsSubmarine).ToArray();
+        if (surfacePool.Length == 0 && composition == FleetComposition.SubmarineHeavy)
+            return new(roles.Select(_ => pool[random.Next(pool.Count)]).ToArray(), roles);
         FleetUnitArchetype[] regional = surfacePool.Where(candidate => candidate.IsRegional).ToArray();
         string[] regionalNations = regional
             .Select(candidate => candidate.Nation)
@@ -176,17 +200,25 @@ internal static class FleetClashForceGenerator
         }
 
         FleetUnitArchetype[] submarines = pool.Where(candidate => candidate.IsSubmarine).ToArray();
-        int submarineCount = GetSubmarineCount(size, submarines.Length > 0, random);
+        int submarineCount = composition switch
+        {
+            FleetComposition.SurfaceFocused => 0,
+            FleetComposition.Mixed => Math.Max(1, roles.Length / 3),
+            FleetComposition.SubmarineHeavy => roles.Length,
+            _ => GetSubmarineCount(size, submarines.Length > 0, random),
+        };
         int[] replacementSlots = roles
             .Select((role, index) => (Role: role, Index: index))
-            .Where(item => item.Role != FleetRole.Command)
+            .Where(item => item.Role != FleetRole.Command || composition == FleetComposition.SubmarineHeavy)
             .OrderBy(item => item.Role == FleetRole.AntiSubmarine ? 0 :
-                item.Role == FleetRole.SurfaceStrike ? 1 : 2)
+                item.Role == FleetRole.SurfaceStrike ? 1 : item.Role == FleetRole.Command ? 3 : 2)
             .Select(item => item.Index)
             .Take(submarineCount)
             .ToArray();
         foreach (int index in replacementSlots)
         {
+            if (composition == FleetComposition.SubmarineHeavy &&
+                ships.Where(ship => ship.IsSubmarine).Sum(ship => ship.PointCost) >= ships.Sum(ship => ship.PointCost) * 0.7) break;
             IReadOnlyList<FleetUnitArchetype> source = SelectSourcePool(
                 submarines,
                 leadNation,
