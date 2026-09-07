@@ -38,6 +38,8 @@ internal static class CampaignValueObjectives
             string winner = side == "Taskforce1" ? "Taskforce2" : "Taskforce1";
             data["Language_en"]["Objective_" + winner + "BreakEnemy"] =
                 $"Destroy 75% of enemy ship value, at least {threshold} undiscounted points";
+            data["Language_en"]["Objective_" + side + "PreserveForce"] =
+                $"Keep lost ship value below {threshold} undiscounted points";
         }
         data["Mission"]["NumberOfTriggers"] = next.ToString(CultureInfo.InvariantCulture);
     }

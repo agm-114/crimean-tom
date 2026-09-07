@@ -146,9 +146,17 @@ internal static partial class ScenarioDebugGenerator
             vesselIndexOffset,
             corridor.StartX,
             corridor.DestinationX);
+        // Surface leaders screen the moving convoy; submarines keep their search routes.
+        FleetDeployment escort = corridor.First with
+        {
+            Units = corridor.First.Units.Select(unit =>
+                !unit.Ship.IsSubmarine && !unit.Ship.IsCarrier && unit.Waypoints is not null
+                    ? unit with { FollowReference = protectedUnits[0].Reference }
+                    : unit).ToArray(),
+        };
         int requiredArrivals = Math.Max(1, (int)Math.Ceiling(protectedCount * (2d / 3d)));
         return new RouteOperationPlan(
-            corridor.First,
+            escort,
             corridor.Second,
             protectedUnits,
             requiredArrivals,
@@ -339,7 +347,7 @@ internal static partial class ScenarioDebugGenerator
         string variantName)
     {
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
-        mission.Write("Taskforce1StartMessage", $"ESCORT OPERATION|{match.FirstName} escorts are covering a {variantName.ToLowerInvariant()} group. Keep formation and get at least {route.RequiredArrivals} protected ships into the marked destination area.|Take station");
+        mission.Write("Taskforce1StartMessage", $"ESCORT OPERATION|{match.FirstName} escorts are covering a {variantName.ToLowerInvariant()} group. Get at least {route.RequiredArrivals} protected ships into the marked destination area. Surface groups start on loose-follow orders around the convoy; keep the screen together rather than chase every contact. If its lead ship is lost, assign the screen to a surviving protected ship.|Take station");
         mission.Write("Taskforce2StartMessage", $"INTERDICTION OPERATION|{match.SecondName} forces must stop the {variantName.ToLowerInvariant()} group. Destroy at least {lossThreshold} protected ships before the remainder reaches safety.|Begin search");
         mission.Write("Taskforce1RouteVictoryMessage", "ROUTE COMPLETED|Enough protected ships reached the destination. The route is secure.|End mission");
         mission.Write("Taskforce2RouteVictoryMessage", "ROUTE DENIED|The protected group can no longer complete its mission.|End mission");

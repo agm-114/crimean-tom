@@ -14,8 +14,8 @@ internal static partial class ScenarioDebugGenerator
         bool playerIsFirst = playerTaskforce == "Taskforce1";
         string playerName = playerIsFirst ? match.FirstName : match.SecondName;
         string enemyName = playerIsFirst ? match.SecondName : match.FirstName;
-        int firstLossesToBreak = (int)Math.Ceiling(match.First.Ships.Count * 0.75d);
-        int secondLossesToBreak = (int)Math.Ceiling(match.Second.Ships.Count * 0.75d);
+        int firstLossesToBreak = GetLossesToBreak(match.First.Ships.Count);
+        int secondLossesToBreak = GetLossesToBreak(match.Second.Ships.Count);
         FleetDeployment firstDeployment = FleetOrderOfBattlePlanner.Plan(
             "Taskforce1",
             match.First,
@@ -95,22 +95,28 @@ internal static partial class ScenarioDebugGenerator
         return mission.ToString();
     }
 
+    private static int GetLossesToBreak(int count) =>
+        Math.Clamp((int)Math.Ceiling(count * 0.75d), 1, Math.Max(1, count - 1));
+
     private static void AppendMessagesAndObjectiveText(
         MissionWriter mission,
         FleetClashMatch match,
         int firstLossesToBreak,
         int secondLossesToBreak)
     {
-        mission.Write("Taskforce1StartMessage", $"FLEET CLASH|{match.FirstName} forces are engaging the {match.SecondName}. Break the enemy formation while preserving a combat-capable ship.|Commence action");
-        mission.Write("Taskforce2StartMessage", $"FLEET CLASH|{match.SecondName} forces are engaging the {match.FirstName}. Break the enemy formation while preserving a combat-capable ship.|Commence action");
-        mission.Write("Taskforce1VictoryMessage", "VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
-        mission.Write("Taskforce2VictoryMessage", "VICTORY|The opposing surface group has lost combat cohesion. Disengage and await further orders.|End mission");
-        mission.Write("Taskforce1DefeatMessage", "DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
-        mission.Write("Taskforce2DefeatMessage", "DEFEAT|Your surface group has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
+        string carrierOrders = match.First.Ships.Concat(match.Second.Ships).Any(ship => ship.IsCarrier)
+            ? " Carrier groups open the range while their aircraft cover the surface groups."
+            : string.Empty;
+        mission.Write("Taskforce1StartMessage", $"FLEET CLASH|{match.FirstName} forces are engaging the {match.SecondName}. Break the enemy force before your own losses reach the limit shown in the objectives.{carrierOrders}|Commence action");
+        mission.Write("Taskforce2StartMessage", $"FLEET CLASH|{match.SecondName} forces are engaging the {match.FirstName}. Break the enemy force before your own losses reach the limit shown in the objectives.{carrierOrders}|Commence action");
+        mission.Write("Taskforce1VictoryMessage", "VICTORY|The opposing force has lost combat cohesion. Disengage and await further orders.|End mission");
+        mission.Write("Taskforce2VictoryMessage", "VICTORY|The opposing force has lost combat cohesion. Disengage and await further orders.|End mission");
+        mission.Write("Taskforce1DefeatMessage", "DEFEAT|Your force has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
+        mission.Write("Taskforce2DefeatMessage", "DEFEAT|Your force has lost combat cohesion. Surviving units are ordered to withdraw.|End mission");
         mission.Write("Objective_Taskforce1BreakEnemy", $"Destroy at least {secondLossesToBreak} enemy ships");
-        mission.Write("Objective_Taskforce1PreserveForce", "Keep at least one ship combat-capable");
+        mission.Write("Objective_Taskforce1PreserveForce", $"Lose fewer than {firstLossesToBreak} ships");
         mission.Write("Objective_Taskforce2BreakEnemy", $"Destroy at least {firstLossesToBreak} enemy ships");
-        mission.Write("Objective_Taskforce2PreserveForce", "Keep at least one ship combat-capable");
+        mission.Write("Objective_Taskforce2PreserveForce", $"Lose fewer than {secondLossesToBreak} ships");
     }
 
     private static void AppendCrimeanTomSettings(

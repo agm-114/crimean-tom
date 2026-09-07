@@ -35,7 +35,8 @@ internal record DeployedFleetUnit(
     string MissionType,
     string StationRole,
     int Telegraph,
-    float Heading)
+    float Heading,
+    string? FollowReference = null)
 {
     internal void WriteTo(MissionWriter mission, bool maskNation = false)
     {
@@ -55,7 +56,10 @@ internal record DeployedFleetUnit(
         mission.WritePosition("RelativePositionInNM", new(X, 0, Z, Ship.IsSubmarine ? "shallow" : null));
         mission.Write("Telegraph", Telegraph);
         mission.Write("Heading", Heading, "0");
-        if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
+        if (FollowReference is not null)
+            mission.Write("Waypoints", $"FollowLoose,{FollowReference},ownPos");
+        else if (Waypoints is not null)
+            mission.WriteWaypoints(Waypoints);
     }
 }
 
@@ -85,7 +89,8 @@ internal record DeployedAircraft(
         mission.WritePosition("RelativePositionInNM", new(X, Altitude, Z));
         mission.Write("Telegraph", StationRole == "AEW" ? 2 : 3);
         mission.Write("Heading", Heading, "0");
-        if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
+        if (Waypoints is not null)
+            mission.WriteWaypoints(Waypoints, loop: StationRole is "CAP" or "AEW");
         mission.Write("HomeBase", HomeBaseReference);
     }
 }

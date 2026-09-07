@@ -29,8 +29,8 @@ internal class MissionWriter
     internal void WritePosition(string key, MissionPosition position) =>
         Write(key, position.ToMissionValue());
 
-    internal void WriteWaypoints(IEnumerable<MissionWaypoint> waypoints) =>
-        Write("Waypoints", MissionWaypoint.FormatRoute(waypoints));
+    internal void WriteWaypoints(IEnumerable<MissionWaypoint> waypoints, bool loop = false) =>
+        Write("Waypoints", MissionWaypoint.FormatRoute(waypoints) + (loop ? "|Loop" : string.Empty));
 
     public override string ToString() => text.ToString();
 

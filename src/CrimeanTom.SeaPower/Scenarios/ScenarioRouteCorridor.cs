@@ -21,7 +21,7 @@ internal static partial class ScenarioDebugGenerator
         float intercept = length * 0.12f;
 
         FleetDeployment first = FleetOrderOfBattlePlanner.Plan(
-            "Taskforce1", match.First, start - 7f, 90f, lateralOffset, length,
+            "Taskforce1", match.First, start + 4f, 90f, lateralOffset, length,
             playerTaskforce == "Taskforce1" ? playerControlledCount : match.First.Ships.Count,
             playerTaskforce == "Taskforce1" ? "Player" : "Enemy",
             playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy");
@@ -65,7 +65,7 @@ internal static partial class ScenarioDebugGenerator
                 ?
                 [
                     new(new(isDefender ? 0 : destinationX + 8f, 0, lane, depth)),
-                    new(new(destinationX, 0, lane, depth), WaypointOrder.WeaponsFree),
+                    new(new(destinationX, 0, isDefender ? 0f : lane, depth), WaypointOrder.WeaponsFree),
                 ]
                 : unit.Waypoints;
             return unit with
