@@ -34,4 +34,16 @@ dotnet build CrimeanTom.slnx
 
 The default paths expect the Steam installation of Sea Power and the Workshop installation of AnchorChain. Override the `SeaPowerDir` or `AnchorChainDll` MSBuild properties if needed.
 
+## Contributing to AnchorChain
+
+[external/AnchorChain](external/AnchorChain) is a Git submodule pointing to the upstream source. Initialize it after cloning this repository:
+
+```powershell
+git submodule update --init --recursive
+```
+
+Make fixes on a branch inside that submodule and commit them there. Push to upstream if you have access, or to your fork for a pull request. After the commit is available remotely, stage `external/AnchorChain` in this repository to record the new revision.
+
+The mod still builds against the installed Workshop DLL. To test a locally built AnchorChain, override `AnchorChainDll` and install the matching DLL in the game separately.
+
 The retired server-simulation implementation remains on `codex/archive-server-simulation-2026-09-04`.
