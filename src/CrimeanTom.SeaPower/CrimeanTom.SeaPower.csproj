@@ -35,6 +35,14 @@
       <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Assets">
+      <HintPath>$(GameManaged)\Assets.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Mathematics">
+      <HintPath>$(GameManaged)\Unity.Mathematics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Noesis.NoesisGUI">
       <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
       <Private>false</Private>
@@ -62,7 +70,7 @@
            Text="Harmony was not found in the Sea Power BepInEx installation." />
   </Target>
 
-  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' != 'false'">
     <ItemGroup>
       <_PluginFile Include="$(TargetPath)" />
       <_PluginFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />

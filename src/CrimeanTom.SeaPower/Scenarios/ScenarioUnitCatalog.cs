@@ -259,7 +259,7 @@ internal static class ScenarioUnitCatalog
         return string.Empty;
     }
 
-    private static IEnumerable<(string Section, IReadOnlyDictionary<string, string> Values)>
+    internal static IEnumerable<(string Section, IReadOnlyDictionary<string, string> Values)>
         ReadSections(string path)
     {
         string section = string.Empty;
