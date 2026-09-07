@@ -15,7 +15,7 @@ internal static partial class ScenarioDebugGenerator
         RouteCorridor corridor = CreateRouteCorridor(
             match, size, parameters.LateralOffsetNm, parameters.LateralOffsetNm < 0f ? -1f : 1f,
             "Taskforce1", playerUnitCount);
-        FleetDeployment passageForce = corridor.First;
+        FleetDeployment passageForce = options.Starting.Apply(corridor.First);
         FleetDeployment blockingForce = corridor.Second;
 
         string[] passageTargets = CampaignContractRules.PassageTargets(
@@ -42,6 +42,12 @@ internal static partial class ScenarioDebugGenerator
         mission.Write("Objective_Taskforce2DenyPassage", $"Stop at least {lossThreshold} designated high-value ship");
 
         AppendCrimeanTomSettings(mission, passageForce.AlliedReferences, spectator: false);
+        options.Starting.WriteTo(mission);
+        mission.Write("GenerationSeed", parameters.Seed);
+        mission.Write("FirstForcePoints", match.First.PointCost);
+        mission.Write("SecondForcePoints", match.Second.PointCost);
+        mission.Write("EnemyBudgetMultiplier", options.EnemySizeMultiplier);
+        mission.Write("EnemyComposition", GetComposition(match.Second));
         mission.Write("PassageContract", true);
         mission.WriteList("PassageAllUnits", passageForce.Units.Select(unit => unit.Reference));
         mission.Write("PassageDestinationX", corridor.DestinationX, "0.##");
@@ -59,6 +65,7 @@ internal static partial class ScenarioDebugGenerator
             passageTargets);
         AppendOpposedObjectives(mission, "Taskforce1ForcePassage", "Taskforce2DenyPassage");
         AppendRetreatAnchors(mission, match);
+        AppendActivity(mission, match, parameters, options, "Taskforce1");
         return mission.ToString();
     }
 
@@ -128,7 +135,8 @@ internal static partial class ScenarioDebugGenerator
             // Every escort receives the passage route, not just the objective ships.
             references = missionIni.readValue("CrimeanTom", "PassageAllUnits", string.Join(',', references))
                 .Split(',', StringSplitOptions.RemoveEmptyEntries);
-            foreach (string reference in references)
+            foreach (string reference in references.Where(_ =>
+                missionIni.readValue("CrimeanTom", "PreloadPlayerOrders", true)))
             {
                 string position = missionIni.readValue(
                     reference,

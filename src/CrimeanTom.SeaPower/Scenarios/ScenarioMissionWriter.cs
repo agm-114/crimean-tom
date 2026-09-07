@@ -36,6 +36,11 @@ internal static partial class ScenarioDebugGenerator
             playerTaskforce == "Taskforce2" ? playerControlledCount : match.Second.Ships.Count,
             playerTaskforce == "Taskforce2" ? "Player" : "Enemy",
             playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy");
+        if (!options.Spectator)
+        {
+            if (playerIsFirst) firstDeployment = options.Starting.Apply(firstDeployment);
+            else secondDeployment = options.Starting.Apply(secondDeployment);
+        }
         FleetDeployment playerDeployment = playerTaskforce == "Taskforce1"
             ? firstDeployment
             : secondDeployment;
@@ -65,13 +70,19 @@ internal static partial class ScenarioDebugGenerator
                     : playerIsFirst ? "Blue Command" : "Red Command")}");
             mission.Write("Description", $"{match.Theater}{(options.Spectator
                     ? ": observe the "
-                    : ": command the ")}{playerName} against the {enemyName}. Estimated points {match.First.PointCost} vs {match.Second.PointCost}; generation seed {parameters.Seed}.");
+                    : ": command the ")}{playerName} against the {enemyName}.\nEstimated fleet strength: {match.First.PointCost} vs {match.Second.PointCost} points.");
         }
         AppendMessagesAndObjectiveText(mission, match, firstLossesToBreak, secondLossesToBreak);
         AppendCrimeanTomSettings(
             mission,
             playerDeployment,
             options.Spectator);
+        options.Starting.WriteTo(mission);
+        mission.Write("GenerationSeed", parameters.Seed);
+        mission.Write("FirstForcePoints", match.First.PointCost);
+        mission.Write("SecondForcePoints", match.Second.PointCost);
+        mission.Write("EnemyBudgetMultiplier", options.EnemySizeMultiplier);
+        mission.Write("EnemyComposition", GetComposition(playerIsFirst ? match.Second : match.First));
         AppendEnvironment(mission, match, parameters);
         AppendMission(
             mission,
@@ -92,7 +103,18 @@ internal static partial class ScenarioDebugGenerator
             secondLossesToBreak);
         AppendObjectives(mission);
         AppendRetreatAnchors(mission, match);
+        AppendActivity(mission, match, parameters, options, playerTaskforce);
+        ScenarioChart.WriteFleetClash(mission, match, parameters.Seed, parameters.SeparationNm, playerDeployment,
+            playerIsFirst ? secondDeployment : firstDeployment);
         return mission.ToString();
+    }
+
+    private static void AppendActivity(MissionWriter mission, FleetClashMatch match, ScenarioParameters parameters,
+        FleetClashGenerationOptions options, string playerSide)
+    {
+        ScenarioActivityPlan plan = options.ActivityPlan ?? ScenarioActivityPlan.Generate(match, parameters.Seed,
+            options.Activity, playerSide, (playerSide == "Taskforce1" ? match.First : match.Second).PointCost);
+        plan.WriteTo(mission);
     }
 
     private static int GetLossesToBreak(int count) =>

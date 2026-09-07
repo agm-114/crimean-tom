@@ -10,8 +10,11 @@ internal static partial class ScenarioDebugGenerator
     private const string CommandLauncherFileName = "Generated Fleet Clash.ini";
     private const string SpectatorLauncherFileName = "Generated Fleet Clash Spectator.ini";
     private const string RouteOperationLauncherFileName = "Generated Route Operation.ini";
+    private const string RouteObserverLauncherFileName = "Generated Route Operation Observer.ini";
 
     private static int _generationCounter;
+    internal static string? LastGenerationError { get; private set; }
+    internal static int LastGenerationSeed { get; private set; }
 
     internal static void WriteDebugScenarios()
     {
@@ -41,8 +44,14 @@ internal static partial class ScenarioDebugGenerator
                 new FleetClashGenerationOptions
                 {
                     SeaState = 1,
+                    Region = "North Atlantic",
+                    RouteEncounter = RouteEncounterKind.MidCrossing,
                 },
                 useLauncherMetadata: true);
+            GenerateRouteOperationEntry(GetRouteObserverLauncherPath(), new()
+            {
+                SeaState = 1, Region = "North Atlantic", RouteEncounter = RouteEncounterKind.MidCrossing, Spectator = true,
+            }, useLauncherMetadata: true);
         }
         catch (Exception exception)
         {
@@ -69,7 +78,7 @@ internal static partial class ScenarioDebugGenerator
             string.Equals(
                 fullPath,
                 Path.GetFullPath(GetRouteOperationLauncherPath()),
-                StringComparison.OrdinalIgnoreCase);
+                StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
     }
 
     internal static bool IsSpectatorLauncherPath(string? scenarioPath) =>
@@ -77,19 +86,23 @@ internal static partial class ScenarioDebugGenerator
         string.Equals(
             Path.GetFullPath(scenarioPath),
             Path.GetFullPath(GetSpectatorLauncherPath()),
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
 
     internal static bool IsRouteOperationLauncherPath(string? scenarioPath) =>
         !string.IsNullOrWhiteSpace(scenarioPath) &&
         string.Equals(
             Path.GetFullPath(scenarioPath),
             Path.GetFullPath(GetRouteOperationLauncherPath()),
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
+
+    private static bool IsRouteObserverPath(string? path) => !string.IsNullOrWhiteSpace(path) &&
+        string.Equals(Path.GetFullPath(path), Path.GetFullPath(GetRouteObserverLauncherPath()), StringComparison.OrdinalIgnoreCase);
 
     internal static bool GenerateScenario(
         string scenarioPath,
         FleetClashGenerationOptions options)
     {
+        LastGenerationError = null;
         try
         {
             if (IsRouteOperationLauncherPath(scenarioPath))
@@ -104,6 +117,7 @@ internal static partial class ScenarioDebugGenerator
         }
         catch (Exception exception)
         {
+            LastGenerationError = exception.Message;
             Debug.LogError(
                 $"[Crimean Tom Operations] could not generate '{scenarioPath}': {exception}");
             return false;
@@ -115,15 +129,16 @@ internal static partial class ScenarioDebugGenerator
         FleetClashGenerationOptions options,
         bool useLauncherMetadata)
     {
-        int seed = CreateSeed();
+        int seed = LastGenerationSeed = options.Seed ?? CreateSeed();
         System.Random random = new(seed);
         FleetClashSize size = options.Size ?? (FleetClashSize)random.Next(3);
         string playerTaskforce = options.Spectator
             ? "Taskforce1"
             : options.PlayerTaskforce ??
                 (random.Next(2) == 0 ? "Taskforce1" : "Taskforce2");
-        FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region);
-        match = ApplyEnemyMultiplier(match, random, size, playerTaskforce, options.EnemySizeMultiplier);
+        FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region, playerTaskforce, options.EnemyComposition);
+        match = ApplyEnemyMultiplier(match, random, size, playerTaskforce, options.EnemySizeMultiplier,
+            preserveComposition: options.EnemyComposition != FleetComposition.Random);
         int playerControlledCount = options.Spectator
             ? 0
             : GetPlayerControlledCount(match, playerTaskforce, options.PlayerControlPercentage);
@@ -176,6 +191,7 @@ internal static partial class ScenarioDebugGenerator
     private static string GetRouteOperationLauncherPath() => Path.Combine(
         GetScenarioDirectory(),
         RouteOperationLauncherFileName);
+    private static string GetRouteObserverLauncherPath() => Path.Combine(GetScenarioDirectory(), RouteObserverLauncherFileName);
 
     private static string BuildCategoryFile() => """
         [General]
@@ -194,20 +210,22 @@ internal static partial class ScenarioDebugGenerator
             if (!string.Equals(name, "_info.ini", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(name, CommandLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(name, SpectatorLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, RouteOperationLauncherFileName, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(name, RouteOperationLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(name, RouteObserverLauncherFileName, StringComparison.OrdinalIgnoreCase))
             {
                 File.Delete(path);
             }
         }
     }
 
-    private static FleetClashMatch ApplyEnemyMultiplier(
+    internal static FleetClashMatch ApplyEnemyMultiplier(
         FleetClashMatch match,
         System.Random random,
         FleetClashSize size,
         string playerTaskforce,
         double multiplier,
-        bool excludeCarriers = false)
+        bool excludeCarriers = false,
+        bool preserveComposition = true)
     {
         multiplier = Math.Clamp(multiplier, 0.5d, 2d);
         if (Math.Abs(multiplier - 1d) < 0.001d)
@@ -223,26 +241,38 @@ internal static partial class ScenarioDebugGenerator
                 originalEnemy.Ships.Count * multiplier,
                 MidpointRounding.AwayFromZero));
         List<FleetClashShip> pool = [.. originalEnemy.Ships];
-        while (pool.Count < targetCount * 3)
-        {
-            FleetClashMatch extra = FleetClashBalancer.Generate(random, size, match.Theater);
-            IEnumerable<FleetClashShip> additions = playerIsFirst
-                ? extra.Second.Ships
-                : extra.First.Ships;
-            pool.AddRange(excludeCarriers
-                ? additions.Where(ship => !ship.IsCarrier)
-                : additions);
-        }
+        FleetComposition composition = GetComposition(originalEnemy);
+        FleetSidePlan enemyNations = new(playerIsFirst ? match.SecondName : match.FirstName,
+            originalEnemy.Ships.Select(ship => ship.Nation).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), []);
+        FleetUnitArchetype[] alternatives = FleetClashForceGenerator.BuildPool(enemyNations)
+            .Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
+        pool.AddRange(FleetClashForceGenerator.Finalize(new(alternatives,
+            alternatives.Select(unit => unit.IsSubmarine ? FleetRole.AntiSubmarine : FleetRole.Escort).ToArray()), random).Ships);
+        FleetClashShip[] surfacePool = pool.Where(ship => !ship.IsSubmarine).ToArray();
+        FleetClashShip[] submarinePool = pool.Where(ship => ship.IsSubmarine).ToArray();
+        double targetCost = originalEnemy.PointCost * multiplier;
+        double roundingAllowance = Math.Max(targetCost * 0.25, pool.Min(ship => ship.PointCost) / 2d);
 
         FleetClashForce? best = null;
         double bestScore = double.MaxValue;
         for (int attempt = 0; attempt < 384; attempt++)
         {
-            FleetClashShip[] ships = pool
-                .OrderBy(_ => random.Next())
-                .Take(targetCount)
-                .ToArray();
+            FleetComposition profile = !preserveComposition && attempt >= 288 && surfacePool.Length > 0 &&
+                (best is null || Math.Abs(best.PointCost - targetCost) > roundingAllowance)
+                ? FleetComposition.SurfaceFocused : composition;
+            int count = random.Next(Math.Max(profile == FleetComposition.Mixed ? 2 : 1, targetCount / 2),
+                Math.Max(3, targetCount * 2 + 1));
+            FleetClashShip[] ships = Enumerable.Range(0, count).Select(index =>
+            {
+                bool submarine = profile == FleetComposition.Mixed ? index == 0 :
+                    profile == FleetComposition.SubmarineHeavy && (surfacePool.Length == 0 || index == 0 || random.NextDouble() < 0.7);
+                FleetClashShip[] source = submarine ? submarinePool : surfacePool;
+                return source[random.Next(source.Length)];
+            }).ToArray();
             FleetClashForce candidate = CreateForce(ships);
+            if (GetComposition(candidate) != profile) continue;
+            if (multiplier < 1 && candidate.PointCost >= originalEnemy.PointCost ||
+                multiplier > 1 && candidate.PointCost <= originalEnemy.PointCost) continue;
             double score = ScoreScaledForce(candidate, originalEnemy, multiplier);
             if (score < bestScore)
             {
@@ -251,8 +281,16 @@ internal static partial class ScenarioDebugGenerator
             }
         }
 
-        FleetClashForce scaledEnemy = best ?? originalEnemy;
+        FleetClashForce scaledEnemy = best is not null && Math.Abs(best.PointCost - targetCost) <= roundingAllowance ? best : throw new InvalidOperationException(
+            $"The selected nations cannot fit a {composition} fleet at {multiplier:0.00}x budget. Choose a larger battle or another composition.");
         return playerIsFirst ? match with { Second = scaledEnemy } : match with { First = scaledEnemy };
+    }
+
+    internal static FleetComposition GetComposition(FleetClashForce force)
+    {
+        int submarines = force.Ships.Where(ship => ship.IsSubmarine).Sum(ship => ship.PointCost);
+        return submarines == 0 ? FleetComposition.SurfaceFocused
+            : submarines >= force.PointCost * 0.5 ? FleetComposition.SubmarineHeavy : FleetComposition.Mixed;
     }
 
     private static double ScoreScaledForce(
@@ -266,19 +304,19 @@ internal static partial class ScenarioDebugGenerator
         return
             (FleetClashBalanceEvaluator.RelativeDifference(
                 candidate.PointCost,
-                original.PointCost * multiplier) * 0.50d) +
+                original.PointCost * multiplier) * 0.80d) +
             (FleetClashBalanceEvaluator.RelativeDifference(
                 candidate.SurfaceCapability,
-                original.SurfaceCapability * multiplier) * 0.25d) +
+                original.SurfaceCapability * multiplier) * 0.10d) +
             (FleetClashBalanceEvaluator.RelativeDifference(
                 candidate.AirDefenseCapability,
-                original.AirDefenseCapability * multiplier) * 0.15d) +
+                original.AirDefenseCapability * multiplier) * 0.05d) +
             (FleetClashBalanceEvaluator.RelativeDifference(
                 candidate.AswCapability,
-                original.AswCapability * multiplier) * 0.05d) +
+                original.AswCapability * multiplier) * 0.025d) +
             (FleetClashBalanceEvaluator.RelativeDifference(
                 candidate.Resilience,
-                original.Resilience * multiplier) * 0.05d) +
+                original.Resilience * multiplier) * 0.025d) +
             duplicatePenalty;
     }
 
@@ -380,19 +418,6 @@ internal static partial class ScenarioDebugGenerator
             FleetClashMatch match)
         {
             string[] weightedClouds = ["Clear", "Clear", "Clear", "Scattered", "Scattered", "Broken"];
-            int[] weightedSeaStates =
-            [
-                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-                2, 2, 2, 2,
-                3, 3, 3, 3, 3, 3, 3, 3,
-                4, 4, 4,
-                5,
-                6,
-            ];
             string[] directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
             (float minimum, float maximum) = GetSeparationRange(size, match);
             int neutralVesselCount = options.CivilianNavalTraffic ? random.Next(3, 7) : 0;
@@ -401,7 +426,7 @@ internal static partial class ScenarioDebugGenerator
                 seed,
                 random.Next(5, 19),
                 random.Next(0, 12) * 5,
-                options.SeaState ?? weightedSeaStates[random.Next(weightedSeaStates.Length)],
+                options.SeaState ?? ScenarioRandomization.PickIndex(random, ScenarioRandomization.SeaStateWeights) + 1,
                 weightedClouds[random.Next(weightedClouds.Length)],
                 directions[random.Next(directions.Length)],
                 minimum + ((float)random.NextDouble() * (maximum - minimum)),

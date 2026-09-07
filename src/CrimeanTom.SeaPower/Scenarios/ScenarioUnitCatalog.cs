@@ -5,6 +5,45 @@ namespace CrimeanTom.SeaPower;
 internal static class ScenarioUnitCatalog
 {
     private static IReadOnlyList<ScenarioSubmarineOption>? _submarines;
+    private static readonly Dictionary<string, float[]> Speeds = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, bool> PursuitCraft = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsPursuitCraft(string unitType)
+    {
+        if (PursuitCraft.TryGetValue(unitType, out bool small)) return small;
+        string path = Path.Combine(Application.streamingAssetsPath, "original", "vessels", unitType + ".ini");
+        bool Within(string section, string key, float maximum) => File.Exists(path) &&
+            float.TryParse(ReadIniValue(path, section, key), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float value) && value > 0 && value <= maximum;
+        return PursuitCraft[unitType] = Within("General", "Length", 60) && Within("Physics", "Displacement", 500)
+            && NavalWeaponReach.Read(unitType) <= 12;
+    }
+
+    internal static float SpeedAtTelegraph(string unitType, int telegraph)
+    {
+        if (!Speeds.TryGetValue(unitType, out float[] speeds))
+        {
+            string path = new[] { "vessels", "submarines" }.Select(folder => Path.Combine(
+                Application.streamingAssetsPath, "original", folder, unitType + ".ini")).FirstOrDefault(File.Exists)
+                ?? throw new InvalidOperationException($"Cannot read operating speed for {unitType}.");
+            string[] authored = ReadIniValue(path, "Physics", "TelegraphVelocities").Split(',');
+            speeds = new float[7];
+            bool valid = authored.Length >= 7;
+            for (int index = 0; valid && index < 7; index++)
+                valid = float.TryParse(authored[index], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out speeds[index]);
+            if (!valid)
+            {
+                float maximum = float.TryParse(ReadIniValue(path, "Physics", "MaxForwardVelocity"),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value)
+                    ? Math.Max(1, value) : 32;
+                for (int index = 2; index < 7; index++) speeds[index] = (index - 1) * maximum / 5;
+            }
+            speeds[1] = 0;
+            Speeds[unitType] = speeds;
+        }
+        return speeds[Math.Clamp(telegraph, 0, 5) + 1];
+    }
     private static readonly Dictionary<string, CarrierAirPackage?> CarrierAirPackages =
         new(StringComparer.OrdinalIgnoreCase);
 

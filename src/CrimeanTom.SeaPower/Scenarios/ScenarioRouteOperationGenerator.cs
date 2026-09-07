@@ -39,21 +39,24 @@ internal static partial class ScenarioDebugGenerator
         FleetClashGenerationOptions options,
         bool useLauncherMetadata)
     {
-        int seed = CreateSeed();
+        int seed = LastGenerationSeed = options.Seed ?? CreateSeed();
         System.Random random = new(seed);
         FleetClashSize size = options.Size ?? (FleetClashSize)random.Next(3);
+        if (options.Spectator) options.RoutePerspective = RouteOperationPerspective.Escort;
         string playerTaskforce = options.RoutePerspective == RouteOperationPerspective.Escort
             ? "Taskforce1"
             : "Taskforce2";
-        FleetClashMatch match = GenerateRouteMatch(random, size, options.Region);
+        FleetClashMatch match = GenerateRouteMatch(random, size, options.Region, playerTaskforce, options.EnemyComposition);
         match = ApplyEnemyMultiplier(
             match,
             random,
             size,
             playerTaskforce,
             options.EnemySizeMultiplier,
-            excludeCarriers: true);
-        int playerControlledCount = GetPlayerControlledCount(
+            excludeCarriers: true, preserveComposition: options.EnemyComposition != FleetComposition.Random);
+        (match, options.ChaseAllowance) = ApplyRouteChaseAllowance(match, seed, size, options.RouteVariant, options.RouteEncounter,
+            generationOptions: options);
+        int playerControlledCount = options.Spectator ? 0 : GetPlayerControlledCount(
             match,
             playerTaskforce,
             options.PlayerControlPercentage);
@@ -62,7 +65,7 @@ internal static partial class ScenarioDebugGenerator
             playerTaskforce,
             playerControlledCount,
             options.ControlPriority);
-        ScenarioParameters parameters = ScenarioParameters.Create(random, seed, size, options, match);
+        ScenarioParameters parameters = ScenarioParameters.Create(new System.Random(seed), seed, size, options, match);
         RouteOperationPlan route = CreateRouteOperationPlan(
             random,
             match,
@@ -70,7 +73,8 @@ internal static partial class ScenarioDebugGenerator
             size,
             playerTaskforce,
             playerControlledCount,
-            options.RouteVariant);
+            options.RouteVariant,
+            options.RouteEncounter);
 
         File.WriteAllText(
             scenarioPath,
@@ -96,32 +100,10 @@ internal static partial class ScenarioDebugGenerator
     internal static FleetClashMatch GenerateRouteMatch(
         System.Random random,
         FleetClashSize size,
-        string? region)
-    {
-        FleetClashMatch? best = null;
-        int bestCarrierCount = int.MaxValue;
-        for (int attempt = 0; attempt < 32; attempt++)
-        {
-            FleetClashMatch candidate = FleetClashBalancer.Generate(random, size, region);
-            int carrierCount = candidate.First.Ships.Count(ship => ship.IsCarrier) +
-                candidate.Second.Ships.Count(ship => ship.IsCarrier);
-            if (carrierCount == 0)
-            {
-                return candidate;
-            }
-
-            if (carrierCount < bestCarrierCount ||
-                carrierCount == bestCarrierCount &&
-                (best is null || candidate.BalanceError < best.BalanceError))
-            {
-                best = candidate;
-                bestCarrierCount = carrierCount;
-            }
-        }
-
-        return best ?? throw new InvalidOperationException(
-            "Could not generate forces for a route operation.");
-    }
+        string? region,
+        string? playerTaskforce = null,
+        FleetComposition composition = FleetComposition.Random)
+        => FleetClashBalancer.Generate(random, size, region, playerTaskforce, composition, excludeCarriers: true);
 
     private static RouteOperationPlan CreateRouteOperationPlan(
         System.Random random,
@@ -130,17 +112,21 @@ internal static partial class ScenarioDebugGenerator
         FleetClashSize size,
         string playerTaskforce,
         int playerControlledCount,
-        RouteOperationVariant variant)
+        RouteOperationVariant variant,
+        RouteEncounterKind encounterKind = RouteEncounterKind.Random,
+        FleetClashForce? convoyRoster = null)
     {
+        random = new System.Random(parameters.Seed ^ 0x524F5554);
+        RouteEncounter voyage = ShippingRoutes.Pick(match.Theater, parameters.Seed, size, encounterKind);
         RouteCorridor corridor = CreateRouteCorridor(
             match, size, parameters.LateralOffsetNm, random.Next(2) == 0 ? 1f : -1f,
-            playerTaskforce, playerControlledCount);
+            playerTaskforce, playerControlledCount, voyage.LengthNm);
 
         int protectedCount = GetProtectedGroupSize(size, variant);
         int vesselIndexOffset = corridor.First.VesselCount;
         IReadOnlyList<RouteProtectedUnit> protectedUnits = CreateProtectedUnits(
-            random,
-            match.First,
+            new System.Random(parameters.Seed ^ 0x434F4E56),
+            convoyRoster ?? match.First,
             variant,
             protectedCount,
             vesselIndexOffset,
@@ -154,13 +140,30 @@ internal static partial class ScenarioDebugGenerator
                     ? unit with { FollowReference = protectedUnits[0].Reference }
                     : unit).ToArray(),
         };
+        protectedUnits = protectedUnits.Select(unit =>
+        {
+            MissionPosition position = voyage.Orient(new(unit.X, 0, unit.Z));
+            return unit with { X = position.X, Z = position.Z, Heading = voyage.Heading,
+                Waypoints = unit.Waypoints is null ? null : voyage.Onward };
+        }).ToArray();
+        float convoySpeed = protectedUnits.Min(unit => ScenarioUnitCatalog.SpeedAtTelegraph(unit.UnitType, 3));
+        escort = ScenarioTerrain.PlaceFleet(voyage, voyage.OrientFleet(escort));
+        var interception = RouteInterceptionPlanner.Place(voyage.OrientFleet(corridor.Second), voyage, convoySpeed,
+            escort.Units.Select(unit => new MissionPosition(unit.X, 0, unit.Z))
+                .Concat(protectedUnits.Select(unit => new MissionPosition(unit.X, 0, unit.Z))).ToArray());
         int requiredArrivals = Math.Max(1, (int)Math.Ceiling(protectedCount * (2d / 3d)));
-        return new RouteOperationPlan(
+        RouteOperationPlan plan = new(
             escort,
-            corridor.Second,
+            interception.Fleet,
             protectedUnits,
             requiredArrivals,
-            corridor.DestinationX);
+            corridor.DestinationX,
+            voyage,
+            interception.Groups);
+        foreach (RouteProtectedUnit unit in plan.ProtectedUnits)
+            if (ScenarioTerrain.HeightMeters(voyage.Center.Offset(new(unit.X, 0, unit.Z))) > -20)
+                throw new InvalidOperationException("The convoy does not fit this coastal approach. Choose a mid-crossing encounter or smaller force.");
+        return plan;
     }
 
     private static IReadOnlyList<RouteProtectedUnit> CreateProtectedUnits(
@@ -181,18 +184,20 @@ internal static partial class ScenarioDebugGenerator
                 $"No installed vessels support the {GetRouteVariantName(variant)} variant.");
         }
 
+        // The slowest selected ship leads, so formation speed agrees with interception planning.
+        available = Enumerable.Range(0, count).Select(index => available[index % available.Length])
+            .OrderBy(unit => ScenarioUnitCatalog.SpeedAtTelegraph(unit.UnitType, 3)).ToArray();
         List<RouteProtectedUnit> units = [];
         for (int index = 0; index < count; index++)
         {
-            float longitudinal = (index / 2) * -1.5f;
-            float lateral = index == 0 ? 0f : (index % 2 == 0 ? 1f : -1f) * 1.4f;
+            float longitudinal = index * -0.75f;
             units.Add(new RouteProtectedUnit(
                 MissionUnitReferences.FormatHull("Taskforce1", vesselIndexOffset + index + 1),
                 available[index % available.Length].UnitType,
                 available[index % available.Length].VariantReference,
                 available[index % available.Length].Nation,
                 routeStart + longitudinal,
-                lateral,
+                0,
                 index == 0
                     ? [new(new(0, 0, 0)), new(new(routeEnd, 0, 0))]
                     : null,
@@ -297,37 +302,68 @@ internal static partial class ScenarioDebugGenerator
         RouteOperationPlan route,
         bool useLauncherMetadata)
     {
+        if (route.Voyage is { } voyage)
+            match = match with { Latitude = (float)voyage.Center.Latitude, Longitude = (float)voyage.Center.Longitude };
         string variantName = GetRouteVariantName(options.RouteVariant);
         bool escortPerspective = options.RoutePerspective == RouteOperationPerspective.Escort;
+        bool controlProtectedShips = escortPerspective && !options.Spectator && options.Starting.ControlProtectedShips;
+        route = options.Spectator ? route : playerTaskforce == "Taskforce1"
+            ? route with { FirstDeployment = options.Starting.Apply(route.FirstDeployment) }
+            : route with { SecondDeployment = options.Starting.Apply(route.SecondDeployment) };
         FleetDeployment playerDeployment = playerTaskforce == "Taskforce1"
             ? route.FirstDeployment
             : route.SecondDeployment;
         IEnumerable<string> alliedReferences = playerDeployment.AlliedReferences;
-        if (escortPerspective)
+        if (escortPerspective && !controlProtectedShips)
         {
             alliedReferences = alliedReferences.Concat(
                 route.ProtectedUnits.Select(unit => unit.Reference));
         }
+        if (controlProtectedShips && !options.Starting.PreloadOrders)
+            route = route with { ProtectedUnits = route.ProtectedUnits.Select(unit => unit with { Waypoints = null, Telegraph = 0 }).ToArray() };
 
         MissionWriter mission = new();
         mission.Section("Debug");
         mission.Write("AllowAIRadarRoutine", true);
+        if (options.Spectator) mission.Write("ShowUnidentifiedUnitsIn3D", true);
 
         mission.Section("Language_en");
         if (useLauncherMetadata)
         {
-            mission.Write("Name", "Generated Route Operation");
-            mission.Write("Description", "Configure an escort or interdiction mission with a protected group on the move.");
+            mission.Write("Name", options.Spectator ? "Generated Route Operation Observer" : "Generated Route Operation");
+            mission.Write("Description", options.Spectator ? "Watch an AI escort and interdiction battle from a Blue observer side."
+                : "Configure an escort or interdiction mission with a protected group on the move.");
         }
         else
         {
-            mission.Write("Name", $"Generated {variantName} - {options.RoutePerspective} - {size}");
-            mission.Write("Description", $"{match.Theater}: {(escortPerspective ? "escort " : "interdict ")}{variantName.ToLowerInvariant()}. {(escortPerspective
-                    ? $"Get {route.RequiredArrivals} of {route.ProtectedUnits.Count} protected ships through. "
-                    : $"Stop {route.ProtectedUnits.Count - route.RequiredArrivals + 1} protected ships. ")}Generation seed {parameters.Seed}.");
+            mission.Write("Name", $"Generated {variantName} - {(options.Spectator ? "Observer" : options.RoutePerspective)} - {size}");
+            mission.Write("Description", $"{match.Theater}: {(escortPerspective ? "escort " : "interdict ")}{variantName.ToLowerInvariant()}.\n{(escortPerspective
+                    ? $"Get {route.RequiredArrivals} of {route.ProtectedUnits.Count} protected ships through."
+                    : $"Stop {route.ProtectedUnits.Count - route.RequiredArrivals + 1} protected ships.")}");
         }
         AppendRouteMessagesAndObjectiveText(mission, match, route, variantName);
-        AppendCrimeanTomSettings(mission, alliedReferences, spectator: false);
+        if (options.Spectator)
+            mission.Write("Taskforce1StartMessage", $"ROUTE OBSERVER|Both forces operate under AI control. Blue escorts must get {route.RequiredArrivals} protected ships to EXIT. Search A/B/C are uncertain interdiction reports. Full visibility is for your display only; neither AI receives the observer's enemy truth.|Observe battle");
+        for (int index = 1; index <= 3; index++)
+            mission.Write($"RouteChart{index}Label_en", $"Search {(char)('A' + index - 1)}");
+        mission.Write("RouteChart4Label_en", "EXIT");
+        mission.Write("RouteChart5Label_en", "CONVOY START");
+        mission.Write("MissionBriefingGenerateMapFromSymbols", true);
+        AppendCrimeanTomSettings(mission, alliedReferences, options.Spectator);
+        options.Starting.WriteTo(mission);
+        mission.Write("PlayerControlsProtectedShips", controlProtectedShips);
+        mission.Write("FirstForcePoints", match.First.PointCost);
+        mission.Write("SecondForcePoints", match.Second.PointCost);
+        mission.Write("EnemyBudgetMultiplier", options.EnemySizeMultiplier);
+        mission.Write("ChaseAllowance", options.ChaseAllowance);
+        mission.Write("EnemyComposition", GetComposition(playerTaskforce == "Taskforce1" ? match.Second : match.First));
+        route.AttackGroups?.ForEach((group, index) => group.WriteTo(mission, index + 1));
+        if (route.Voyage is { } selected)
+        {
+            mission.Write("ShippingRoute", selected.Summary);
+            mission.Write("RouteLengthNm", selected.LengthNm);
+            mission.Write("GenerationSeed", parameters.Seed);
+        }
         AppendEnvironment(mission, match, parameters);
         AppendRouteMission(mission, match, size, playerTaskforce, parameters, route);
         route.FirstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
@@ -337,6 +373,14 @@ internal static partial class ScenarioDebugGenerator
         AppendRouteTriggers(mission, route, playerTaskforce);
         AppendOpposedObjectives(mission, "Taskforce1DeliverProtectedGroup", "Taskforce2StopProtectedGroup");
         AppendRetreatAnchors(mission, match);
+        route.Voyage?.WriteChart(mission, route.SecondDeployment);
+        AppendActivity(mission, match, parameters, options, playerTaskforce);
+        if (route.Voyage is { } ambushRoute)
+            RouteAmbushTrigger.WriteTo(mission, route.SecondDeployment, ambushRoute,
+                route.ProtectedUnits.Select(unit => unit.Reference).ToArray(),
+                route.FirstDeployment.Units.Select(NavalWeaponEnvelope.From)
+                    .Concat(route.ProtectedUnits.Select(unit => new NavalWeaponEnvelope(unit.UnitType, unit.X, unit.Z))).ToArray(),
+                parameters.Seed, playerTaskforce == "Taskforce2", options.Spectator);
         return mission.ToString();
     }
 
@@ -347,8 +391,9 @@ internal static partial class ScenarioDebugGenerator
         string variantName)
     {
         int lossThreshold = route.ProtectedUnits.Count - route.RequiredArrivals + 1;
-        mission.Write("Taskforce1StartMessage", $"ESCORT OPERATION|{match.FirstName} escorts are covering a {variantName.ToLowerInvariant()} group. Get at least {route.RequiredArrivals} protected ships into the marked destination area. Surface groups start on loose-follow orders around the convoy; keep the screen together rather than chase every contact. If its lead ship is lost, assign the screen to a surviving protected ship.|Take station");
-        mission.Write("Taskforce2StartMessage", $"INTERDICTION OPERATION|{match.SecondName} forces must stop the {variantName.ToLowerInvariant()} group. Destroy at least {lossThreshold} protected ships before the remainder reaches safety.|Begin search");
+        string journey = route.Voyage is { } voyage ? $" Shipping route: {voyage.Summary}. Clear the marked local passage area; onward orders continue toward port." : string.Empty;
+        mission.Write("Taskforce1StartMessage", $"ESCORT OPERATION|{match.FirstName} escorts are covering a {variantName.ToLowerInvariant()} group.{journey} Get at least {route.RequiredArrivals} protected ships to EXIT. Search A/B/C mark possible interdiction forces, not confirmed contacts. Keep the screen together rather than chase every contact. If the convoy lead is lost, assign the screen to a surviving protected ship.|Take station");
+        mission.Write("Taskforce2StartMessage", $"INTERDICTION OPERATION|{match.SecondName} forces must stop the {variantName.ToLowerInvariant()} group.{journey} Small, fast attack craft may approach from astern; larger surface groups intercept ahead or from the flanks. Submarines hold separate ambush stations. Destroy at least {lossThreshold} protected ships before the remainder reaches safety.|Begin search");
         mission.Write("Taskforce1RouteVictoryMessage", "ROUTE COMPLETED|Enough protected ships reached the destination. The route is secure.|End mission");
         mission.Write("Taskforce2RouteVictoryMessage", "ROUTE DENIED|The protected group can no longer complete its mission.|End mission");
         mission.Write("Taskforce1RouteDefeatMessage", "ROUTE DENIED|Too many protected ships were lost. Withdraw the remaining escorts.|End mission");
@@ -371,8 +416,8 @@ internal static partial class ScenarioDebugGenerator
                 new FleetFormationPlan(
                     route.ProtectedUnits.Select(unit => unit.Reference).ToArray(),
                     "Protected Route Group",
-                    "Box",
-                    1.5f),
+                    "LineAstern",
+                    0.75f),
             ])
             .ToArray();
         AppendMission(mission, match, size, playerTaskforce, parameters,
@@ -392,7 +437,7 @@ internal static partial class ScenarioDebugGenerator
 
         new MissionTrigger(2, "Protected group reaches destination",
             new(references, route.RequiredArrivals,
-                new(new(route.DestinationX, 0, 0), 6, playerTaskforce == "Taskforce1" ? "Blue" : "Red")),
+                new(route.Voyage?.Exit ?? new(route.DestinationX, 0, 0), 6, playerTaskforce == "Taskforce1" ? "Blue" : "Red")),
             new("Taskforce1", "Taskforce1RouteVictoryMessage", "Taskforce2RouteDefeatMessage",
                 ["Taskforce1DeliverProtectedGroup"], ["Taskforce2StopProtectedGroup"])).WriteTo(mission);
 
@@ -414,7 +459,9 @@ internal static partial class ScenarioDebugGenerator
         FleetDeployment SecondDeployment,
         IReadOnlyList<RouteProtectedUnit> ProtectedUnits,
         int RequiredArrivals,
-        float DestinationX);
+        float DestinationX,
+        RouteEncounter? Voyage = null,
+        IReadOnlyList<RouteAttackGroup>? AttackGroups = null);
 
     private record RouteProtectedUnit(
         string Reference,
@@ -424,7 +471,9 @@ internal static partial class ScenarioDebugGenerator
         float X,
         float Z,
         IReadOnlyList<MissionWaypoint>? Waypoints,
-        string StationRole)
+        string StationRole,
+        float Heading = 90,
+        int Telegraph = 3)
     {
         internal void WriteTo(MissionWriter mission)
         {
@@ -435,8 +484,8 @@ internal static partial class ScenarioDebugGenerator
             if (StationRole != "Default") mission.Write("StationRole", StationRole);
             mission.Write("CrewSkill", "Trained");
             mission.WritePosition("RelativePositionInNM", new(X, 0, Z));
-            mission.Write("Telegraph", 2);
-            mission.Write("Heading", 90);
+            mission.Write("Telegraph", Telegraph);
+            mission.Write("Heading", Heading);
             if (Waypoints is not null) mission.WriteWaypoints(Waypoints);
         }
     }
