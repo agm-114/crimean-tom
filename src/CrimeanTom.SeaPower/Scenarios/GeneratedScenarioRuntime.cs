@@ -39,9 +39,13 @@ internal static class GeneratedScenarioRuntime
 
     private static bool _spectatorTruthActive;
     private static bool _previousTruthValue;
+    private static Taskforce? visibleAlly;
+    private static float nextTrackRefresh;
 
     internal static void RestoreDebugState()
     {
+        visibleAlly = null;
+        nextTrackRefresh = 0;
         if (!_spectatorTruthActive)
         {
             return;
@@ -53,13 +57,13 @@ internal static class GeneratedScenarioRuntime
 
     internal static void Apply()
     {
-        if (!ScenarioDebugGenerator.IsLauncherPath(Globals.currentMissionFilePath) ||
-            !Singleton<SceneCreator>.Instance.MissionIni.doesSectionExist(SettingsSection))
+        IniHandler ini = Singleton<SceneCreator>.Instance.MissionIni;
+        if (!ini.doesSectionExist(SettingsSection) ||
+            !ScenarioDebugGenerator.IsLauncherPath(Globals.currentMissionFilePath) && !ini.doesKeyExist(SettingsSection, "CampaignContract"))
         {
             return;
         }
 
-        IniHandler ini = Singleton<SceneCreator>.Instance.MissionIni;
         bool spectator = string.Equals(
             ini.readValue(SettingsSection, "Mode", "Command"),
             "Spectator",
@@ -78,6 +82,7 @@ internal static class GeneratedScenarioRuntime
             _roe = MissionManager.ROE.Unrestricted,
         };
         Singleton<TaskforceManager>.Instance.addTaskforce(ally);
+        visibleAlly = ally;
 
         List<ObjectBase> unitsToTransfer = [];
         foreach (string reference in alliedReferences)
@@ -161,5 +166,16 @@ internal static class GeneratedScenarioRuntime
             .Where(candidate => candidate is not null && candidate.isUnit())
             .ToArray()
             .ForEach(unit => unit.CreateEternalTrackForPlayer());
+    }
+
+    internal static void RefreshFriendlyTracks()
+    {
+        if (visibleAlly is null || Time.unscaledTime < nextTrackRefresh) return;
+        nextTrackRefresh = Time.unscaledTime + 1;
+        // Retry after load as the player's plotting table may not exist at the transfer boundary.
+        // Include aircraft launched later, but never grant the allied AI the observer's enemy truth.
+        Singleton<ObjectsManager>.Instance._listOfAllObjects
+            .Where(unit => unit is not null && !unit.IsDestroyed && unit.isUnit() && unit._taskforce == visibleAlly)
+            .ToArray().ForEach(unit => unit.CreateEternalTrackForPlayer());
     }
 }
