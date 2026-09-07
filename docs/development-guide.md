@@ -56,13 +56,33 @@ Inside `FleetOrderOfBattlePlanner`, one `EmbarkedAirDeployment` builder per flee
 
 Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit sections. Use `mission.Write("Heading", heading, "0")` for a formatted number, `mission.WritePosition("RelativePositionInNM", new(x, altitude, z))` for a position, and `mission.WriteWaypoints(route)` for orders. Pass interpolated values directly to `Write` so its `FormattableString` overload formats numbers with invariant culture.
 
-`UI/` contains all three windows, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
+`UI/` contains the native overlays, shared `NativeUi` styling and campaign-window closing, and `ChoicePicker<T>`. The picker binds string labels to Noesis while keeping values typed in C#, so setup options do not depend on parallel selected-index switches. The scenario families share one setup form but retain their existing options and defaults.
 
 Folders do not change the `CrimeanTom.SeaPower` namespace, reflected type names or deployment locations. The project already enables SDK implicit usings; avoid repeating those imports in every file.
 
 The three longer documents under `docs/` are design references. They describe intended behavior and should not be treated as proof that every feature is implemented.
 
 ## Build and deployment
+
+The current generation work is tracked in [the scenario and campaign plan](scenario-and-campaign-generation-plan.md). Code implementation is complete; its live acceptance checklist is still open. `ShippingRoutes.cs` contains eight bidirectional port routes and local encounter geometry, including coastal transit and selected chokepoints. `ScenarioTerrain.cs` reads installed base DEM tiles for conservative placement checks. Those checks do not include terrain stamps or prove formation navigation in battle. The North Sea route is too shallow for the current 80-metre submarine clearance; unsupported layouts fail with an explanation.
+
+`ScenarioStartingOptions.cs` owns shared aircraft/order settings, protected-ship control and difficulty definitions. `ScenarioStartingControls.cs` presents these in standalone setup and `CampaignPreparationWindow.cs`. Protected ships default to AI control; the toggle applies only to escort play, never observers or interdiction. Player-controlled protected ships obey the preload-orders setting. `CampaignScenarioSettings.cs` persists the toggles and reads the native campaign difficulty selection. Campaign difficulty changes offer generation, not purchase prices. Explicit infeasible composition/budget combinations fail with a readable error; random composition may fall back to surface-focused forces.
+
+`CampaignAircraftStock.cs` trims authored patrols against the final native air roster. Its narrowly scoped reconciliation patch reuses the game's stock/ammunition handling for the first generated contract. Verify that patch and aircraft ownership across a live first sortie and save/load before changing aircraft preparation again.
+
+`RouteInterceptionPlanner.cs` assigns surface pursuit/interception lanes and submarine ambush stations before mission writing. It validates actual route bends and formation-offset paths against the base DEM. Route convoys use telegraph 3 and line astern; attacking surface groups use telegraph 4. `ScenarioUnitCatalog.SpeedAtTelegraph()` mirrors the native authored-speed/default-ladder selection. `RouteChaseBudget.cs` caps pursuit credit at 20%, considers installed weapon reach and closing delay, and accepts a whole-hull change only if the revised placement still supports it. Campaign interdiction reduces the generated escort budget instead of changing owned attackers.
+
+Pursuit requires every group member to be at most 60 metres long and 500 tons, with known surface-weapon reach no greater than 12 NM and an operating-speed advantage of at least eight knots. Unsafe or impractical chases fall back to flank stations. Larger ships never receive pursuit stations. Surface placements clear known weapon reach by at least eight NM, or five NM for pursuit boats, against the initial convoy and escort positions. Unknown reach uses an 80 NM buffer and cannot qualify for pursuit. Separate attacker formations keep at least two NM between hulls; members within a formation remain 0.75 NM apart. Torpedo range parsing includes authored `SpeedSettingRanges`.
+
+`ScenarioActivityPlan.cs` builds independent patrols and coastal sites within a combined per-side allowance. Standalone setup exposes presence and size controls. Campaign offers use fixed Random activity generated from the board's saved ready-roster budget; preparation cannot reroll it. The offer displays any minimum deployment required by its activity. Nearby units receive no campaign ownership tags and do not count toward main objectives. `CampaignMissionData` preserves friendly patrol submarines across native preparation, which otherwise replaces all player submarine sections. `MissionWriter` keeps sections in memory so optional activity can update unit counts without duplicate sections or keys.
+
+Standalone setup accepts a replay seed. Use the same settings and installed data when reproducing it. Read the generated mission's `[CrimeanTom]` section for budgets and per-group interception diagnostics.
+
+Random-enabled dropdowns label the random entry simply `Random` and show roll chances beside concrete choices. `ScenarioRandomization.cs` shares sea-state, composition, presence and nearby-size weights with the UI. Nearby size now rolls the listed 10%/25%/40% allowances at 60%/30%/10%, replacing the continuous 5–40% draw. Region odds count viable theater entries, including both North Atlantic entries; encounter odds update for the selected region's routes and chokepoints. Composition odds describe the initial roll, before unavailable or infeasible submarine profiles fall back to surface forces. Standalone friendly naval activity and both coastal-site controls default to On, with placement still required; enemy naval activity defaults to Off. Campaign activity remains fixed by its existing Random policy at offer generation.
+
+`Generated Route Operation Observer` watches an escort battle with Blue alignment and no player-controlled hulls. Observer truth is sent only to the player's plotting table. Delegated friendly units receive refreshed native tracks, including aircraft launched after the initial transfer. Unload clears the tracked allied task force and restores the previous truth-display setting.
+
+Route charts show three separated 12-NM search areas, a convoy-start marker, the local exit, and the complete shipping route with named origin and destination markers at its offshore approaches. `RouteChart6` uses the native `ThreatArrow` symbol's open `MapPolyline`, including every authored route bend and a direction marker at the destination. It has no polygon or filled corridor. Native `MissionBriefingMapInitialLatitude`, `MissionBriefingMapInitialLongitude` and `MissionBriefingMapInitialZoom` fit the full crossing with label margins. Without these fields the game defaults to a 750-NM half-span. Long crossings therefore start zoomed out; zoom in to inspect the local encounter. Symbol spacing and preview bounds account for map projection, independently of the game's tactical placement grid.
 
 Requirements:
 
@@ -136,6 +156,10 @@ Crimean Tom stores its state in Sea Power's existing `LinearCampaign.PersistentD
 - `CrimeanTomAutoresolveCounter`
 - `CrimeanTomContractSeed`
 - `CrimeanTomFirstSortie`
+- `CrimeanTomAircraftDeployed`, `CrimeanTomPreloadOrders`
+- `CrimeanTomActivityBoard`, `CrimeanTomActivityBudget`
+
+Difficulty uses the native `TaskForceDifficultyPreset` key. The activity board stores its budget before preparation so reopening a campaign does not change nearby strength or contract payment. The offer seed is retried only while finding a valid initial layout, then held for that turn.
 
 Unit assignments and readiness delays are keyed by Sea Power's persistent instance ID, not class name. Moving between Group 1, Group 2 and Reserve is free and does not change readiness. Recovered units enter Reserve with two refit turns; purchases enter Reserve with one workup turn. They can be assigned to an active group immediately but cannot deploy until ready. Combat does not add operational fatigue yet. The existing `CrimeanTomFatigue` key now represents acquisition/refit delays only.
 
@@ -203,6 +227,12 @@ The MissionWriter build on 2026-09-05 also passed startup and generated all thre
 
 The typed-waypoint, trigger-record, and native-campaign-access refactor also passed a zero-warning build and fresh startup on 2026-09-05. The load marker appeared at `04:26:24 UTC`; DLL SHA256: `09C5E21B431B44233C78D11A62AA954B5431C81760A00BA50EFD83609D6F4046`. The three generated templates contained 26 waypoints across 13 routes. File checks verified route syntax, trigger unit/message/objective references, and complementary arrival/loss thresholds. No carrier aircraft appeared in this draw, so CAP/AEW and sonobuoy output were not exercised. Tactical loading, campaign passage, and native purchase/save interactions still need live verification. No test files were added.
 
+The route-observer pass on 2026-09-07 passed a zero-warning build, 36 observer-generation checks and the 326 mission-writing checks without adding test files. A live small North Atlantic escort battle (seed `2070116507`) transferred nine units to friendly AI and displayed blue friendly and red enemy tracks from the observer side. The final framing build was then deployed and restarted: its fresh load marker was `11:46:23 UTC`, DLL SHA256 `79B0F1CA951D946E4FF56523F6B6E4E629DA5435CA2488AB263480D07A50301D`. Computer-use inspection confirmed the dedicated observer setup and the scenario preview's separated Search A/B/C areas, convoy route and EXIT label. No exceptions appeared in that startup log. Ordinary partial-command play without observer truth, late-launched allied aircraft, and a complete escort victory still need live checks.
+
+The pursuit/merchant-control follow-up on 2026-09-07 passed 72 in-memory ownership/order combinations using the raider classes from saved seed `938345135`, plus the 36 observer and 326 mission-writing checks. Checks covered small-craft eligibility, separate group positions, merchant weapon-range clearance, and viable P6 chases. Sea Power `0.8.2-23444+s358` loaded DLL `5567640C75CB88301B53DCE12AEEAEEF1B476B0360E031BB9644EDB3ABE1ED7E` at `12:05:10 UTC` and generated both route entries without exceptions. Computer use confirmed protected-ship control unchecked and nearby encounters checked. The test game was closed, then the obsolete AI-control footer was removed. These checks do not verify a full pursuit battle or campaign merchant control through native preparation/debrief.
+
+The full-route chart build on 2026-09-07 passed 36 in-memory chart checks and a zero-warning build. DLL SHA256 `82F1F3D440A939160E9F3DB46B20B72475B0E706A8B912DD8E02DE377D2EF2BD` loaded in Sea Power `0.8.2-23444+s358` at `12:18:12 UTC`. Computer use verified the observer preview for seed `47282378`: an open Reykjavik-to-Halifax route, both named endpoints and local convoy/exit labels. No startup exceptions appeared. The game was closed afterward. Tactical-map rendering and campaign-map rendering were not separately exercised in this pass.
+
 Before calling the integration playable, manually verify this complete path:
 
 1. Start `Crimean Tom Operations` from Campaigns.
@@ -226,7 +256,7 @@ Close an agent-launched game after testing unless the user asks to keep it open.
 
 - The 2026-09-07 gameplay pass passed a build and 326 in-memory mission checks using installed aircraft/loadout data and fixture fleets. Loose-follow screens, looping air patrols, carrier-free ASW cover, and revised objective text still need live verification. No game was launched because desktop control was unavailable.
 - Convoy screen orders follow the initial protected leader. Verify native formation succession after that ship sinks; the escort briefing tells the player to retask the screen. In interdiction play, the AI defender must be checked too.
-- Generated coastal spawns and routes are not terrain-validated. Check Baltic, Mediterranean, and South China Sea seeds for land or shallow-water conflicts before treating every regional draw as playable.
+- Generated route operations use base-DEM checks, but terrain stamps and native formation movement still need live inspection. Other scenario families do not share the full route-placement validation.
 - Minesweeper escort protects a moving group; it does not create a minefield or simulate clearance. Civilian traffic adds contacts, not an attributed civilian-casualty scoring rule.
 - The management loop has passed a native-UI, two-turn autoresolve test. A two-battle test using real tactical debriefs and a save/load boundary is still required.
 - The latest-state and mission-reference fixes still need full native battle/debrief/save/load verification.
