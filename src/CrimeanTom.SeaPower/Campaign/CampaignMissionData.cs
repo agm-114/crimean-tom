@@ -6,12 +6,32 @@ internal static class CampaignMissionData
 {
     private const string Plan = "CrimeanTomPlan";
     private const string UnitPlan = "CrimeanTomPlan_";
+    private const string NearbyPlan = "CrimeanTomNearby_";
     private static readonly string[] TacticalKeys =
     [
         "RelativePositionInNM", "Heading", "Telegraph", "Waypoints", "MissionType",
         "StationRole", "WeaponStatus", "RadarsActive", "ActiveSonarsEnabled",
         "TowedArrayDeployed", "Morale", "RetreatAfterWeaponsExpended",
     ];
+
+    internal static void ApplyStartingOrders(Dictionary<string, Dictionary<string, string>> data)
+    {
+        if (!data.TryGetValue("CrimeanTom", out var settings) ||
+            !settings.TryGetValue("PreloadPlayerOrders", out string raw) || !bool.TryParse(raw, out bool preload) || preload) return;
+        string side = data["Mission"]["PlayerTaskforce"];
+        HashSet<string> allies = (settings.TryGetValue("AlliedAIUnits", out string ai) ? ai : string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(reference => reference.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Regex hulls = MissionUnitReferences.HullNamesFor(side);
+        Regex aircraft = MissionUnitReferences.AirNamesFor(side);
+        foreach (var unit in data.Where(section => !allies.Contains(section.Key) &&
+            (hulls.IsMatch(section.Key) && section.Value.ContainsKey("CampaignTag") || aircraft.IsMatch(section.Key))))
+        {
+            unit.Value.Remove("Waypoints");
+            unit.Value.Remove("MissionType");
+            if (hulls.IsMatch(unit.Key)) unit.Value["Telegraph"] = "0";
+        }
+    }
 
     internal static void Remember(
         Dictionary<string, Dictionary<string, string>> data,
@@ -30,6 +50,11 @@ internal static class CampaignMissionData
                 ["InstanceId"] = unit.Value,
             };
         }
+        // Native preparation preserves ignored vessels, but replaces every player-side submarine section.
+        if (data.TryGetValue("CrimeanTom", out var settings) && settings.TryGetValue("NearbyAIUnits", out string nearby))
+            foreach (string reference in nearby.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Where(reference => reference.StartsWith(side + "Submarine", StringComparison.OrdinalIgnoreCase)))
+                data[NearbyPlan + reference] = new(data[reference], StringComparer.OrdinalIgnoreCase);
     }
 
     internal static void Apply(
@@ -60,6 +85,16 @@ internal static class CampaignMissionData
                 if (unit.Value.TryGetValue(key, out var value)) data[reference][key] = value;
                 else data[reference].Remove(key);
             }
+        }
+
+        string submarineCount = "NumberOf" + side + "Submarines";
+        foreach (var nearby in data.Where(section => section.Key.StartsWith(NearbyPlan, StringComparison.OrdinalIgnoreCase)).ToArray())
+        {
+            int index = int.Parse(data["Mission"].GetValueOrDefault(submarineCount, "0"), System.Globalization.CultureInfo.InvariantCulture) + 1;
+            string reference = side + "Submarine" + index;
+            data[reference] = new(nearby.Value, StringComparer.OrdinalIgnoreCase);
+            data["Mission"][submarineCount] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            mapping.Add(nearby.Key[NearbyPlan.Length..], reference);
         }
 
         string Remap(string value) => MissionUnitReferences.RemapHulls(value, mapping);

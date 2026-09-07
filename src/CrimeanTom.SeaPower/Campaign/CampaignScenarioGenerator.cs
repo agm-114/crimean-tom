@@ -26,6 +26,7 @@ internal static partial class ScenarioDebugGenerator
         string sourceMissionPath,
         LinearCampaignTaskForceSnapshot snapshot)
     {
+        LastGenerationError = null;
         try
         {
             CampaignContractKind contract = ResolveCampaignContract(sourceMissionPath);
@@ -37,6 +38,8 @@ internal static partial class ScenarioDebugGenerator
             }
 
             CampaignContractOffer offer = CampaignContractOffers.Get((int)contract + 1);
+            if (offer.MinimumDeploymentPoints > playerForce.PointCost)
+                throw new InvalidOperationException($"This contract's fixed nearby activity requires at least {offer.MinimumDeploymentPoints} deployed ship points. Deploy more ships or choose another contract.");
             int seed = offer.Seed;
             System.Random random = new(seed);
             FleetClashSize size = offer.Size;
@@ -54,6 +57,10 @@ internal static partial class ScenarioDebugGenerator
                 SeaState = 1,
                 PlayerTaskforce = playerTaskforce,
                 PlayerControlPercentage = 100,
+                Starting = CampaignOperationsState.StartingOptions,
+                ActivityPlan = offer.Activity,
+                ChaseAllowance = offer.ChaseAllowance,
+                EnemySizeMultiplier = CampaignOperationsState.Difficulty.Multiplier,
                 RoutePerspective = contract == CampaignContractKind.RouteInterdiction
                     ? RouteOperationPerspective.Interdict
                     : RouteOperationPerspective.Escort,
@@ -86,7 +93,8 @@ internal static partial class ScenarioDebugGenerator
                     size,
                     playerTaskforce,
                     playerForce.Ships.Count,
-                    options.RouteVariant);
+                    options.RouteVariant,
+                    convoyRoster: offer.Match.First);
                 contents = BuildRouteOperation(
                     match,
                     parameters,
@@ -134,6 +142,7 @@ internal static partial class ScenarioDebugGenerator
         }
         catch (Exception exception)
         {
+            LastGenerationError = exception.Message;
             Debug.LogError(
                 $"[Crimean Tom Operations] could not prepare campaign contract '{sourceMissionPath}': {exception}");
             return false;
@@ -249,12 +258,15 @@ internal static partial class ScenarioDebugGenerator
             contents,
             playerTaskforce,
             contract);
+        Match nearby = Regex.Match(contents, @"^NearbyAIUnits=(.*)$", RegexOptions.Multiline);
+        HashSet<string> nearbyReferences = nearby.Success
+            ? new(nearby.Groups[1].Value.Trim().Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase) : [];
         Regex playerUnitSection = MissionUnitReferences.HullSectionsFor(playerTaskforce);
         bool anchorWritten = false;
         return playerUnitSection.Replace(contents, match =>
         {
             string reference = match.Groups["reference"].Value;
-            string marker = protectedReferences.Contains(reference)
+            string marker = nearbyReferences.Contains(reference) ? string.Empty : protectedReferences.Contains(reference)
                 ? "TaskForceModeIgnoreUnit=True"
                 : "TaskForceModePlaceholderUnit=True";
             string anchorMarker = anchorWritten
@@ -320,7 +332,7 @@ internal static class CampaignContractGenerationPatch
             __result = false;
             generatedMissionPath = string.Empty;
             failureHeader = "Contract generation failed";
-            failureMessage = "The contract could not be generated. Return to the campaign and try again.";
+            failureMessage = ScenarioDebugGenerator.LastGenerationError ?? "The contract could not be generated. Return to the campaign and choose another contract.";
             return false;
         }
         return true;
@@ -345,6 +357,10 @@ internal static class CampaignContractGenerationPatch
         {
             CampaignOperationsState.ApplyGroupsToGeneratedMission(generatedMissionPath);
             ScenarioDebugGenerator.FinalizeCampaignContract(generatedMissionPath);
+            IniHandler generated = Utils.openIniFile(generatedMissionPath, logErrors: true, useCaching: false);
+            CampaignAircraftStock.TrimPatrols(generated.Data);
+            CampaignMissionData.ApplyStartingOrders(generated.Data);
+            generated.saveFile(overwrite: true);
             CampaignOperationsState.RecordLaunch(
                 NativeCampaignAccess.GetMissionIndex(mission), generatedMissionPath);
         }
