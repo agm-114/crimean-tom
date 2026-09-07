@@ -39,11 +39,17 @@ internal enum RouteOperationVariant
 
 internal class FleetClashGenerationOptions
 {
+    internal int? Seed { get; set; }
     internal FleetClashSize? Size { get; set; }
     internal string? Region { get; set; }
     internal int? SeaState { get; set; }
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;
+    internal ScenarioStartingOptions Starting { get; set; } = new();
+    internal ScenarioActivitySettings Activity { get; set; } = ScenarioActivitySettings.Off;
+    internal ScenarioActivityPlan? ActivityPlan { get; set; }
+    internal double ChaseAllowance { get; set; }
+    internal RouteEncounterKind RouteEncounter { get; set; } = RouteEncounterKind.Random;
     internal FleetComposition EnemyComposition { get; set; } = FleetComposition.Random;
     internal int PlayerControlPercentage { get; set; } = 100;
     internal FleetControlPriority ControlPriority { get; set; } =
