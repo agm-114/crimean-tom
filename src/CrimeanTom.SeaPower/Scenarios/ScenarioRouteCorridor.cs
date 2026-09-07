@@ -7,17 +7,17 @@ internal static partial class ScenarioDebugGenerator
     // Callers choose the attack lane so passage geometry never consumes route-operation RNG.
     private static RouteCorridor CreateRouteCorridor(
         FleetClashMatch match, FleetClashSize size, float lateralOffset, float attackLane,
-        string playerTaskforce, int playerControlledCount)
+        string playerTaskforce, int playerControlledCount, float? routeLength = null)
     {
-        float length = size switch
+        float length = routeLength ?? (size switch
         {
             FleetClashSize.Small => 48f,
             FleetClashSize.Medium => 62f,
             FleetClashSize.Large => 78f,
             _ => 62f,
-        };
-        float start = -length / 2f;
-        float destination = length / 2f;
+        });
+        float start = routeLength.HasValue ? 0 : -length / 2f;
+        float destination = start + length;
         float intercept = length * 0.12f;
 
         FleetDeployment first = FleetOrderOfBattlePlanner.Plan(
