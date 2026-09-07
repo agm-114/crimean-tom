@@ -7,7 +7,7 @@ internal static class FactionCatalog
     private const string CoalitionArtPath = "campaigns/crimean-tom-operations/art/coalitions";
 
     internal static readonly FactionDefinition Algeria =
-        new("Algeria", FleetAlignment.Eastern, [], [EasternMediterranean, ArabianSea]);
+        new("Algeria", FleetAlignment.Eastern, [WesternMediterranean], [EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Australia =
         new("Australia", FleetAlignment.Western, [], [Atlantic, SouthChinaSea, ArabianSea]);
     internal static readonly FactionDefinition Belgium =
@@ -31,15 +31,15 @@ internal static class FactionCatalog
         new("DDR", FleetAlignment.Eastern, [BalticSea],
             [Atlantic, NorthernAtlantic, NorwegianSea, EasternMediterranean, SouthChinaSea, ArabianSea]);
     internal static readonly FactionDefinition Denmark =
-        new("Denmark", FleetAlignment.Western, [NorwegianSea, BalticSea],
+        new("Denmark", FleetAlignment.Western, [NorwegianSea, BalticSea, NorthSea],
             [Atlantic, NorthernAtlantic, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Egypt =
         new("Egypt", FleetAlignment.Eastern, [EasternMediterranean], [ArabianSea]);
     internal static readonly FactionDefinition France =
-        new("France", FleetAlignment.Western, [Atlantic, NorthernAtlantic],
+        new("France", FleetAlignment.Western, [Atlantic, NorthernAtlantic, WesternMediterranean],
             [NorwegianSea, BalticSea, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Germany =
-        new("Germany", FleetAlignment.Western, [Atlantic, NorthernAtlantic, BalticSea],
+        new("Germany", FleetAlignment.Western, [Atlantic, NorthernAtlantic, BalticSea, NorthSea],
             [NorwegianSea, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Greece =
         new("Greece", FleetAlignment.Western, [EasternMediterranean],
@@ -61,7 +61,7 @@ internal static class FactionCatalog
     internal static readonly FactionDefinition Israel =
         new("Israel", FleetAlignment.Western, [EasternMediterranean], []);
     internal static readonly FactionDefinition Italy =
-        new("Italy", FleetAlignment.Western, [],
+        new("Italy", FleetAlignment.Western, [WesternMediterranean],
             [Atlantic, NorthernAtlantic, NorwegianSea, BalticSea, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Japan =
         new("Japan", FleetAlignment.Western, [], [NorthernAtlantic, SouthChinaSea]);
@@ -70,13 +70,13 @@ internal static class FactionCatalog
     internal static readonly FactionDefinition Kuwait =
         new("Kuwait", FleetAlignment.Eastern, [ArabianSea], [EasternMediterranean]);
     internal static readonly FactionDefinition Libya =
-        new("Libya", FleetAlignment.Eastern, [EasternMediterranean], [ArabianSea]);
+        new("Libya", FleetAlignment.Eastern, [EasternMediterranean, WesternMediterranean], [ArabianSea]);
     internal static readonly FactionDefinition Malaysia =
         new("Malaysia", FleetAlignment.Western, [], [Atlantic, NorthernAtlantic, SouthChinaSea, ArabianSea]);
     internal static readonly FactionDefinition Morocco =
         new("Morocco", FleetAlignment.Eastern, [], [EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Netherlands =
-        new("Netherlands", FleetAlignment.Western, [Atlantic, NorthernAtlantic],
+        new("Netherlands", FleetAlignment.Western, [Atlantic, NorthernAtlantic, NorthSea],
             [NorwegianSea, BalticSea, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition NewZealand =
         new("NewZealand", FleetAlignment.Western, [], [Atlantic, SouthChinaSea, ArabianSea]);
@@ -111,10 +111,10 @@ internal static class FactionCatalog
     internal static readonly FactionDefinition SouthYemen =
         new("South_Yemen", FleetAlignment.Eastern, [ArabianSea], [EasternMediterranean]);
     internal static readonly FactionDefinition Soviet =
-        new("Soviet", FleetAlignment.Eastern, [Atlantic, NorthernAtlantic, NorwegianSea],
-            [BalticSea, EasternMediterranean, SouthChinaSea, ArabianSea]);
+        new("Soviet", FleetAlignment.Eastern, [Atlantic, NorthernAtlantic, NorwegianSea, NorthSea],
+            [BalticSea, EasternMediterranean, WesternMediterranean, SouthChinaSea, ArabianSea]);
     internal static readonly FactionDefinition Spain =
-        new("Spain", FleetAlignment.Western, [],
+        new("Spain", FleetAlignment.Western, [WesternMediterranean],
             [Atlantic, NorthernAtlantic, NorwegianSea, BalticSea, EasternMediterranean, ArabianSea]);
     internal static readonly FactionDefinition Sudan =
         new("Sudan", FleetAlignment.Eastern, [], [EasternMediterranean, ArabianSea]);
@@ -133,7 +133,7 @@ internal static class FactionCatalog
         new("Turkey", FleetAlignment.Western, [EasternMediterranean],
             [Atlantic, NorthernAtlantic, NorwegianSea, BalticSea, ArabianSea]);
     internal static readonly FactionDefinition UK =
-        new("UK", FleetAlignment.Western, [Atlantic, NorthernAtlantic],
+        new("UK", FleetAlignment.Western, [Atlantic, NorthernAtlantic, NorthSea],
             [NorwegianSea, BalticSea, EasternMediterranean, SouthChinaSea, ArabianSea]);
     internal static readonly FactionDefinition US =
         new("US", FleetAlignment.Western, [],
@@ -330,9 +330,11 @@ internal static class FleetClashTheaterCatalog
     internal static readonly FleetClashTheater EasternMediterranean = new("Eastern Mediterranean", 35f, 25f);
     internal static readonly FleetClashTheater SouthChinaSea = new("South China Sea", 14f, 115f);
     internal static readonly FleetClashTheater ArabianSea = new("Arabian Sea", 20f, 65f);
+    internal static readonly FleetClashTheater NorthSea = new("North Sea", 55f, 4f);
+    internal static readonly FleetClashTheater WesternMediterranean = new("Western Mediterranean", 38f, 6f);
 
     private static readonly FleetClashTheater[] Theaters =
-        [Atlantic, NorthernAtlantic, NorwegianSea, BalticSea, EasternMediterranean, SouthChinaSea, ArabianSea];
+        [Atlantic, NorthernAtlantic, NorwegianSea, BalticSea, EasternMediterranean, SouthChinaSea, ArabianSea, NorthSea, WesternMediterranean];
 
     internal static IReadOnlyList<string> RegionNames { get; } = Theaters
         .Select(theater => theater.Name)
@@ -343,6 +345,22 @@ internal static class FleetClashTheaterCatalog
         System.Random random,
         Func<FleetSidePlan, bool> isViable,
         string? region = null)
+    {
+        var viable = GetViableTheaters(isViable, region);
+        if (viable.Count == 0)
+            throw new InvalidOperationException("No fleet-clash theater has usable combatants on both sides.");
+        return viable[random.Next(viable.Count)];
+    }
+
+    internal static IReadOnlyDictionary<string, double> RegionChances(Func<FleetSidePlan, bool> isViable)
+    {
+        var viable = GetViableTheaters(isViable);
+        return RegionNames.ToDictionary(name => name,
+            name => viable.Count == 0 ? 0d : (double)viable.Count(item => item.Theater.Name == name) / viable.Count);
+    }
+
+    private static List<(FleetClashTheater Theater, FleetSidePlan First, FleetSidePlan Second)> GetViableTheaters(
+        Func<FleetSidePlan, bool> isViable, string? region = null)
     {
         List<(FleetClashTheater Theater, FleetSidePlan First, FleetSidePlan Second)> viable = [];
         foreach (FleetClashTheater theater in Theaters)
@@ -361,11 +379,6 @@ internal static class FleetClashTheaterCatalog
             }
         }
 
-        if (viable.Count == 0)
-        {
-            throw new InvalidOperationException("No fleet-clash theater has usable combatants on both sides.");
-        }
-
-        return viable[random.Next(viable.Count)];
+        return viable;
     }
 }
