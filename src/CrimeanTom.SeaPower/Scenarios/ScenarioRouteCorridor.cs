@@ -64,7 +64,7 @@ internal static partial class ScenarioDebugGenerator
             IReadOnlyList<MissionWaypoint>? waypoints = leaders.Contains(unit.Reference) && !unit.Ship.IsCarrier
                 ?
                 [
-                    new(new(isDefender ? 0 : destinationX + 8f, 0, lane, depth)),
+                    new(new(isDefender ? Math.Min(destinationX - 4, unit.X + 8) : destinationX + 8f, 0, lane, depth)),
                     new(new(destinationX, 0, isDefender ? 0f : lane, depth), WaypointOrder.WeaponsFree),
                 ]
                 : unit.Waypoints;

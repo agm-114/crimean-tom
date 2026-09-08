@@ -66,6 +66,8 @@ internal static partial class ScenarioDebugGenerator
         AppendOpposedObjectives(mission, "Taskforce1ForcePassage", "Taskforce2DenyPassage");
         AppendRetreatAnchors(mission, match);
         AppendActivity(mission, match, parameters, options, "Taskforce1");
+        ScenarioOpeningOrders.WriteTo(mission, passageForce, blockingForce, parameters.Seed, true, false);
+        ScenarioOpeningOrders.WriteTo(mission, blockingForce, passageForce, parameters.Seed ^ 0x1020, false, false);
         ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }

@@ -7,6 +7,16 @@ internal static class ScenarioUnitCatalog
     private static IReadOnlyList<ScenarioSubmarineOption>? _submarines;
     private static readonly Dictionary<string, float[]> Speeds = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, bool> PursuitCraft = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, float> Displacements = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static float DisplacementTons(string unitType)
+    {
+        if (Displacements.TryGetValue(unitType, out float displacement)) return displacement;
+        string path = Path.Combine(Application.streamingAssetsPath, "original", "vessels", unitType + ".ini");
+        return Displacements[unitType] = File.Exists(path) && float.TryParse(ReadIniValue(path, "Physics", "Displacement"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out displacement) && displacement > 0
+                ? displacement : 4000;
+    }
 
     internal static bool IsPursuitCraft(string unitType)
     {

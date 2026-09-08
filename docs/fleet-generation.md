@@ -335,7 +335,11 @@ The force is no longer emitted as one fleet-wide box. It is partitioned into:
 - carrier task groups with the carrier as leader and up to three complementary escorts;
 - two-to-four-ship surface action groups;
 - escort divisions when the remaining hulls are ASW or escort specialists;
-- one-or-two-boat submarine patrols operating well away from the surface screen.
+- individual submarine patrols operating away from the surface screen.
+
+Where the roster permits it, one or two lighter ships form a forward screen instead of joining the main surface group. Carrier groups retain close escorts. Placement uses installed displacement rather than point cost: light groups start forward, groups with a 6,000-ton or larger combatant start deeper, and carriers stay farthest back. Both sides use this layout. Close escorts also start ahead of their leader. Route attackers favor earlier interception stations for light groups and later stations for heavier groups, subject to safe water and reachability.
+
+Search circles can describe several separate groups. Up to three coarse group reports are mixed with empty alternatives. They are intelligence estimates, not spawn boundaries; unreported units can start outside them.
 
 Player-controlled and friendly-AI ships are partitioned separately, so handing a group to the allied taskforce does not break a mixed formation. Every group leader receives its own offset route. Surface action groups close the enemy from different bearings and submarines patrol ahead on wider flanks. Carrier task groups instead begin on the reciprocal heading and withdraw from the surface threat, buying time for their air group to work.
 
@@ -343,7 +347,7 @@ Each carrier anchors a separate carrier task group. The escort selector cannot a
 
 Each carrier can start with up to four fighters airborne as two native two-aircraft CAP formations. Aircraft type, squadron, available count, and loadout come from that carrier's installed `AirGroup` and aircraft data. A carrier without compatible fixed-wing or VTOL fighters does not receive an invalid generated CAP.
 
-If the embarked wing includes an AEW aircraft, one starts airborne on a radar-active orbit toward the threat. It remains separate from the fighter formations but sits inside their patrol area, so the CAP covers it while it extends the group's radar horizon. The generator does not substitute a generic AWACS for carriers whose installed air group lacks one.
+If the embarked wing includes an AEW aircraft, one starts airborne on a radar-active orbit behind its carrier. CAP stays close enough to cover the fleet and its radar aircraft. The generator does not substitute a generic AWACS for carriers whose installed air group lacks one.
 
 CAP and AEW leaders repeat their patrol routes with the native `Loop` token. Fighters in the same pair follow their leader. Fuel and recovery remain under normal game behavior.
 
@@ -353,19 +357,24 @@ Up to two ASW helicopters deploy from each surface group's available embarked st
 
 Initial separation depends on the forces rather than size alone. A fleet clash without carriers keeps the compact size-based ranges, with extra room for submarines and missile-heavy fleets. One carrier expands the engagement to 85-110 nautical miles in confined waters or 115-145 nautical miles at sea. Two-carrier battles use 110-135 or 145-180 nautical miles respectively.
 
-Carrier air-defense stations scale with that separation. The AEW orbit sits about 28-36% of the engagement width ahead of the carrier. CAP ranges from roughly 22% to 42%, placing the fighters around and beyond the AEW station. The sonobuoy barrier occupies the nearer approach. Carrier withdrawal legs, submarine patrols, and surface-group approach routes also expand with the available sea room.
+CAP patrol legs stay within 18 nm ahead of their group's station. AEW orbits stay behind it. Surface groups use different approach bearings, with every third group trailing as a reserve. Route attackers sample seven positions along the local route and several lateral offsets, with separate group centers and water/path checks. Charts show up to six uncertain search areas, not exact enemy locations.
 
 Every tactical group receives:
 
 - explicit non-overlapping positions;
 - an intercepting route;
-- free weapon release;
-- normal AI radar management;
+- immediate movement along its opening route;
+- defensive weapons release during overlapping opening engagements;
+- working radar and missile defence from the start, except submerged submarines;
 - equal training and morale;
 - withdrawal after primary weapons are expended;
 - a side-specific retreat anchor.
 
 Surface action groups use `AntiSurface` tasking. Carrier groups and independent submarine patrols use the shipped `Patrol` tasking, with routes that keep carriers clear of the surface advance and move submarines into flank patrol areas.
+
+`ScenarioOpeningOrders` stages AI groups whose starting weapon envelopes overlap. Search and offensive commitment have different per-group delays. Route progress or damage can release a group earlier. Ships keep moving throughout. Player-controlled groups are not overridden. Native `Tight` ROE allows defensive interception; `Hold` is not used. Radar stays available because suppressing native alert activation while also starting blind left attackers unable to defend themselves. Search triggers must not downgrade a group that has already committed after taking damage.
+
+Aircraft and coastal radar coverage use conservative planning ranges, not injected contacts. Supporting sensors add an opening caution margin, and airborne search widens route attackers' lateral placement. These approximations do not guarantee an undetected opening or an even exchange under missile saturation.
 
 Standalone fleet clashes end when roughly 75% of an opposing force's surface and submarine combatants are destroyed, capped below total annihilation for fleets with more than one ship. A three-ship side therefore breaks after two losses. Objectives state both the enemy loss target and the friendly loss limit. Campaign clashes instead count 75% of undiscounted ship value, using native per-hull destruction triggers and loss counters; their preservation text also uses points. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken. Campaign enemies are fixed in the turn's offer before player deployment; the close-match logic below applies to standalone skirmishes.
 
@@ -380,6 +389,8 @@ Standalone fleet clashes end when roughly 75% of an opposing force's surface and
 The player can escort the group or attack it. Both perspectives use the same generated route, forces, weather, and victory thresholds. The protected ships move under AI control when the player escorts them. The player controls only the assigned warships, subject to the existing control-percentage setting.
 
 Small, medium, and large missions contain progressively longer routes and larger protected groups. About two thirds of the protected ships must reach the destination. The escort wins when that threshold enters the marked destination area. The attacker wins once losses make the threshold impossible. Neither outcome uses a timer.
+
+Protected ships start in a staggered native `Vic` formation around the route, rather than a single line astern. The slowest ship leads. Open-water spacing starts at 0.8 nm and coastal spacing at 0.4 nm, with seeded position variation and narrower fallbacks if the starting formation would touch land or shallow water. The leader retains the full port-bound route.
 
 Surface escort leaders start ahead of the convoy and use native loose-follow orders around its lead ship. Their formation followers keep their stations, while submarines retain independent search routes. If the protected leader sinks, the screen may need new follow orders; native succession still needs a live check. Raider groups approach an interception point from a flank. Passage routes finish at the exit center rather than leaving separate groups parked outside the scoring area. Route generation prefers carrier-free forces. Minesweeper groups prefer classes and national variants already present in the escort coalition. All six combinations reroll their theater and order of battle whenever the player launches the scenario.
 

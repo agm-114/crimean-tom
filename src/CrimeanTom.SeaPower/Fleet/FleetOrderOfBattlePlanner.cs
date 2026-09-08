@@ -30,7 +30,7 @@ internal static class FleetOrderOfBattlePlanner
         for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
         {
             FleetGroupPlan group = groups[groupIndex];
-            (float longitudinal, float lateral) = GetGroupOffset(groupIndex, group.Kind);
+            (float longitudinal, float lateral) = GetGroupOffset(groupIndex, group, engagementSeparationNm);
             float groupX = baseX - (direction * longitudinal);
             float groupZ = baseZ + lateral;
             for (int memberIndex = 0; memberIndex < group.Members.Count; memberIndex++)
@@ -179,7 +179,7 @@ internal static class FleetOrderOfBattlePlanner
                 $"{taskforce}{unitKind}{number}",
                 station.Host.Reference,
                 plan,
-                station.X + (direction * 16f),
+                station.X - (direction * 8f),
                 station.Z,
                 altitude,
                 BuildAewOrbitRoute(
@@ -240,6 +240,23 @@ internal static class FleetOrderOfBattlePlanner
         List<IndexedShip> surfaceShips = ships.Where(ship => !ship.Ship.IsSubmarine).ToList();
         int sequence = 1;
 
+        // Leave a close escort with the main body. Small craft can scout as a separate detachment
+        // instead of inheriting a cruiser's station and engaging at exactly the same time.
+        if (surfaceShips.Count >= 3)
+        {
+            float largest = surfaceShips.Max(ship => ScenarioUnitCatalog.DisplacementTons(ship.Ship.UnitType));
+            int reserve = Math.Max(1, surfaceShips.Count(ship => ship.Ship.IsCarrier) * 3);
+            var screen = surfaceShips.Where(ship => !ship.Ship.IsCarrier &&
+                    ScenarioUnitCatalog.DisplacementTons(ship.Ship.UnitType) <= Math.Max(2500, largest * 0.45f))
+                .OrderBy(ship => ScenarioUnitCatalog.DisplacementTons(ship.Ship.UnitType))
+                .Take(Math.Clamp(surfaceShips.Count - reserve, 0, 2)).ToArray();
+            if (screen.Length > 0)
+            {
+                screen.ForEach(ship => surfaceShips.Remove(ship));
+                output.Add(new(screen, $"{ownership} Forward Screen {sequence++}", FleetGroupKind.Escort));
+            }
+        }
+
         while (surfaceShips.Any(ship => ship.Ship.IsCarrier))
         {
             IndexedShip carrier = surfaceShips.First(ship => ship.Ship.IsCarrier);
@@ -285,7 +302,7 @@ internal static class FleetOrderOfBattlePlanner
 
         while (submarines.Count > 0)
         {
-            int take = Math.Min(2, submarines.Count);
+            int take = 1;
             List<IndexedShip> members = submarines
                 .OrderByDescending(ship => ship.Ship.SurfaceCapability + ship.Ship.AswCapability)
                 .Take(take)
@@ -386,22 +403,28 @@ internal static class FleetOrderOfBattlePlanner
 
     private static (float Longitudinal, float Lateral) GetGroupOffset(
         int index,
-        FleetGroupKind kind)
+        FleetGroupPlan group,
+        float separation)
     {
-        float[] lateral = [0f, 9f, -9f, 16f, -16f, 24f, -24f];
+        float[] lateral = [0f, 16f, -16f, 28f, -28f, 40f, -40f];
         float offset = lateral[index % lateral.Length];
-        float trail = (index / lateral.Length) * 8f;
-        if (kind == FleetGroupKind.Carrier)
+        float trail = GroupDepth(group.Members.Select(member => member.Ship), separation) + (index / lateral.Length) * 12f;
+        if (group.Kind == FleetGroupKind.SubmarinePatrol)
         {
-            trail += 5f;
-        }
-        else if (kind == FleetGroupKind.SubmarinePatrol)
-        {
-            trail -= 10f;
             offset *= 1.35f;
         }
 
         return (trail, offset);
+    }
+
+    internal static float GroupDepth(IEnumerable<FleetClashShip> ships, float separation)
+    {
+        var members = ships.ToArray();
+        if (members.Any(ship => ship.IsCarrier)) return Math.Clamp(separation * 0.15f, 12, 24);
+        if (members.All(ship => ship.IsSubmarine)) return -Math.Min(8, separation * 0.1f);
+        float largest = members.Max(ship => ScenarioUnitCatalog.DisplacementTons(ship.UnitType));
+        return largest >= 6000 ? Math.Clamp(separation * 0.12f, 8, 18) :
+            largest <= 2500 ? -Math.Min(8, separation * 0.1f) : 0;
     }
 
     private static (float Longitudinal, float Lateral) GetMemberOffset(
@@ -421,8 +444,8 @@ internal static class FleetOrderOfBattlePlanner
         };
         return index switch
         {
-            1 => (spacing, -spacing),
-            2 => (spacing, spacing),
+            1 => (-spacing, -spacing),
+            2 => (-spacing, spacing),
             _ => (spacing * 2f, 0f),
         };
     }
@@ -454,10 +477,14 @@ internal static class FleetOrderOfBattlePlanner
         float lateralDrift = ((groupIndex % 2 == 0) ? 1f : -1f) *
             (kind == FleetGroupKind.SubmarinePatrol ? 8f : 4f);
         string? depth = kind == FleetGroupKind.SubmarinePatrol ? "shallow" : null;
+        int assignment = groupIndex % 3;
+        float searchX = groupX + direction * (assignment == 2 ? firstLeg * 0.2f : firstLeg * 0.65f);
+        float searchZ = groupZ + lateralDrift * (assignment == 1 ? 3 : 1);
         return
         [
-            new(new(groupX + (direction * firstLeg), 0, groupZ + lateralDrift, depth)),
-            new(new(-baseX, 0, groupZ + (lateralDrift * 0.5f), depth), WaypointOrder.WeaponsFree),
+            new(new(searchX, 0, searchZ, depth)),
+            new(new(searchX + direction * firstLeg * 0.4f, 0, searchZ + lateralDrift, depth)),
+            new(new(-baseX * 0.55f, 0, searchZ, depth), WaypointOrder.WeaponsFree),
         ];
     }
 
@@ -470,9 +497,9 @@ internal static class FleetOrderOfBattlePlanner
         float engagementSeparationNm)
     {
         float lane = patrolIndex == 0 ? 1f : -1f;
-        float innerStation = Math.Clamp(engagementSeparationNm * 0.22f, 18f, 36f);
-        float outerStation = Math.Clamp(engagementSeparationNm * 0.42f, 35f, 68f);
-        float returnStation = Math.Clamp(engagementSeparationNm * 0.13f, 8f, 22f);
+        float innerStation = Math.Clamp(engagementSeparationNm * 0.07f, 5f, 10f);
+        float outerStation = Math.Clamp(engagementSeparationNm * 0.12f, 9f, 18f);
+        float returnStation = -6;
         return
         [
             new(new(groupX + (direction * innerStation), altitude, groupZ + (lane * 12f))),
@@ -514,8 +541,8 @@ internal static class FleetOrderOfBattlePlanner
         float altitude,
         float engagementSeparationNm)
     {
-        float innerStation = Math.Clamp(engagementSeparationNm * 0.28f, 16f, 48f);
-        float outerStation = Math.Clamp(engagementSeparationNm * 0.36f, 24f, 62f);
+        float innerStation = -Math.Clamp(engagementSeparationNm * 0.06f, 6f, 12f);
+        float outerStation = -Math.Clamp(engagementSeparationNm * 0.12f, 12f, 24f);
         return
         [
             new(new(groupX + (direction * innerStation), altitude, groupZ + 7f)),

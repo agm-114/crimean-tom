@@ -19,13 +19,16 @@ internal static class RouteInterceptionPlanner
         groupSpeed <= convoySpeed - 2 ? RouteAttackMode.Intercept : RouteAttackMode.Flank;
 
     internal static (FleetDeployment Fleet, IReadOnlyList<RouteAttackGroup> Groups) Place(
-        FleetDeployment fleet, RouteEncounter voyage, float convoySpeed, IReadOnlyList<MissionPosition>? protectedPositions = null)
+        FleetDeployment fleet, RouteEncounter voyage, float convoySpeed, IReadOnlyList<MissionPosition>? protectedPositions = null,
+        int seed = 0, bool airborneSearch = false)
     {
+        Random random = new(seed ^ 0x4E6F6465);
         Dictionary<string, DeployedFleetUnit> units = fleet.Units.ToDictionary(unit => unit.Reference);
         Dictionary<int, MissionPosition> aircraftOffsets = [];
         Dictionary<string, IReadOnlyList<string>> formationOrders = [];
         List<RouteAttackGroup> reports = [];
         List<MissionPosition> occupied = [];
+        List<MissionPosition> groupCenters = [];
         protectedPositions ??= [new(0, 0, 0)];
         foreach (FleetFormationPlan formation in fleet.Formations)
         {
@@ -44,6 +47,11 @@ internal static class RouteInterceptionPlanner
             // Leave at least half the local route for combat after a stern chase closes.
             float gap = Math.Max(minimumRange + 2, Math.Min(16, closingSpeed * voyage.LengthNm / Math.Max(1, convoySpeed) * 0.2f));
             DeployedFleetUnit leader = members[0];
+            // Different groups sample different parts of the route, including later reserve stations.
+            float depth = FleetOrderOfBattlePlanner.GroupDepth(members.Select(unit => unit.Ship), voyage.LengthNm);
+            float preferred = depth > 0 ? 0.75f : depth < 0 ? 0.42f : 0.57f;
+            float[] nodes = [.. new[] { 0.36f, 0.42f, 0.49f, 0.57f, 0.66f, 0.75f, 0.83f }
+                .OrderBy(fraction => Math.Abs(fraction - preferred) + random.NextDouble() * 0.14)];
             bool placed = false;
             for (int attempt = 0; attempt < 96; attempt++)
             {
@@ -54,24 +62,25 @@ internal static class RouteInterceptionPlanner
                     minimumRange = 26;
                 }
                 float selectedAlong = mode == RouteAttackMode.Pursuit ? -gap - attempt / 8 * 2 :
-                    voyage.LengthNm * (0.36f + (reports.Count + attempt / 12) % 4 * 0.07f);
+                    voyage.LengthNm * nodes[(attempt / 4) % nodes.Length];
                 MissionPosition anchor = Along(voyage, selectedAlong);
                 MissionPosition next = Along(voyage, selectedAlong + 1);
                 float direction = (float)Math.Atan2(next.X - anchor.X, next.Z - anchor.Z);
-                float lateralBase = submarine || mode == RouteAttackMode.Pursuit ? 2 : 6;
-                float lateral = (attempt % 2 == 0 ? 1 : -1) * (lateralBase + attempt % 12 / 2 * 2);
+                float lateralBase = submarine || mode == RouteAttackMode.Pursuit ? 3 : airborneSearch ? 14 : 9;
+                float lateral = ((attempt + reports.Count) % 2 == 0 ? 1 : -1) * (lateralBase + attempt % 8 / 2 * 4);
                 MissionPosition start = anchor with { X = anchor.X + lateral * (float)Math.Cos(direction),
                     Z = anchor.Z - lateral * (float)Math.Sin(direction) };
+                if (groupCenters.Any(position => Distance(start, position) < (attempt < 72 ? 14 : 9))) continue;
                 MissionWaypoint[] route = BuildRoute(voyage, mode, selectedAlong, submarine);
                 float catchUp = mode == RouteAttackMode.Pursuit ?
                     (Math.Max(0, RouteLength(start, route) - voyage.LengthNm * 0.65f) + (members.Length - 1) * 0.75f) / Math.Max(1, closingSpeed) : 0;
                 if (mode == RouteAttackMode.Pursuit && catchUp > voyage.LengthNm / Math.Max(1, convoySpeed) * 0.55f) continue;
-                float releaseHours = RouteAmbushTrigger.MaximumDelaySeconds / 3600f;
+                float releaseHours = ScenarioOpeningOrders.MaximumDelaySeconds / 3600f;
                 // Every group must reach its attack lane before the convoy passes it. Do not assume
                 // a theoretical missile shot can rescue an unreachable interception.
-                if (mode != RouteAttackMode.Pursuit && releaseHours + Distance(start, route[0].Position) / Math.Max(1, speed)
+                if (mode != RouteAttackMode.Pursuit && Math.Max(releaseHours, Distance(start, route[0].Position) / Math.Max(1, speed))
                     > selectedAlong / Math.Max(1, convoySpeed) * 0.9f) continue;
-                if (mode == RouteAttackMode.Pursuit && catchUp + releaseHours > voyage.LengthNm / Math.Max(1, convoySpeed) * 0.55f) continue;
+                if (mode == RouteAttackMode.Pursuit && Math.Max(catchUp, releaseHours) > voyage.LengthNm / Math.Max(1, convoySpeed) * 0.55f) continue;
                 float heading = (float)(Math.Atan2(route[0].Position.X - start.X, route[0].Position.Z - start.Z) * 180 / Math.PI);
                 float formationDirection = heading * (float)Math.PI / 180;
                 DeployedFleetUnit[] shifted = members.Select((unit, index) => unit with
@@ -100,6 +109,7 @@ internal static class RouteInterceptionPlanner
                     occupied.Add(new(unit.X, 0, unit.Z));
                 }
                 reports.Add(new(formation.Name, mode, speed, convoySpeed, Distance(start, new(0, 0, 0)), catchUp));
+                groupCenters.Add(start);
                 placed = true;
                 break;
             }
@@ -126,6 +136,7 @@ internal static class RouteInterceptionPlanner
         if (submarine) return [new(voyage.At(along) with { Depth = "shallow" }, WaypointOrder.WeaponsFree),
             new(voyage.At(along + 4) with { Depth = "shallow" })];
         float join = mode == RouteAttackMode.Pursuit ? 0 : mode == RouteAttackMode.Intercept ? along : Math.Max(0, along - 4);
+        float destination = Math.Min(voyage.LengthNm, Math.Max(voyage.LengthNm * 0.65f, join + 8));
         List<MissionWaypoint> route = [];
         // Follow the actual route bends, rather than cutting directly across a headland to the exit.
         double traveled = 0;
@@ -133,11 +144,11 @@ internal static class RouteInterceptionPlanner
         {
             traveled += voyage.Route.Points[index - 1].DistanceTo(voyage.Route.Points[index]);
             if (traveled > voyage.StartDistance + (mode == RouteAttackMode.Pursuit ? along : join) &&
-                traveled < voyage.StartDistance + voyage.LengthNm * 0.65f)
+                traveled < voyage.StartDistance + destination)
                 route.Add(new(voyage.Route.Points[index].RelativeTo(voyage.Center)));
         }
         if (mode != RouteAttackMode.Pursuit) route.Insert(0, new(voyage.At(join)));
-        route.Add(new(voyage.At(voyage.LengthNm * 0.65f)));
+        route.Add(new(voyage.At(destination)));
         route[0] = route[0] with { Order = WaypointOrder.WeaponsFree };
         return route.ToArray();
     }

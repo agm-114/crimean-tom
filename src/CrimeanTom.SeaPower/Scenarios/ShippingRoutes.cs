@@ -157,32 +157,30 @@ internal record RouteEncounter(ShippingRoute Route, RouteEncounterKind Kind, Cha
     internal void WriteChart(MissionWriter mission, FleetDeployment raiders)
     {
         const float radius = 12;
-        double longitudeScale = Math.Cos(Center.Latitude * Math.PI / 180);
-        List<MissionPosition> sectors = [];
-        // Quantize the real report, then choose separated alternatives. Never plot the exact unit location.
-        if (raiders.Units.Count > 0)
-            sectors.Add(new((float)Math.Round(raiders.Units[0].X / 16) * 16, 0,
-                (float)Math.Round(raiders.Units[0].Z / 16) * 16));
-        foreach (float fraction in new[] { 0.3f, 0.65f, 0.9f, 0.1f })
+        List<MissionPosition> sectors = ScenarioChart.GroupReports(raiders, Center);
+        foreach (float fraction in new[] { 0.3f, 0.5f, 0.65f, 0.8f, 0.95f, 0.1f })
         foreach (float offset in new[] { -24f, 24f, -44f, 44f, -64f, 64f })
         {
-            if (sectors.Count == 3) break;
+            if (sectors.Count == 6) break;
             MissionPosition along = At(LengthNm * fraction);
             MissionPosition lateral = Orient(new(0, 0, offset));
             MissionPosition candidate = new(along.X + lateral.X, 0, along.Z + lateral.Z);
-            if (sectors.All(sector => Math.Pow((sector.X - candidate.X) * longitudeScale, 2) + Math.Pow(sector.Z - candidate.Z, 2) >= 32 * 32))
+            if (sectors.All(sector => Math.Pow(sector.X - candidate.X, 2) + Math.Pow(sector.Z - candidate.Z, 2) >= 32 * 32) &&
+                ScenarioTerrain.HeightMeters(Center.Offset(candidate)) <= -20)
                 sectors.Add(candidate);
         }
-        int rotation = (int)Math.Abs(StartDistance) % 3;
+        int rotation = (int)Math.Abs(StartDistance) % Math.Max(1, sectors.Count);
         sectors = sectors.Skip(rotation).Concat(sectors.Take(rotation)).ToList();
         mission.Section("MapSymbols");
-        mission.Write("NumberOfSymbols", 8);
-        for (int index = 1; index <= 8; index++) mission.Write($"Symbol{index}", $"RouteChart{index}");
+        string[] symbols = Enumerable.Range(1, 8).Where(index => index > 3 || index <= sectors.Count)
+            .Concat(Enumerable.Range(9, Math.Max(0, sectors.Count - 3))).Select(index => $"RouteChart{index}").ToArray();
+        mission.Write("NumberOfSymbols", symbols.Length);
+        symbols.ForEach((symbol, index) => mission.Write($"Symbol{index + 1}", symbol));
         mission.Set("Language_en", "RouteChart7Label_en", $"ORIGIN: {Route.Origin}");
         mission.Set("Language_en", "RouteChart8Label_en", $"DESTINATION: {Route.Destination}");
         for (int index = 1; index <= 8; index++)
         {
-            if (index == 6) continue;
+            if (index == 6 || index <= 3 && index > sectors.Count) continue;
             mission.Section($"RouteChart{index}");
             mission.Write("Kind", index >= 4 ? "Label" : "Circle");
             mission.Write("LabelKey", $"RouteChart{index}Label");
@@ -218,6 +216,24 @@ internal record RouteEncounter(ShippingRoute Route, RouteEncounterKind Kind, Cha
         mission.Write("Bearing", Math.Atan2(finalLeg.X, finalLeg.Z) * 180 / Math.PI);
         mission.Write("NumberOfGeoPoints", Route.Points.Count);
         Route.Points.ForEach((point, index) => mission.Write($"GeoPoint{index + 1}", point.ToMissionValue()));
+        for (int index = 3; index < sectors.Count; index++)
+        {
+            string symbol = $"RouteChart{index + 6}";
+            mission.Set("Language_en", symbol + "Label_en", $"Search {(char)('A' + index)}");
+            mission.Section(symbol);
+            mission.Write("Kind", "Circle");
+            mission.Write("LabelKey", symbol + "Label");
+            mission.Write("GeoPoint", Center.Offset(sectors[index]).ToMissionValue());
+            mission.Write("RadiusNm", radius);
+            mission.Write("Color", "Red");
+            mission.Write("BorderColor", "Red");
+            mission.Write("BorderWidth", 1.5);
+            mission.Write("FillOpacity", 0.04);
+            mission.Write("BorderOpacity", 0.6);
+            mission.Write("FillStyle", "Fill");
+            mission.Write("FontSize", 12);
+            mission.Write("VisibleIn", "CampaignMap,BriefingMap,Mission");
+        }
         ScenarioChart.WriteViewport(mission, Center, sectors, Route.Points, radius);
     }
 }

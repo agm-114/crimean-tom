@@ -11,8 +11,9 @@ internal static class NavalWeaponReach
         var key = (type.ToLowerInvariant(), submarineTarget);
         if (cache.TryGetValue(key, out float reach)) return reach;
         string root = Path.Combine(UnityEngine.Application.streamingAssetsPath, "original");
-        string path = Path.Combine(root, "vessels", type + ".ini");
-        if (!File.Exists(path)) return float.PositiveInfinity;
+        string? path = new[] { "vessels", "submarines", "aircraft", "land_units" }
+            .Select(folder => Path.Combine(root, folder, type + ".ini")).FirstOrDefault(File.Exists);
+        if (path is null) return float.PositiveInfinity;
         var values = ScenarioUnitCatalog.ReadSections(path).SelectMany(section => section.Values).ToArray();
         string[] ammunition = values.Where(pair => Regex.IsMatch(pair.Key, @"^Ammunition\d*$", RegexOptions.IgnoreCase))
             .SelectMany(pair => ResolveAmmunition(pair.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
