@@ -246,7 +246,7 @@ internal static class ShippingRoutes
     ];
     private static ShippingRouteGraph? graph;
     private static readonly Dictionary<string, ShippingRoute[]> regionalRoutes = [];
-    private static ShippingRoute[] RegionalRoutes(string region)
+    internal static ShippingRoute[] RegionalRoutes(string region)
     {
         if (!regionalRoutes.TryGetValue(region, out var routes))
             regionalRoutes[region] = routes = (graph ??= new(Routes)).InRegion(region).ToArray();

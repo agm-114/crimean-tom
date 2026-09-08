@@ -55,8 +55,8 @@ internal class FleetClashGenerationOptions
     internal FleetControlPriority ControlPriority { get; set; } =
         FleetControlPriority.StrongestFirst;
     internal bool Spectator { get; set; }
-    internal bool CivilianAirTraffic { get; set; }
-    internal bool CivilianNavalTraffic { get; set; }
+    internal bool CivilianAirTraffic { get; set; } = true;
+    internal bool CivilianNavalTraffic { get; set; } = true;
     internal RouteOperationPerspective RoutePerspective { get; set; } =
         RouteOperationPerspective.Escort;
     internal RouteOperationVariant RouteVariant { get; set; } =

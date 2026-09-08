@@ -429,8 +429,11 @@ internal static partial class ScenarioDebugGenerator
             string[] weightedClouds = ["Clear", "Clear", "Clear", "Scattered", "Scattered", "Broken"];
             string[] directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
             (float minimum, float maximum) = GetSeparationRange(size, match);
-            int neutralVesselCount = options.CivilianNavalTraffic ? random.Next(3, 7) : 0;
-            int neutralAircraftCount = options.CivilianAirTraffic ? random.Next(1, 4) : 0;
+            int scale = size switch { FleetClashSize.Small => 0, FleetClashSize.Medium => 1, _ => 2 };
+            int neutralVesselCount = options.CivilianNavalTraffic
+                ? new System.Random(seed ^ 0x536561).Next(12 + scale * 6, 19 + scale * 8) : 0;
+            int neutralAircraftCount = options.CivilianAirTraffic
+                ? new System.Random(seed ^ 0x536B79).Next(6 + scale * 2, 10 + scale * 3) : 0;
             return new ScenarioParameters(
                 seed,
                 random.Next(5, 19),

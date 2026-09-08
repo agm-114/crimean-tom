@@ -268,7 +268,7 @@ internal static class ScenarioSetupWindow
     private static CheckBox TrafficToggle(string label) => new()
     {
         Content = label,
-        IsChecked = false,
+        IsChecked = true,
         Margin = new Thickness(0f, 8f, 0f, 0f),
         Foreground = TextBrush,
     };
