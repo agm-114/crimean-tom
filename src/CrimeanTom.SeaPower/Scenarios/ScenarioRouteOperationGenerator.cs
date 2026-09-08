@@ -53,7 +53,8 @@ internal static partial class ScenarioDebugGenerator
             size,
             playerTaskforce,
             options.EnemySizeMultiplier,
-            excludeCarriers: true, preserveComposition: options.EnemyComposition != FleetComposition.Random);
+            excludeCarriers: true, preserveComposition: options.EnemyComposition != FleetComposition.Random,
+            requestedComposition: options.EnemyComposition);
         (match, options.ChaseAllowance) = ApplyRouteChaseAllowance(match, seed, size, options.RouteVariant, options.RouteEncounter,
             generationOptions: options);
         int playerControlledCount = options.Spectator ? 0 : GetPlayerControlledCount(
@@ -103,7 +104,7 @@ internal static partial class ScenarioDebugGenerator
         string? region,
         string? playerTaskforce = null,
         FleetComposition composition = FleetComposition.Random)
-        => FleetClashBalancer.Generate(random, size, region, playerTaskforce, composition, excludeCarriers: true);
+        => FleetClashBalancer.Generate(random, size, region, playerTaskforce, composition, excludeCarriers: true, submarineBiasedAttackers: true);
 
     private static RouteOperationPlan CreateRouteOperationPlan(
         System.Random random,

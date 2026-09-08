@@ -77,7 +77,9 @@ internal static partial class ScenarioDebugGenerator
         {
             string scaledOpponent = persistentAttackers ? "Taskforce2" : "Taskforce1";
             double multiplier = persistentAttackers ? 1 - allowance : 1 / (1 - allowance);
-            FleetClashMatch candidate = ApplyEnemyMultiplier(match, new Random(seed ^ 0x43484153), size, scaledOpponent, multiplier, true);
+            bool scalesSelectedEnemy = scaledOpponent == (options.RoutePerspective == RouteOperationPerspective.Interdict ? "Taskforce2" : "Taskforce1");
+            FleetClashMatch candidate = ApplyEnemyMultiplier(match, new Random(seed ^ 0x43484153), size, scaledOpponent, multiplier, true,
+                requestedComposition: scalesSelectedEnemy ? options.EnemyComposition : null);
             RouteOperationPlan revised = Plan(candidate);
             double actual = persistentAttackers ? 1 - (double)candidate.First.PointCost / match.First.PointCost :
                 1 - (double)match.Second.PointCost / candidate.Second.PointCost;

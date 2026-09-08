@@ -11,7 +11,8 @@ internal static class FleetClashBalancer
         string? region = null,
         string? playerTaskforce = null,
         FleetComposition composition = FleetComposition.Random,
-        bool excludeCarriers = false)
+        bool excludeCarriers = false,
+        bool submarineBiasedAttackers = false)
     {
         var (theater, firstSide, secondSide) = FleetClashTheaterCatalog.Pick(
             random,
@@ -26,7 +27,8 @@ internal static class FleetClashBalancer
             secondSide,
             size,
             CandidateFleetCount,
-            random, playerTaskforce == "Taskforce1" ? composition : null, excludeCarriers).ToArray();
+            random, playerTaskforce == "Taskforce1" ? composition : submarineBiasedAttackers ? FleetComposition.Random : null,
+            excludeCarriers, submarineBiasedAttackers ? ScenarioRandomization.RouteAttackerCompositionWeights : null).ToArray();
         (FleetCandidate First, FleetCandidate Second, double Error)[] matches =
             (from first in firstFleets
              from second in secondFleets

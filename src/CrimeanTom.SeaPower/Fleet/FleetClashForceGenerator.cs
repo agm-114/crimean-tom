@@ -25,7 +25,8 @@ internal static class FleetClashForceGenerator
         int count,
         System.Random random,
         FleetComposition? composition = null,
-        bool excludeCarriers = false)
+        bool excludeCarriers = false,
+        IReadOnlyList<int>? randomCompositionWeights = null)
     {
         IReadOnlyList<FleetUnitArchetype> pool = BuildPool(side).Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
         if (pool.Count == 0 || !pool.Any(candidate => candidate.IsRegional &&
@@ -37,10 +38,10 @@ internal static class FleetClashForceGenerator
         bool randomProfile = composition == FleetComposition.Random;
         if (randomProfile)
         {
-            int profile = ScenarioRandomization.PickIndex(random, ScenarioRandomization.CompositionWeights);
+            int profile = ScenarioRandomization.PickIndex(random, randomCompositionWeights ?? ScenarioRandomization.CompositionWeights);
             composition = !pool.Any(unit => unit.IsSubmarine) ? FleetComposition.SurfaceFocused : (FleetComposition)(profile + 1);
         }
-        if (composition is FleetComposition.Mixed or FleetComposition.SubmarineHeavy && !pool.Any(unit => unit.IsSubmarine))
+        if (composition is FleetComposition.Mixed or FleetComposition.SubmarineHeavy or FleetComposition.EvenMix && !pool.Any(unit => unit.IsSubmarine))
             throw new InvalidOperationException($"{side.DisplayName} has no submarines available for {composition}.");
         List<FleetCandidate> candidates = [];
         for (int attempt = 0; candidates.Count < count && attempt < count * 12; attempt++)
@@ -204,6 +205,7 @@ internal static class FleetClashForceGenerator
         {
             FleetComposition.SurfaceFocused => 0,
             FleetComposition.Mixed => Math.Max(1, roles.Length / 3),
+            FleetComposition.EvenMix => roles.Length / 2 + (roles.Length % 2 == 0 ? 0 : random.Next(2)),
             FleetComposition.SubmarineHeavy => roles.Length,
             _ => GetSubmarineCount(size, submarines.Length > 0, random),
         };
