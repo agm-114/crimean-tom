@@ -7,7 +7,7 @@ internal record CampaignContractOffer(
     int Payment, int CapReward, ScenarioActivityPlan Activity, double ChaseAllowance)
 {
     internal FleetClashForce Enemy(int mission) => mission == 3 ? Match.First : Match.Second;
-    internal int MinimumDeploymentPoints => (int)Math.Ceiling(Math.Max(Activity.Cost("Taskforce1"), Activity.Cost("Taskforce2")) / 0.4);
+    internal int MinimumDeploymentPoints => Activity.MinimumFriendlyFleetPoints;
 
     internal string Description(int mission)
     {
@@ -27,7 +27,7 @@ internal record CampaignContractOffer(
             $"Estimated threat: surface {Band(force.SurfaceCapability)}, air defence {Band(force.AirDefenseCapability)}, ASW {Band(force.AswCapability)}.\n" +
             $"{task}{subject}\n" +
             Activity.Summary + "\n" +
-            (MinimumDeploymentPoints > 0 ? $"Deploy at least {MinimumDeploymentPoints} ship points to keep nearby activity within its 40% limit.\n" : string.Empty) +
+            (MinimumDeploymentPoints > 0 ? $"Minimum deployment: {MinimumDeploymentPoints} ship points for this contract's support allowance.\n" : string.Empty) +
             (ChaseAllowance > 0 ? $"Pursuit allowance: {ChaseAllowance:P0}, already included in these forces.\n" : string.Empty) +
             $"Victory pays {Payment} points, +{CapReward} point cap, and {CampaignContractRules.SalvageAward(true, Payment)} salvage shares. Defeat pays nothing.\n" +
             "Calm seas. No deadline. Enemy force and terms stay fixed until the next turn; choose your deployment accordingly.";

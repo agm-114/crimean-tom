@@ -376,6 +376,14 @@ Surface action groups use `AntiSurface` tasking. Carrier groups and independent 
 
 Aircraft and coastal radar coverage use conservative planning ranges, not injected contacts. Supporting sensors add an opening caution margin, and airborne search widens route attackers' lateral placement. These approximations do not guarantee an undetected opening or an even exchange under missile saturation.
 
+### Nearby land and air support
+
+Naval/coastal support gets 10%, 25%, or 40% of its own side's fleet points, with minimum allowances of 8, 16, or 24 points, capped at that fleet's value. When both are enabled, coastal sites get first use of 70% of the allowance. Radar sites cost 3 generation points, SAM sites 6, and anti-ship batteries 8. These are generation-scale estimates, not native campaign purchase prices.
+
+Air support has a separate 25% allowance, minimum 10 points and capped at fleet value. Airfields default on where an owned military airport or suitable land near an owned port exists. Each side independently has a configurable 35% chance of a fighter, anti-ship strike, or reconnaissance package. Role selection precedes class selection. Aircraft begin 150 to 220 nm behind their actual fleet, including rotated route encounters. Only purchased aircraft populate a generated airfield's custom air group. Preplaced aircraft are not also left aboard as a duplicate wing.
+
+Campaign contracts keep these support forces fixed. Their minimum deployment accounts for the friendly support allowance separately from the enemy's strength. Friendly aircraft can remain aboard through the existing starting option.
+
 Standalone fleet clashes end when roughly 75% of an opposing force's surface and submarine combatants are destroyed, capped below total annihilation for fleets with more than one ship. A three-ship side therefore breaks after two losses. Objectives state both the enemy loss target and the friendly loss limit. Campaign clashes instead count 75% of undiscounted ship value, using native per-hull destruction triggers and loss counters; their preservation text also uses points. Aircraft are not counted, so a returning CAP cannot prevent the battle from ending after its fleet has broken. Campaign enemies are fixed in the turn's offer before player deployment; the close-match logic below applies to standalone skirmishes.
 
 ## Route operations
