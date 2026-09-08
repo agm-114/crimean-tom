@@ -27,6 +27,9 @@ internal static class ScenarioSetupWindow
 
         bool route = ScenarioDebugGenerator.IsRouteOperationLauncherPath(scenarioPath);
         bool spectator = ScenarioDebugGenerator.IsSpectatorLauncherPath(scenarioPath);
+        ChoicePicker<ScenarioSpecialMode> specialMode = new(
+            [("None", ScenarioSpecialMode.None), ("No missiles", ScenarioSpecialMode.NoMissiles)]);
+        specialMode.Control.ToolTip = "Exclude dedicated anti-ship missile platforms and carriers. Defensive SAMs, ASW weapons, guns and torpedoes remain.";
         var regionChances = FleetClashTheaterCatalog.RegionChances(FleetClashForceGenerator.IsViable);
         ChoicePicker<FleetClashSize?> size = new(
             [("Random", null), .. Enum.GetValues(typeof(FleetClashSize)).Cast<FleetClashSize>().Select(value =>
@@ -87,6 +90,14 @@ internal static class ScenarioSetupWindow
             UpdateEncounterChances();
             region.Control.SelectionChanged += (_, _) => UpdateEncounterChances();
         }
+        specialMode.Control.SelectionChanged += (_, _) =>
+        {
+            regionChances = FleetClashTheaterCatalog.RegionChances(side =>
+                FleetClashForceGenerator.BuildPool(side, specialMode.Value)
+                    .Any(unit => unit.IsRegional && !unit.IsSubmarine && (!route || !unit.IsCarrier)));
+            region.UpdateLabels(value => value is null ? "Random" : ChoiceLabel.Chance(value, regionChances[value]));
+            if (route) UpdateEncounterChances();
+        };
         CheckBox civilianNavalTraffic = TrafficToggle(route ? "Background civilian naval traffic" : "Civilian naval traffic");
         CheckBox civilianAirTraffic = TrafficToggle(route ? "Background civilian air traffic" : "Civilian air traffic");
         CheckBox chaosMode = TrafficToggle("Chaos mode: random nation alignments");
@@ -119,6 +130,7 @@ internal static class ScenarioSetupWindow
         AddField(content, "Force size", size.Control);
         AddField(content, "Region", region.Control);
         content.Children.Add(chaosMode);
+        AddField(content, "Special mode", specialMode.Control);
         AddField(content, "Seed (blank = random)", seed);
         AddField(content, "Sea state", seaState.Control);
         AddField(content, spectator ? "Red force strength" : "Difficulty", enemyMultiplier.Control);
@@ -182,6 +194,7 @@ internal static class ScenarioSetupWindow
                 Size = size.Value,
                 Region = region.Value,
                 ChaosMode = chaosMode.IsChecked == true,
+                SpecialMode = specialMode.Value,
                 SeaState = seaState.Value,
                 PlayerTaskforce = route ? null : commandSide.Value,
                 EnemySizeMultiplier = enemyMultiplier.Value,

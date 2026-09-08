@@ -61,7 +61,7 @@ internal record ScenarioAirSupportPlan(IReadOnlyList<SupportingAirfield> Airfiel
             }
             if (random.Next(100) >= Math.Clamp(selection.AircraftChance, 0, 100)) continue;
             var pool = SupportingAircraftCatalog.All.Where(option => nations.Contains(option.Nation, StringComparer.OrdinalIgnoreCase) &&
-                option.Points <= remaining).ToArray();
+                option.Points <= remaining && match.SpecialMode.Allows(option.Plan.AircraftType, option.Plan.LoadoutVariant)).ToArray();
             if (pool.Length == 0)
             {
                 notices.Add($"{label} independent aircraft: no affordable aircraft for the available nations.");

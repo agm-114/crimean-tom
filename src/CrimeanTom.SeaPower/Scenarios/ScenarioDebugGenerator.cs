@@ -146,7 +146,7 @@ internal static partial class ScenarioDebugGenerator
             : options.PlayerTaskforce ??
                 (random.Next(2) == 0 ? "Taskforce1" : "Taskforce2");
         FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region, playerTaskforce,
-            options.EnemyComposition, chaosMode: options.ChaosMode);
+            options.EnemyComposition, chaosMode: options.ChaosMode, specialMode: options.SpecialMode);
         match = ApplyEnemyMultiplier(match, random, size, playerTaskforce, options.EnemySizeMultiplier,
             preserveComposition: options.EnemyComposition != FleetComposition.Random, requestedComposition: options.EnemyComposition);
         int playerControlledCount = options.Spectator
@@ -256,7 +256,7 @@ internal static partial class ScenarioDebugGenerator
             ? requested : GetComposition(originalEnemy);
         FleetSidePlan enemyNations = new(playerIsFirst ? match.SecondName : match.FirstName,
             originalEnemy.Ships.Select(ship => ship.Nation).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), []);
-        FleetUnitArchetype[] alternatives = FleetClashForceGenerator.BuildPool(enemyNations)
+        FleetUnitArchetype[] alternatives = FleetClashForceGenerator.BuildPool(enemyNations, match.SpecialMode)
             .Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
         pool.AddRange(FleetClashForceGenerator.Finalize(new(alternatives,
             alternatives.Select(unit => unit.IsSubmarine ? FleetRole.AntiSubmarine : FleetRole.Escort).ToArray()), random).Ships);

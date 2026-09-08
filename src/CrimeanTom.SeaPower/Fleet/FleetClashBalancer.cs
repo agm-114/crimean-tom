@@ -13,25 +13,30 @@ internal static class FleetClashBalancer
         FleetComposition composition = FleetComposition.Random,
         bool excludeCarriers = false,
         bool submarineBiasedAttackers = false,
-        bool chaosMode = false)
+        bool chaosMode = false,
+        ScenarioSpecialMode specialMode = ScenarioSpecialMode.None)
     {
+        bool Viable(FleetSidePlan side) => specialMode == ScenarioSpecialMode.None
+            ? FleetClashForceGenerator.IsViable(side)
+            : FleetClashForceGenerator.BuildPool(side, specialMode)
+                .Any(unit => unit.IsRegional && !unit.IsSubmarine && (!excludeCarriers || !unit.IsCarrier));
         var (theater, firstSide, secondSide) = FleetClashTheaterCatalog.Pick(
             random,
-            FleetClashForceGenerator.IsViable,
+            Viable,
             region);
         if (chaosMode)
-            (firstSide, secondSide) = FactionCatalog.CreateChaosSides(theater, random, FleetClashForceGenerator.IsViable);
+            (firstSide, secondSide) = FactionCatalog.CreateChaosSides(theater, random, Viable);
         FleetCandidate[] firstFleets = FleetClashForceGenerator.GenerateCandidates(
             firstSide,
             size,
             CandidateFleetCount,
-            random, playerTaskforce == "Taskforce2" ? composition : null, excludeCarriers).ToArray();
+            random, playerTaskforce == "Taskforce2" ? composition : null, excludeCarriers, specialMode: specialMode).ToArray();
         FleetCandidate[] secondFleets = FleetClashForceGenerator.GenerateCandidates(
             secondSide,
             size,
             CandidateFleetCount,
             random, playerTaskforce == "Taskforce1" ? composition : submarineBiasedAttackers ? FleetComposition.Random : null,
-            excludeCarriers, submarineBiasedAttackers ? ScenarioRandomization.RouteAttackerCompositionWeights : null).ToArray();
+            excludeCarriers, submarineBiasedAttackers ? ScenarioRandomization.RouteAttackerCompositionWeights : null, specialMode).ToArray();
         (FleetCandidate First, FleetCandidate Second, double Error)[] matches =
             (from first in firstFleets
              from second in secondFleets
@@ -53,7 +58,8 @@ internal static class FleetClashBalancer
             FleetClashForceGenerator.Finalize(match.Second, random),
             match.Error,
             chaosMode ? firstSide : null,
-            chaosMode ? secondSide : null);
+            chaosMode ? secondSide : null,
+            specialMode);
     }
 
     internal static int GetShipCount(FleetClashSize size) => size switch

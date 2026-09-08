@@ -43,6 +43,7 @@ internal class FleetClashGenerationOptions
     internal FleetClashSize? Size { get; set; }
     internal string? Region { get; set; }
     internal bool ChaosMode { get; set; }
+    internal ScenarioSpecialMode SpecialMode { get; set; }
     internal int? SeaState { get; set; }
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;
@@ -94,7 +95,8 @@ internal record FleetClashMatch(
     FleetClashForce Second,
     double BalanceError,
     FleetSidePlan? ChaosFirstSide = null,
-    FleetSidePlan? ChaosSecondSide = null);
+    FleetSidePlan? ChaosSecondSide = null,
+    ScenarioSpecialMode SpecialMode = ScenarioSpecialMode.None);
 
 internal class FleetClashForce(
     IReadOnlyList<FleetClashShip> ships,
