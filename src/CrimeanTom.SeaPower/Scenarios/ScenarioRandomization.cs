@@ -4,7 +4,8 @@ internal static class ScenarioRandomization
 {
     internal const double PresenceChance = 0.33;
     internal static readonly int[] SeaStateWeights = [64, 20, 8, 3, 1, 1];
-    internal static readonly int[] CompositionWeights = [45, 40, 15];
+    internal static readonly int[] CompositionWeights = [45, 25, 15, 15];
+    internal static readonly int[] RouteAttackerCompositionWeights = [5, 20, 50, 25];
     internal static readonly int[] NearbySizeWeights = [60, 30, 10];
 
     internal static int PickIndex(Random random, IReadOnlyList<int> weights)

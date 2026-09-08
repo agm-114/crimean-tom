@@ -147,7 +147,7 @@ internal static partial class ScenarioDebugGenerator
                 (random.Next(2) == 0 ? "Taskforce1" : "Taskforce2");
         FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region, playerTaskforce, options.EnemyComposition);
         match = ApplyEnemyMultiplier(match, random, size, playerTaskforce, options.EnemySizeMultiplier,
-            preserveComposition: options.EnemyComposition != FleetComposition.Random);
+            preserveComposition: options.EnemyComposition != FleetComposition.Random, requestedComposition: options.EnemyComposition);
         int playerControlledCount = options.Spectator
             ? 0
             : GetPlayerControlledCount(match, playerTaskforce, options.PlayerControlPercentage);
@@ -234,7 +234,8 @@ internal static partial class ScenarioDebugGenerator
         string playerTaskforce,
         double multiplier,
         bool excludeCarriers = false,
-        bool preserveComposition = true)
+        bool preserveComposition = true,
+        FleetComposition? requestedComposition = null)
     {
         multiplier = Math.Clamp(multiplier, 0.5d, 2d);
         if (Math.Abs(multiplier - 1d) < 0.001d)
@@ -250,7 +251,8 @@ internal static partial class ScenarioDebugGenerator
                 originalEnemy.Ships.Count * multiplier,
                 MidpointRounding.AwayFromZero));
         List<FleetClashShip> pool = [.. originalEnemy.Ships];
-        FleetComposition composition = GetComposition(originalEnemy);
+        FleetComposition composition = requestedComposition is { } requested && requested != FleetComposition.Random
+            ? requested : GetComposition(originalEnemy);
         FleetSidePlan enemyNations = new(playerIsFirst ? match.SecondName : match.FirstName,
             originalEnemy.Ships.Select(ship => ship.Nation).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), []);
         FleetUnitArchetype[] alternatives = FleetClashForceGenerator.BuildPool(enemyNations)
@@ -269,17 +271,19 @@ internal static partial class ScenarioDebugGenerator
             FleetComposition profile = !preserveComposition && attempt >= 288 && surfacePool.Length > 0 &&
                 (best is null || Math.Abs(best.PointCost - targetCost) > roundingAllowance)
                 ? FleetComposition.SurfaceFocused : composition;
-            int count = random.Next(Math.Max(profile == FleetComposition.Mixed ? 2 : 1, targetCount / 2),
+            int count = random.Next(Math.Max(profile is FleetComposition.Mixed or FleetComposition.EvenMix ? 2 : 1, targetCount / 2),
                 Math.Max(3, targetCount * 2 + 1));
+            int evenSubmarines = profile == FleetComposition.EvenMix ? count / 2 + (count % 2 == 0 ? 0 : random.Next(2)) : 0;
             FleetClashShip[] ships = Enumerable.Range(0, count).Select(index =>
             {
-                bool submarine = profile == FleetComposition.Mixed ? index == 0 :
+                bool submarine = profile == FleetComposition.EvenMix ? index < evenSubmarines :
+                    profile == FleetComposition.Mixed ? index == 0 :
                     profile == FleetComposition.SubmarineHeavy && (surfacePool.Length == 0 || index == 0 || random.NextDouble() < 0.7);
                 FleetClashShip[] source = submarine ? submarinePool : surfacePool;
                 return source[random.Next(source.Length)];
             }).ToArray();
             FleetClashForce candidate = CreateForce(ships);
-            if (GetComposition(candidate) != profile) continue;
+            if (profile != FleetComposition.EvenMix && GetComposition(candidate) != profile) continue;
             if (multiplier < 1 && candidate.PointCost >= originalEnemy.PointCost ||
                 multiplier > 1 && candidate.PointCost <= originalEnemy.PointCost) continue;
             double score = ScoreScaledForce(candidate, originalEnemy, multiplier);

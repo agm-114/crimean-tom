@@ -22,7 +22,7 @@ internal enum FleetControlPriority
     WeakestFirst,
 }
 
-internal enum FleetComposition { Random, SurfaceFocused, Mixed, SubmarineHeavy }
+internal enum FleetComposition { Random, SurfaceFocused, Mixed, SubmarineHeavy, EvenMix }
 
 internal enum RouteOperationPerspective
 {

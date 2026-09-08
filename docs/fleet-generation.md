@@ -388,6 +388,10 @@ Standalone fleet clashes end when roughly 75% of an opposing force's surface and
 
 The player can escort the group or attack it. Both perspectives use the same generated route, forces, weather, and victory thresholds. The protected ships move under AI control when the player escorts them. The player controls only the assigned warships, subject to the existing control-percentage setting.
 
+Random route attackers roll 5% surface-focused, 20% surface with submarine support, 25% even mix, and 50% submarine-heavy. The bias follows the attacking side even when the player commands it. Explicit enemy-composition choices still take priority. Fleets without suitable submarines fall back to surface forces, so these are profile-roll chances rather than guaranteed final roster frequencies. Fleet clashes roll 45%, 25%, 15%, and 15% respectively.
+
+Even mix means equal surface and submarine hull counts, within one ship when the total is odd. It does not mean equal point value. Explicit even-mix selection remains in force when applying difficulty and pursuit budget adjustments.
+
 Small, medium, and large missions contain progressively longer routes and larger protected groups. About two thirds of the protected ships must reach the destination. The escort wins when that threshold enters the marked destination area. The attacker wins once losses make the threshold impossible. Neither outcome uses a timer.
 
 Protected ships start in a staggered native `Vic` formation around the route, rather than a single line astern. The slowest ship leads. Open-water spacing starts at 0.8 nm and coastal spacing at 0.4 nm, with seeded position variation and narrower fallbacks if the starting formation would touch land or shallow water. The leader retains the full port-bound route.

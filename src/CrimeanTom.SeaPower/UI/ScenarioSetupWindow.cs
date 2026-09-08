@@ -42,7 +42,7 @@ internal static class ScenarioSetupWindow
         ChoicePicker<double> enemyMultiplier = new(
             ScenarioDifficulty.Presets.Select(preset => (preset.Label, preset.Multiplier)).ToArray(), 2, 1d);
         ChoicePicker<FleetComposition> composition = new(
-            [("Random", FleetComposition.Random), .. new[] { "Surface-focused", "Mixed surface and submarines", "Submarine-heavy" }
+            [("Random", FleetComposition.Random), .. new[] { "Surface-focused", "Surface with submarine support", "Submarine-heavy", "Even mix: surface and submarines" }
                 .Select((label, index) => (ChoiceLabel.Chance(label,
                     ScenarioRandomization.Chance(ScenarioRandomization.CompositionWeights, index)), (FleetComposition)(index + 1)))]);
         composition.Control.ToolTip = "Random roll chances. Unavailable or infeasible submarine profiles fall back to surface-focused forces.";
@@ -55,6 +55,17 @@ internal static class ScenarioSetupWindow
              ("Minesweeping group", RouteOperationVariant.MinesweepingGroup)]);
         ChoicePicker<RouteOperationPerspective> perspective = new(
             [("Escort", RouteOperationPerspective.Escort), ("Interdict", RouteOperationPerspective.Interdict)]);
+        void UpdateCompositionChances() => composition.UpdateLabels(value => value == FleetComposition.Random ? "Random" :
+            ChoiceLabel.Chance(value switch
+            {
+                FleetComposition.SurfaceFocused => "Surface-focused",
+                FleetComposition.Mixed => "Surface with submarine support",
+                FleetComposition.SubmarineHeavy => "Submarine-heavy",
+                _ => "Even mix: surface and submarines",
+            }, ScenarioRandomization.Chance(route && (spectator || perspective.Value == RouteOperationPerspective.Escort)
+                ? ScenarioRandomization.RouteAttackerCompositionWeights : ScenarioRandomization.CompositionWeights, (int)value - 1)));
+        UpdateCompositionChances();
+        perspective.Control.SelectionChanged += (_, _) => UpdateCompositionChances();
         ChoicePicker<RouteEncounterKind> encounter = new(
             [("Random", RouteEncounterKind.Random), ("Departure", RouteEncounterKind.Departure),
              ("Mid-crossing", RouteEncounterKind.MidCrossing), ("Port approach", RouteEncounterKind.PortApproach),
