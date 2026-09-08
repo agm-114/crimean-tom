@@ -305,6 +305,8 @@ The Scenarios menu contains two entries under `Crimean Tom Generated`. `Generate
 
 Civilian naval and air traffic are separate options in both entries and default to off.
 
+Delegated ships use the separate `CrimeanTomAlly` taskforce. Native submarine contact processing otherwise skips this taskforce because it expects only the designated player or enemy taskforce. `GeneratedSubmarineContactsPatch` replaces that identity check with a hostility check only for submarines when either participant belongs to our delegated taskforce. Local detection, identification, weapon availability and ROE still control attacks; observer truth is not shared with the AI. Other missions retain the native check.
+
 Sea state defaults to state 1. If the player chooses random sea state, state 1 has about a two-thirds chance, state 2 about a one-fifth chance, and each rougher state becomes progressively less likely. Random cloud cover also favors clear conditions.
 
 The entry is a launcher, not an authored fixed battle. Confirming the setup rewrites that file with a fresh seed before Sea Power loads it. The generated file remains an ordinary Sea Power mission, so the normal scene loader, AI, trigger, objective, save, and debrief systems handle it.

@@ -42,6 +42,8 @@ internal static class GeneratedScenarioRuntime
     private static Taskforce? visibleAlly;
     private static float nextTrackRefresh;
 
+    internal static bool IsDelegatedTaskforce(Taskforce? taskforce) => visibleAlly is not null && taskforce == visibleAlly;
+
     internal static void RestoreDebugState()
     {
         visibleAlly = null;
