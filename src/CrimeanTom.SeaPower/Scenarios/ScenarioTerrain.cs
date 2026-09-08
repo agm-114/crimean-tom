@@ -1,3 +1,4 @@
+using System.Globalization;
 using SeaPower;
 using UnityEngine;
 
@@ -37,6 +38,46 @@ internal static class ScenarioTerrain
         int samples = Math.Max(1, (int)Math.Ceiling(first.DistanceTo(second) / 0.5));
         for (int sample = 0; sample <= samples; sample++)
             if (HeightMeters(first.Towards(second, (double)sample / samples)) > -depth) return false;
+        return true;
+    }
+
+    internal static void ValidateNavalSpawns(MissionWriter mission)
+    {
+        ChartPosition center = new(Number(mission.Read("Environment", "MapCenterLatitude")),
+            Number(mission.Read("Environment", "MapCenterLongitude")));
+        foreach (string side in new[] { "Taskforce1", "Taskforce2", "Neutral" })
+        foreach (string kind in new[] { "Vessel", "Submarine", "Biologic" })
+        {
+            int count = int.Parse(mission.Read("Mission", $"NumberOf{side}{kind}s", "0"), CultureInfo.InvariantCulture);
+            for (int index = 1; index <= count; index++)
+            {
+                string reference = side + kind + index;
+                string[] coordinates = mission.Read(reference, "RelativePositionInNM").Split(',');
+                if (coordinates.Length != 3)
+                    throw new InvalidOperationException($"Missing starting position for {reference}.");
+                // Native 'shallow' depends on class and environment, not a fixed depth.
+                // Use an explicit 100 ft start so the seabed clearance check matches the saved position.
+                float altitude = coordinates[1] == "shallow" ? -100 : Number(coordinates[1]);
+                MissionPosition position = new(Number(coordinates[0]), altitude, Number(coordinates[2]));
+                float clearance = Math.Max(kind == "Submarine" ? 80 : 20, -altitude * 0.3048f + 20);
+                ChartPosition location = center.Offset(position);
+                if (!HasSpawnClearance(location, clearance))
+                    throw new UnsafeNavalSpawnException($"Unsafe spawn for {reference} ({mission.Read(reference, "Type")}): land or insufficient seabed clearance. Reroll the layout or choose a more open-water region.");
+                if (coordinates[1] == "shallow") mission.Set(reference, "RelativePositionInNM", position.ToMissionValue());
+            }
+        }
+
+        static float Number(string value) => float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
+            && !float.IsNaN(number) && !float.IsInfinity(number) ? number
+            : throw new InvalidOperationException($"Invalid naval spawn coordinate: '{value}'.");
+    }
+
+    internal static bool HasSpawnClearance(ChartPosition position, float depth)
+    {
+        // Check around the hull too, including rounding and coastal DEM transitions.
+        foreach (float x in new[] { -0.15f, 0, 0.15f })
+        foreach (float z in new[] { -0.15f, 0, 0.15f })
+            if (HeightMeters(position.Offset(new(x, 0, z))) > -depth) return false;
         return true;
     }
 
@@ -112,3 +153,5 @@ internal static class ScenarioTerrain
         return result;
     }
 }
+
+internal class UnsafeNavalSpawnException(string message) : InvalidOperationException(message);

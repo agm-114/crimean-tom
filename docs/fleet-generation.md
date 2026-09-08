@@ -305,6 +305,10 @@ The Scenarios menu contains two entries under `Crimean Tom Generated`. `Generate
 
 Civilian naval and air traffic are separate options in both entries and default to off.
 
+Before saving any generated clash, escort, or passage mission, `ScenarioTerrain.ValidateNavalSpawns` checks every serialized naval start, including protected ships and nearby or neutral traffic. It samples the installed base terrain around each hull within 0.15 nm and requires at least 20 m of water for surface ships and 80 m for submarines. Submarine starts use an explicit 100 ft depth instead of the variable native `shallow` preset. Numeric depths also require 20 m of seabed clearance. Unsafe layouts fail generation with a reroll message. This checks starting positions, not later native AI maneuvers or terrain changes from other mods.
+
+`ScenarioWildlife` attempts to add two neutral whales to every generated mission, independent of civilian traffic settings. It uses the installed fin, humpback and blue whale units, starts them in at least 80 m of water, and enables native automated movement. Whale placement has its own seeded random stream and may produce fewer whales if no safe positions are found.
+
 Delegated ships use the separate `CrimeanTomAlly` taskforce. Native submarine contact processing otherwise skips this taskforce because it expects only the designated player or enemy taskforce. `GeneratedSubmarineContactsPatch` replaces that identity check with a hostility check only for submarines when either participant belongs to our delegated taskforce. Local detection, identification, weapon availability and ROE still control attacks; observer truth is not shared with the AI. Other missions retain the native check.
 
 Sea state defaults to state 1. If the player chooses random sea state, state 1 has about a two-thirds chance, state 2 about a one-fifth chance, and each rougher state becomes progressively less likely. Random cloud cover also favors clear conditions.

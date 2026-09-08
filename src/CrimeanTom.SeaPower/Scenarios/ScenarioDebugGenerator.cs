@@ -24,22 +24,22 @@ internal static partial class ScenarioDebugGenerator
             Directory.CreateDirectory(directory);
             WriteIfChanged(Path.Combine(directory, "_info.ini"), BuildCategoryFile());
             DeleteObsoleteEntries(directory);
-            GenerateEntry(
+            WriteTemplate(() => GenerateEntry(
                 GetCommandLauncherPath(),
                 new FleetClashGenerationOptions
                 {
                     SeaState = 1,
                 },
-                useLauncherMetadata: true);
-            GenerateEntry(
+                useLauncherMetadata: true));
+            WriteTemplate(() => GenerateEntry(
                 GetSpectatorLauncherPath(),
                 new FleetClashGenerationOptions
                 {
                     SeaState = 1,
                     Spectator = true,
                 },
-                useLauncherMetadata: true);
-            GenerateRouteOperationEntry(
+                useLauncherMetadata: true));
+            WriteTemplate(() => GenerateRouteOperationEntry(
                 GetRouteOperationLauncherPath(),
                 new FleetClashGenerationOptions
                 {
@@ -47,15 +47,24 @@ internal static partial class ScenarioDebugGenerator
                     Region = "North Atlantic",
                     RouteEncounter = RouteEncounterKind.MidCrossing,
                 },
-                useLauncherMetadata: true);
-            GenerateRouteOperationEntry(GetRouteObserverLauncherPath(), new()
+                useLauncherMetadata: true));
+            WriteTemplate(() => GenerateRouteOperationEntry(GetRouteObserverLauncherPath(), new()
             {
                 SeaState = 1, Region = "North Atlantic", RouteEncounter = RouteEncounterKind.MidCrossing, Spectator = true,
-            }, useLauncherMetadata: true);
+            }, useLauncherMetadata: true));
         }
         catch (Exception exception)
         {
             Debug.LogError($"[Crimean Tom Operations] could not generate scenario templates: {exception}");
+        }
+    }
+
+    private static void WriteTemplate(Action generate)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try { generate(); return; }
+            catch (UnsafeNavalSpawnException) when (attempt < 3) { }
         }
     }
 
