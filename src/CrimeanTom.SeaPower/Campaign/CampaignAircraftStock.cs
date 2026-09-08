@@ -12,12 +12,20 @@ internal static class CampaignAircraftStock
     // Filter authored patrols against the native launch roster; the loader deducts actual aircraft and ammunition.
     internal static void TrimPatrols(Dictionary<string, Dictionary<string, string>> data)
     {
+        // Standalone missions store only the aircraft left aboard. Campaign loading deducts placed
+        // aircraft itself, so provide their reserved stock before native reconciliation runs.
+        foreach (var group in data.Values.Where(unit => unit.GetValueOrDefault("CrimeanTomIndependentAircraft") == "True" &&
+            unit.ContainsKey("HomeBase")).GroupBy(unit => (Host: unit["HomeBase"], Type: unit["Type"])))
+            if (data.TryGetValue(group.Key.Host, out var field))
+                field[group.Key.Type] = string.Join('|', group.GroupBy(unit => unit["SquadronReference"])
+                    .Select(squadron => $"{squadron.Key},{squadron.Count()}"));
         string side = data["Mission"]["PlayerTaskforce"];
         Regex aircraft = MissionUnitReferences.AirNamesFor(side);
         Dictionary<(string Host, string Type, string Squadron), int> reserved = [];
         HashSet<string> removed = new(StringComparer.OrdinalIgnoreCase);
         foreach (var unit in data.Where(section => aircraft.IsMatch(section.Key)).ToArray())
         {
+            if (unit.Value.TryGetValue("CrimeanTomIndependentAircraft", out string independent) && independent == "True") continue;
             if (unit.Value.ContainsKey("TaskForceModeAirTaskingRole") || unit.Value.ContainsKey("TaskForceModeAirTaskingSlot")) continue;
             string host = unit.Value.TryGetValue("HomeBase", out string home) ? home : string.Empty;
             string type = unit.Value["Type"];

@@ -127,14 +127,18 @@ internal static class TaskForceRosterGenerator
         ReadUnitBaseCost("vessels", unitType);
 
     internal static IReadOnlyCollection<RosterUnitOption> GetVesselOptions(
-        IEnumerable<string> nations)
+        IEnumerable<string> nations) => GetOptions(nations, "vessels");
+
+    internal static IReadOnlyCollection<RosterUnitOption> GetAircraftOptions(IEnumerable<string> nations) => GetOptions(nations, "aircraft");
+
+    private static IReadOnlyCollection<RosterUnitOption> GetOptions(IEnumerable<string> nations, string folder)
     {
         HashSet<string> selectedNations = new(
             nations.Where(nation => !string.IsNullOrWhiteSpace(nation)),
             StringComparer.OrdinalIgnoreCase);
         return _rosterVariants
             .Where(variant =>
-                string.Equals(variant.UnitFolder, "vessels", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(variant.UnitFolder, folder, StringComparison.OrdinalIgnoreCase) &&
                 selectedNations.Contains(variant.Nation))
             .Select(variant => new RosterUnitOption(
                 variant.UnitType,

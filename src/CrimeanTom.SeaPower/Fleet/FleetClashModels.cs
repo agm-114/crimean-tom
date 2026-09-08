@@ -46,7 +46,7 @@ internal class FleetClashGenerationOptions
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;
     internal ScenarioStartingOptions Starting { get; set; } = new();
-    internal ScenarioActivitySettings Activity { get; set; } = ScenarioActivitySettings.Off;
+    internal ScenarioActivitySettings Activity { get; set; } = ScenarioActivitySettings.Default;
     internal ScenarioActivityPlan? ActivityPlan { get; set; }
     internal double ChaseAllowance { get; set; }
     internal RouteEncounterKind RouteEncounter { get; set; } = RouteEncounterKind.Random;

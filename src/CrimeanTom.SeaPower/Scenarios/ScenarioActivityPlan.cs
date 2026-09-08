@@ -7,9 +7,19 @@ internal record NearbyUnit(string Side, string Type, string Nation, string Varia
     int Points, MissionPosition Position, IReadOnlyList<MissionWaypoint> Waypoints);
 
 internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyList<string> Notices,
-    int FriendlyAllowance, int EnemyAllowance, string PlayerSide, bool SecondaryEncounter)
+    int FriendlyAllowance, int EnemyAllowance, string PlayerSide, bool SecondaryEncounter, ScenarioAirSupportPlan? AirSupport = null)
 {
-    internal int Cost(string side) => Units.Where(unit => unit.Side == side).Sum(unit => unit.Points);
+    internal int Cost(string side) => Units.Where(unit => unit.Side == side).Sum(unit => unit.Points) + (AirSupport?.Cost(side) ?? 0);
+    internal int MinimumFriendlyFleetPoints
+    {
+        get
+        {
+            int nearby = Units.Where(unit => unit.Side == PlayerSide).Sum(unit => unit.Points);
+            int air = AirSupport?.Cost(PlayerSide) ?? 0;
+            return Math.Max(nearby <= 24 ? nearby : (int)Math.Ceiling(nearby / 0.4),
+                air <= 10 ? air : (int)Math.Ceiling(air / 0.25));
+        }
+    }
     internal string Summary => string.Join("\n", new[]
     {
         $"Nearby support: friendly {Cost(PlayerSide)} / {FriendlyAllowance} pts, enemy {Cost(PlayerSide == "Taskforce1" ? "Taskforce2" : "Taskforce1")} / {EnemyAllowance} pts used.",
@@ -22,8 +32,10 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
         Random random = new(seed ^ 0x4E454152);
         List<NearbyUnit> units = [];
         List<string> notices = [];
-        int friendlyBudget = settings.Friendly.Budget(playerPoints, random);
-        int enemyBudget = settings.Enemy.Budget(playerPoints, random);
+        int friendlyPoints = playerPoints;
+        int enemyPoints = playerSide == "Taskforce1" ? match.Second.PointCost : match.First.PointCost;
+        int friendlyBudget = settings.Friendly.Budget(friendlyPoints, random);
+        int enemyBudget = settings.Enemy.Budget(enemyPoints, random);
         ChartPosition center = new(match.Latitude, match.Longitude);
         bool secondary = settings.SecondaryEncounters && random.NextDouble() < 0.5;
         foreach (string side in new[] { "Taskforce1", "Taskforce2" })
@@ -32,13 +44,14 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
             NearbySideSettings selection = friendly ? settings.Friendly : settings.Enemy;
             int remaining = friendly ? friendlyBudget : enemyBudget;
             FleetClashForce force = side == "Taskforce1" ? match.First : match.Second;
-            string[] nations = force.Ships.Select(ship => ship.Nation).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            string[] nations = NationsFor(match, side);
             bool naval = NearbySideSettings.Enabled(selection.Naval, random);
             bool coastal = NearbySideSettings.Enabled(selection.Coastal, random);
             int before = units.Count;
             if (coastal)
             {
-                int landBudget = naval ? remaining / 2 : remaining;
+                int landBudget = naval ? Math.Max(3, (int)Math.Ceiling(remaining * 0.7)) : remaining;
+                landBudget = Math.Min(remaining, landBudget);
                 NearbyGroundOption[] options = NearbyGroundCatalog.All
                     .Where(option => nations.Contains(option.Nation, StringComparer.OrdinalIgnoreCase)).ToArray();
                 foreach (NearbyGroundOption option in options.OrderBy(_ => random.Next()))
@@ -80,7 +93,19 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
         secondary &= units.Where(unit => unit.Side == "Taskforce1" && unit.Kind != "LandUnit").Any(first =>
             units.Any(second => second.Side == "Taskforce2" && second.Kind != "LandUnit" &&
                 Math.Abs(first.Position.Z - second.Position.Z) < 0.1f));
-        return new(units, notices, friendlyBudget, enemyBudget, playerSide, secondary);
+        ScenarioAirSupportPlan air = ScenarioAirSupportPlan.Generate(match, seed, settings, playerSide, friendlyPoints, enemyPoints);
+        notices.AddRange(air.Notices);
+        return new(units, notices, friendlyBudget + air.FriendlyAllowance, enemyBudget + air.EnemyAllowance, playerSide, secondary, air);
+    }
+
+    internal static string[] NationsFor(FleetClashMatch match, string side)
+    {
+        FleetClashForce force = side == "Taskforce1" ? match.First : match.Second;
+        FleetAlignment alignment = FactionCatalog.Get(force.PrimaryNation)?.Alignment ?? FleetAlignment.Unaligned;
+        return force.Ships.Select(ship => ship.Nation).Concat(FactionCatalog.Nations
+            .Where(nation => alignment != FleetAlignment.Unaligned && nation.Alignment == alignment &&
+                nation.ActiveTheaters.Any(theater => theater.Name == match.Theater)).Select(nation => nation.Id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private static NearbyUnit? PlaceNaval(FleetUnitArchetype ship, string side, ChartPosition center,
@@ -101,7 +126,7 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
         return null;
     }
 
-    private static ChartPosition? FindLand(ChartPosition center, NearbyGroundOption option, Random random)
+    internal static ChartPosition? FindLand(ChartPosition center, NearbyGroundOption option, Random random)
     {
         // A nearby installed port establishes local ownership; do not put an allied battery on an enemy shore.
         foreach (ShippingPort port in ShippingRoutes.Ports.Values.Where(port => port.Nation.Equals(option.Nation, StringComparison.OrdinalIgnoreCase) &&
@@ -139,8 +164,10 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
             mission.Write("TaskForceModeIgnoreUnit", true);
             mission.Write("CrewSkill", "Trained");
             mission.WritePosition("RelativePositionInNM", unit.Position);
-            mission.Write("WeaponStatus", "Free");
-            mission.Write("RadarsActive", unit.Kind == "LandUnit");
+            mission.Write("WeaponStatus", "Tight");
+            mission.Write("OverrideWeaponStatus", "Tight");
+            mission.Write("RadarsActive", unit.Kind != "Submarine");
+            mission.Write("ExcludeFromAIRadarRoutine", true);
             mission.Write("Telegraph", unit.Kind == "LandUnit" ? 0 : 2);
             if (unit.Waypoints.Count > 0)
             {
@@ -148,7 +175,11 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
                 mission.Write("Heading", Math.Atan2(destination.X - unit.Position.X, destination.Z - unit.Position.Z) * 180 / Math.PI);
                 mission.WriteWaypoints(unit.Waypoints, loop: true);
             }
+            int delay = 600 + index * 67;
+            ScenarioOpeningOrders.Release(mission, reference, [reference], unit.Waypoints, unit.Kind == "Submarine",
+                unit.Kind == "LandUnit" ? 0 : 2, 240 + index * 31, delay, loop: unit.Waypoints.Count > 0);
         }
+        AirSupport?.WriteTo(mission, PlayerSide, all, allied);
         mission.Set("CrimeanTom", "NearbyAIUnits", string.Join(',', all));
         mission.Set("CrimeanTom", "AlliedAIUnits", string.Join(',', allied));
         mission.Set("CrimeanTom", "NearbyFriendlyAllowance", FriendlyAllowance);
@@ -187,7 +218,9 @@ internal static class NearbyGroundCatalog
                 .ToDictionary(group => group.Key, group => group.Last().Values, StringComparer.OrdinalIgnoreCase);
             string subtype = sections.TryGetValue("General", out var general) && general.TryGetValue("LandUnitSubType", out string sub) ? sub : "";
             string role = sections.TryGetValue("AI", out var ai) && ai.TryGetValue("Role", out string roles) ? roles : "";
-            int points = subtype == "Radar" ? 25 : subtype == "SAM" ? 100 : role.Contains("ASuW", StringComparison.OrdinalIgnoreCase) ? 120 : 0;
+            // Match fleet-generation points, not native campaign purchase prices.
+            int points = subtype == "Radar" ? 3 : subtype == "SAM" ? 6 : role.Contains("ASuW", StringComparison.OrdinalIgnoreCase) ? 8 :
+                role.Contains("AAW", StringComparison.OrdinalIgnoreCase) ? 3 : 0;
             if (points == 0) continue;
             string defaultNation = "";
             foreach (var section in ScenarioUnitCatalog.ReadSections(file))
@@ -195,7 +228,7 @@ internal static class NearbyGroundCatalog
                 if (section.Section == "Default" && section.Values.TryGetValue("Nation", out string nation)) defaultNation = nation;
                 if (!section.Section.StartsWith("Variant", StringComparison.OrdinalIgnoreCase)) continue;
                 output.Add(new(type, section.Values.TryGetValue("Nation", out string selected) ? selected : defaultNation,
-                    section.Section, points, subtype == "Radar" ? 55 : 20));
+                    section.Section, points, subtype == "Radar" ? 100 : 65));
             }
         }
         return output;
