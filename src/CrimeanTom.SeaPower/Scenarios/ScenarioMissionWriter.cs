@@ -229,45 +229,14 @@ internal static partial class ScenarioDebugGenerator
         ScenarioParameters parameters,
         FleetClashMatch match)
     {
-        System.Random random = new(parameters.Seed ^ 0x43A9E27);
-        string[] vesselTypes =
-        [
-            "civ_ms_bulk",
-            "civ_ms_car_carrier_a",
-            "civ_ms_freighter_a",
-            "civ_ms_mairangi_bay",
-            "civ_ms_ritina",
-            "civ_fv_fishingboat_a",
-            "civ_fv_dhow",
-        ];
-        for (int index = 0; index < parameters.NeutralVesselCount; index++)
-        {
-            float x = RandomRange(random, -parameters.SeparationNm * 0.35f, parameters.SeparationNm * 0.35f);
-            float z = RandomRange(random, 12f, 32f) * (index % 2 == 0 ? 1f : -1f);
-            float heading = index % 2 == 0 ? 80f : -100f;
-            new CivilianTrafficUnit($"NeutralVessel{index + 1}",
-                vesselTypes[random.Next(vesselTypes.Length)], new(x, 0, z), heading).WriteTo(mission);
-        }
-
-        string[] aircraftTypes =
-        [
-            "civ_707",
-            "civ_c340",
-            "civ_dc-10",
-            "civ_il-18",
-            "civ_il-62",
-            "civ_tu-154",
-        ];
-        for (int index = 0; index < parameters.NeutralAircraftCount; index++)
-        {
-            float x = parameters.SeparationNm * (index % 2 == 0 ? -1.1f : 1.1f);
-            float z = RandomRange(random, -24f, 24f);
-            int altitude = random.Next(2, 8) * 5000;
-            float heading = x < 0f ? 90f : -90f;
-            new CivilianTrafficUnit($"NeutralAircraft{index + 1}",
-                aircraftTypes[random.Next(aircraftTypes.Length)], new(x, altitude, z), heading,
-                IsAircraft: true).WriteTo(mission);
-        }
+        var traffic = CivilianTrafficPlanner.Generate(parameters.Seed, match.Theater,
+            new(match.Latitude, match.Longitude), parameters.SeparationNm,
+            parameters.NeutralVesselCount, parameters.NeutralAircraftCount);
+        // Terrain and route coverage can reduce the requested counts. Never leave dangling neutral references.
+        mission.Set("Mission", "NumberOfNeutralVessels", traffic.Count(unit => !unit.IsAircraft));
+        mission.Set("Mission", "NumberOfNeutralAircraft", traffic.Count(unit => unit.IsAircraft));
+        traffic.ForEach(unit => unit.WriteTo(mission));
+        CivilianAirTraffic.WriteRoutes(mission, traffic, parameters.Seed);
         ScenarioWildlife.WriteTo(mission, parameters.Seed, new(match.Latitude, match.Longitude), parameters.SeparationNm);
     }
 
