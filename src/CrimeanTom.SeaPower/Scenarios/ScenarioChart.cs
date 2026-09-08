@@ -7,19 +7,17 @@ internal static class ScenarioChart
     {
         ChartPosition center = new(match.Latitude, match.Longitude);
         Random random = new(seed ^ 0x4D6170);
-        double longitudeScale = Math.Cos(center.Latitude * Math.PI / 180);
         var contacts = enemy.Units.Select(unit => new MissionPosition(unit.X, 0, unit.Z)).ToArray();
         if (contacts.Length == 0) return;
         MissionPosition report = contacts[random.Next(contacts.Length)];
-        List<MissionPosition> sectors = [new((float)Math.Round(report.X / 16) * 16, 0,
-            (float)Math.Round(report.Z / 16) * 16)];
-        for (int attempt = 0; sectors.Count < 3 && attempt < 100; attempt++)
+        List<MissionPosition> sectors = GroupReports(enemy, center);
+        for (int attempt = 0; sectors.Count < 6 && attempt < 180; attempt++)
         {
             double angle = random.NextDouble() * Math.PI * 2;
             double distance = 36 + random.NextDouble() * Math.Max(24, separation * 0.3);
-            MissionPosition candidate = new(report.X + (float)(Math.Cos(angle) * distance / longitudeScale), 0,
+            MissionPosition candidate = new(report.X + (float)(Math.Cos(angle) * distance), 0,
                 report.Z + (float)(Math.Sin(angle) * distance));
-            if (sectors.Any(sector => Math.Pow((sector.X - candidate.X) * longitudeScale, 2) +
+            if (sectors.Any(sector => Math.Pow(sector.X - candidate.X, 2) +
                     Math.Pow(sector.Z - candidate.Z, 2) < 32 * 32) || ScenarioTerrain.HeightMeters(center.Offset(candidate)) > -20) continue;
             sectors.Add(candidate);
         }
@@ -48,6 +46,26 @@ internal static class ScenarioChart
             mission.Write("VisibleIn", "CampaignMap,BriefingMap,Mission");
         }
         WriteViewport(mission, center, sectors, friendly.Units.Select(unit => center.Offset(new(unit.X, 0, unit.Z))), 12);
+    }
+
+    internal static List<MissionPosition> GroupReports(FleetDeployment fleet, ChartPosition center)
+    {
+        var units = fleet.Units.ToDictionary(unit => unit.Reference);
+        List<MissionPosition> reports = [];
+        foreach (var formation in fleet.Formations)
+        {
+            var members = formation.References.Where(units.ContainsKey).Select(reference => units[reference]).ToArray();
+            if (members.Length == 0) continue;
+            // Coarse reports can describe several detachments. Some circles remain empty, and
+            // neither unreported groups nor their later movement are constrained to a circle.
+            MissionPosition report = new((float)Math.Round(members.Average(unit => unit.X) / 16) * 16, 0,
+                (float)Math.Round(members.Average(unit => unit.Z) / 16) * 16);
+            if (reports.Any(other => Math.Pow(report.X - other.X, 2) + Math.Pow(report.Z - other.Z, 2) < 26 * 26) ||
+                ScenarioTerrain.HeightMeters(center.Offset(report)) > -20) continue;
+            reports.Add(report);
+            if (reports.Count == 3) break;
+        }
+        return reports;
     }
 
     internal static void WriteViewport(MissionWriter mission, ChartPosition center, IEnumerable<MissionPosition> sectors,

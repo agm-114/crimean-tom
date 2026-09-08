@@ -97,17 +97,6 @@ internal static class ScenarioSetupWindow
             FontSize = 25f,
             Margin = new Thickness(0f, 0f, 0f, 8f),
         });
-        content.Children.Add(new TextBlock
-        {
-            Text = route ? (spectator ? "Watch the convoy, escorts and raiders fight under AI control."
-                : "Protect a moving group or attack the same operation from the other side.")
-                : spectator ? "Build a fresh AI fleet clash and watch it from a Blue observer side."
-                : "Build a fresh fleet clash. The preview shows the battle you will launch.",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = MutedTextBrush,
-            FontSize = 16f,
-            Margin = new Thickness(0f, 0f, 0f, 14f),
-        });
         if (route)
         {
             AddField(content, "Protected group", variant.Control);

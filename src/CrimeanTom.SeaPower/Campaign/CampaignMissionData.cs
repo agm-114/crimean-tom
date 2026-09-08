@@ -10,7 +10,7 @@ internal static class CampaignMissionData
     private static readonly string[] TacticalKeys =
     [
         "RelativePositionInNM", "Heading", "Telegraph", "Waypoints", "MissionType",
-        "StationRole", "WeaponStatus", "RadarsActive", "ActiveSonarsEnabled",
+        "StationRole", "WeaponStatus", "OverrideWeaponStatus", "RadarsActive", "ExcludeFromAIRadarRoutine", "ActiveSonarsEnabled",
         "TowedArrayDeployed", "Morale", "RetreatAfterWeaponsExpended",
     ];
 

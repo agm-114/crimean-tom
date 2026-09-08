@@ -104,6 +104,8 @@ internal static partial class ScenarioDebugGenerator
         AppendObjectives(mission);
         AppendRetreatAnchors(mission, match);
         AppendActivity(mission, match, parameters, options, playerTaskforce);
+        ScenarioOpeningOrders.WriteTo(mission, firstDeployment, secondDeployment, parameters.Seed, playerIsFirst, options.Spectator);
+        ScenarioOpeningOrders.WriteTo(mission, secondDeployment, firstDeployment, parameters.Seed ^ 0x1020, !playerIsFirst, options.Spectator);
         ScenarioChart.WriteFleetClash(mission, match, parameters.Seed, parameters.SeparationNm, playerDeployment,
             playerIsFirst ? secondDeployment : firstDeployment);
         ScenarioTerrain.ValidateNavalSpawns(mission);

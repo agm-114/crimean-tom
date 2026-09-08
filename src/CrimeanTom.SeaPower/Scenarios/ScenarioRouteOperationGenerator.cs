@@ -124,14 +124,13 @@ internal static partial class ScenarioDebugGenerator
 
         int protectedCount = GetProtectedGroupSize(size, variant);
         int vesselIndexOffset = corridor.First.VesselCount;
-        IReadOnlyList<RouteProtectedUnit> protectedUnits = CreateProtectedUnits(
+        var (protectedUnits, convoySpacing) = CreateProtectedUnits(
             new System.Random(parameters.Seed ^ 0x434F4E56),
             convoyRoster ?? match.First,
             variant,
             protectedCount,
             vesselIndexOffset,
-            corridor.StartX,
-            corridor.DestinationX);
+            voyage);
         // Surface leaders screen the moving convoy; submarines keep their search routes.
         FleetDeployment escort = corridor.First with
         {
@@ -140,17 +139,12 @@ internal static partial class ScenarioDebugGenerator
                     ? unit with { FollowReference = protectedUnits[0].Reference }
                     : unit).ToArray(),
         };
-        protectedUnits = protectedUnits.Select(unit =>
-        {
-            MissionPosition position = voyage.Orient(new(unit.X, 0, unit.Z));
-            return unit with { X = position.X, Z = position.Z, Heading = voyage.Heading,
-                Waypoints = unit.Waypoints is null ? null : voyage.Onward };
-        }).ToArray();
         float convoySpeed = protectedUnits.Min(unit => ScenarioUnitCatalog.SpeedAtTelegraph(unit.UnitType, 3));
         escort = ScenarioTerrain.PlaceFleet(voyage, voyage.OrientFleet(escort));
         var interception = RouteInterceptionPlanner.Place(voyage.OrientFleet(corridor.Second), voyage, convoySpeed,
             escort.Units.Select(unit => new MissionPosition(unit.X, 0, unit.Z))
-                .Concat(protectedUnits.Select(unit => new MissionPosition(unit.X, 0, unit.Z))).ToArray());
+                .Concat(protectedUnits.Select(unit => new MissionPosition(unit.X, 0, unit.Z))).ToArray(),
+            parameters.Seed, escort.Aircraft.Any(aircraft => !aircraft.AirPlan.IsHelicopter));
         int requiredArrivals = Math.Max(1, (int)Math.Ceiling(protectedCount * (2d / 3d)));
         RouteOperationPlan plan = new(
             escort,
@@ -159,21 +153,21 @@ internal static partial class ScenarioDebugGenerator
             requiredArrivals,
             corridor.DestinationX,
             voyage,
-            interception.Groups);
+            interception.Groups,
+            convoySpacing);
         foreach (RouteProtectedUnit unit in plan.ProtectedUnits)
             if (ScenarioTerrain.HeightMeters(voyage.Center.Offset(new(unit.X, 0, unit.Z))) > -20)
                 throw new InvalidOperationException("The convoy does not fit this coastal approach. Choose a mid-crossing encounter or smaller force.");
         return plan;
     }
 
-    private static IReadOnlyList<RouteProtectedUnit> CreateProtectedUnits(
+    private static (IReadOnlyList<RouteProtectedUnit> Units, float Spacing) CreateProtectedUnits(
         System.Random random,
         FleetClashForce escortForce,
         RouteOperationVariant variant,
         int count,
         int vesselIndexOffset,
-        float routeStart,
-        float routeEnd)
+        RouteEncounter voyage)
     {
         RouteProtectedUnitOption[] available = GetProtectedUnitOptions(escortForce, variant, random)
             .OrderBy(_ => random.Next())
@@ -190,21 +184,34 @@ internal static partial class ScenarioDebugGenerator
         List<RouteProtectedUnit> units = [];
         for (int index = 0; index < count; index++)
         {
-            float longitudinal = index * -0.75f;
+            float longitudinal = index == 0 ? 0 : -((index + 1) / 2) * 1.4f - (float)random.NextDouble() * 0.3f;
+            float lateral = index == 0 ? 0 : (index % 2 == 0 ? 1 : -1) * (0.8f + (float)random.NextDouble() * 0.4f);
             units.Add(new RouteProtectedUnit(
                 MissionUnitReferences.FormatHull("Taskforce1", vesselIndexOffset + index + 1),
                 available[index % available.Length].UnitType,
                 available[index % available.Length].VariantReference,
                 available[index % available.Length].Nation,
-                routeStart + longitudinal,
-                0,
-                index == 0
-                    ? [new(new(0, 0, 0)), new(new(routeEnd, 0, 0))]
-                    : null,
-                index == 0 ? "Core" : "Default"));
+                longitudinal,
+                lateral,
+                index == 0 ? voyage.Onward : null,
+                index == 0 ? "Core" : "Default",
+                voyage.Heading));
         }
 
-        return units;
+        float preferredSpacing = voyage.Kind == RouteEncounterKind.MidCrossing ? 0.8f : 0.4f;
+        foreach (float scale in new[] { 1f, 0.7f, 0.5f })
+        {
+            float spacing = preferredSpacing * scale;
+            var placed = units.Select(unit =>
+            {
+                MissionPosition along = voyage.At(unit.X * spacing);
+                MissionPosition lateral = voyage.Orient(new(0, 0, unit.Z * spacing));
+                return unit with { X = along.X + lateral.X, Z = along.Z + lateral.Z };
+            }).ToArray();
+            if (placed.Any(unit => ScenarioTerrain.HeightMeters(voyage.Center.Offset(new(unit.X, 0, unit.Z))) > -20)) continue;
+            return (placed, spacing);
+        }
+        throw new InvalidOperationException("The convoy has no safe staggered formation here. Choose another route or a smaller group.");
     }
 
     private static bool UnitTypeExists(string unitType) => File.Exists(Path.Combine(
@@ -376,11 +383,12 @@ internal static partial class ScenarioDebugGenerator
         route.Voyage?.WriteChart(mission, route.SecondDeployment);
         AppendActivity(mission, match, parameters, options, playerTaskforce);
         if (route.Voyage is { } ambushRoute)
-            RouteAmbushTrigger.WriteTo(mission, route.SecondDeployment, ambushRoute,
+            ScenarioOpeningOrders.WriteTo(mission, route.SecondDeployment, route.FirstDeployment,
+                parameters.Seed, playerTaskforce == "Taskforce2", options.Spectator, ambushRoute,
                 route.ProtectedUnits.Select(unit => unit.Reference).ToArray(),
-                route.FirstDeployment.Units.Select(NavalWeaponEnvelope.From)
-                    .Concat(route.ProtectedUnits.Select(unit => new NavalWeaponEnvelope(unit.UnitType, unit.X, unit.Z))).ToArray(),
-                parameters.Seed, playerTaskforce == "Taskforce2", options.Spectator);
+                route.ProtectedUnits.Select(unit => new NavalWeaponEnvelope(unit.UnitType, unit.X, unit.Z)).ToArray());
+        ScenarioOpeningOrders.WriteTo(mission, route.FirstDeployment, route.SecondDeployment,
+            parameters.Seed ^ 0x1020, playerTaskforce == "Taskforce1", options.Spectator);
         ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }
@@ -417,8 +425,8 @@ internal static partial class ScenarioDebugGenerator
                 new FleetFormationPlan(
                     route.ProtectedUnits.Select(unit => unit.Reference).ToArray(),
                     "Protected Route Group",
-                    "LineAstern",
-                    0.75f),
+                    "Vic",
+                    route.ConvoySpacing),
             ])
             .ToArray();
         AppendMission(mission, match, size, playerTaskforce, parameters,
@@ -462,7 +470,8 @@ internal static partial class ScenarioDebugGenerator
         int RequiredArrivals,
         float DestinationX,
         RouteEncounter? Voyage = null,
-        IReadOnlyList<RouteAttackGroup>? AttackGroups = null);
+        IReadOnlyList<RouteAttackGroup>? AttackGroups = null,
+        float ConvoySpacing = 0.8f);
 
     private record RouteProtectedUnit(
         string Reference,
