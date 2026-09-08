@@ -268,6 +268,28 @@ internal static class FactionCatalog
                 .FirstOrDefault() ?? $"{alignment} fleet";
         return new(name, regionalNations, alliedNations);
     }
+
+    internal static (FleetSidePlan First, FleetSidePlan Second) CreateChaosSides(
+        FleetClashTheater theater, System.Random random, Func<FleetSidePlan, bool> isViable)
+    {
+        for (int attempt = 0; attempt < 32; attempt++)
+        {
+            var assignments = Nations.Select(nation => (Nation: nation, Blue: random.Next(2) == 0)).ToArray();
+            FleetSidePlan first = Create(true, "Chaos Blue"), second = Create(false, "Chaos Red");
+            if (isViable(first) && isViable(second)) return (first, second);
+
+            FleetSidePlan Create(bool blue, string name)
+            {
+                var members = assignments.Where(item => item.Blue == blue).Select(item => item.Nation).ToArray();
+                string[] nations = members.Select(nation => nation.Id).ToArray();
+                string[] regional = members.Where(nation => nation.ActiveTheaters.Contains(theater))
+                    .Select(nation => nation.Id).ToArray();
+                FleetSidePlan side = new(name, regional, nations.Except(regional).ToArray());
+                return isViable(side) ? side : new(name, nations, []);
+            }
+        }
+        throw new InvalidOperationException("Chaos mode could not assign usable fleets to both sides. Reroll the scenario.");
+    }
 }
 
 internal enum FleetAlignment

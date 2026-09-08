@@ -89,6 +89,8 @@ internal static class ScenarioSetupWindow
         }
         CheckBox civilianNavalTraffic = TrafficToggle(route ? "Background civilian naval traffic" : "Civilian naval traffic");
         CheckBox civilianAirTraffic = TrafficToggle(route ? "Background civilian air traffic" : "Civilian air traffic");
+        CheckBox chaosMode = TrafficToggle("Chaos mode: random nation alignments");
+        chaosMode.IsChecked = false;
         ScenarioStartingControls starting = new(new(), route);
         ScenarioActivityControls activity = new();
         TextBox seed = new() { Text = string.Empty };
@@ -116,6 +118,7 @@ internal static class ScenarioSetupWindow
         }
         AddField(content, "Force size", size.Control);
         AddField(content, "Region", region.Control);
+        content.Children.Add(chaosMode);
         AddField(content, "Seed (blank = random)", seed);
         AddField(content, "Sea state", seaState.Control);
         AddField(content, spectator ? "Red force strength" : "Difficulty", enemyMultiplier.Control);
@@ -178,6 +181,7 @@ internal static class ScenarioSetupWindow
                 Seed = selectedSeed,
                 Size = size.Value,
                 Region = region.Value,
+                ChaosMode = chaosMode.IsChecked == true,
                 SeaState = seaState.Value,
                 PlayerTaskforce = route ? null : commandSide.Value,
                 EnemySizeMultiplier = enemyMultiplier.Value,

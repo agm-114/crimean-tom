@@ -145,7 +145,8 @@ internal static partial class ScenarioDebugGenerator
             ? "Taskforce1"
             : options.PlayerTaskforce ??
                 (random.Next(2) == 0 ? "Taskforce1" : "Taskforce2");
-        FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region, playerTaskforce, options.EnemyComposition);
+        FleetClashMatch match = FleetClashBalancer.Generate(random, size, options.Region, playerTaskforce,
+            options.EnemyComposition, chaosMode: options.ChaosMode);
         match = ApplyEnemyMultiplier(match, random, size, playerTaskforce, options.EnemySizeMultiplier,
             preserveComposition: options.EnemyComposition != FleetComposition.Random, requestedComposition: options.EnemyComposition);
         int playerControlledCount = options.Spectator
