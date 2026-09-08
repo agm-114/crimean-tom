@@ -121,7 +121,7 @@ internal static partial class ScenarioDebugGenerator
         RouteEncounter voyage = ShippingRoutes.Pick(match.Theater, parameters.Seed, size, encounterKind);
         RouteCorridor corridor = CreateRouteCorridor(
             match, size, parameters.LateralOffsetNm, random.Next(2) == 0 ? 1f : -1f,
-            playerTaskforce, playerControlledCount, voyage.LengthNm);
+            playerTaskforce, playerControlledCount, parameters.Seed, voyage.LengthNm);
 
         int protectedCount = GetProtectedGroupSize(size, variant);
         int vesselIndexOffset = corridor.First.VesselCount;

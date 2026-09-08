@@ -7,7 +7,7 @@ internal static partial class ScenarioDebugGenerator
     // Callers choose the attack lane so passage geometry never consumes route-operation RNG.
     private static RouteCorridor CreateRouteCorridor(
         FleetClashMatch match, FleetClashSize size, float lateralOffset, float attackLane,
-        string playerTaskforce, int playerControlledCount, float? routeLength = null)
+        string playerTaskforce, int playerControlledCount, int seed, float? routeLength = null)
     {
         float length = routeLength ?? (size switch
         {
@@ -24,14 +24,14 @@ internal static partial class ScenarioDebugGenerator
             "Taskforce1", match.First, start + 4f, 90f, lateralOffset, length,
             playerTaskforce == "Taskforce1" ? playerControlledCount : match.First.Ships.Count,
             playerTaskforce == "Taskforce1" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy");
+            playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy", seed);
         first = RetaskRouteFleet(first, destination, 90f, isDefender: true, attackLane: 0f);
 
         FleetDeployment second = FleetOrderOfBattlePlanner.Plan(
             "Taskforce2", match.Second, intercept + 20f, -90f, attackLane * 22f, length,
             playerTaskforce == "Taskforce2" ? playerControlledCount : match.Second.Ships.Count,
             playerTaskforce == "Taskforce2" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy");
+            playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy", seed);
         second = RetaskRouteFleet(second, intercept, -90f, isDefender: false, attackLane);
 
         return new(start, destination, first, second);

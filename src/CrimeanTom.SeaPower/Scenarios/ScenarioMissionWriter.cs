@@ -25,7 +25,7 @@ internal static partial class ScenarioDebugGenerator
             parameters.SeparationNm,
             playerTaskforce == "Taskforce1" ? playerControlledCount : match.First.Ships.Count,
             playerTaskforce == "Taskforce1" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy");
+            playerTaskforce == "Taskforce1" ? "Friendly AI" : "Enemy", parameters.Seed);
         FleetDeployment secondDeployment = FleetOrderOfBattlePlanner.Plan(
             "Taskforce2",
             match.Second,
@@ -35,7 +35,7 @@ internal static partial class ScenarioDebugGenerator
             parameters.SeparationNm,
             playerTaskforce == "Taskforce2" ? playerControlledCount : match.Second.Ships.Count,
             playerTaskforce == "Taskforce2" ? "Player" : "Enemy",
-            playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy");
+            playerTaskforce == "Taskforce2" ? "Friendly AI" : "Enemy", parameters.Seed);
         if (!options.Spectator)
         {
             if (playerIsFirst) firstDeployment = options.Starting.Apply(firstDeployment);

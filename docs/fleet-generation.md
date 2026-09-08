@@ -351,7 +351,9 @@ If the embarked wing includes an AEW aircraft, one starts airborne on a radar-ac
 
 CAP and AEW leaders repeat their patrol routes with the native `Loop` token. Fighters in the same pair follow their leader. Fuel and recovery remain under normal game behavior.
 
-Up to two ASW helicopters deploy from each surface group's available embarked stock, preferring the carrier and otherwise using a helicopter-equipped escort. Each flies an independent barrier pattern and receives native `AttackAtWaypoint` orders to drop six sonobuoys when its loadout supports them. The generator resolves buoy ammunition, including date-based substitutions, and assigns the supplying ship as home base. These routes do not loop, so helicopters do not endlessly repeat buoy drops. Submarine groups do not receive aircraft.
+Up to two patrol helicopters deploy from each surface group's available embarked stock, preferring the carrier and otherwise using a helicopter-equipped escort. ASW loadouts prefer combined fits, then long-range ASW, torpedo-only killer fits, depth bombs, and finally buoy-only hunter fits. The selected fit must be listed by the aircraft and contain payload stations. Ka-27 ASW patrols carry a torpedo and buoys; Ka-25 ASW patrols use their torpedo-carrying killer fit. Each eligible helicopter has a 10% chance to take a supported CAS or AntiArmor fit instead, chosen with equal probability. These use `AntiSurface` orders and a local surface patrol without sonobuoy drops or the `HeloASW` station role. Rolls use the scenario seed with separate streams for each side, including campaign missions. AEW loadouts remain unchanged.
+
+ASW patrols fly independent barrier patterns and receive native `AttackAtWaypoint` orders to drop six sonobuoys when their loadout supports them. The generator resolves buoy ammunition, including date-based substitutions, and assigns the supplying ship as home base. These routes do not loop, so helicopters do not endlessly repeat buoy drops. Submarine groups do not receive aircraft.
 
 ### Battle geometry
 

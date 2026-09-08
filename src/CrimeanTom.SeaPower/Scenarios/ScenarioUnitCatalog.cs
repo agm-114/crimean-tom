@@ -200,12 +200,7 @@ internal static class ScenarioUnitCatalog
                     null));
             }
 
-            string? aswLoadout = loadouts.FirstOrDefault(candidate =>
-                isHelicopter && candidate.Equals("ASWHunter", StringComparison.OrdinalIgnoreCase)) ??
-                loadouts.FirstOrDefault(candidate =>
-                    isHelicopter && candidate.Equals("ASWHunterLight", StringComparison.OrdinalIgnoreCase)) ??
-                loadouts.FirstOrDefault(candidate =>
-                    isHelicopter && candidate.StartsWith("ASW", StringComparison.OrdinalIgnoreCase));
+            string? aswLoadout = isHelicopter ? SelectAswLoadout(aircraftPath, loadouts) : null;
             if (aswLoadout is not null)
             {
                 aswCandidates.Add(new CarrierAirPlan(
@@ -215,7 +210,10 @@ internal static class ScenarioUnitCatalog
                     "AntiSub",
                     isHelicopter,
                     Math.Max(0, available),
-                    ReadSonobuoyAmmunition(aircraftPath, aswLoadout, 1985)));
+                    ReadSonobuoyAmmunition(aircraftPath, aswLoadout, 1985),
+                    loadouts.Where(loadout => (loadout.Equals("CAS", StringComparison.OrdinalIgnoreCase) ||
+                            loadout.Equals("AntiArmor", StringComparison.OrdinalIgnoreCase)) &&
+                        ReadLoadoutStations(aircraftPath, loadout).Any()).ToArray()));
             }
         }
 
@@ -234,48 +232,44 @@ internal static class ScenarioUnitCatalog
             : new CarrierAirPackage(cap, aew, asw);
     }
 
+    internal static string? SelectAswLoadout(string aircraftPath, IReadOnlyList<string> loadouts)
+    {
+        // Hunter fits can carry only buoys. Prefer a patrol that can also attack a contact.
+        string[] preference = ["ASW", "ASWLongRange", "ASWKiller", "ASWBomb", "ASWHunter", "ASWHunterLight"];
+        return preference.Select(wanted => loadouts.FirstOrDefault(candidate =>
+                candidate.Equals(wanted, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(loadout => loadout is not null && ReadLoadoutStations(aircraftPath, loadout).Any());
+    }
+
+    private static IEnumerable<string> ReadLoadoutStations(string aircraftPath, string loadout) =>
+        ReadSections(aircraftPath)
+            .Where(section => section.Section.StartsWith("WeaponSystem", StringComparison.OrdinalIgnoreCase) &&
+                section.Section.EndsWith(loadout, StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(section.Section["WeaponSystem".Length..^loadout.Length], out _))
+            .SelectMany(section => section.Values)
+            .Where(pair => pair.Key.StartsWith("Station", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(pair.Key["Station".Length..], out _) && !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => pair.Value);
+
     private static string? ReadSonobuoyAmmunition(
         string aircraftPath,
         string loadout,
         int scenarioYear)
     {
-        IReadOnlyList<(string Section, IReadOnlyDictionary<string, string> Values)> sections =
-            ReadSections(aircraftPath).ToArray();
-        string suffix = loadout.Equals("Default", StringComparison.OrdinalIgnoreCase)
-            ? "Default"
-            : loadout;
-        foreach ((string section, IReadOnlyDictionary<string, string> values) in sections)
+        foreach (string value in ReadLoadoutStations(aircraftPath, loadout))
         {
-            if (!section.StartsWith("WeaponSystem", StringComparison.OrdinalIgnoreCase) ||
-                !section.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            if (!value.Contains("Sonobuoy", StringComparison.OrdinalIgnoreCase)) continue;
+            string ammunition = value.Split('|')[0].Trim();
+            if (!ammunition.StartsWith("DateBased_", StringComparison.OrdinalIgnoreCase)) return ammunition;
 
-            foreach ((string key, string value) in values)
-            {
-                if (!key.StartsWith("Station", StringComparison.OrdinalIgnoreCase) ||
-                    !value.Contains("Sonobuoy", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                string ammunition = value.Split('|')[0].Trim();
-                if (!ammunition.StartsWith("DateBased_", StringComparison.OrdinalIgnoreCase))
-                {
-                    return ammunition;
-                }
-
-                string substitutions = ReadFirstIniValue(aircraftPath, ammunition);
-                string? datedAmmunition = substitutions
-                    .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(entry => entry.Split(','))
-                    .Where(parts => parts.Length >= 2 && int.TryParse(parts[0], out int year) && year <= scenarioYear)
-                    .OrderByDescending(parts => int.Parse(parts[0]))
-                    .Select(parts => parts[1].Trim())
-                    .FirstOrDefault();
-                return datedAmmunition;
-            }
+            string substitutions = ReadFirstIniValue(aircraftPath, ammunition);
+            return substitutions
+                .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(entry => entry.Split(','))
+                .Where(parts => parts.Length >= 2 && int.TryParse(parts[0], out int year) && year <= scenarioYear)
+                .OrderByDescending(parts => int.Parse(parts[0]))
+                .Select(parts => parts[1].Trim())
+                .FirstOrDefault();
         }
 
         return null;
@@ -362,7 +356,19 @@ internal record CarrierAirPlan(
     string MissionType,
     bool IsHelicopter,
     int AvailableCount,
-    string? SonobuoyAmmunition);
+    string? SonobuoyAmmunition,
+    IReadOnlyList<string>? SurfaceAttackLoadouts = null)
+{
+    internal CarrierAirPlan RollPatrolLoadout(System.Random random) =>
+        IsHelicopter && MissionType == "AntiSub" && SurfaceAttackLoadouts is { Count: > 0 } && random.NextDouble() < 0.10
+            ? this with
+            {
+                LoadoutVariant = SurfaceAttackLoadouts[random.Next(SurfaceAttackLoadouts.Count)],
+                MissionType = "AntiSurface",
+                SonobuoyAmmunition = null,
+            }
+            : this;
+}
 
 internal record CarrierAirPackage(
     CarrierAirPlan? CombatAirPatrol,

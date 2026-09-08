@@ -11,7 +11,8 @@ internal static class FleetOrderOfBattlePlanner
         float engagementSeparationNm,
         int controlledCount,
         string controlledLabel,
-        string delegatedLabel)
+        string delegatedLabel,
+        int seed)
     {
         List<IndexedShip> indexed = MissionUnitReferences.NumberHulls(taskforce, force.Ships, ship => ship.IsSubmarine)
             .Select((entry, index) => new IndexedShip(index, entry.Unit, entry.Reference)).ToList();
@@ -26,7 +27,8 @@ internal static class FleetOrderOfBattlePlanner
         List<FleetFormationPlan> formations = [];
         List<DeployedAircraft> aircraft = [];
         EmbarkedAirDeployment airDeployment = new(
-            taskforce, direction, heading, engagementSeparationNm, aircraft, formations);
+            taskforce, direction, heading, engagementSeparationNm, aircraft, formations,
+            new Random(seed ^ (taskforce == "Taskforce1" ? 0x48454C31 : 0x48454C32)));
         for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
         {
             FleetGroupPlan group = groups[groupIndex];
@@ -99,7 +101,7 @@ internal static class FleetOrderOfBattlePlanner
     // One builder per fleet side, so aircraft IDs keep increasing across carrier groups.
     private class EmbarkedAirDeployment(
         string taskforce, float direction, float heading, float engagementSeparationNm,
-        ICollection<DeployedAircraft> aircraft, ICollection<FleetFormationPlan> formations)
+        ICollection<DeployedAircraft> aircraft, ICollection<FleetFormationPlan> formations, Random random)
     {
         private int _aircraftNumber;
         private int _helicopterNumber;
@@ -202,26 +204,24 @@ internal static class FleetOrderOfBattlePlanner
             int count = Math.Min(2, plan.AvailableCount);
             for (int index = 0; index < count; index++)
             {
+                CarrierAirPlan patrol = plan.RollPatrolLoadout(random);
+                bool surfaceAttack = patrol.MissionType == "AntiSurface";
                 string reference = $"{taskforce}Helicopter{++_helicopterNumber}";
                 float lane = index == 0 ? 1f : -1f;
                 aircraft.Add(new DeployedAircraft(
                     station.Host.SourceIndex,
                     reference,
                     station.Host.Reference,
-                    plan,
+                    patrol,
                     station.X + (direction * 6f),
                     station.Z + (lane * 8f),
                     200f,
-                    BuildSonobuoyBarrierRoute(
-                        station.X,
-                        station.Z,
-                        direction,
-                        lane,
-                        200f,
-                        plan.SonobuoyAmmunition,
-                        engagementSeparationNm),
+                    surfaceAttack
+                        ? BuildAirPatrolRoute(station.X, station.Z, direction, 200f, index, engagementSeparationNm)
+                        : BuildSonobuoyBarrierRoute(station.X, station.Z, direction, lane, 200f,
+                            patrol.SonobuoyAmmunition, engagementSeparationNm),
                     heading,
-                    "HeloASW"));
+                    surfaceAttack ? "Default" : "HeloASW"));
             }
         }
     }
