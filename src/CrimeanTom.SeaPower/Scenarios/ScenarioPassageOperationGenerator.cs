@@ -56,7 +56,7 @@ internal static partial class ScenarioDebugGenerator
         AppendMission(mission, match, size, "Taskforce1", parameters, passageForce, blockingForce);
         passageForce.WriteTo(mission, maskFirstNation: false);
         blockingForce.WriteTo(mission, maskFirstNation: false);
-        AppendCivilianTraffic(mission, parameters);
+        AppendCivilianTraffic(mission, parameters, match);
         AppendPassageTriggers(
             mission,
             corridor.DestinationX,
@@ -66,6 +66,7 @@ internal static partial class ScenarioDebugGenerator
         AppendOpposedObjectives(mission, "Taskforce1ForcePassage", "Taskforce2DenyPassage");
         AppendRetreatAnchors(mission, match);
         AppendActivity(mission, match, parameters, options, "Taskforce1");
+        ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }
 

@@ -369,7 +369,7 @@ internal static partial class ScenarioDebugGenerator
         route.FirstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
         route.ProtectedUnits.ForEach(unit => unit.WriteTo(mission));
         route.SecondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
-        AppendCivilianTraffic(mission, parameters);
+        AppendCivilianTraffic(mission, parameters, match);
         AppendRouteTriggers(mission, route, playerTaskforce);
         AppendOpposedObjectives(mission, "Taskforce1DeliverProtectedGroup", "Taskforce2StopProtectedGroup");
         AppendRetreatAnchors(mission, match);
@@ -381,6 +381,7 @@ internal static partial class ScenarioDebugGenerator
                 route.FirstDeployment.Units.Select(NavalWeaponEnvelope.From)
                     .Concat(route.ProtectedUnits.Select(unit => new NavalWeaponEnvelope(unit.UnitType, unit.X, unit.Z))).ToArray(),
                 parameters.Seed, playerTaskforce == "Taskforce2", options.Spectator);
+        ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }
 

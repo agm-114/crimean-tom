@@ -94,7 +94,7 @@ internal static partial class ScenarioDebugGenerator
             secondDeployment);
         firstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
         secondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
-        AppendCivilianTraffic(mission, parameters);
+        AppendCivilianTraffic(mission, parameters, match);
         AppendTriggers(
             mission,
             firstDeployment.Units.Select(unit => unit.Reference),
@@ -106,6 +106,7 @@ internal static partial class ScenarioDebugGenerator
         AppendActivity(mission, match, parameters, options, playerTaskforce);
         ScenarioChart.WriteFleetClash(mission, match, parameters.Seed, parameters.SeparationNm, playerDeployment,
             playerIsFirst ? secondDeployment : firstDeployment);
+        ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }
 
@@ -225,7 +226,8 @@ internal static partial class ScenarioDebugGenerator
 
     private static void AppendCivilianTraffic(
         MissionWriter mission,
-        ScenarioParameters parameters)
+        ScenarioParameters parameters,
+        FleetClashMatch match)
     {
         System.Random random = new(parameters.Seed ^ 0x43A9E27);
         string[] vesselTypes =
@@ -266,6 +268,7 @@ internal static partial class ScenarioDebugGenerator
                 aircraftTypes[random.Next(aircraftTypes.Length)], new(x, altitude, z), heading,
                 IsAircraft: true).WriteTo(mission);
         }
+        ScenarioWildlife.WriteTo(mission, parameters.Seed, new(match.Latitude, match.Longitude), parameters.SeparationNm);
     }
 
     private static void AppendStartTrigger(MissionWriter mission, string name)
