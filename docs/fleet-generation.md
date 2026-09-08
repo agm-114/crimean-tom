@@ -25,6 +25,12 @@ Local nations still receive the usual regional preference, but every nation assi
 
 Nearby ships, submarines, coastal sites and independent aircraft use the same assignments. The generated INI records `ChaosMode`, `BlueNations` and `RedNations` in its `CrimeanTom` section. Normal scenario alignments and campaign diplomacy are unchanged.
 
+## Special modes
+
+Skirmish setup defaults to `None`. `No missiles` excludes ships and submarines with dedicated anti-ship missiles, plus carriers whose air wings could supply them. The filter checks ammunition definitions for `Type=Missile` and primary `TargetType=ASuW`, including dated ammunition choices. It excludes the platform, not just its current missile stock. Missing weapon data is excluded conservatively.
+
+The same filter covers nearby naval patrols, coastal batteries and independent aircraft loadouts. Force scaling and chase allowances cannot reintroduce excluded ships. If a side has no eligible local surface combatants, its allied roster can provide the core fleet. Guns, torpedoes, unguided rockets, bombs, defensive SAMs and ASW rockets remain available. SAMs with secondary surface-attack capability remain, so the mode is not a blanket prohibition on every missile launch. It works with Chaos mode and both command and observer scenarios. The generated INI records `SpecialMode` in its `CrimeanTom` section.
+
 ## Design goals
 
 ### Believable composition

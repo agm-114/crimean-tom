@@ -172,6 +172,7 @@ internal static partial class ScenarioDebugGenerator
             mission.Set("CrimeanTom", "BlueNations", string.Join(',', blue.RegionalNations.Concat(blue.AlliedNations)));
             mission.Set("CrimeanTom", "RedNations", string.Join(',', red.RegionalNations.Concat(red.AlliedNations)));
         }
+        mission.Set("CrimeanTom", "SpecialMode", match.SpecialMode);
         mission.Section("Environment");
         mission.Write("Date", "1985,6,15");
         mission.Write("Time", $"{parameters.Hour},{parameters.Minute}");

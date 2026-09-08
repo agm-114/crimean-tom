@@ -53,7 +53,8 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
                 int landBudget = naval ? Math.Max(3, (int)Math.Ceiling(remaining * 0.7)) : remaining;
                 landBudget = Math.Min(remaining, landBudget);
                 NearbyGroundOption[] options = NearbyGroundCatalog.All
-                    .Where(option => nations.Contains(option.Nation, StringComparer.OrdinalIgnoreCase)).ToArray();
+                    .Where(option => nations.Contains(option.Nation, StringComparer.OrdinalIgnoreCase) &&
+                        match.SpecialMode.Allows(option.Type)).ToArray();
                 foreach (NearbyGroundOption option in options.OrderBy(_ => random.Next()))
                 {
                     if (option.Points > landBudget || units.Count - before >= 3) continue;
@@ -76,7 +77,7 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
             before = units.Count;
             if (naval)
             {
-                var pool = FleetClashForceGenerator.BuildPool(new(force.PrimaryNation, nations, []))
+                var pool = FleetClashForceGenerator.BuildPool(new(force.PrimaryNation, nations, []), match.SpecialMode)
                     .Where(unit => !unit.IsCarrier && unit.PointCost <= remaining).OrderBy(_ => random.Next()).ToArray();
                 foreach (FleetUnitArchetype ship in pool)
                 {

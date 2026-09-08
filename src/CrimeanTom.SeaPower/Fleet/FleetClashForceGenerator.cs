@@ -26,9 +26,10 @@ internal static class FleetClashForceGenerator
         System.Random random,
         FleetComposition? composition = null,
         bool excludeCarriers = false,
-        IReadOnlyList<int>? randomCompositionWeights = null)
+        IReadOnlyList<int>? randomCompositionWeights = null,
+        ScenarioSpecialMode specialMode = ScenarioSpecialMode.None)
     {
-        IReadOnlyList<FleetUnitArchetype> pool = BuildPool(side).Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
+        IReadOnlyList<FleetUnitArchetype> pool = BuildPool(side, specialMode).Where(unit => !excludeCarriers || !unit.IsCarrier).ToArray();
         if (pool.Count == 0 || !pool.Any(candidate => candidate.IsRegional &&
             (!candidate.IsSubmarine || composition == FleetComposition.SubmarineHeavy)))
         {
@@ -53,7 +54,8 @@ internal static class FleetClashForceGenerator
             candidates.Add(candidate);
         }
         if (candidates.Count == 0 && randomProfile)
-            return GenerateCandidates(side, size, count, random, FleetComposition.SurfaceFocused, excludeCarriers);
+            return GenerateCandidates(side, size, count, random, FleetComposition.SurfaceFocused, excludeCarriers,
+                specialMode: specialMode);
         if (candidates.Count == 0) throw new InvalidOperationException($"{side.DisplayName} cannot build a viable {composition} force at this size.");
         return candidates;
     }
@@ -89,7 +91,8 @@ internal static class FleetClashForceGenerator
             fleet.Resilience);
     }
 
-    internal static IReadOnlyList<FleetUnitArchetype> BuildPool(FleetSidePlan side)
+    internal static IReadOnlyList<FleetUnitArchetype> BuildPool(FleetSidePlan side,
+        ScenarioSpecialMode specialMode = ScenarioSpecialMode.None)
     {
         HashSet<string> regionalNations = new(side.RegionalNations, StringComparer.OrdinalIgnoreCase);
         HashSet<string> alliedNations = new(side.AlliedNations, StringComparer.OrdinalIgnoreCase);
@@ -99,7 +102,11 @@ internal static class FleetClashForceGenerator
         AddArchetypes(output, alliedNations, isRegional: false);
         AddSubmarineArchetypes(output, regionalNations, isRegional: true);
         AddSubmarineArchetypes(output, alliedNations, isRegional: false);
-        return output;
+        if (specialMode == ScenarioSpecialMode.None) return output;
+        var filtered = output.Where(unit => !unit.IsCarrier && specialMode.Allows(unit.UnitType)).ToArray();
+        if (alliedNations.Count > 0 && !filtered.Any(unit => unit.IsRegional && !unit.IsSubmarine))
+            return BuildPool(new(side.DisplayName, regionalNations.Concat(alliedNations).ToArray(), []), specialMode);
+        return filtered;
     }
 
     private static void AddArchetypes(
