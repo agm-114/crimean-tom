@@ -42,6 +42,7 @@ internal class FleetClashGenerationOptions
     internal int? Seed { get; set; }
     internal FleetClashSize? Size { get; set; }
     internal string? Region { get; set; }
+    internal bool ChaosMode { get; set; }
     internal int? SeaState { get; set; }
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;
@@ -91,7 +92,9 @@ internal record FleetClashMatch(
     string SecondName,
     FleetClashForce First,
     FleetClashForce Second,
-    double BalanceError);
+    double BalanceError,
+    FleetSidePlan? ChaosFirstSide = null,
+    FleetSidePlan? ChaosSecondSide = null);
 
 internal class FleetClashForce(
     IReadOnlyList<FleetClashShip> ships,

@@ -166,6 +166,12 @@ internal static partial class ScenarioDebugGenerator
         FleetClashMatch match,
         ScenarioParameters parameters)
     {
+        if (match.ChaosFirstSide is { } blue && match.ChaosSecondSide is { } red)
+        {
+            mission.Set("CrimeanTom", "ChaosMode", true);
+            mission.Set("CrimeanTom", "BlueNations", string.Join(',', blue.RegionalNations.Concat(blue.AlliedNations)));
+            mission.Set("CrimeanTom", "RedNations", string.Join(',', red.RegionalNations.Concat(red.AlliedNations)));
+        }
         mission.Section("Environment");
         mission.Write("Date", "1985,6,15");
         mission.Write("Time", $"{parameters.Hour},{parameters.Minute}");

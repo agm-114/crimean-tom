@@ -17,6 +17,14 @@ The generator therefore works in layers:
 
 The scenario seed, selected theater, nations, classes, variants, and balance measurements must be logged. A surprising or broken result must be reproducible.
 
+## Chaos mode
+
+The skirmish setup has a Chaos mode checkbox, off by default, for fleet clash and route operations, including observers. Each nation, including normally unaligned nations, rolls Blue or Red independently. A nation cannot belong to both sides. Rolls use the scenario seed; Reroll creates a new split.
+
+Local nations still receive the usual regional preference, but every nation assigned to that side can provide allied units regardless of its normal alignment. If a side has no usable local fleet, it draws from its full assigned roster. Invalid splits are rerolled up to 32 times to obtain usable forces on both sides. Fleet balancing, composition choices and difficulty remain in effect.
+
+Nearby ships, submarines, coastal sites and independent aircraft use the same assignments. The generated INI records `ChaosMode`, `BlueNations` and `RedNations` in its `CrimeanTom` section. Normal scenario alignments and campaign diplomacy are unchanged.
+
 ## Design goals
 
 ### Believable composition

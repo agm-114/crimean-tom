@@ -12,12 +12,15 @@ internal static class FleetClashBalancer
         string? playerTaskforce = null,
         FleetComposition composition = FleetComposition.Random,
         bool excludeCarriers = false,
-        bool submarineBiasedAttackers = false)
+        bool submarineBiasedAttackers = false,
+        bool chaosMode = false)
     {
         var (theater, firstSide, secondSide) = FleetClashTheaterCatalog.Pick(
             random,
             FleetClashForceGenerator.IsViable,
             region);
+        if (chaosMode)
+            (firstSide, secondSide) = FactionCatalog.CreateChaosSides(theater, random, FleetClashForceGenerator.IsViable);
         FleetCandidate[] firstFleets = FleetClashForceGenerator.GenerateCandidates(
             firstSide,
             size,
@@ -48,7 +51,9 @@ internal static class FleetClashBalancer
             secondSide.DisplayName,
             FleetClashForceGenerator.Finalize(match.First, random),
             FleetClashForceGenerator.Finalize(match.Second, random),
-            match.Error);
+            match.Error,
+            chaosMode ? firstSide : null,
+            chaosMode ? secondSide : null);
     }
 
     internal static int GetShipCount(FleetClashSize size) => size switch

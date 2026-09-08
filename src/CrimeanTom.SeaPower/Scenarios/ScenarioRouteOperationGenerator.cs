@@ -46,7 +46,8 @@ internal static partial class ScenarioDebugGenerator
         string playerTaskforce = options.RoutePerspective == RouteOperationPerspective.Escort
             ? "Taskforce1"
             : "Taskforce2";
-        FleetClashMatch match = GenerateRouteMatch(random, size, options.Region, playerTaskforce, options.EnemyComposition);
+        FleetClashMatch match = GenerateRouteMatch(random, size, options.Region, playerTaskforce,
+            options.EnemyComposition, options.ChaosMode);
         match = ApplyEnemyMultiplier(
             match,
             random,
@@ -103,8 +104,10 @@ internal static partial class ScenarioDebugGenerator
         FleetClashSize size,
         string? region,
         string? playerTaskforce = null,
-        FleetComposition composition = FleetComposition.Random)
-        => FleetClashBalancer.Generate(random, size, region, playerTaskforce, composition, excludeCarriers: true, submarineBiasedAttackers: true);
+        FleetComposition composition = FleetComposition.Random,
+        bool chaosMode = false)
+        => FleetClashBalancer.Generate(random, size, region, playerTaskforce, composition,
+            excludeCarriers: true, submarineBiasedAttackers: true, chaosMode: chaosMode);
 
     private static RouteOperationPlan CreateRouteOperationPlan(
         System.Random random,

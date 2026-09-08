@@ -100,6 +100,8 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
 
     internal static string[] NationsFor(FleetClashMatch match, string side)
     {
+        FleetSidePlan? assigned = side == "Taskforce1" ? match.ChaosFirstSide : match.ChaosSecondSide;
+        if (assigned is not null) return assigned.RegionalNations.Concat(assigned.AlliedNations).ToArray();
         FleetClashForce force = side == "Taskforce1" ? match.First : match.Second;
         FleetAlignment alignment = FactionCatalog.Get(force.PrimaryNation)?.Alignment ?? FleetAlignment.Unaligned;
         return force.Ships.Select(ship => ship.Nation).Concat(FactionCatalog.Nations
