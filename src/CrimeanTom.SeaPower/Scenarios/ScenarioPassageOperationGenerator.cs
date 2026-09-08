@@ -14,7 +14,7 @@ internal static partial class ScenarioDebugGenerator
     {
         RouteCorridor corridor = CreateRouteCorridor(
             match, size, parameters.LateralOffsetNm, parameters.LateralOffsetNm < 0f ? -1f : 1f,
-            "Taskforce1", playerUnitCount);
+            "Taskforce1", playerUnitCount, parameters.Seed);
         FleetDeployment passageForce = options.Starting.Apply(corridor.First);
         FleetDeployment blockingForce = corridor.Second;
 
