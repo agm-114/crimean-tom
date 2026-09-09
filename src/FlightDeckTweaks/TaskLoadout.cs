@@ -14,8 +14,7 @@ public class TaskLoadout : INotifyPropertyChanged
         && task._flightDeck.FlightDeckTasks.Contains(task)
         && task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask or HandleAwaitGroundCrewTask
             or HandleReadyUpTask or HandleAwaitSpawnTask;
-    public Loadout[] Loadouts => task.VehicleType.Loadouts.Where(loadout => loadout == SelectedLoadout
-        || loadout.ServiceEntryYear <= CurrentYear).ToArray();
+    public Loadout[] Loadouts { get; }
     private static int CurrentYear => Singleton<SeaPower.Environment>.InstanceExists()
         ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
     public string PreparationStatus => TaskPreparation.Find(task) is { } preparation
@@ -43,6 +42,8 @@ public class TaskLoadout : INotifyPropertyChanged
     public TaskLoadout(PendingLaunchTask task)
     {
         this.task = task;
+        Loadouts = task.VehicleType.Loadouts.Where(loadout => loadout == SelectedLoadout
+            || loadout.ServiceEntryYear <= CurrentYear).ToArray();
         task._stateMachine.OnStateChanged += (_, _) =>
         {
             PropertyChanged?.Invoke(this, new(nameof(CanChange)));
@@ -54,6 +55,24 @@ public class TaskLoadout : INotifyPropertyChanged
             nextStatusUpdate = GameTime.time + 1;
             PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
         };
+    }
+
+    internal string Preview(Loadout loadout)
+    {
+        if (loadout == SelectedLoadout) return PreparationStatus;
+        if (!CanChange) return "This task can no longer change loadout.";
+        if (TaskPreparation.Find(task) is not { } preparation)
+            return "Swap estimate unavailable: this task uses native preparation.";
+        try
+        {
+            PreparationLoadout target = PreparationCatalog.Loadout(task.VehicleType, loadout);
+            string stock = CanAfford(loadout, preparation, target) ? "" : "Insufficient ammunition stock.\n";
+            return $"Switch to {loadout.DisplayName}\n{stock}{preparation.DescribeSwap(task, target)}";
+        }
+        catch (Exception)
+        {
+            return "Swap estimate unavailable for this loadout.";
+        }
     }
 
     private bool CanAfford(Loadout loadout, TaskPreparation? preparation, PreparationLoadout? target)
@@ -80,14 +99,26 @@ public class TaskLoadout : INotifyPropertyChanged
         string callsign = squadron.Callsigns[task._callsignIndex];
         int index = deck.FlightDeckTasks.IndexOf(task);
         // Abort refunds the old weapons and aircraft; creation reserves the new loadout normally.
-        deck.abortLaunchTask(task._uid);
-        task._ltp._launchCount = task.LaunchCount;
-        task._ltp._skipReadyUp = false;
-        PendingLaunchTask replacement = deck.createLaunchTask(task.VehicleType, loadout, squadron, callsign,
-            task._ltp, allowLaunch: false, readyUpTime: loadout._readyUpDuration);
-        if (preparation != null && target != null) preparation.Transfer(replacement, target);
-        replacement._formation = task._formation;
-        replacement.Launched = task.Launched;
-        deck.FlightDeckTasks.Move(deck.FlightDeckTasks.IndexOf(replacement), index);
+        HangarPreparation.ChangingLoadout = true;
+        try
+        {
+            deck.abortLaunchTask(task._uid);
+            task._ltp._launchCount = task.LaunchCount;
+            task._ltp._skipReadyUp = false;
+            PendingLaunchTask replacement = deck.createLaunchTask(task.VehicleType, loadout, squadron, callsign,
+                task._ltp, allowLaunch: false, readyUpTime: loadout._readyUpDuration);
+            if (replacement == null)
+            {
+                HangarPreparation.ChangingLoadout = false;
+                if (preparation != null) HangarPreparation.Return(task, preparation.Batch);
+                deck.UpdateLoadoutsAvailability();
+                return;
+            }
+            if (preparation != null && target != null) preparation.Transfer(replacement, target);
+            replacement._formation = task._formation;
+            replacement.Launched = task.Launched;
+            deck.FlightDeckTasks.Move(deck.FlightDeckTasks.IndexOf(replacement), index);
+        }
+        finally { HangarPreparation.ChangingLoadout = false; }
     }
 }

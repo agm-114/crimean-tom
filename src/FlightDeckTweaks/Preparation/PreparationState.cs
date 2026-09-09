@@ -77,7 +77,7 @@ internal class AircraftPreparation
     }
 
     private static string Quantity(double value) => value > 0 && value < 0.01 ? "<0.01" : $"{Math.Floor(value * 100) / 100:0.##}";
-    private static string Duration(double seconds) => double.IsInfinity(seconds) || double.IsNaN(seconds) ? "unknown"
+    internal static string Duration(double seconds) => double.IsInfinity(seconds) || double.IsNaN(seconds) ? "unknown"
         : $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m {Math.Ceiling(seconds) % 60:00}s";
 
     internal AircraftPreparation(PreparationLoadout target)
@@ -90,6 +90,15 @@ internal class AircraftPreparation
     {
         Target = target;
         foreach (StoreRequirement store in target.Stores) knownStores[store.Reference] = store;
+    }
+
+    internal AircraftPreparation Preview(PreparationLoadout target)
+    {
+        AircraftPreparation preview = new(Target) { Fuel = Fuel };
+        foreach (var store in knownStores) preview.knownStores[store.Key] = store.Value;
+        foreach (var store in Mounted) preview.Mounted[store.Key] = store.Value;
+        preview.Retarget(target);
+        return preview;
     }
 
     private IEnumerable<(string Reference, double Amount, double Seconds, string Activity)> Operations()
@@ -176,6 +185,13 @@ internal class PreparationBatch(int count, PreparationLoadout target)
     internal void Retarget(PreparationLoadout loadout) => Aircraft.ForEach(aircraft => aircraft.Retarget(loadout));
     internal void Complete() => Aircraft.ForEach(aircraft => aircraft.Complete());
 
+    internal PreparationBatch Preview(PreparationLoadout target)
+    {
+        PreparationBatch preview = new(0, target);
+        preview.Aircraft.AddRange(Aircraft.Select(aircraft => aircraft.Preview(target)));
+        return preview;
+    }
+
     internal double EstimatedSeconds(int crews)
     {
         if (crews <= 0) return double.PositiveInfinity;
@@ -197,16 +213,21 @@ internal class PreparationBatch(int count, PreparationLoadout target)
         }
     }
 
-    internal string Save() => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
-        new XElement("Preparation", Aircraft.Select(aircraft => aircraft.Save())).ToString(SaveOptions.DisableFormatting)))
+    internal string Save() => Encode(new XElement("Preparation", Aircraft.Select(aircraft => aircraft.Save())));
+    internal static string Encode(XElement value) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value.ToString(SaveOptions.DisableFormatting)))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    internal void Load(string saved, PreparationLoadout loadout)
+    internal static XElement Decode(string saved)
     {
         // INI strips comment markers and splits '='; unpadded base64url avoids both.
         string encoded = saved.Replace('-', '+').Replace('_', '/');
         encoded = encoded.PadRight((encoded.Length + 3) / 4 * 4, '=');
-        XElement root = XElement.Parse(System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded)));
+        return XElement.Parse(System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded)));
+    }
+
+    internal void Load(string saved, PreparationLoadout loadout)
+    {
+        XElement root = Decode(saved);
         XElement[] units = root.Elements("Aircraft").ToArray();
         if (root.Name != "Preparation" || units.Length != Aircraft.Count) throw new FormatException("Preparation count mismatch");
         List<AircraftPreparation> restored = [];
