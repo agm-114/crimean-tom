@@ -6,7 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>0.1.0</Version>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
     <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
     <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\FlightDeckTweaks</PluginDeployDirectory>
   </PropertyGroup>
@@ -14,6 +16,22 @@
   <ItemGroup>
     <Reference Include="AnchorChain">
       <HintPath>$(AnchorChainDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(SeaPowerDir)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Seapower-Scripts">
+      <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Noesis.NoesisGUI">
+      <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
