@@ -10,6 +10,9 @@ internal record MissionPosition(float X, float Altitude, float Z, string? Depth 
 
 internal record MissionWaypoint(MissionPosition Position, WaypointOrder? Order = null)
 {
+    internal MissionWaypoint Transform(Func<MissionPosition, MissionPosition> transform) => new(transform(Position),
+        Order is AttackAtWaypointOrder attack ? attack with { Target = transform(attack.Target) } : Order);
+
     internal string ToMissionValue() => Position.ToMissionValue() +
         (Order is null ? string.Empty : $"/{Order.ToMissionValue()}");
 

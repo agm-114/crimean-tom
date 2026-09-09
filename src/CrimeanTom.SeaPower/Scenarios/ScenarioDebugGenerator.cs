@@ -11,6 +11,8 @@ internal static partial class ScenarioDebugGenerator
     private const string SpectatorLauncherFileName = "Generated Fleet Clash Spectator.ini";
     private const string RouteOperationLauncherFileName = "Generated Route Operation.ini";
     private const string RouteObserverLauncherFileName = "Generated Route Operation Observer.ini";
+    private const string SearchLauncherFileName = "Generated Submarine Hunt.ini";
+    private const string SearchObserverFileName = "Generated Submarine Hunt Observer.ini";
 
     private static int _generationCounter;
     internal static string? LastGenerationError { get; private set; }
@@ -52,6 +54,18 @@ internal static partial class ScenarioDebugGenerator
             {
                 SeaState = 1, Region = "North Atlantic", RouteEncounter = RouteEncounterKind.MidCrossing, Spectator = true,
             }, useLauncherMetadata: true));
+            foreach (bool observer in new[] { false, true })
+                WriteTemplate(() => GenerateSearchEntry(GetSearchPath(observer), new()
+                {
+                    Size = FleetClashSize.Small, Region = "North Atlantic", Spectator = observer,
+                }, true));
+            foreach (ObjectiveOperation operation in Enum.GetValues(typeof(ObjectiveOperation)))
+            foreach (bool observer in new[] { false, true })
+                WriteTemplate(() => GenerateObjectiveEntry(ObjectivePath(operation, observer), new()
+                {
+                    Size = FleetClashSize.Small, Region = operation == ObjectiveOperation.FixedTarget ? "Baltic Sea" : "North Atlantic",
+                    Spectator = observer, EnemyComposition = FleetComposition.SurfaceFocused,
+                }, operation, true));
         }
         catch (Exception exception)
         {
@@ -87,7 +101,7 @@ internal static partial class ScenarioDebugGenerator
             string.Equals(
                 fullPath,
                 Path.GetFullPath(GetRouteOperationLauncherPath()),
-                StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
+            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath) || IsSearchLauncherPath(scenarioPath) || ObjectiveFromPath(scenarioPath) is not null;
     }
 
     internal static bool IsSpectatorLauncherPath(string? scenarioPath) =>
@@ -95,7 +109,7 @@ internal static partial class ScenarioDebugGenerator
         string.Equals(
             Path.GetFullPath(scenarioPath),
             Path.GetFullPath(GetSpectatorLauncherPath()),
-            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
+            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath) || IsSearchObserverPath(scenarioPath) || IsObjectiveObserver(scenarioPath);
 
     internal static bool IsRouteOperationLauncherPath(string? scenarioPath) =>
         !string.IsNullOrWhiteSpace(scenarioPath) &&
@@ -114,7 +128,15 @@ internal static partial class ScenarioDebugGenerator
         LastGenerationError = null;
         try
         {
-            if (IsRouteOperationLauncherPath(scenarioPath))
+            if (ObjectiveFromPath(scenarioPath) is { } operation)
+            {
+                GenerateObjectiveEntry(scenarioPath, options, operation, false);
+            }
+            else if (IsSearchLauncherPath(scenarioPath))
+            {
+                GenerateSearchEntry(scenarioPath, options, false);
+            }
+            else if (IsRouteOperationLauncherPath(scenarioPath))
             {
                 GenerateRouteOperationEntry(scenarioPath, options, useLauncherMetadata: false);
             }
@@ -221,7 +243,8 @@ internal static partial class ScenarioDebugGenerator
                 !string.Equals(name, CommandLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(name, SpectatorLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(name, RouteOperationLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, RouteObserverLauncherFileName, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(name, RouteObserverLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
+                  !IsSearchLauncherPath(path) && ObjectiveFromPath(path) is null)
             {
                 File.Delete(path);
             }
@@ -236,7 +259,8 @@ internal static partial class ScenarioDebugGenerator
         double multiplier,
         bool excludeCarriers = false,
         bool preserveComposition = true,
-        FleetComposition? requestedComposition = null)
+        FleetComposition? requestedComposition = null,
+        Func<FleetClashForce, bool>? acceptsForce = null)
     {
         multiplier = Math.Clamp(multiplier, 0.5d, 2d);
         if (Math.Abs(multiplier - 1d) < 0.001d)
@@ -284,6 +308,7 @@ internal static partial class ScenarioDebugGenerator
                 return source[random.Next(source.Length)];
             }).ToArray();
             FleetClashForce candidate = CreateForce(ships);
+            if (acceptsForce is not null && !acceptsForce(candidate)) continue;
             if (profile != FleetComposition.EvenMix && GetComposition(candidate) != profile) continue;
             if (multiplier < 1 && candidate.PointCost >= originalEnemy.PointCost ||
                 multiplier > 1 && candidate.PointCost <= originalEnemy.PointCost) continue;

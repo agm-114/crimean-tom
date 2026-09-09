@@ -30,6 +30,10 @@ internal class MissionWriter
     internal void WritePosition(string key, MissionPosition position) =>
         Write(key, position.ToMissionValue());
 
+    // Native land units only snap to the finalized, flattened terrain when altitude correction is enabled.
+    internal void WriteGroundPosition(MissionPosition position) =>
+        WritePosition("RelativePositionInNM", position with { Altitude = 0, Depth = "low" });
+
     internal void WriteWaypoints(IEnumerable<MissionWaypoint> waypoints, bool loop = false) =>
         Write("Waypoints", MissionWaypoint.FormatRoute(waypoints) + (loop ? "|Loop" : string.Empty));
 

@@ -26,11 +26,14 @@ internal static class ScenarioSetupWindow
         }
 
         bool route = ScenarioDebugGenerator.IsRouteOperationLauncherPath(scenarioPath);
+        bool search = ScenarioDebugGenerator.IsSearchLauncherPath(scenarioPath);
+        ObjectiveOperation? operation = ScenarioDebugGenerator.ObjectiveFromPath(scenarioPath);
         bool spectator = ScenarioDebugGenerator.IsSpectatorLauncherPath(scenarioPath);
         ChoicePicker<ScenarioSpecialMode> specialMode = new(
             [("None", ScenarioSpecialMode.None), ("No missiles", ScenarioSpecialMode.NoMissiles)]);
         specialMode.Control.ToolTip = "Exclude dedicated anti-ship missile platforms and carriers. Defensive SAMs, ASW weapons, guns and torpedoes remain.";
-        var regionChances = FleetClashTheaterCatalog.RegionChances(FleetClashForceGenerator.IsViable);
+        var regionChances = FleetClashTheaterCatalog.RegionChances(side => search
+            ? ScenarioDebugGenerator.IsSearchSideViable(side) : FleetClashForceGenerator.IsViable(side));
         ChoicePicker<FleetClashSize?> size = new(
             [("Random", null), .. Enum.GetValues(typeof(FleetClashSize)).Cast<FleetClashSize>().Select(value =>
                 (ChoiceLabel.Chance(value.ToString(), 1d / 3), (FleetClashSize?)value))]);
@@ -41,7 +44,28 @@ internal static class ScenarioSetupWindow
                 (ChoiceLabel.Chance(value == 1 ? "1 - Calm" : value == 6 ? "6 - Heavy" : value.ToString(),
                     ScenarioRandomization.Chance(ScenarioRandomization.SeaStateWeights, value - 1)), (int?)value))], selectedIndex: 1);
         ChoicePicker<string?> commandSide = new(
-            [("Random", null), (ChoiceLabel.Chance("Blue force", 0.5), "Taskforce1"), (ChoiceLabel.Chance("Red force", 0.5), "Taskforce2")]);
+            search ? [("Hunter", "Taskforce1"), ("Hunted", "Taskforce2")]
+                : operation == ObjectiveOperation.Passage ? [("Runner", "Taskforce1"), ("Blocker", "Taskforce2")]
+                : operation is not null ? [("Attacker", "Taskforce1"), ("Defender", "Taskforce2")]
+                : [("Random", null), (ChoiceLabel.Chance("Blue force", 0.5), "Taskforce1"), (ChoiceLabel.Chance("Red force", 0.5), "Taskforce2")]);
+        ChoicePicker<AreaVariant> areaVariant = new([("Sea-lane control", AreaVariant.SeaLane), ("Anchorage defense", AreaVariant.Anchorage), ("Submarine bastion", AreaVariant.Bastion),
+            ("Surface sweep", AreaVariant.SurfaceSweep), ("ASW sweep", AreaVariant.AswSweep), ("Chokepoint control", AreaVariant.Chokepoint),
+            ("Port approach defense", AreaVariant.PortApproach), ("Relief of an isolated group", AreaVariant.Relief), ("Fleet-in-being patrol", AreaVariant.FleetInBeing)]);
+        ChoicePicker<StrikeVariant> strikeVariant = new([("Radar sites", StrikeVariant.Radar), ("Coastal batteries", StrikeVariant.CoastalBattery), ("Air defenses", StrikeVariant.AirDefense),
+            ("Port / anchorage raid", StrikeVariant.PortRaid), ("Airfield strike", StrikeVariant.Airfield), ("Fuel / ammunition depot", StrikeVariant.Depot),
+            ("Forward base defense", StrikeVariant.ForwardBase), ("Ships rearming", StrikeVariant.RearmingShips), ("Ships repairing", StrikeVariant.RepairingShips),
+            ("Seabed network shore terminal", StrikeVariant.CableTerminal), ("Communications site", StrikeVariant.Communications)]);
+        ChoicePicker<PassageVariant> passageVariant = new([("Surface picket line", PassageVariant.SurfacePicket), ("Breakout", PassageVariant.Breakout), ("Submarines through an ASW barrier", PassageVariant.AswBarrier),
+            ("Strait transit", PassageVariant.StraitTransit), ("Blockade run", PassageVariant.BlockadeRun), ("Carrier breakout", PassageVariant.CarrierBreakout),
+            ("Raider breakout", PassageVariant.RaiderBreakout), ("Reinforcement interception", PassageVariant.Reinforcement), ("Rearguard withdrawal", PassageVariant.Rearguard)]);
+        ChoicePicker<SearchVariant> searchVariant = new([("Submarine hunt", SearchVariant.Submarine), ("Ballistic submarine hunt", SearchVariant.BallisticSubmarine),
+            ("Surface raider hunt", SearchVariant.SurfaceRaider), ("Isolated carrier hunt", SearchVariant.Carrier), ("Damaged group hunt", SearchVariant.DamagedGroup),
+            ("Cruiser hunt", SearchVariant.Cruiser), ("Tender hunt", SearchVariant.Tender), ("Counter-hunt after an attack", SearchVariant.CounterHunt), ("False reports and decoys", SearchVariant.Decoys)]);
+        searchVariant.Control.SelectionChanged += (_, _) =>
+        {
+            regionChances = FleetClashTheaterCatalog.RegionChances(side => ScenarioDebugGenerator.IsSearchSideViable(side, specialMode.Value, searchVariant.Value));
+            region.UpdateLabels(value => value is null ? "Random" : ChoiceLabel.Chance(value, regionChances[value]));
+        };
         ChoicePicker<double> enemyMultiplier = new(
             ScenarioDifficulty.Presets.Select(preset => (preset.Label, preset.Multiplier)).ToArray(), 2, 1d);
         ChoicePicker<FleetComposition> composition = new(
@@ -55,7 +79,9 @@ internal static class ScenarioSetupWindow
             [("Strongest units first", FleetControlPriority.StrongestFirst), ("Weakest units first", FleetControlPriority.WeakestFirst)]);
         ChoicePicker<RouteOperationVariant> variant = new(
             [("Civilian shipping", RouteOperationVariant.CivilianShipping), ("Supply group", RouteOperationVariant.SupplyGroup),
-             ("Minesweeping group", RouteOperationVariant.MinesweepingGroup)]);
+             ("Minesweeping group", RouteOperationVariant.MinesweepingGroup), ("Amphibious group", RouteOperationVariant.AmphibiousGroup),
+             ("High-value ship", RouteOperationVariant.HighValueShip), ("Evacuation shipping", RouteOperationVariant.EvacuationGroup),
+             ("Damaged withdrawal group", RouteOperationVariant.DamagedGroup), ("Replenishment rendezvous", RouteOperationVariant.Replenishment)]);
         ChoicePicker<RouteOperationPerspective> perspective = new(
             [("Escort", RouteOperationPerspective.Escort), ("Interdict", RouteOperationPerspective.Interdict)]);
         void UpdateCompositionChances() => composition.UpdateLabels(value => value == FleetComposition.Random ? "Random" :
@@ -93,7 +119,7 @@ internal static class ScenarioSetupWindow
         specialMode.Control.SelectionChanged += (_, _) =>
         {
             regionChances = FleetClashTheaterCatalog.RegionChances(side =>
-                FleetClashForceGenerator.BuildPool(side, specialMode.Value)
+                search ? ScenarioDebugGenerator.IsSearchSideViable(side, specialMode.Value, searchVariant.Value) : FleetClashForceGenerator.BuildPool(side, specialMode.Value)
                     .Any(unit => unit.IsRegional && !unit.IsSubmarine && (!route || !unit.IsCarrier)));
             region.UpdateLabels(value => value is null ? "Random" : ChoiceLabel.Chance(value, regionChances[value]));
             if (route) UpdateEncounterChances();
@@ -116,7 +142,8 @@ internal static class ScenarioSetupWindow
         StackPanel content = new() { Margin = new Thickness(24f) };
         content.Children.Add(new TextBlock
         {
-            Text = route ? (spectator ? "ROUTE OPERATION OBSERVER" : "GENERATED ROUTE OPERATION") : spectator ? "GENERATED FLEET CLASH - SPECTATOR" : "GENERATED FLEET CLASH",
+            Text = operation is not null ? (operation == ObjectiveOperation.AreaControl ? "AREA CONTROL" : operation == ObjectiveOperation.Passage ? "PASSAGE" : "FIXED-TARGET STRIKE / DEFENSE") + (spectator ? " OBSERVER" : "")
+                : search ? (spectator ? "HUNT OBSERVER" : "HUNT") : route ? (spectator ? "ROUTE OPERATION OBSERVER" : "GENERATED ROUTE OPERATION") : spectator ? "GENERATED FLEET CLASH - SPECTATOR" : "GENERATED FLEET CLASH",
             Foreground = TextBrush,
             FontSize = 25f,
             Margin = new Thickness(0f, 0f, 0f, 8f),
@@ -128,13 +155,17 @@ internal static class ScenarioSetupWindow
             AddField(content, "Encounter location", encounter.Control);
         }
         AddField(content, "Force size", size.Control);
+        if (search) AddField(content, "Hunt target", searchVariant.Control);
+        if (operation == ObjectiveOperation.AreaControl) AddField(content, "Objective", areaVariant.Control);
+        if (operation == ObjectiveOperation.FixedTarget) AddField(content, "Targets", strikeVariant.Control);
+        if (operation == ObjectiveOperation.Passage) AddField(content, "Passage", passageVariant.Control);
         AddField(content, "Region", region.Control);
         content.Children.Add(chaosMode);
         AddField(content, "Special mode", specialMode.Control);
         AddField(content, "Seed (blank = random)", seed);
         AddField(content, "Sea state", seaState.Control);
         AddField(content, spectator ? "Red force strength" : "Difficulty", enemyMultiplier.Control);
-        AddField(content, spectator ? "Red composition" : "Enemy composition", composition.Control);
+        if (!search) AddField(content, spectator ? "Red composition" : "Enemy composition", composition.Control);
         if (!spectator)
         {
             if (!route) AddField(content, "Player command", commandSide.Control);
@@ -144,7 +175,7 @@ internal static class ScenarioSetupWindow
         }
         content.Children.Add(civilianNavalTraffic);
         content.Children.Add(civilianAirTraffic);
-        activity.AddTo(content);
+        if (!search && operation is null) activity.AddTo(content);
         content.Children.Add(status);
 
         StackPanel buttons = new()
@@ -197,9 +228,13 @@ internal static class ScenarioSetupWindow
                 SpecialMode = specialMode.Value,
                 SeaState = seaState.Value,
                 PlayerTaskforce = route ? null : commandSide.Value,
+                AreaVariant = areaVariant.Value,
+                StrikeVariant = strikeVariant.Value,
+                PassageVariant = passageVariant.Value,
+                SearchVariant = searchVariant.Value,
                 EnemySizeMultiplier = enemyMultiplier.Value,
                 Starting = starting.Value,
-                Activity = activity.Value,
+                Activity = search || operation is not null ? ScenarioActivitySettings.Off : activity.Value,
                 EnemyComposition = composition.Value,
                 PlayerControlPercentage = controlPercentage.Value,
                 ControlPriority = controlPriority.Value,

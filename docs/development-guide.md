@@ -28,6 +28,8 @@ Do not add a campaign server, background war simulation, live unit streaming, a 
 | `src/CrimeanTom.SeaPower/Fleet/` | Theater selection, force construction, role assignment, capability scoring, and fleet matching. |
 | `src/CrimeanTom.SeaPower/Fleet/FleetOrderOfBattlePlanner.cs` | Tactical groups, stations, routes, carrier behavior, and deployed aircraft. |
 | `src/CrimeanTom.SeaPower/Scenarios/` | Direct-launch scenarios, unit catalog, mission writing and route operations. |
+| `src/CrimeanTom.SeaPower/Scenarios/ScenarioSearchGenerator.cs` | Standalone submarine, SSBN, surface raider, carrier and damaged-group hunts. |
+| `src/CrimeanTom.SeaPower/Scenarios/ScenarioObjectiveGenerator.cs` | Standalone area control, fixed-target strike/defense and passage variants. |
 | `src/CrimeanTom.SeaPower/Campaign/CampaignScenarioGenerator.cs` | Converts the saved player task force into a generated campaign battle and patches the native generator. |
 | `src/CrimeanTom.SeaPower/Scenarios/ScenarioPassageOperationGenerator.cs` | Builds and finalizes the Strait Passage contract, including its exit-area and force-loss victory conditions. |
 | `src/CrimeanTom.SeaPower/Campaign/CampaignOperationsState.cs` | Campaign lifecycle and turn transitions. Other responsibilities are in partial files alongside it. |
@@ -63,6 +65,33 @@ Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit s
 Folders do not change the `CrimeanTom.SeaPower` namespace, reflected type names or deployment locations. The project already enables SDK implicit usings; avoid repeating those imports in every file.
 
 The three longer documents under `docs/` are design references. They describe intended behavior and should not be treated as proof that every feature is implemented.
+
+### Generated scenario status
+
+The generated category includes Hunt, Area Control, Fixed Target and Passage entries, each with both command perspectives and a separate observer entry. Selection opens the shared settings and regenerates the preview. These new families are standalone; campaign offers and persistent-state handling are unchanged. The existing campaign Strait Passage still uses `ScenarioPassageOperationGenerator.cs`. See `fleet-generation.md` for the implemented variant list and rules.
+
+The five variant-enabled standalone families now contain 46 choices. `ScenarioObjectiveVariants.cs` writes specialized patrol, relief, servicing and withdrawal objectives. `ScenarioVariantHelpers.cs` supplies shared native condition writers, chart markers, support-hull selection and ammunition depletion. Support hulls such as SSBNs and landing ships come from installed assets without widening the campaign purchase roster.
+
+2026-09-09 variant checks on Sea Power `0.8.2-23444+s358`:
+
+- All 46 variants generated through the installed game's developer console with Small forces and real installed catalogs. Each allowed up to four seed choices, in addition to the objective/search generators' bounded placement retries. This verifies at least one valid layout per variant, not every region, side or setting combination.
+- Fleet-in-being, Small, Taskforce1, reached its briefing, tactical view, advancing clock, pause and native after-action report. Three Spanish frigates and a supporting airfield loaded. The airfield sat on finalized terrain. The patrol objective remained in progress when the smoke test ended.
+- Replenishment, seed `909000`, Norwegian Sea, Small, Escort, loaded its three supply ships and Norwegian escort groups, objective popup and tactical clock. The generated receiver's Penguin missiles and surface torpedoes started with zero authored ammunition. The generated native triggers require a rendezvous before delivery can win. The full rendezvous and rearm were not played through. The generic route briefing's text pane was blank in this disposable direct-launch copy; the objective popup rendered. Long-route overview labels still crowd together at world scale.
+- The fresh log contained no exceptions or missing-key/load errors. The checked DLL was `B6C0B178F4D5C5E5C9F2355AD139C443B3018C24A501CBD35CF2304558D362A2`. A final build labels the receiver's formation and shortens its objective, SHA256 `6B81771C8B1497FB904BD04CA19E4CAC1F78FF6ABB6284274F6E419FEA16862D`; that small presentation/leader-selection edit was build-checked but not replayed.
+
+No test project or persistent diagnostic hook was added. Full-battle objective completion, interrupted servicing, both-side/observer coverage across all variants and campaign integration remain unverified. The 46 disposable scenarios are archived under ignored `artifacts/variant-smoke-20260909`, not left in the installed menu.
+
+Ground units and airfields must use `MissionWriter.WriteGroundPosition`. It writes native `low` altitude correction. Numeric zero selects `AltitudeCorrection.None`, which prevents `LandUnit.OnUpdateEveryFrame` from moving the unit onto the finalized, flattened terrain. Do not replace this with a DEM height: the final terrain and prefab ground offset can differ.
+
+2026-09-08 live checks on Sea Power `0.8.2-23444+s358`: area control loaded, showed the control area and moving player groups. Fixed-target observer loaded its briefing map and both forces. The selected Polish SA-4 Long Track radar vehicle was visibly above the terrain, on the street, after terrain loading. Startup generated command and observer templates for all three objective families. These checks do not prove full-battle victory/defeat, shore bombardment completion, every variant, or campaign integration.
+
+Coastal generation rejects unsafe approaches instead of placing ships on land. It makes up to eight deterministic attempts, retaining explicit size, region and variant settings. Fixed-target sites use owned ports, flat land and matching or allied equipment. Some region/composition combinations remain unavailable, especially deep-water submarines near shallow ports. Shore sites have a separately reported point allowance; the new family balance still needs playtesting.
+
+Passage ASW-barrier smoke test: seed `47770791`, Small, Norwegian Sea, Runner. Three submerged player units and three ASW-capable enemy surface ships loaded. The selected submarine moved toward its waypoint immediately; pause stopped time. Exiting produced an after-action report with the passage objective still in progress and all three player units undamaged. The fresh log had no exceptions. Subsequent cleanup added Essential group labels, shorter debrief objectives, fuller preview markers and more hull variety within role substitutions; those final edits were build-checked, not replayed through another battle.
+
+Live smoke test on Sea Power `0.8.2-23444+s358`: seed `44709265`, Medium, Eastern Mediterranean, Hunted, Standard difficulty. Both submarine formations loaded submerged, the selected Foxtrot followed its escape waypoint at 100 feet, tactical time advanced and paused, and exiting produced the native after-action report with the escape objective in progress. The fresh log had no exceptions or missing-key/load errors. This verifies startup and the playable opening, not a completed hunt, every difficulty/region, or either victory trigger. Test hunter AI contact prosecution and full escape/destruction outcomes before declaring balance finished.
+
+The final build also loaded observer seed `44989437`, Medium, Norwegian Sea: native briefing text and map rendered, the player had no command formations, both sides were visible, and the AI hunter was underway after unpausing. Build SHA256: `68EB5AF8EC23B8DD97877C4470CA66B541200F600A5D591D59A11137B0A9F31A`. Build completed with zero warnings/errors; no automated tests were added. The generator writes its own small briefing XML alongside each hunt INI.
 
 ## Build and deployment
 
