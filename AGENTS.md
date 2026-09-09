@@ -1,5 +1,9 @@
 # Repository guidance
 
+Module documentation lives in `docs/crimean-tom/` and `docs/flight-deck-tweaks/`.
+Read the relevant module's README. The campaign integration rules below apply to
+Crimean Tom; Flight Deck Tweaks is an independent mod.
+
 Sea Power is the tactical battle engine. Crimean Tom owns the operations campaign
 between battles.
 

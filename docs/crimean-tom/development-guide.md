@@ -1,6 +1,6 @@
 # Development guide
 
-This is the handoff document for an agent or contributor entering the project without prior thread context. Read `AGENTS.md` first because its scope and testing rules are mandatory.
+This is the handoff document for the Crimean Tom module. Read [AGENTS.md](../../AGENTS.md) first because its scope and testing rules are mandatory. Source and content paths below are relative to the repository root; commands run from that root. See the [module index](README.md) for related docs.
 
 ## Product boundary
 
@@ -64,7 +64,7 @@ Use `aircraft.WriteTo(mission)` or `deployment.WriteTo(mission)` to write unit s
 
 Folders do not change the `CrimeanTom.SeaPower` namespace, reflected type names or deployment locations. The project already enables SDK implicit usings; avoid repeating those imports in every file.
 
-The three longer documents under `docs/` are design references. They describe intended behavior and should not be treated as proof that every feature is implemented.
+The design references in this module's docs describe intended behavior and should not be treated as proof that every feature is implemented.
 
 ### Generated scenario status
 
@@ -132,7 +132,7 @@ C:\Program Files (x86)\Steam\steamapps\common\Sea Power
 Build from the repository root:
 
 ```powershell
-dotnet build CrimeanTom.slnx
+dotnet build src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj
 ```
 
 The post-build target copies the assembly to:
@@ -150,10 +150,10 @@ Sea Power_Data\StreamingAssets\user\campaigns\crimean-tom-operations
 Pass alternate paths when necessary:
 
 ```powershell
-dotnet build CrimeanTom.slnx -p:SeaPowerDir='D:\Games\Sea Power' -p:AnchorChainDll='D:\Mods\AnchorChain.dll'
+dotnet build src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj -p:SeaPowerDir='D:\Games\Sea Power' -p:AnchorChainDll='D:\Mods\AnchorChain.dll'
 ```
 
-Use `dotnet build CrimeanTom.slnx` for the compile check. Runtime changes must also be checked in the installed game using the manual verification steps below.
+Use `dotnet build src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj -p:DeployToGame=false` for a compile-only check. Runtime changes must also be checked in the installed game using the manual verification steps below.
 
 ## Runtime flow
 
