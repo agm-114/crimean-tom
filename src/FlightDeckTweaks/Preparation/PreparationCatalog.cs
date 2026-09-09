@@ -40,9 +40,9 @@ internal static class PreparationCatalog
     {
         if (initialized) return;
         Rates.Read();
-        Rates.Get("Defaults", "MountSeconds", 45);
-        Rates.Get("Defaults", "RefuelFixedSeconds", 600);
-        Rates.Get("Defaults", "RefuelSecondsPerKg", 0.03);
+        Rates.Get("Defaults", "MountSeconds", 60);
+        Rates.Get("Defaults", "RefuelFixedSeconds", 300);
+        Rates.Get("Defaults", "RefuelSecondsPerKg", 0.015);
         foreach (string file in FileManager.Instance.GetFiles("ammunition", "*.ini")) Weapon(Path.GetFileNameWithoutExtension(file));
         Rates.Save();
         initialized = true;
@@ -56,17 +56,17 @@ internal static class PreparationCatalog
         bool countermeasure = type is "chaff" or "flare";
         double defaultMount = type switch
         {
-            "projectile" => 0.15,
-            "chaff" or "flare" => 2,
-            "sonobuoy" => 5,
-            "bomb" => 10,
-            "aerialrocket" => 2,
-            "torpedo" => 400,
-            "fueltank" => 20,
-            "airdepthcharge" => 30,
-            _ => Rates.Get("Defaults", "MountSeconds", 45),
+            "projectile" => 0.21,
+            "chaff" or "flare" => 2.8,
+            "sonobuoy" => 7,
+            "bomb" => 14,
+            "aerialrocket" => 2.8,
+            "torpedo" => 560,
+            "fueltank" => 28,
+            "airdepthcharge" => 42,
+            _ => Rates.Get("Defaults", "MountSeconds", 60),
         };
-        defaultMount += Number(ini, "General", "Mass", 0) * Rates.Get("Defaults", "MountSecondsPerKg", 0.05);
+        defaultMount += Number(ini, "General", "Mass", 0) * Rates.Get("Defaults", "MountSecondsPerKg", 0.1);
         double mount = Rates.Get("WeaponMountSeconds", reference, defaultMount, populate: false);
         double remove = Rates.Get("WeaponRemoveSeconds", reference,
             mount * Rates.Get("Defaults", "UnloadMultiplier", 1.1), populate: false);
@@ -111,8 +111,8 @@ internal static class PreparationCatalog
 
     private static double RefuelSeconds(string reference, double capacity)
     {
-        double fullTankSeconds = Rates.Get("Defaults", "RefuelFixedSeconds", 600)
-            + Rates.Get("Defaults", "RefuelSecondsPerKg", 0.03) * capacity;
+        double fullTankSeconds = Rates.Get("Defaults", "RefuelFixedSeconds", 300)
+            + Rates.Get("Defaults", "RefuelSecondsPerKg", 0.015) * capacity;
         return Rates.Get("AircraftRefuelSeconds", reference, fullTankSeconds, populate: false);
     }
 
