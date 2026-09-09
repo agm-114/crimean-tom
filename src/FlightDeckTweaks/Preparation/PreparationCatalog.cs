@@ -16,21 +16,34 @@ internal static class PreparationCatalog
 {
     private static readonly ServiceRates Rates = new(Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!, "rearm-times.ini"));
     private static readonly Dictionary<string, WeaponService> Weapons = new(StringComparer.OrdinalIgnoreCase);
+    private static IniHandler? ammunitionNames;
+    private static string? nameLanguage;
     private static bool initialized;
+
+    internal static string WeaponName(string reference)
+    {
+        string language = Singleton<LanguageResourceHandler>.Instance.Language;
+        if (ammunitionNames == null || nameLanguage != language)
+        {
+            ammunitionNames = LocalizationLoader.OpenVirtualLocalizationFile($"language_{language}", "ammunition_names", "ammunition_names");
+            nameLanguage = language;
+        }
+        if (ammunitionNames == null) return reference;
+        string entry = Value(ammunitionNames, "AmmunitionNames", reference);
+        string[] names = LocalizationLoader.ApplyNativeWeaponName(ammunitionNames, reference,
+            (entry.Length > 0 ? entry : reference).Split(','));
+        string name = names.Length > 0 && !string.IsNullOrWhiteSpace(names[0]) ? names[0].Trim() : reference;
+        return names.Length > 1 && !string.IsNullOrWhiteSpace(names[1]) ? $"{name} ({names[1].Trim()})" : name;
+    }
 
     internal static void Initialize()
     {
         if (initialized) return;
         Rates.Read();
-        Rates.Get("Defaults", "MountSeconds", 120);
-        Rates.Get("Defaults", "RefuelKgPerSecond", 4);
+        Rates.Get("Defaults", "MountSeconds", 45);
+        Rates.Get("Defaults", "RefuelFixedSeconds", 600);
+        Rates.Get("Defaults", "RefuelSecondsPerKg", 0.03);
         foreach (string file in FileManager.Instance.GetFiles("ammunition", "*.ini")) Weapon(Path.GetFileNameWithoutExtension(file));
-        foreach (string file in FileManager.Instance.GetFiles("aircraft", "*.ini"))
-        {
-            string reference = Path.GetFileNameWithoutExtension(file);
-            IniHandler ini = Utils.openIniFile("/aircraft", $"/{reference}.ini");
-            RefuelSeconds(reference, ini);
-        }
         Rates.Save();
         initialized = true;
     }
@@ -43,15 +56,24 @@ internal static class PreparationCatalog
         bool countermeasure = type is "chaff" or "flare";
         double defaultMount = type switch
         {
-            "projectile" => 0.3,
+            "projectile" => 0.15,
             "chaff" or "flare" => 2,
             "sonobuoy" => 5,
-            _ => Rates.Get("Defaults", "MountSeconds", 120),
+            "bomb" => 10,
+            "aerialrocket" => 2,
+            "torpedo" => 400,
+            "fueltank" => 20,
+            "airdepthcharge" => 30,
+            _ => Rates.Get("Defaults", "MountSeconds", 45),
         };
-        double mount = Rates.Get("WeaponMountSeconds", reference, defaultMount);
-        double remove = Rates.Get("WeaponRemoveSeconds", reference, mount * Rates.Get("Defaults", "UnloadMultiplier", 0.35));
+        defaultMount += Number(ini, "General", "Mass", 0) * Rates.Get("Defaults", "MountSecondsPerKg", 0.05);
+        double mount = Rates.Get("WeaponMountSeconds", reference, defaultMount, populate: false);
+        double remove = Rates.Get("WeaponRemoveSeconds", reference,
+            mount * Rates.Get("Defaults", "UnloadMultiplier", 0.35), populate: false);
         if (remove >= mount) throw new FormatException($"Removal must be faster than mounting: {reference}");
-        return Weapons[reference] = new(mount, remove, Value(ini, "General", "SupplyCategory"), Number(ini, "General", "AmmoPoints", 0), countermeasure);
+        double multiplier = Rates.Get("Defaults", "WeaponTimeMultiplier", 1);
+        return Weapons[reference] = new(mount * multiplier, remove * multiplier,
+            Value(ini, "General", "SupplyCategory"), Number(ini, "General", "AmmoPoints", 0), countermeasure);
     }
 
     internal static PreparationLoadout Loadout(VehicleTypeOnBoard vehicle, Loadout selected)
@@ -84,11 +106,20 @@ internal static class PreparationCatalog
             int priority = builtIns.Contains(pair.Key) || weapon.Countermeasure ? 0 : choices.Length + 1 - frequency;
             return new StoreRequirement(pair.Key, pair.Value, weapon.MountSeconds, weapon.RemoveSeconds, priority);
         }).ToArray();
-        return new(RefuelSeconds(vehicle._fileName, ini), stores);
+        double capacity = Number(ini, "Physics", "MaxFuel", Number(ini, "Performance", "MaxFuel", 2400));
+        return new(RefuelSeconds(vehicle._fileName, capacity), stores, capacity);
     }
 
-    private static double RefuelSeconds(string reference, IniHandler? ini) => Rates.Get("AircraftRefuelSeconds", reference,
-        Math.Max(1, Number(ini, "Physics", "MaxFuel", 2400) / Rates.Get("Defaults", "RefuelKgPerSecond", 4)));
+    private static double RefuelSeconds(string reference, double capacity)
+    {
+        double fullTankSeconds = Rates.Get("Defaults", "RefuelFixedSeconds", 600)
+            + Rates.Get("Defaults", "RefuelSecondsPerKg", 0.03) * capacity;
+        return Rates.Get("AircraftRefuelSeconds", reference, fullTankSeconds, populate: false);
+    }
+
+    internal static double OperationTimeMultiplier(PendingLaunchTask task) =>
+        Rates.Get("AircraftOperationTimeMultipliers", task.VehicleType._fileName, 1, populate: false)
+        * Rates.Get("NationOperationTimeMultipliers", task._flightDeck._baseObject.getNation(), 1, populate: false);
 
     private static string Value(IniHandler? ini, string section, string key) =>
         ini != null && ini.Data.TryGetValue(section, out var values) && values.TryGetValue(key, out string value) ? value.Trim() : "";

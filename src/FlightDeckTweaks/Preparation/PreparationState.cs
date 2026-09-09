@@ -11,10 +11,11 @@ internal class StoreRequirement(string reference, double amount, double mountSec
     internal int Priority { get; } = priority;
 }
 
-internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequirement> stores)
+internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequirement> stores, double fuelCapacity = 0)
 {
     internal double RefuelSeconds { get; } = refuelSeconds;
     internal IReadOnlyList<StoreRequirement> Stores { get; } = stores;
+    internal double FuelCapacity { get; } = fuelCapacity;
 }
 
 // Pure preparation state. No game objects, inventory mutations, timers or launch commands.
@@ -27,6 +28,57 @@ internal class AircraftPreparation
     internal double RemainingWork => Operations().Sum(operation => operation.Amount * operation.Seconds);
     internal bool Ready => RemainingWork <= 0;
     internal string Activity => Operations().Select(operation => operation.Activity).FirstOrDefault() ?? "Ready";
+
+    internal string Describe(double workSpeed, bool working, string waiting, Func<string, string> weaponName)
+    {
+        Dictionary<string, double> completion = new(StringComparer.OrdinalIgnoreCase);
+        double elapsed = 0;
+        foreach (var operation in Operations())
+        {
+            elapsed += operation.Amount * operation.Seconds / workSpeed;
+            completion[operation.Reference] = elapsed;
+        }
+        string queued = working ? "" : " after crew assigned";
+        double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
+        double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
+        List<string> lines = [Ready ? "Ready" : working ? Activity : waiting,
+            $"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%"];
+        if (Fuel < 1)
+        {
+            double rate = Target.FuelCapacity / Target.RefuelSeconds * workSpeed;
+            string service = double.IsPositiveInfinity(workSpeed) ? "instant"
+                : $"{rate:0.00} kg/s, {Duration((1 - Fuel) * Target.RefuelSeconds / workSpeed)} of refueling left";
+            lines.Add(working ? $"Refueling: {service}" : $"Refueling: 0 kg/s. When assigned: {service}");
+        }
+        lines.Add($"Target stores loaded: {(total > 0 ? Math.Floor(loaded / total * 100) : 100):0}%");
+        int deviations = 0;
+        foreach (StoreRequirement store in Target.Stores.OrderBy(store => store.Priority).ThenBy(store => store.Reference, StringComparer.Ordinal))
+        {
+            double mounted = Mounted.GetValueOrDefault(store.Reference);
+            double missing = store.Amount - mounted;
+            if (missing <= 0) continue;
+            deviations++;
+            lines.Add($"{weaponName(store.Reference)}: {Quantity(mounted)}/{Quantity(store.Amount)} loaded; "
+                + $"{Quantity(missing)} missing\n  Load work: {Duration(missing * store.MountSeconds / workSpeed)}; "
+                + $"loaded in {Duration(completion[store.Reference])}{queued}");
+        }
+        foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            double wanted = Target.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+            double excess = mounted.Value - wanted;
+            if (excess <= 0) continue;
+            deviations++;
+            lines.Add($"{weaponName(mounted.Key)}: {Quantity(excess)} {(wanted > 0 ? "excess" : "incompatible")} to remove, "
+                + $"{Duration(excess * knownStores[mounted.Key].RemoveSeconds / workSpeed)} unloading work\n  "
+                + $"Removed in {Duration(completion[mounted.Key])}{queued}");
+        }
+        if (deviations == 0) lines.Add("Weapons match selected loadout.");
+        return string.Join("\n", lines);
+    }
+
+    private static string Quantity(double value) => value > 0 && value < 0.01 ? "<0.01" : $"{Math.Floor(value * 100) / 100:0.##}";
+    private static string Duration(double seconds) => double.IsInfinity(seconds) || double.IsNaN(seconds) ? "unknown"
+        : $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m {Math.Ceiling(seconds) % 60:00}s";
 
     internal AircraftPreparation(PreparationLoadout target)
     {
@@ -103,7 +155,7 @@ internal class AircraftPreparation
         {
             string reference = (string?)store.Attribute("Ref") ?? throw new FormatException("Missing store reference");
             double amount = ValidNumber((double?)store.Attribute("Amount") ?? 0, 1000000);
-            double removal = ValidNumber((double?)store.Attribute("RemoveSeconds") ?? 0, 86400);
+            double removal = ValidNumber((double?)store.Attribute("RemoveSeconds") ?? 0, 86400d * 86400);
             if (reference.Length == 0 || removal == 0) throw new FormatException("Invalid store data");
             knownStores[reference] = new(reference, amount, removal, removal, 1);
             Mounted.Add(reference, amount);

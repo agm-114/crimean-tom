@@ -59,5 +59,14 @@ internal static class LoadoutColumn
         picker.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(TaskLoadout.Loadouts)) { Source = row });
         picker.SetBinding(Selector.SelectedItemProperty, new Binding(nameof(TaskLoadout.SelectedLoadout)) { Source = row, Mode = BindingMode.TwoWay });
         picker.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(TaskLoadout.CanChange)) { Source = row });
+        TextBlock status = new() { TextWrapping = TextWrapping.Wrap };
+        status.SetBinding(TextBlock.TextProperty, new Binding(nameof(TaskLoadout.PreparationStatus)) { Source = row });
+        picker.ToolTip = new ToolTip
+        {
+            Content = new ScrollViewer { Content = status, MaxHeight = 480, MaxWidth = 460,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+        };
+        ToolTipService.SetShowOnDisabled(picker, true);
+        ToolTipService.SetShowDuration(picker, 60000);
     }
 }
