@@ -1,5 +1,6 @@
 using HarmonyLib;
 using SeaPower;
+using FlightDeckTweaks.Preparation;
 
 namespace FlightDeckTweaks;
 
@@ -36,6 +37,11 @@ internal static class FlightDeckInfo
         if (__instance is PendingLaunchTask pending && pending._stateMachine?.CurrentState
             is HandleReadyUpTask or HandleAwaitGroundCrewTask or HandleAwaitDeckSpaceTask)
         {
+            if (TaskPreparation.Find(pending) is { } preparation)
+            {
+                __result = preparation.Label(pending, state == "Launch Prep" ? "Awaiting Crew" : state);
+                return;
+            }
             int ready = EstimateReadyCount(count, pending._duration,
                 pending.VehicleType.Loadouts[pending._loadoutIndex]._readyUpDuration);
             if (ready > 0)
@@ -50,8 +56,11 @@ internal static class FlightDeckInfo
             : 0;
 
     [HarmonyPostfix, HarmonyPatch(typeof(HandleReadyUpTask), nameof(HandleReadyUpTask.onUpdate))]
-    private static void RefreshProgress(PendingLaunchTask ____flightDeckTask) =>
-        ____flightDeckTask.NotifyPropertyChanged(nameof(FlightDeckTask.FlightDeckTaskLabel));
+    private static void RefreshProgress(PendingLaunchTask ____flightDeckTask)
+    {
+        if (TaskPreparation.Find(____flightDeckTask) == null)
+            ____flightDeckTask.NotifyPropertyChanged(nameof(FlightDeckTask.FlightDeckTaskLabel));
+    }
 
     [HarmonyPostfix, HarmonyPatch(typeof(PendingLaunchTask), nameof(PendingLaunchTask.LaunchCount), MethodType.Setter)]
     private static void RefreshCount(PendingLaunchTask __instance) =>
