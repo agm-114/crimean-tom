@@ -67,7 +67,7 @@ internal class TaskPreparation(PreparationBatch batch)
     {
         int crews = task._stateMachine.CurrentState is HandleReadyUpTask ? Math.Max(0, task.AssignedGroundCrew) : 0;
         return string.Join("\n", Batch.Aircraft.Select(aircraft => aircraft.Ready ? "Ready"
-            : crews-- > 0 ? aircraft.Activity : waiting).GroupBy(activity => activity)
+            : crews-- > 0 ? aircraft.Activity(PreparationCatalog.WeaponName) : waiting).GroupBy(activity => activity)
             .Select(group => $"{group.Count()}x {group.Key}"));
     }
 

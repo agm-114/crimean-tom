@@ -27,7 +27,12 @@ internal class AircraftPreparation
     internal PreparationLoadout Target { get; private set; }
     internal double RemainingWork => Operations().Sum(operation => operation.Amount * operation.Seconds);
     internal bool Ready => RemainingWork <= 0;
-    internal string Activity => Operations().Select(operation => operation.Activity).FirstOrDefault() ?? "Ready";
+    internal string Activity(Func<string, string> weaponName)
+    {
+        var operation = Operations().FirstOrDefault();
+        return operation.Amount <= 0 ? "Ready" : operation.Reference == "" ? operation.Activity
+            : $"{operation.Activity} {weaponName(operation.Reference)}";
+    }
 
     internal string Describe(double workSpeed, bool working, string waiting, Func<string, string> weaponName)
     {
@@ -41,7 +46,7 @@ internal class AircraftPreparation
         string queued = working ? "" : " after crew assigned";
         double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
         double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
-        List<string> lines = [Ready ? "Ready" : working ? Activity : waiting,
+        List<string> lines = [Ready ? "Ready" : working ? Activity(weaponName) : waiting,
             $"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%"];
         if (Fuel < 1)
         {
@@ -107,7 +112,7 @@ internal class AircraftPreparation
         foreach (StoreRequirement store in Target.Stores.Where(store => store.Priority == 0))
         {
             double missing = store.Amount - Mounted.GetValueOrDefault(store.Reference);
-            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading Built-ins");
+            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading");
         }
         foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
@@ -119,7 +124,7 @@ internal class AircraftPreparation
             .OrderBy(store => store.Priority).ThenBy(store => store.Reference, StringComparer.Ordinal))
         {
             double missing = store.Amount - Mounted.GetValueOrDefault(store.Reference);
-            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading Weapons");
+            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading");
         }
     }
 
