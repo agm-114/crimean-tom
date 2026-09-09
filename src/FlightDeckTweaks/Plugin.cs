@@ -10,6 +10,6 @@ public class Plugin : IAnchorChainMod
     public void TriggerEntryPoint()
     {
         new Harmony("crimean-tom.flight-deck").PatchAll(typeof(Plugin).Assembly);
-        Debug.Log("[Flight Deck Tweaks] Loaded row loadout selection.");
+        Debug.Log("[Flight Deck Tweaks] Loaded loadout selection and stateful aircraft preparation.");
     }
 }
