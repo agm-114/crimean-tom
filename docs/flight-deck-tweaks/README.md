@@ -2,8 +2,8 @@
 
 Independent AnchorChain mod. Adds a Loadout dropdown to pending-launch rows in
 the Flight Operations table and tracks preparation separately for each aircraft.
-The game still owns crew allocation, deck space, the task queue and launching.
-Aircraft launch as the original batch, only after every member is ready.
+The game owns crew allocation, deck space, the task queue and launching.
+Aircraft launch as a batch, only after every member is ready.
 
 ## Preparation
 
@@ -23,12 +23,13 @@ Changing loadouts keeps fuel, common stores and fractional loading or unloading
 progress. Incompatible stores remain aboard until crews remove them; removal
 defaults to 1.1 times mounting time. Both loadouts must fit the ship's ammunition stock while
 incompatible stores are still mounted. Those stores return to stock as unloading
-finishes. Native code continues reserving the complete requested loadout.
+finishes. Native code reserves the complete requested loadout.
 
-State shows counts by actual activity, such as `1x Refueling`, `1x Awaiting Crew`
-and `1x Ready`. Info shows assigned crew and the estimated time until the batch is
+State shows counts by actual activity, such as `1x Refueling`, `1x Loading Mk 46`,
+`1x Unloading Mk 46`, `1x Awaiting Crew` and `1x Ready`.
+Info shows assigned crew and the estimated time until the batch is
 ready, assuming its current crew allocation. The game's flight-deck timing
-multiplier still applies. Instant preparation settings remain instant.
+multiplier applies. Instant preparation settings complete all work immediately.
 
 Hover over a row's State cell or closed Loadout dropdown for each aircraft's fuel in kg and percentage,
 effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
@@ -62,8 +63,8 @@ Scope:
   loadout and fuel state once preparation finishes.
 - Tactical saves retain detailed preparation in an extra field on the native
   pending-task record and a separate hangar field, including aircraft still
-  servicing. Old saves without those fields keep native timing for their
-  existing tasks. The vanilla aggregate timer is still written for compatibility.
+  servicing. Saves without those fields use native timing for their
+  existing tasks. The vanilla aggregate timer is also written for compatibility.
 
 ## Timing configuration
 
@@ -83,12 +84,12 @@ Edit it and restart the game to tune rates. Deployment preserves an existing fil
 
 Default weapon loading is `type base + mass in kg × MountSecondsPerKg`, then
 multiplied by `WeaponTimeMultiplier`. Missing mass contributes zero. The general
-base is 45 seconds; type bases are 0.15 for projectiles, 2 for countermeasures and
-rockets, 5 for sonobuoys, 10 for bombs, 20 for fuel tanks, 30 for depth charges and
-400 for torpedoes. `MountSecondsPerKg=0.05`, `WeaponTimeMultiplier=1`, and removal
+base is 60 seconds; type bases are 0.21 for projectiles, 2.8 for countermeasures and
+rockets, 7 for sonobuoys, 14 for bombs, 28 for fuel tanks, 42 for depth charges and
+560 for torpedoes. `MountSecondsPerKg=0.1`, `WeaponTimeMultiplier=1`, and removal
 takes 110% of the mount time unless a weapon has an explicit removal override.
-Five explicit weapon overrides retain longer vanilla
-preparation for Phoenix, Harpoon, GBU-24, UMGT-1 and Mk54 depth charges.
+Explicit mounting overrides are 360 seconds for Phoenix, 600 for Harpoon,
+900 for GBU-24, 1,080 for UMGT-1 and 420 for Mk54 depth charges.
 
 The refuel table contains 15 outliers. For all other aircraft:
 
@@ -97,32 +98,28 @@ full-tank seconds = RefuelFixedSeconds + RefuelSecondsPerKg × capacity kg
 constant kg/second = capacity kg / full-tank seconds
 ```
 
-Defaults are 600 fixed seconds plus 0.03 seconds per kg. The fixed term is part
+Defaults are 300 fixed seconds plus 0.015 seconds per kg. The fixed term is part
 of the rate calculation, not a separate delay. A half-full aircraft needs half
 the full-tank time. An explicit aircraft override replaces full-tank seconds,
-still using a constant rate. Fixed-wing capacity comes from `[Performance]`;
+using a constant rate. Fixed-wing capacity comes from `[Performance]`;
 helicopters use `[Physics]`. These are gameplay tuning values, not physical
 service rates. Aircraft and nation multipliers apply to the resulting time.
 
-The offline comparison puts 335 of 561 loadouts within 25% of native preparation
-time, and 415 within 35%. It is approximate, not an in-game timing measurement.
-Some native loadout times differ without a corresponding equipment difference.
-For example, the Ka-27's ASWHunterLight remains substantially faster than its
-native 30 minutes.
+The tuning targets roughly 20% refueling and 80% stores for typical armed
+loadouts starting empty. Selected transport and reconnaissance aircraft use
+2,700-second full-tank refueling overrides.
 
-| Loadout | Native minutes | Calculated minutes |
-| --- | --- | --- |
-| SH-2F ASW | 30 | 25.7 |
-| F-14A AirToAir | 15 | 18.4 |
-| F-14A AirToAirIntercept | 30 | 32.9 |
-| Ka-27 ASW | 30 | 26.5 |
+This is not a forced split for every loadout. Fuel rate stays constant for an
+aircraft regardless of its weapons, and stores take time per item.
+Heavy loads take longer, unarmed aircraft have little or no stores work, and
+returning aircraft need only the fuel and stores they actually used.
 
 Both operation multipliers apply to refueling, mounting and removal. They multiply
-together, and the game difficulty setting still scales the resulting duration.
+together, and the game difficulty setting scales the resulting duration.
 For example, aircraft `1.25` × nation `0.8` leaves duration unchanged. Values above
 1 are slower. Nations refer to the operator, not where the aircraft was built.
 These modifiers do not change recovery servicing, taxiing, launch intervals or AI
-tasks. The stock instant setting remains instant.
+tasks. The stock instant setting completes preparation immediately.
 
 All configuration values must be positive and at most 86,400, except
 `MountSecondsPerKg` and `RefuelSecondsPerKg` may be zero to disable mass scaling.
@@ -161,9 +158,8 @@ dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj -p:DeployToGame=true
 Deployment copies `FlightDeckTweaks.dll` into the game's
 `Sea Power_Data/StreamingAssets/FlightDeckTweaks` directory. Override `SeaPowerDir`
 or `AnchorChainDll` when using another installation. Restart Sea Power after
-deploying an updated DLL. The stateful preparation model has offline checks for
-priorities, loadout changes, crew scheduling and save roundtrips. Native UI,
-inventory and save integration still need an in-game check. Startup was verified
-in Sea Power 0.8.2-23444+s358 after fixing a Harmony hook-name collision. Do not
-name ordinary patch methods `Prepare`: Harmony treats that name as its patch
-initialization hook, even when the method also has a prefix attribute.
+deploying an updated DLL. Verify native UI, inventory and save integration in
+the game using the repository's Sea Power testing skill.
+
+Do not name ordinary patch methods `Prepare`: Harmony treats that name as its
+patch initialization hook, even when the method also has a prefix attribute.
