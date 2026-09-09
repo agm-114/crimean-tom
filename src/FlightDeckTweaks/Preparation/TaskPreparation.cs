@@ -80,6 +80,18 @@ internal class TaskPreparation(PreparationBatch batch)
             $"Aircraft {index + 1}\n{aircraft.Describe(speed, !aircraft.Ready && crews-- > 0, waiting, PreparationCatalog.WeaponName)}"));
     }
 
+    internal string DescribeSwap(PendingLaunchTask task, PreparationLoadout target)
+    {
+        PreparationBatch preview = Batch.Preview(target);
+        int crews = Math.Max(1, task.AssignedGroundCrew);
+        double speed = WorkSpeed(task);
+        return $"Batch ready in {AircraftPreparation.Duration(preview.EstimatedSeconds(crews) / speed)} with {crews} crew."
+            + "\nExcludes waiting for crew and deck space."
+            + "\nKeeps current fuel and stores; includes unloading incompatible weapons.\n\n"
+            + string.Join("\n\n", preview.Aircraft.Select((aircraft, index) =>
+                $"Aircraft {index + 1}\n{aircraft.Describe(speed, false, "After swap", PreparationCatalog.WeaponName)}"));
+    }
+
     [HarmonyPostfix, HarmonyPatch(typeof(PendingLaunchTask), MethodType.Constructor,
         [typeof(FlightDeck), typeof(VehicleTypeOnBoard), typeof(Loadout), typeof(Squadron), typeof(string), typeof(LaunchTaskParameters), typeof(float), typeof(bool)])]
     private static void Created(PendingLaunchTask __instance)
@@ -134,9 +146,12 @@ internal class TaskPreparation(PreparationBatch batch)
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(FlightDeck), nameof(FlightDeck.abortAllLaunchTasks))]
-    private static void AbortAll(FlightDeck __instance)
+    private static bool AbortAll(FlightDeck __instance)
     {
-        foreach (PendingLaunchTask task in __instance.FlightDeckTasks.OfType<PendingLaunchTask>()) Release(task);
+        if (!__instance.FlightDeckTasks.OfType<PendingLaunchTask>().Any(task => Find(task) != null)) return true;
+        foreach (PendingLaunchTask task in __instance.FlightDeckTasks.OfType<PendingLaunchTask>().ToArray())
+            __instance.abortLaunchTask(task._uid);
+        return false;
     }
 
     private static void Release(PendingLaunchTask task)
@@ -144,6 +159,7 @@ internal class TaskPreparation(PreparationBatch batch)
         if (Find(task) is not { } preparation) return;
         preparation.Reservation.Replace(task._flightDeck, new());
         preparation.Reservation = new();
+        HangarPreparation.Return(task, preparation.Batch);
         Tasks.Remove(task);
     }
 }

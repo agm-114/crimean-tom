@@ -30,6 +30,10 @@
       <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UniRx">
+      <HintPath>$(GameManaged)\UniRx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>

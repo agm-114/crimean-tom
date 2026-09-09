@@ -8,13 +8,14 @@ internal class StoreReservation
     private double ammoPoints;
     private readonly Dictionary<string, int> categories = new(StringComparer.OrdinalIgnoreCase);
 
-    internal static StoreReservation Excess(PreparationBatch batch, PreparationLoadout target)
+    internal static StoreReservation Excess(PreparationBatch batch, PreparationLoadout target) => From(batch.Aircraft, target);
+    internal static StoreReservation From(IEnumerable<AircraftPreparation> aircraft, PreparationLoadout? target = null)
     {
         StoreReservation result = new();
-        foreach (AircraftPreparation aircraft in batch.Aircraft)
-        foreach (var mounted in aircraft.Mounted)
+        foreach (AircraftPreparation unit in aircraft)
+        foreach (var mounted in unit.Mounted)
         {
-            double wanted = target.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+            double wanted = target?.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
             int count = (int)Math.Ceiling(Math.Max(0, mounted.Value - wanted));
             if (count == 0) continue;
             WeaponService weapon = PreparationCatalog.Weapon(mounted.Key);
@@ -24,6 +25,12 @@ internal class StoreReservation
         return result;
     }
 
+    internal bool CanFund(FlightDeck deck, StoreReservation held, Loadout next, int count) => Globals._cheatFlightDeckAmmo
+        || deck._currentAmmo + held.ammoPoints >= ammoPoints + next._ammoPoints * count
+        && categories.Keys.Union(next._accountableAmmunition.Keys).All(category =>
+            deck._accountableAmmunition.GetValueOrDefault(category) + held.categories.GetValueOrDefault(category)
+            >= categories.GetValueOrDefault(category) + next._accountableAmmunition.GetValueOrDefault(category) * count);
+
     internal bool CanReplace(FlightDeck deck, StoreReservation previous, Loadout oldLoadout, Loadout next, int count) =>
         Globals._cheatFlightDeckAmmo ||
         deck._currentAmmo + previous.ammoPoints + oldLoadout._ammoPoints * count >= ammoPoints + next._ammoPoints * count
@@ -32,7 +39,7 @@ internal class StoreReservation
                 + oldLoadout._accountableAmmunition.GetValueOrDefault(category) * count
             >= categories.GetValueOrDefault(category) + next._accountableAmmunition.GetValueOrDefault(category) * count);
 
-    internal void Replace(FlightDeck deck, StoreReservation next)
+    internal void Replace(FlightDeck deck, StoreReservation next, bool refresh = true)
     {
         bool changed = ammoPoints != next.ammoPoints;
         deck._currentAmmo += (float)(ammoPoints - next.ammoPoints);
@@ -43,6 +50,6 @@ internal class StoreReservation
             deck._accountableAmmunition[category] = deck._accountableAmmunition.GetValueOrDefault(category) + refund;
             changed = true;
         }
-        if (changed) deck.UpdateLoadoutsAvailability();
+        if (changed && refresh) deck.UpdateLoadoutsAvailability();
     }
 }

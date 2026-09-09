@@ -7,8 +7,11 @@ Aircraft launch as the original batch, only after every member is ready.
 
 ## Preparation
 
-New player preparation tasks start with empty internal fuel and no mounted
-ammunition. One assigned crew works on one aircraft at a time, in this order:
+Aircraft without a tracked hangar record start with empty internal fuel and no
+mounted ammunition. Returning aircraft retain their remaining internal fuel and
+weapons through vanilla recovery servicing. The next player preparation batch
+uses available recovered aircraft from that squadron first, then untracked
+aircraft. One assigned crew works on one aircraft at a time, in this order:
 
 1. Refuel.
 2. Load built-in guns, chaff and flares.
@@ -27,7 +30,7 @@ and `1x Ready`. Info shows assigned crew and the estimated time until the batch 
 ready, assuming its current crew allocation. The game's flight-deck timing
 multiplier still applies. Instant preparation settings remain instant.
 
-Hover over a row's Loadout dropdown for each aircraft's fuel in kg and percentage,
+Hover over a row's State cell or closed Loadout dropdown for each aircraft's fuel in kg and percentage,
 effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
 excess and incompatible weapons show quantities and remaining work time per type.
 Each type also shows its completion estimate including earlier refueling,
@@ -37,18 +40,29 @@ uninterrupted crew.
 Target stores progress is weighted by mounting work; fuel and unloading are
 reported separately.
 
+With the Loadout dropdown open, hover over an alternative to estimate the swap.
+The estimate uses a copy of current fuel and stores, including partial loading
+and removal of incompatible weapons. It shows the assumed crew count, excludes
+crew/deck waiting, and flags insufficient ammunition. Estimates refresh when the
+tooltip opens. Hovering does not change preparation or reserve ammunition.
+
 Scope:
 
-- Progress belongs to the queued batch, not a persistent aircraft serial number.
-  A loadout swap preserves it; fully aborting the task discards it.
+- Progress belongs to individual aircraft within a batch or squadron's hangar
+  queue. Loadout swaps and cancellation preserve it. Aircraft are not bound to
+  the same serial number when respawned by the game.
+- Mounted weapons remain reserved while an aircraft is aboard. Recovery does
+  not also make those weapons available in the ship's ammunition pool.
 - Stores are tracked by ammunition reference and quantity, not individual pylons.
   Fractional quantities represent loading work, not launchable partial weapons.
   External tanks have mounting time; their fuel is not modeled separately.
-- Recovery servicing, aircraft already airborne, AI preparation and scripted
-  launches keep their native behavior. Spawned aircraft use the complete native
+- Recovery servicing duration, aircraft already airborne, AI preparation and scripted
+  launches keep their native behavior. Normal player recovery captures fuel and
+  stores before despawn; instant/debug recovery is not captured. Spawned aircraft use the complete native
   loadout and fuel state once preparation finishes.
 - Tactical saves retain detailed preparation in an extra field on the native
-  pending-task record. Old saves without that field keep native timing for their
+  pending-task record and a separate hangar field, including aircraft still
+  servicing. Old saves without those fields keep native timing for their
   existing tasks. The vanilla aggregate timer is still written for compatibility.
 
 ## Timing configuration
@@ -119,9 +133,11 @@ comments are not retained.
 
 `Preparation/PreparationState.cs` contains the game-independent aircraft and crew
 work model. `PreparationCatalog` reads loadout requirements and service rates;
-`TaskPreparation` adapts that model to native task timing. `StoreReservation`
-handles incompatible ammunition held during swaps; `PreparationSave` handles
-tactical save data. UI code reads preparation state without owning its timers.
+`TaskPreparation` adapts that model to native task timing. `HangarPreparation`
+captures normal landings and retains squadron aircraft through servicing,
+cancellation and tactical saves. `StoreReservation` accounts for weapons held
+aboard; `PreparationSave` handles pending-task save data. UI code reads preparation
+state without owning its timers.
 
 ## Build
 
