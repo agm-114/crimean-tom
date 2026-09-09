@@ -166,7 +166,8 @@ internal record ScenarioActivityPlan(IReadOnlyList<NearbyUnit> Units, IReadOnlyL
             mission.Write("Nation", unit.Nation);
             mission.Write("TaskForceModeIgnoreUnit", true);
             mission.Write("CrewSkill", "Trained");
-            mission.WritePosition("RelativePositionInNM", unit.Position);
+            if (unit.Kind == "LandUnit") mission.WriteGroundPosition(unit.Position);
+            else mission.WritePosition("RelativePositionInNM", unit.Position);
             mission.Write("WeaponStatus", "Tight");
             mission.Write("OverrideWeaponStatus", "Tight");
             mission.Write("RadarsActive", unit.Kind != "Submarine");

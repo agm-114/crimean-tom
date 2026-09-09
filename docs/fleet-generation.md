@@ -471,6 +471,42 @@ Each mission family should select its own required roles and balance weights:
 
 The theater, source, role, variety, and pairing components remain reusable. Only the blueprint and evaluator should change.
 
+## Search operations
+
+`ScenarioSearchGenerator.cs` supplies the standalone search variant. Small/Medium/Large starts with 3/5/7 ASW surface ships against 1/2/3 submarines. Hunters must have an installed anti-submarine weapon, not just an ASW score. Candidate selection favors unused regional classes; the hunter fleet targets 1.5 times the submarine fleet's native points. This is a starting balance heuristic, not a capability-equivalence claim. Difficulty scales the opposing fleet's approximate cost by changing whole hulls; it leaves the selected player's force unchanged.
+
+Hunters start across the escape direction on independent crossing search tracks. Submarines start dispersed within an 18-NM last-reported area, with quiet transit orders toward an escape area 55/70/85 NM from the encounter origin. No target contacts are injected. Hulls and routes must pass terrain checks; unsuitable regions fail explicitly. Available embarked ASW helicopters deploy from their actual host's stock with ASW loadouts and single-pass sonobuoy routes. Aircraft/order starting options, nearby activity and civilian traffic reuse the existing controls.
+
+Hunters win by sinking every hunted submarine. The hunted side wins if any submarine escapes or every hunter ship is destroyed. There is no mission deadline. The separate observer entry delegates the hunters to friendly AI and uses the existing player-only truth display. These objectives do not include civilian units or wildlife. The variant is not yet offered by the campaign.
+
+The nine hunt variants are attack submarines, SSBNs, surface raiders, carrier, cruiser, submarine tender, damaged group, counter-hunt and decoy reports. SSBNs and tenders use installed national or allied support assets without adding them to normal fleet purchases. Surface targets use surface-capable hunters; underwater targets require ASW weapons. Carrier aircraft remain tied to their host's stock. Damaged targets use native Medium damage. Counter-hunt starts a damaged hunter near an attack datum while the submarines withdraw. Decoy reports add actual patrols of a different class on separate lanes; only the designated hunted group counts toward escape/destruction. The briefing identifies the hunted class. Surface hunts retain staggered weapons release.
+
+## Area, fixed-target and passage operations
+
+`ScenarioObjectiveGenerator.cs` supplies standalone command and observer entries. Both perspectives share the same objectives and placements. Ships move immediately, with the shared defensive ROE and staged offensive release. Complete deployments and their waypoint legs must pass terrain checks. The generator rotates the encounter and can retry up to eight deterministic seeds; explicit region and variant selections are retained.
+
+| Family | Implemented variants | Win condition |
+|---|---|---|
+| Area control | Sea lane, anchorage, bastion, surface sweep, ASW sweep, chokepoint, port approach, relief, fleet-in-being | Clear the area, destroy designated sweep targets, rescue and withdraw the isolated group, or complete the flagship's ordered patrol stations. |
+| Fixed target | Radar, coastal battery, air defense, port raid, airfield, depot, forward base, rearming ships, repairing ships, cable shore terminal, communications | Destroy every designated site or ship. Anchored ships can escape after servicing or when attacked. |
+| Passage | Surface picket, breakout, ASW barrier, strait transit, blockade run, carrier breakout, raider breakout, reinforcement, rearguard | Every designated Essential running unit must reach EXIT; losing any one gives the blockers victory. |
+
+Area control uses a 16-NM circle, or 22 NM for a bastion. Bastions require ASW attackers and submarine defenders. Anchorage variants place the contested water near a defended coast. The area condition counts surviving combatants, not civilian traffic. There is no hold timer or mission deadline.
+
+Fixed-target generation selects flat land near an owned installed port. Regional operators can use allied export equipment when no national skin exists. It requires at least one ship with a suitable installed naval gun and writes native shore-bombardment waypoint orders. Shore sites have a separately reported cost. Forward bases require three distinct sites, including an airfield, rather than silently becoming one depot. Target airfields have no free default air group. Coastal submarines stay offshore. The cable variant uses a land communications vehicle as the network's shore terminal; it does not simulate destruction of an underwater cable.
+
+Anchored targets keep defensive weapons and radars active. Rearming ships start with depleted directly authored surface-only ammunition; repairing ships start damaged. Native servicing completes after 15 minutes for rearming or 30 for repairs. An enemy approaching within 12 NM or further damage interrupts servicing and starts withdrawal without free repairs. Any target escaping wins for the defender. These are readiness delays, not mission deadlines.
+
+Passage uses a 6-NM exit area. Surface pickets patrol the crossing, breakout forces begin between forward and rear blocking groups, and ASW barriers match submerged runners against ASW-capable surface ships. Strait and blockade variants use installed shipping-route geometry. Narrow straits use surface fleets and compress lateral offsets to fit navigable water. Reinforcement starts a second wave behind the first. Rearguard puts a damaged Essential unit ahead of its covering ships. Carrier and raider breakouts require their named hull role. These standalone variants do not change the existing campaign Strait Passage contract.
+
+Relief requires another friendly ship to join the isolated damaged group before it can complete withdrawal. Fleet-in-being requires one Essential flagship to visit three charted stations in order; separate ships cannot complete different legs simultaneously. Surface and ASW sweeps count only designated enemy combatants, not optional activity.
+
+## Protected-group variants
+
+Route operations offer civilian shipping, supply groups, minesweepers, amphibious transports, one high-value support ship, evacuation transports, damaged withdrawal groups and replenishment. Amphibious and replenishment vessels come from installed national or allied assets, including hulls excluded from the purchase roster. Unavailable combinations fail explicitly. Damaged groups use Medium native damage. Native damage may reduce speed beyond the healthy-class interception estimate, so pursuit balance needs playtesting. Evacuation and amphibious variants represent transit only, not loading passengers or executing a landing.
+
+Replenishment designates one escort as the ammunition receiver. It must meet the required supply ships within the charted rendezvous, survive and get those ships to EXIT. Native rearm restores its ammunition at the meeting. AI receivers approach and wait, then follow the supply group. Player receivers retain manual control when preloaded orders are disabled. Losing the receiver fails the escort objective.
+
 ## Tuning rules
 
 Before changing probabilities or weights, generate a large sample and inspect:

@@ -109,7 +109,7 @@ internal record ScenarioAirSupportPlan(IReadOnlyList<SupportingAirfield> Airfiel
             mission.Write("FlightDeck_AutocalculateAmmo", true);
             mission.Write("CrewSkill", "Trained");
             mission.Write("TaskForceModeIgnoreUnit", true);
-            mission.WritePosition("RelativePositionInNM", field.Position);
+            mission.WriteGroundPosition(field.Position);
             mission.Write("WeaponStatus", "Tight");
             mission.Write("RadarsActive", false);
             foreach (var group in Aircraft.Where(unit => unit.Side == field.Side).GroupBy(unit => unit.Plan.AircraftType))

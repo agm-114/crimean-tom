@@ -35,7 +35,18 @@ internal enum RouteOperationVariant
     CivilianShipping,
     SupplyGroup,
     MinesweepingGroup,
+    AmphibiousGroup,
+    HighValueShip,
+    EvacuationGroup,
+    DamagedGroup,
+    Replenishment,
 }
+
+internal enum ObjectiveOperation { AreaControl, FixedTarget, Passage }
+internal enum AreaVariant { SeaLane, Anchorage, Bastion, SurfaceSweep, AswSweep, Chokepoint, PortApproach, Relief, FleetInBeing }
+internal enum StrikeVariant { Radar, CoastalBattery, AirDefense, PortRaid, Airfield, Depot, ForwardBase, RearmingShips, RepairingShips, CableTerminal, Communications }
+internal enum SearchVariant { Submarine, BallisticSubmarine, SurfaceRaider, Carrier, DamagedGroup, Cruiser, Tender, CounterHunt, Decoys }
+internal enum PassageVariant { SurfacePicket, Breakout, AswBarrier, StraitTransit, BlockadeRun, CarrierBreakout, RaiderBreakout, Reinforcement, Rearguard }
 
 internal class FleetClashGenerationOptions
 {
@@ -44,6 +55,10 @@ internal class FleetClashGenerationOptions
     internal string? Region { get; set; }
     internal bool ChaosMode { get; set; }
     internal ScenarioSpecialMode SpecialMode { get; set; }
+    internal AreaVariant AreaVariant { get; set; }
+    internal StrikeVariant StrikeVariant { get; set; }
+    internal SearchVariant SearchVariant { get; set; }
+    internal PassageVariant PassageVariant { get; set; }
     internal int? SeaState { get; set; }
     internal string? PlayerTaskforce { get; set; }
     internal double EnemySizeMultiplier { get; set; } = 1d;

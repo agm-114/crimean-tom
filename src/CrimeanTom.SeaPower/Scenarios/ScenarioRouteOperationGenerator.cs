@@ -232,9 +232,29 @@ internal static partial class ScenarioDebugGenerator
     {
         if (variant != RouteOperationVariant.MinesweepingGroup)
         {
-            IEnumerable<string> types = variant == RouteOperationVariant.SupplyGroup
-                ? SupplyGroupTypes
-                : CivilianShippingTypes;
+            if (variant is RouteOperationVariant.Replenishment or RouteOperationVariant.AmphibiousGroup)
+            {
+                string[] nations = escortForce.Ships.Select(ship => ship.Nation).Distinct().ToArray();
+                var alignment = FactionCatalog.Get(escortForce.PrimaryNation)?.Alignment ?? FleetAlignment.Unaligned;
+                string[] allies = FactionCatalog.Nations.Where(nation => alignment != FleetAlignment.Unaligned && nation.Alignment == alignment).Select(nation => nation.Id).ToArray();
+                string[] supportTypes = variant == RouteOperationVariant.Replenishment
+                    ? ["usn_ao_t2", "usn_aoe_sacramento", "wp_vt_kazbek", "wp_pb_don"]
+                    : ["usn_lpd_austin", "usn_lst_newport", "plan_lst_yukan", "wp_bdk_alligator", "wp_bdk_ivan_rogov", "wp_bdk_ropucha"];
+                return SupportHullPool(new("Supply", nations, allies), supportTypes, ScenarioSpecialMode.None)
+                    .Select(unit => new RouteProtectedUnitOption(unit.UnitType, unit.VariantReferences[0], unit.Nation)).ToArray();
+            }
+            if (variant == RouteOperationVariant.DamagedGroup)
+                return TaskForceRosterGenerator.GetVesselOptions(escortForce.Ships.Select(ship => ship.Nation).Distinct())
+                    .Where(option => escortForce.Ships.Any(ship => ship.UnitType == option.UnitType && !ship.IsSubmarine && !ship.IsCarrier))
+                    .Select(option => new RouteProtectedUnitOption(option.UnitType, option.VariantReference, option.Nation)).ToArray();
+            IEnumerable<string> types = variant switch
+            {
+                RouteOperationVariant.SupplyGroup => SupplyGroupTypes,
+                RouteOperationVariant.Replenishment => ["usn_ao_t2", "usn_aoe_sacramento", "wp_vt_kazbek", "wp_pb_don"],
+                RouteOperationVariant.HighValueShip => ["usn_ao_t2", "civ_ms_mairangi_bay"],
+                RouteOperationVariant.EvacuationGroup => ["civ_ms_car_carrier_a", "civ_ms_roro_a", "civ_ms_mairangi_bay"],
+                _ => CivilianShippingTypes,
+            };
             return types
                 .Where(UnitTypeExists)
                 .Select(type => new RouteProtectedUnitOption(type, "Random", null))
@@ -300,6 +320,7 @@ internal static partial class ScenarioDebugGenerator
             FleetClashSize.Large => 6,
             _ => 4,
         };
+        if (variant == RouteOperationVariant.HighValueShip) return 1;
         return variant == RouteOperationVariant.MinesweepingGroup
             ? Math.Max(2, count - 1)
             : count;
@@ -380,12 +401,16 @@ internal static partial class ScenarioDebugGenerator
         AppendRouteMission(mission, match, size, playerTaskforce, parameters, route);
         route.FirstDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce1");
         route.ProtectedUnits.ForEach(unit => unit.WriteTo(mission));
+        if (options.RouteVariant == RouteOperationVariant.DamagedGroup)
+            route.ProtectedUnits.ForEach(unit => mission.Set(unit.Reference, "Damage", "Medium"));
         route.SecondDeployment.WriteTo(mission, useLauncherMetadata && playerTaskforce == "Taskforce2");
         AppendCivilianTraffic(mission, parameters, match);
         AppendRouteTriggers(mission, route, playerTaskforce);
         AppendOpposedObjectives(mission, "Taskforce1DeliverProtectedGroup", "Taskforce2StopProtectedGroup");
         AppendRetreatAnchors(mission, match);
         route.Voyage?.WriteChart(mission, route.SecondDeployment);
+        if (options.RouteVariant == RouteOperationVariant.Replenishment && route.Voyage is { } replenishment)
+            AddChartMarker(mission, replenishment.Center, "REPLENISHMENT RENDEZVOUS", replenishment.At(replenishment.LengthNm * 0.55f), 5);
         AppendActivity(mission, match, parameters, options, playerTaskforce);
         if (route.Voyage is { } ambushRoute)
             ScenarioOpeningOrders.WriteTo(mission, route.SecondDeployment, route.FirstDeployment,
@@ -394,6 +419,8 @@ internal static partial class ScenarioDebugGenerator
                 route.ProtectedUnits.Select(unit => new NavalWeaponEnvelope(unit.UnitType, unit.X, unit.Z)).ToArray());
         ScenarioOpeningOrders.WriteTo(mission, route.FirstDeployment, route.SecondDeployment,
             parameters.Seed ^ 0x1020, playerTaskforce == "Taskforce1", options.Spectator);
+        if (options.RouteVariant == RouteOperationVariant.Replenishment)
+            AppendReplenishment(mission, route, options, playerTaskforce);
         ScenarioTerrain.ValidateNavalSpawns(mission);
         return mission.ToString();
     }
@@ -463,10 +490,76 @@ internal static partial class ScenarioDebugGenerator
 
     private static string GetRouteVariantName(RouteOperationVariant variant) => variant switch
     {
+        RouteOperationVariant.AmphibiousGroup => "Amphibious group",
+        RouteOperationVariant.HighValueShip => "High-value ship",
+        RouteOperationVariant.EvacuationGroup => "Evacuation shipping",
+        RouteOperationVariant.DamagedGroup => "Damaged withdrawal group",
+        RouteOperationVariant.Replenishment => "Replenishment rendezvous",
         RouteOperationVariant.SupplyGroup => "Supply group",
         RouteOperationVariant.MinesweepingGroup => "Minesweeping group",
         _ => "Civilian shipping",
     };
+
+    private static void AppendReplenishment(MissionWriter mission, RouteOperationPlan route, FleetClashGenerationOptions options, string player)
+    {
+        var voyage = route.Voyage!;
+        MissionPosition point = voyage.At(voyage.LengthNm * 0.55f);
+        var receiver = route.FirstDeployment.Formations.Select(formation => formation.References[0])
+            .Select(reference => route.FirstDeployment.Units.First(unit => unit.Reference == reference)).FirstOrDefault(unit => !unit.Ship.IsSubmarine)
+            ?? throw new InvalidOperationException("Replenishment needs a surface ship to meet the supply group.");
+        for (int index = 1; index <= int.Parse(mission.Read("Mission", "Taskforce1_NumberOfFormations", "0")); index++)
+        {
+            string key = $"Taskforce1_Formation{index}";
+            string[] fields = mission.Read("Mission", key).Split('|');
+            if (fields[0].Split(',')[0] != receiver.Reference) continue;
+            fields[fields[1] == "FollowLeader" ? 2 : 1] = "Replenishment receiver";
+            mission.Set("Mission", key, string.Join('|', fields));
+        }
+        string[] escorts = [receiver.Reference];
+        bool automatic = options.Spectator || player != "Taskforce1" || receiver.SourceIndex >= route.FirstDeployment.ControlledCount || options.Starting.PreloadOrders;
+        int number = int.Parse(mission.Read("Mission", "NumberOfTriggers", "3"));
+        // Keep later opening-ROE triggers from replacing the receiver's rendezvous orders.
+        var opening = Enumerable.Range(1, number).Select(index => mission.Read($"Trigger{index}", "Name"))
+            .Where(name => name == $"Search {receiver.Reference}" || name == $"Commit {receiver.Reference}").ToArray();
+        if (opening.Length > 0) mission.Set("Trigger1", "Action_CompleteTriggers", string.Join(',', opening));
+        mission.Set(receiver.Reference, "RetreatAfterWeaponsExpended", false);
+        if (automatic)
+        {
+            var approach = Enumerable.Range(0, 13).Select(step => new MissionWaypoint(voyage.At(voyage.LengthNm * 0.55f * step / 12))).ToArray();
+            ChartPosition previous = voyage.Center.Offset(new(receiver.X, 0, receiver.Z));
+            foreach (var waypoint in approach)
+            {
+                ChartPosition next = voyage.Center.Offset(waypoint.Position);
+                if (!ScenarioTerrain.IsNavigable(previous, next, 20)) throw new UnsafeNavalSpawnException("No safe approach to the replenishment rendezvous.");
+                previous = next;
+            }
+            mission.Set(receiver.Reference, "Waypoints", MissionWaypoint.FormatRoute(approach));
+            mission.Set(receiver.Reference, "Telegraph", 4); mission.Set(receiver.Reference, "MissionType", "NoMission");
+            mission.Section($"Trigger{++number}"); mission.Write("Name", "Receiver waiting");
+            AreaCondition(mission, "Arrived", escorts, point, 1);
+            mission.Write("ConditionsCompleted", "<Arrived>"); mission.WriteList("Action_Units", escorts); mission.Write("Action_UnitTelegraph", 0);
+        }
+        DepleteStrikeWeapons(mission, receiver);
+        mission.Section($"Trigger{++number}"); mission.Write("Name", "Replenishment completed");
+        AreaCondition(mission, "Supply", route.ProtectedUnits.Select(unit => unit.Reference), point, 5, route.RequiredArrivals);
+        AreaCondition(mission, "Escort", escorts, point, 5);
+        mission.Write("ConditionsCompleted", "<Supply> AND <Escort>");
+        mission.WriteList("Action_Units", escorts); mission.Write("Action_RearmUnits", true);
+        if (automatic)
+        {
+            mission.Write("Action_CompleteTriggers", "Receiver waiting");
+            mission.Write("Action_UnitTelegraph", 3);
+            mission.Write("Action_UnitWaypoints", $"FollowLoose,{route.ProtectedUnits[0].Reference},ownPos");
+        }
+        new MissionTrigger(++number, "Receiver lost", new(escorts, 1), new("Taskforce2", "Taskforce2RouteVictoryMessage",
+            "Taskforce1RouteDefeatMessage", ["Taskforce2StopProtectedGroup"], ["Taskforce1DeliverProtectedGroup"])).WriteTo(mission);
+        mission.Set("Mission", "NumberOfTriggers", number);
+        mission.Section("Trigger2"); CompletedCondition(mission, "Replenished", "Replenishment completed");
+        mission.Write("ConditionsCompleted", "<Condition1> AND <Replenished>");
+        mission.Set("Language_en", "Objective_Taskforce1DeliverProtectedGroup", "Rearm receiver and deliver supplies to EXIT");
+        mission.Set("Language_en", "Objective_Taskforce2StopProtectedGroup", "Sink the receiving ship or enough supply ships to prevent delivery");
+        mission.Set("Language_en", "Taskforce1StartMessage", "REPLENISHMENT|The lead ship of the Replenishment receiver group needs ammunition. Meet the supply group at RENDEZVOUS, then cover its passage to EXIT. Losing the receiver fails the mission.|Take station");
+    }
 
     private record RouteOperationPlan(
         FleetDeployment FirstDeployment,

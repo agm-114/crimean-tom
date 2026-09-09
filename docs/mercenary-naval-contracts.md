@@ -427,9 +427,13 @@ Implement route operations with civilian, supply, and minesweeper variants. Supp
 
 Add passage and search operations. These cover strait runs, blockades, ASW barriers, surface hunts, submarine hunts, breakout, and escape.
 
+Standalone Hunt now includes submarines, SSBNs, surface raiders, an isolated carrier and damaged groups. Standalone Passage includes surface pickets, breakout and an ASW barrier. Both provide either side and observer play. Campaign offers remain unchanged.
+
 ### Sprint 3
 
 Add area and fixed-target operations. Connect target survival to air, radar, repair, rearm, and reinforcement support.
+
+The five standalone families now expose 46 concrete variants: eight route, nine passage, nine search, nine area and eleven fixed-target variants. They support both perspectives and observer entries. See `fleet-generation.md` for their exact objectives and asset requirements. The broader campaign effects above remain design work. Amphibious and evacuation missions cover transit, not landing or passenger loading; the seabed-network target is its shore terminal. Intelligence, maritime security and littoral delivery remain separate unimplemented families. There are no mission deadlines in the implemented variants.
 
 ### Sprint 4
 

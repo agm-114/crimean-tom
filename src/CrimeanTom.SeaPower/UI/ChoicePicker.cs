@@ -21,7 +21,7 @@ internal class ChoicePicker<T>(
 
     internal void UpdateLabels(Func<T, string> label)
     {
-        int selected = Control.SelectedIndex;
+        int selected = Math.Max(0, Control.SelectedIndex);
         Control.ItemsSource = choices.Select(choice => label(choice.Value)).ToArray();
         Control.SelectedIndex = selected;
     }
