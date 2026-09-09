@@ -20,8 +20,8 @@ aircraft. One assigned crew works on one aircraft at a time, in this order:
 5. Load the more specialized weapons last.
 
 Changing loadouts keeps fuel, common stores and fractional loading or unloading
-progress. Incompatible stores remain aboard until crews remove them; removal is
-faster than mounting. Both loadouts must fit the ship's ammunition stock while
+progress. Incompatible stores remain aboard until crews remove them; removal
+defaults to 1.1 times mounting time. Both loadouts must fit the ship's ammunition stock while
 incompatible stores are still mounted. Those stores return to stock as unloading
 finishes. Native code continues reserving the complete requested loadout.
 
@@ -86,7 +86,8 @@ multiplied by `WeaponTimeMultiplier`. Missing mass contributes zero. The general
 base is 45 seconds; type bases are 0.15 for projectiles, 2 for countermeasures and
 rockets, 5 for sonobuoys, 10 for bombs, 20 for fuel tanks, 30 for depth charges and
 400 for torpedoes. `MountSecondsPerKg=0.05`, `WeaponTimeMultiplier=1`, and removal
-takes 35% of the mount time. Five explicit weapon overrides retain longer vanilla
+takes 110% of the mount time unless a weapon has an explicit removal override.
+Five explicit weapon overrides retain longer vanilla
 preparation for Phoenix, Harpoon, GBU-24, UMGT-1 and Mk54 depth charges.
 
 The refuel table contains 15 outliers. For all other aircraft:
@@ -124,8 +125,8 @@ These modifiers do not change recovery servicing, taxiing, launch intervals or A
 tasks. The stock instant setting remains instant.
 
 All configuration values must be positive and at most 86,400, except
-`MountSecondsPerKg` and `RefuelSecondsPerKg` may be zero to disable mass scaling. Removal must be
-faster than mounting. Invalid configuration logs an error and leaves new tasks
+`MountSecondsPerKg` and `RefuelSecondsPerKg` may be zero to disable mass scaling.
+Removal may take longer than mounting. Invalid configuration logs an error and leaves new tasks
 on native timing. The generated table is rewritten in sorted order, so custom
 comments are not retained.
 
