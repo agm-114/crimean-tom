@@ -14,7 +14,13 @@ internal class TaskPreparation(PreparationBatch batch)
     internal StoreReservation Reservation { get; private set; } = new();
     internal static TaskPreparation? Find(PendingLaunchTask task) => Tasks.TryGetValue(task, out var preparation) ? preparation : null;
     internal static Loadout Selected(PendingLaunchTask task) => task.VehicleType.Loadouts[task._loadoutIndex];
-    private static float Speed => Globals._multipliers[Singleton<OptionsManager>.Instance.FlightDeckTimingsMode];
+
+    private static double WorkSpeed(PendingLaunchTask task)
+    {
+        FlightDeckTimingsMode mode = Singleton<OptionsManager>.Instance.FlightDeckTimingsMode;
+        return mode == FlightDeckTimingsMode.Cheater || !DM_TestTools._allowAircraftReadyUpTime ? double.PositiveInfinity
+            : Globals._multipliers[mode] / PreparationCatalog.OperationTimeMultiplier(task);
+    }
 
     internal static PreparationLoadout? Plan(PendingLaunchTask task, Loadout loadout)
     {
@@ -53,7 +59,7 @@ internal class TaskPreparation(PreparationBatch batch)
 
     private void Sync(PendingLaunchTask task)
     {
-        task._duration = (float)Batch.RemainingWork;
+        task._duration = (float)(Batch.RemainingWork * PreparationCatalog.OperationTimeMultiplier(task));
         task.NotifyPropertyChanged(nameof(FlightDeckTask.FlightDeckTaskLabel));
     }
 
@@ -63,6 +69,15 @@ internal class TaskPreparation(PreparationBatch batch)
         return string.Join("\n", Batch.Aircraft.Select(aircraft => aircraft.Ready ? "Ready"
             : crews-- > 0 ? aircraft.Activity : waiting).GroupBy(activity => activity)
             .Select(group => $"{group.Count()}x {group.Key}"));
+    }
+
+    internal string Describe(PendingLaunchTask task)
+    {
+        int crews = task._stateMachine.CurrentState is HandleReadyUpTask ? Math.Max(0, task.AssignedGroundCrew) : 0;
+        string waiting = task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask ? "Awaiting deck space" : "Awaiting crew";
+        double speed = WorkSpeed(task);
+        return string.Join("\n\n", Batch.Aircraft.Select((aircraft, index) =>
+            $"Aircraft {index + 1}\n{aircraft.Describe(speed, !aircraft.Ready && crews-- > 0, waiting, PreparationCatalog.WeaponName)}"));
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(PendingLaunchTask), MethodType.Constructor,
@@ -83,13 +98,14 @@ internal class TaskPreparation(PreparationBatch batch)
     {
         PendingLaunchTask task = ____flightDeckTask;
         if (Find(task) is not { } preparation) return true;
+        double speed = WorkSpeed(task);
         task.UpdateAssignedGroundCrew();
-        if (Singleton<OptionsManager>.Instance.FlightDeckTimingsMode == FlightDeckTimingsMode.Cheater || !DM_TestTools._allowAircraftReadyUpTime)
+        if (double.IsPositiveInfinity(speed))
             preparation.Batch.Complete();
-        else preparation.Batch.Advance(GameTime.deltaTime * Speed, Math.Max(0, task.AssignedGroundCrew));
+        else preparation.Batch.Advance(GameTime.deltaTime * speed, Math.Max(0, task.AssignedGroundCrew));
         preparation.UpdateReservation(task);
         preparation.Sync(task);
-        double seconds = preparation.Batch.EstimatedSeconds(task.AssignedGroundCrew) / Speed;
+        double seconds = preparation.Batch.EstimatedSeconds(task.AssignedGroundCrew) / speed;
         task.Info = double.IsInfinity(seconds) || double.IsNaN(seconds) ? "Awaiting crew"
             : $"{task.AssignedGroundCrew} crew, batch ready in {(int)(seconds / 60)}:{(int)(seconds % 60):00}";
         return false;

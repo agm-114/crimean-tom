@@ -27,6 +27,16 @@ and `1x Ready`. Info shows assigned crew and the estimated time until the batch 
 ready, assuming its current crew allocation. The game's flight-deck timing
 multiplier still applies. Instant preparation settings remain instant.
 
+Hover over a row's Loadout dropdown for each aircraft's fuel in kg and percentage,
+effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
+excess and incompatible weapons show quantities and remaining work time per type.
+Each type also shows its completion estimate including earlier refueling,
+loading and unloading operations. Queued estimates start once a crew is assigned.
+Rates and times include aircraft/nation modifiers and deck difficulty, assuming
+uninterrupted crew.
+Target stores progress is weighted by mounting work; fuel and unloading are
+reported separately.
+
 Scope:
 
 - Progress belongs to the queued batch, not a persistent aircraft serial number.
@@ -43,22 +53,64 @@ Scope:
 
 ## Timing configuration
 
-`rearm-times.ini` sits beside the deployed DLL. On the first preparation task,
-missing entries are filled from installed game/mod aircraft and ammunition data.
+`rearm-times.ini` sits beside the deployed DLL. Aircraft and weapon tables contain
+explicit exceptions only. Missing rows use the defaults and are not generated,
+so these tables stay small.
 Edit it and restart the game to tune rates. Deployment preserves an existing file.
 
 | Section | Values |
 | --- | --- |
 | `AircraftRefuelSeconds` | Aircraft reference → seconds from empty to full internal fuel |
-| `WeaponMountSeconds` | Ammunition reference → crew seconds per round/item |
-| `WeaponRemoveSeconds` | Ammunition reference → crew seconds per round/item removed |
-| `Defaults` | Fallback `MountSeconds`, `RefuelKgPerSecond` and `UnloadMultiplier` |
+| `WeaponMountSeconds` | Ammunition reference → total crew seconds per round/item, replacing base plus mass |
+| `WeaponRemoveSeconds` | Ammunition reference → crew seconds per round/item removed, replacing the unload fraction |
+| `AircraftOperationTimeMultipliers` | Aircraft reference → preparation duration multiplier, default 1 |
+| `NationOperationTimeMultipliers` | Operating ship/airfield nation → preparation duration multiplier, default 1 |
+| `Defaults` | `MountSeconds`, `MountSecondsPerKg`, `RefuelFixedSeconds`, `RefuelSecondsPerKg`, `UnloadMultiplier`, `WeaponTimeMultiplier` |
 
-Starting defaults are 4 kg/s refueling, 120 seconds per external weapon, 0.3 seconds
-per projectile, 2 seconds per countermeasure and 5 seconds per sonobuoy. Removal takes 35% of mounting
-time. These are tuning values, not measured servicing times. Generated explicit
-rows take precedence over defaults; delete a row to regenerate it from defaults.
-All configuration values must be positive and at most 86,400; removal must be
+Default weapon loading is `type base + mass in kg × MountSecondsPerKg`, then
+multiplied by `WeaponTimeMultiplier`. Missing mass contributes zero. The general
+base is 45 seconds; type bases are 0.15 for projectiles, 2 for countermeasures and
+rockets, 5 for sonobuoys, 10 for bombs, 20 for fuel tanks, 30 for depth charges and
+400 for torpedoes. `MountSecondsPerKg=0.05`, `WeaponTimeMultiplier=1`, and removal
+takes 35% of the mount time. Five explicit weapon overrides retain longer vanilla
+preparation for Phoenix, Harpoon, GBU-24, UMGT-1 and Mk54 depth charges.
+
+The refuel table contains 15 outliers. For all other aircraft:
+
+```text
+full-tank seconds = RefuelFixedSeconds + RefuelSecondsPerKg × capacity kg
+constant kg/second = capacity kg / full-tank seconds
+```
+
+Defaults are 600 fixed seconds plus 0.03 seconds per kg. The fixed term is part
+of the rate calculation, not a separate delay. A half-full aircraft needs half
+the full-tank time. An explicit aircraft override replaces full-tank seconds,
+still using a constant rate. Fixed-wing capacity comes from `[Performance]`;
+helicopters use `[Physics]`. These are gameplay tuning values, not physical
+service rates. Aircraft and nation multipliers apply to the resulting time.
+
+The offline comparison puts 335 of 561 loadouts within 25% of native preparation
+time, and 415 within 35%. It is approximate, not an in-game timing measurement.
+Some native loadout times differ without a corresponding equipment difference.
+For example, the Ka-27's ASWHunterLight remains substantially faster than its
+native 30 minutes.
+
+| Loadout | Native minutes | Calculated minutes |
+| --- | --- | --- |
+| SH-2F ASW | 30 | 25.7 |
+| F-14A AirToAir | 15 | 18.4 |
+| F-14A AirToAirIntercept | 30 | 32.9 |
+| Ka-27 ASW | 30 | 26.5 |
+
+Both operation multipliers apply to refueling, mounting and removal. They multiply
+together, and the game difficulty setting still scales the resulting duration.
+For example, aircraft `1.25` × nation `0.8` leaves duration unchanged. Values above
+1 are slower. Nations refer to the operator, not where the aircraft was built.
+These modifiers do not change recovery servicing, taxiing, launch intervals or AI
+tasks. The stock instant setting remains instant.
+
+All configuration values must be positive and at most 86,400, except
+`MountSecondsPerKg` and `RefuelSecondsPerKg` may be zero to disable mass scaling. Removal must be
 faster than mounting. Invalid configuration logs an error and leaves new tasks
 on native timing. The generated table is rewritten in sorted order, so custom
 comments are not retained.

@@ -7,6 +7,7 @@ namespace FlightDeckTweaks;
 public class TaskLoadout : INotifyPropertyChanged
 {
     private readonly PendingLaunchTask task;
+    private float nextStatusUpdate;
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanChange => !task._isCancelled && task.LaunchCount > 0
         && task._flightDeck._baseObject.AcceptsOrdersFromPlayer
@@ -17,6 +18,9 @@ public class TaskLoadout : INotifyPropertyChanged
         || loadout.ServiceEntryYear <= CurrentYear).ToArray();
     private static int CurrentYear => Singleton<SeaPower.Environment>.InstanceExists()
         ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
+    public string PreparationStatus => TaskPreparation.Find(task) is { } preparation
+        ? preparation.Describe(task)
+        : "Native preparation. Detailed fuel and stores are not tracked for this task.";
     public Loadout SelectedLoadout
     {
         get => task.VehicleType.Loadouts[task._loadoutIndex];
@@ -39,7 +43,17 @@ public class TaskLoadout : INotifyPropertyChanged
     public TaskLoadout(PendingLaunchTask task)
     {
         this.task = task;
-        task._stateMachine.OnStateChanged += (_, _) => PropertyChanged?.Invoke(this, new(nameof(CanChange)));
+        task._stateMachine.OnStateChanged += (_, _) =>
+        {
+            PropertyChanged?.Invoke(this, new(nameof(CanChange)));
+            PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
+        };
+        task.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(FlightDeckTask.FlightDeckTaskLabel) || GameTime.time < nextStatusUpdate) return;
+            nextStatusUpdate = GameTime.time + 1;
+            PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
+        };
     }
 
     private bool CanAfford(Loadout loadout, TaskPreparation? preparation, PreparationLoadout? target)
