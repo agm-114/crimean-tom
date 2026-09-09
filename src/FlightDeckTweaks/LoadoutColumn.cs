@@ -40,7 +40,8 @@ internal static class LoadoutColumn
         view.Columns[0].CellTemplate = (DataTemplate)GUI.ParseXaml("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
                 <Border Tag="FlightDeckTweaks.State" Background="Transparent" Padding="4,2">
-                    <TextBlock Text="{Binding FlightDeckTaskLabel}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding FlightDeckTaskLabel}" VerticalAlignment="Center"
+                               TextWrapping="Wrap" MaxWidth="220"/>
                 </Border>
             </DataTemplate>
             """);
