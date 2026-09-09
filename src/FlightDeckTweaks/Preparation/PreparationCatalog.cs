@@ -69,8 +69,7 @@ internal static class PreparationCatalog
         defaultMount += Number(ini, "General", "Mass", 0) * Rates.Get("Defaults", "MountSecondsPerKg", 0.05);
         double mount = Rates.Get("WeaponMountSeconds", reference, defaultMount, populate: false);
         double remove = Rates.Get("WeaponRemoveSeconds", reference,
-            mount * Rates.Get("Defaults", "UnloadMultiplier", 0.35), populate: false);
-        if (remove >= mount) throw new FormatException($"Removal must be faster than mounting: {reference}");
+            mount * Rates.Get("Defaults", "UnloadMultiplier", 1.1), populate: false);
         double multiplier = Rates.Get("Defaults", "WeaponTimeMultiplier", 1);
         return Weapons[reference] = new(mount * multiplier, remove * multiplier,
             Value(ini, "General", "SupplyCategory"), Number(ini, "General", "AmmoPoints", 0), countermeasure);

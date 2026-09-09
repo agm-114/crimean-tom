@@ -25,8 +25,6 @@ internal class ServiceRates(string path)
                 throw new FormatException($"Invalid preparation rate: {section}/{line[..equals]}");
             Table(section)[key] = value;
         }
-        if (Get("Defaults", "UnloadMultiplier", 0.35) >= 1)
-            throw new FormatException("UnloadMultiplier must be between zero and one");
     }
 
     internal double Get(string section, string key, double fallback, bool populate = true)
