@@ -24,7 +24,8 @@ internal class GameClient
                     using (document)
                     {
                         if (!document.RootElement.TryGetProperty("capabilities", out JsonElement capabilities)
-                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "load-scenario"))
+                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "load-scenario")
+                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "menu"))
                             throw new InvalidOperationException("The running bridge lacks scenario loading. Deploy the updated game bridge and restart.");
                         session = document.RootElement.GetProperty("session").GetString();
                     }
@@ -40,11 +41,25 @@ internal class GameClient
             await Task.Delay(500, cancellation);
         }
         // Never retry an uncertain load: the game may already be changing scenes.
-        return await SendAsync(new("load-scenario") { Text = path, Confirm = true }, cancellation);
+        return await SubmitScenarioAsync(new("load-scenario") { Text = path, Confirm = true }, cancellation);
     }
 
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
     {
+        if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);
+        if (command.Request.Action == "encyclopedia")
+        {
+            await SendAsync(command.Request, cancellation);
+            while (true)
+            {
+                JsonElement readiness = await SendAsync(new("encyclopedia-ready"), cancellation);
+                if (readiness.GetProperty("ready").GetBoolean()) break;
+                if (!readiness.GetProperty("loading").GetBoolean())
+                    throw new InvalidOperationException("Encyclopedia loading ended or was interrupted. Inspect the game before retrying.");
+                await Task.Delay(500, cancellation);
+            }
+            return await SendAsync(command.Request with { Action = "encyclopedia-unit" }, cancellation);
+        }
         if (command.Request.Action is "inspect" or "update" or "units" or "units-update")
             return (await DumpAsync(command, cancellation))!.Value;
         if (command.Request.Action is not ("wait-for" or "wait-sim"))
@@ -83,6 +98,15 @@ internal class GameClient
             }
             await Task.Delay(500, cancellation);
         }
+    }
+
+    private async Task<JsonElement> SubmitScenarioAsync(GameRequest command, CancellationToken cancellation)
+    {
+        JsonElement menu = await SendAsync(new("menu"), cancellation);
+        if (menu.GetProperty("currentWindow").GetString() == "MainMenuView" && menu.GetProperty("idle").GetBoolean())
+            await SendAsync(new("menu") { Text = "scenarios" }, cancellation);
+        // Let the Scenarios view attach before native mod hooks open their setup windows.
+        return await SendAsync(command, cancellation);
     }
 
     private async Task<JsonElement?> DumpAsync(CliCommand command, CancellationToken cancellation)

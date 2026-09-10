@@ -56,6 +56,12 @@ seapower-cli status
 seapower-cli game-status
 seapower-cli logs --tail 200
 seapower-cli launch --confirm --require-pattern 'Sea Power Game Bridge'
+seapower-cli load-scenario --scenario 'C:/Scenarios/carrier-training.ini' --confirm
+seapower-cli cancel-scenario --confirm
+seapower-cli menu
+seapower-cli menu scenarios
+seapower-cli menu main
+seapower-cli encyclopedia --unit usn_cvn_nimitz --confirm
 seapower-cli pause
 seapower-cli resume
 seapower-cli speed 10
@@ -131,7 +137,8 @@ text, so an old load marker alone cannot satisfy the check. Patterns have a
 Startup success does not prove menu readiness or scenario loading. Use `inspect`
 or `wait-for` next. Launch timeout or cancellation leaves the game alone; check
 `game-status` and `logs` before retrying. The CLI never resolves Steam cloud-save
-conflicts, closes an existing game, deploys DLLs or changes Mod Manager selections.
+conflicts, deploys DLLs or changes Mod Manager selections. Only the explicit
+`menu exit --confirm` command requests game exit.
 
 ### Launch into a scenario
 
@@ -147,8 +154,8 @@ This option requires the updated `SeaPower.GameBridge.dll` and `enabled.txt` in
 `Sea Power_Data/StreamingAssets/SeaPowerGameBridge`. The CLI checks those files
 before starting Steam, then waits for a fresh bridge session and a ready main
 menu. It calls the native Scenarios Play entry point on the game thread. The
-bridge rejects a load during an active mission or after a previous startup load
-request. Startup popups may need dismissal before the main menu becomes ready.
+bridge rejects a load during an active mission, scene transition or open dialog.
+Startup popups need dismissal before the main menu becomes ready.
 
 The shared launch timeout defaults to 120 seconds with `--scenario`. A successful
 reply includes `scenario.state: load-requested` and the absolute path. This means
@@ -159,6 +166,64 @@ menu rather than skipping its settings. Ordinary mission files load directly.
 
 This flow uses Steam and the bridge, not undocumented game startup arguments.
 The CLI does not rewrite mission or save files to arrange startup.
+
+### Running-game navigation
+
+These commands require an enabled, updated bridge in a game that is already running.
+They do not start or restart Sea Power:
+
+```powershell
+seapower-cli load-scenario --scenario 'C:/Scenarios/carrier-training.ini' --confirm
+seapower-cli cancel-scenario --confirm
+seapower-cli menu
+seapower-cli menu scenarios
+seapower-cli menu main
+seapower-cli menu campaigns
+seapower-cli encyclopedia --unit usn_cvn_nimitz --variant 0 --confirm --timeout 120
+```
+
+`load-scenario` submits one native Play request from the main or Scenarios menu.
+From the main menu it opens Scenarios first, so generated setup dialogs have
+their native window host ready.
+It validates the file and its `[Mission]` section. It returns `load-requested`,
+not tactical readiness. Generated launcher files open their normal setup dialog.
+You can load another scenario after returning from a mission or closing setup.
+
+`cancel-scenario --confirm` abandons a fully loaded standalone mission or the
+encyclopedia through the native pause-menu exit. It does not save the mission
+or record a debrief result. The reply is `unload-requested`; wait until `menu`
+reports `idle: true` before loading again. Cancellation refuses scene transitions,
+campaign missions and editor sessions. Use their native exit controls instead.
+For an unlaunched scenario setup dialog, use `inspect` and click its Cancel button.
+Cancelling the CLI process with Ctrl+C does not cancel the scenario.
+
+`menu` without a page reports the current window, loading state, idle state and
+supported pages. This read leaves the UI snapshot intact. Navigation uses native
+handlers and consumes the previous UI snapshot. Supported pages are:
+
+- `main`, `scenarios`, `campaigns`, `instant-action`, `editor`
+- `encyclopedia`, `options`, `mods`, `manual`, `continue`, `exit`
+
+Open pages from the main menu. `menu main` runs the current page's native Back
+action. It does not apply pending options.
+Leaving the editor requires its own Back/Cancel controls to avoid discarding work.
+An active mission, campaign, open dialog or scene transition blocks navigation.
+Disabled native entries, including Instant Action in the current build, stay disabled.
+Opening Mod Manager does not alter its selections.
+
+`menu encyclopedia`, `menu continue`, `menu manual` and `menu exit` require
+`--confirm`. Continue uses the game's last-save selection. Manual opens the native
+PDF viewer. Exit requests normal game shutdown from the main menu; it is not a
+process kill. Check `game-status` afterward if the exit reply times out.
+
+`encyclopedia --unit` opens the native encyclopedia mission, waits for its loading
+screen to finish, then uses the museum's display command to show the unit in 3D
+and open its information panel. If the encyclopedia is already ready, it switches
+units without reloading the mission. Use the exact INI class name, not a display
+name. `--variant` is zero-based and defaults to 0. Invalid names or variants fail
+without replacing the displayed unit. Selection is restricted to museum mode,
+so it cannot replace a unit in a tactical mission. The default timeout is 120 seconds.
+If loading times out, inspect before retrying; the encyclopedia may still be loading.
 
 ## Full dumps and updates
 
@@ -352,7 +417,7 @@ The CLI implements both waits by sending ordinary reads every half second:
 wall-clock timeout, bounded to 30 seconds through 24 hours. `wait-for` defaults
 to ten wall-clock seconds. Launch defaults to sixty, or 120 with `--scenario`;
 other commands default to twelve. Override these with `--timeout`, especially at speeds below 1x.
-Paused games consume the timeout.
+The encyclopedia command defaults to 120 seconds. Paused games consume the timeout.
 Mission changes, a backwards clock, game restarts or connection errors stop the
 wait rather than continuing against a different mission.
 

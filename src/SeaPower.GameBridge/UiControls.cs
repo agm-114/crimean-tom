@@ -22,10 +22,17 @@ internal class UiControls
     internal object Execute(GameCommand command)
     {
         if (command.Action == "scenario-ready") return new { ready = ScenarioControls.Ready };
-        if (command.Action == "load-scenario")
+        if (command.Action == "encyclopedia-ready") return new { ready = EncyclopediaControls.Ready, loading = MenuControls.Loading };
+        if (command.Action == "menu" && command.Text.Length == 0) return MenuControls.Execute(command);
+        if (command.Action is "load-scenario" or "cancel-scenario" or "menu" or "encyclopedia" or "encyclopedia-unit")
         {
             snapshot = "";
-            return ScenarioControls.Load(command);
+            return command.Action switch
+            {
+                "load-scenario" => ScenarioControls.Load(command), "cancel-scenario" => ScenarioControls.Cancel(command),
+                "menu" => MenuControls.Execute(command), "encyclopedia" => EncyclopediaControls.Open(command),
+                _ => EncyclopediaControls.Select(command),
+            };
         }
         if (command.Action == "status") return new { time = TimeControls.Read() };
         if (command.Action == "inspect") return Inspect();

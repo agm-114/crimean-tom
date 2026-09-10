@@ -27,6 +27,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli logs [--tail 200] [--game-dir PATH] [--log-file PATH]
         seapower-cli launch --confirm [--require-pattern REGEX] [--timeout 60] [--game-dir PATH]
         seapower-cli launch --confirm --scenario FILE.ini [--timeout 120]
+        seapower-cli load-scenario --scenario FILE.ini --confirm
+        seapower-cli cancel-scenario --confirm
+        seapower-cli menu [PAGE] [--confirm]
+        seapower-cli encyclopedia --unit INI_NAME [--variant 0] --confirm [--timeout 120]
         seapower-cli click --snapshot TOKEN --id ID [--confirm]
         seapower-cli select --snapshot TOKEN --id ID [--index N]
         seapower-cli expand|open --snapshot TOKEN --id ID
@@ -48,6 +52,14 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         It requires an enabled, updated game bridge and submits the native load once the main menu is ready.
         Success means load-requested, not tactical readiness; generated launchers can open their setup menu.
         Launch timeout/cancellation does not close the game. Check game-status before retrying.
+        load-scenario works in an already running game, from the main or Scenarios menu.
+        cancel-scenario abandons a loaded standalone mission without saving. It refuses campaigns and editor sessions.
+        menu without PAGE lists pages and the current window. Pages:
+          main, scenarios, campaigns, instant-action, editor, encyclopedia,
+          options, mods, manual, continue, exit.
+        Navigation starts from the main menu; menu main uses the current page's native Back command.
+        encyclopedia, continue, manual and exit require --confirm. Disabled native options stay disabled.
+        encyclopedia --unit uses a unit INI name, not a display name; --variant is zero-based.
         update and units-update compare against their last dump or update, saved
         across CLI invocations. With no matching baseline they return a full dump.
         units exposes actual simulator state, including undetected enemy units.
@@ -68,7 +80,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         JSONPath and LINQ options cannot be combined. Queries never filter the stored baseline.
         On deltas, LINQ queries added and updated rows separately; removed IDs remain unfiltered.
         query reads a saved JSON/YAML dump without contacting the game or changing baselines.
-        Default timeout: 12 seconds; launch: 60 or 120 with --scenario; wait-for: 10; wait-sim: twice its duration,
+        Default timeout: 12 seconds; encyclopedia: 120; launch: 60 or 120 with --scenario; wait-for: 10; wait-sim: twice its duration,
         bounded to 30 seconds through 24 hours. Ctrl+C cancels the CLI, not actions
         already accepted by the game. Only launch --confirm starts the game; no command enables mods.
         """;
@@ -83,6 +95,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "game-status" => ["--game-dir", "--log-file"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
             "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm", "--scenario"],
+            "load-scenario" => ["--scenario", "--confirm"],
+            "cancel-scenario" => ["--confirm"],
+            "menu" => ["--page", "--confirm"],
+            "encyclopedia" => ["--unit", "--variant", "--confirm"],
             "click" => ["--snapshot", "--id", "--confirm"],
             "select" => ["--snapshot", "--id", "--index"],
             "expand" or "open" => ["--snapshot", "--id"],
@@ -102,10 +118,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             string key = args[index];
             string value;
-            if (action == "set-speed" && index == 1 && !key.StartsWith("--"))
+            if (action is "set-speed" or "menu" && index == 1 && !key.StartsWith("--"))
             {
                 value = key;
-                key = "--speed";
+                key = action == "menu" ? "--page" : "--speed";
             }
             else
             {
@@ -137,23 +153,34 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         string? input = action == "query" ? Required("--input") : null;
         int seconds = Number("--seconds", 60, 1, 86400);
         string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
+        if (action == "load-scenario" && scenario == null) Required("--scenario");
         if (scenario != null && (!Path.GetExtension(scenario).Equals(".ini", StringComparison.OrdinalIgnoreCase) || !File.Exists(scenario)))
             throw new ArgumentException("--scenario requires an existing mission .ini file.");
-        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "launch" => scenario == null ? 60 : 120, _ => 12 };
-        if (action == "launch" && !options.ContainsKey("--confirm")) throw new ArgumentException("launch requires --confirm.");
+        string page = options.ContainsKey("--page") ? Required("--page").ToLowerInvariant() : "";
+        if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
+            throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
+        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
+        if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia"
+            || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
+            throw new ArgumentException($"{action} requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
         bool controlAction = action is "click" or "select" or "expand" or "open" or "set-text";
         string snapshot = controlAction ? Required("--snapshot") : "";
         if (controlAction) Required("--id");
-        string text = action is "set-text" or "wait-for" ? Required("--text", action == "set-text") : "";
+        string text = action switch
+        {
+            "set-text" or "wait-for" => Required("--text", action == "set-text"),
+            "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
+        };
         float speed = 1;
         if (action == "set-speed" && (!float.TryParse(Required("--speed"), NumberStyles.Float, CultureInfo.InvariantCulture, out speed)
             || !new float[] { 0.1f, 0.2f, 0.5f, 1, 2, 3, 5, 10, 20, 30, 50, 100 }.Contains(speed)))
             throw new ArgumentException("Speed must be a native step between 0.1 and 100.");
         return new(new(action)
         {
-            Snapshot = snapshot, Id = Number("--id", 0, 1, int.MaxValue), Index = Number("--index", -1, 0, int.MaxValue),
+            Snapshot = snapshot, Id = Number("--id", 0, 1, int.MaxValue),
+            Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {

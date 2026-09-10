@@ -13,7 +13,7 @@ public class GameBridge : MonoBehaviour
     private void Awake()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario" } }));
+        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia" } }));
         Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
