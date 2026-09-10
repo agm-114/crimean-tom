@@ -9,7 +9,7 @@ game-assembly dependencies. Newtonsoft.Json provides JSONPath,
 System.Linq.Dynamic.Core provides Dynamic LINQ, and YamlDotNet handles YAML.
 These packages are not deployed to the game.
 
-The CLI never launches Sea Power, enables mods or bypasses aircraft preparation.
+Only `launch --confirm` starts Sea Power.
 
 ## Build and enable
 
@@ -36,9 +36,8 @@ dotnet build src/SeaPower.GameBridge/SeaPower.GameBridge.csproj -p:DeployToGame=
 ```
 
 Create `enabled.txt` beside the deployed DLL in
-`Sea Power_Data/StreamingAssets/SeaPowerGameBridge`, then launch Sea Power yourself.
-Without this file the mod does nothing. Remove it and restart to disable the mod.
-Normal builds do not deploy or enable it. Changes to the bridge DLL require a
+`Sea Power_Data/StreamingAssets/SeaPowerGameBridge`, then launch Sea Power.
+Changes to the bridge DLL require a
 game restart; changes to CLI logic do not.
 
 When upgrading from UI Helper, close the game and remove its old
@@ -54,6 +53,9 @@ seapower-cli update
 seapower-cli units
 seapower-cli units-update
 seapower-cli status
+seapower-cli game-status
+seapower-cli logs --tail 200
+seapower-cli launch --confirm --require-pattern 'Sea Power Game Bridge'
 seapower-cli pause
 seapower-cli resume
 seapower-cli speed 10
@@ -94,6 +96,42 @@ command or click event, while selections and text changes use control bindings.
 Buttons whose name or label includes save, load, play, launch, quit, exit, start
 or delete require `--confirm`. This bridge-side check is a precaution, not a
 substitute for reviewing the action. Do not automate overwriting user saves.
+
+## Installation, logs and startup
+
+These commands run entirely in the CLI without the game bridge:
+
+```powershell
+seapower-cli game-status
+seapower-cli game-status --game-dir 'D:/SteamLibrary/steamapps/common/Sea Power'
+seapower-cli logs --tail 300 --format json
+seapower-cli launch --confirm --timeout 90 --require-pattern 'loaded native Task Force Mode shim'
+```
+
+`game-status` reports the executable path and existence, current process IDs,
+and Player.log/BepInEx log paths, existence and last-write times. It is distinct
+from `status`, which reads the running mission's clock through the bridge.
+Installation lookup uses `--game-dir`, then `SEA_POWER_DIR`, then the default
+Steam folder under `C:/Program Files (x86)`.
+
+`logs` returns the last 200 lines of Player.log and, when present,
+`BepInEx/LogOutput.log`. `--tail` accepts 1 through 5000. A missing Player.log is
+an error; a missing BepInEx log is normal. Log reads allow the game to keep writing.
+All three commands accept `--log-file PATH` to override the default
+`%USERPROFILE%/AppData/LocalLow/Triassic Games/Sea Power/Player.log`, including
+for inspecting saved logs. These commands do not change snapshot baselines.
+
+`launch --confirm` opens `steam://run/1286220`, not the game executable directly.
+It refuses an existing Sea Power process and waits up to 60 seconds for a running
+process and fresh Player.log content. `--require-pattern` additionally requires
+a regex match in that fresh content. An appended log excludes the pre-launch
+text, so an old load marker alone cannot satisfy the check. Patterns have a
+4096-character limit and a one-second match timeout.
+
+Startup success does not prove menu readiness or scenario loading. Use `inspect`
+or `wait-for` next. Launch timeout or cancellation leaves the game alone; check
+`game-status` and `logs` before retrying. The CLI never resolves Steam cloud-save
+conflicts, closes an existing game, deploys DLLs or changes Mod Manager selections.
 
 ## Full dumps and updates
 
@@ -285,8 +323,9 @@ The CLI implements both waits by sending ordinary reads every half second:
 
 `wait-sim` defaults to 60 simulation seconds and twice that duration as its
 wall-clock timeout, bounded to 30 seconds through 24 hours. `wait-for` defaults
-to ten wall-clock seconds. Other commands default to twelve. Override these
-with `--timeout`, especially at speeds below 1x. Paused games consume the timeout.
+to ten wall-clock seconds. Launch defaults to sixty; other commands default to
+twelve. Override these with `--timeout`, especially at speeds below 1x.
+Paused games consume the timeout.
 Mission changes, a backwards clock, game restarts or connection errors stop the
 wait rather than continuing against a different mission.
 
@@ -323,6 +362,8 @@ Screenshots remain necessary for layout, clipping and actual tooltip visibility.
 
 `SeaPower.Cli` contains the CLI parser, async file transport, wait conditions,
 snapshot comparison and storage, local querying, cancellation and output formatting.
+`GameDiagnostics.cs` owns installation/process inspection, log reads and explicit
+Steam launch verification. None of these require game assembly references.
 `Protocol.cs` decodes only the reply fields
 needed for those tasks; unqueried output preserves the entire bridge reply.
 

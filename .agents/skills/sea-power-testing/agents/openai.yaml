@@ -1,4 +1,4 @@
 interface:
   display_name: "Sea Power Testing"
-  short_description: "Launch and verify Crimean Tom inside Sea Power"
-  default_prompt: "Use $sea-power-testing to run the appropriate Sea Power smoke test and report fresh evidence."
+  short_description: "Verify Sea Power mods with CLI and visual checks"
+  default_prompt: "Use $sea-power-testing to verify the relevant mod with seapower-cli and report what was observed, respecting any launch restrictions."

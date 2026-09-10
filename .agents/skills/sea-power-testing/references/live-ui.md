@@ -4,17 +4,55 @@ Use this procedure only when the task needs player-visible proof inside Sea Powe
 
 ## Interaction rules
 
-1. Work with one Sea Power window.
-2. Capture the current screen before acting. Sea Power exposes little useful
-   accessibility text, so identify the visible control from the current image.
-3. Perform one action, wait for the screen to settle, then capture it again.
-4. Do not reuse coordinates from another resolution or earlier run.
-5. Dismiss a news popup if it blocks the main menu. If an inspector overlay is
-   already open, hide it without changing inspector state.
+1. Work with one Sea Power window. Run `game-status` to check the process and
+   `inspect` to read the visible UI tree through the enabled game bridge.
+2. Select IDs and the snapshot token from that live read. Use `click`, `select`,
+   `expand`, `open` or `set-text` for the corresponding control. Dropdown indexes
+   are zero-based. Actions consume the snapshot, so inspect again after acting.
+3. Use `update` for UI changes and `wait-for --text 'Flight Deck' --timeout 30`
+   when waiting for a known label. Another inspection can invalidate your token.
+4. Use screenshots to verify clipping, tooltip visibility, map geometry and
+   other visual requirements. The tree does not prove how a control renders.
+5. Use computer input only when the action lacks a CLI control, such as a map
+   click or scrolling a virtualized list. Read the computer-use skill first and
+   use a current screenshot, not coordinates from another run.
 
-Use desktop input only for the visible steps that lack a typed test hook. If
-screen control is unavailable, stop and report that the live portion remains
-untested.
+For example, read the current buttons before choosing an action:
+
+```powershell
+seapower-cli inspect --preset buttons
+seapower-cli click --snapshot TOKEN --id ID --confirm
+```
+
+Replace TOKEN and ID with values from the read. Confirmation is required for
+launch/load/save/exit-like buttons but does not authorize overwriting user saves.
+Dismiss a blocking news popup if needed; do not change inspector configuration.
+If the bridge or computer control needed for a check is unavailable, report
+that portion as unverified rather than substituting a compile check.
+
+## Tactical state and time
+
+```powershell
+seapower-cli status
+seapower-cli pause
+seapower-cli units --preset fleet-summary
+seapower-cli units --where 'PlayerControlled' --select 'new(Id, Name, Type, Position, FuelKg, Loadout)'
+seapower-cli resume
+seapower-cli set-speed --speed 10
+seapower-cli wait-sim --seconds 60 --timeout 30
+seapower-cli units-update
+```
+
+Use only the actions needed by the task. `status` reads the mission clock, unlike
+the installation-level `game-status`. `wait-sim` does not alter speed or pause
+on completion. Restore the player's speed/pause state when leaving their session.
+
+`units` includes undetected enemies, so it proves simulator state, not player
+contacts. `units-update` compares with the last unit read. Queries preserve the
+full baseline; delta queries filter added/updated rows but leave removed IDs
+unfiltered. Use full reads when comparing membership in a filtered fleet.
+For flight-deck work, combine task-row/tooltips inspection with aircraft reads;
+unit snapshots do not include aircraft still in hangars.
 
 ## Stock-game smoke test
 
@@ -46,7 +84,7 @@ Verify more than menu discovery:
 - time advances after unpausing; and
 - ending or exiting produces the state needed by the result-import workflow.
 
-After the test, inspect the fresh `Player.log` for parser errors, missing database
+After the test, use `seapower-cli logs --tail 300` to inspect the fresh log for parser errors, missing database
 keys, load failures, and unhandled exceptions. Remove the disposable installed
 copy only if the agent created it during the task.
 

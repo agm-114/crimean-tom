@@ -19,6 +19,7 @@ try
     timeout.CancelAfter(TimeSpan.FromSeconds(command.TimeoutSeconds));
     JsonElement result;
     if (command.Request.Action == "presets") result = JsonSerializer.SerializeToElement(QueryPresets.All, SnapshotQuery.JsonOptions);
+    else if (command.Request.Action is "game-status" or "logs" or "launch") result = await new GameDiagnostics(command).ExecuteAsync(timeout.Token);
     else if (command.Input is { } path)
     {
         result = command.Query.Apply(SnapshotData.Parse(await File.ReadAllTextAsync(path, timeout.Token), path));
@@ -33,6 +34,8 @@ catch (Exception exception)
         ? cancelled.IsCancellationRequested ? "Cancelled. Accepted game actions are not undone."
             : $"Timed out after {command?.TimeoutSeconds} wall-clock seconds. Inspect before retrying an action."
         : exception.Message;
+    if (command?.Request.Action == "launch" && exception is OperationCanceledException)
+        error += " Launch verification did not finish. Sea Power may still be running; check game-status and logs before retrying.";
     Console.Error.WriteLine(SnapshotData.Format(JsonSerializer.SerializeToElement(new { error }), format));
     return cancelled.IsCancellationRequested ? 130 : 1;
 }

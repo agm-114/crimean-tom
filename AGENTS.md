@@ -1,6 +1,7 @@
 # Repository guidance
 
-Module documentation lives in `docs/crimean-tom/` and `docs/flight-deck-tweaks/`.
+Module documentation lives in `docs/crimean-tom/`, `docs/flight-deck-tweaks/`
+and `docs/seapower-cli/`.
 Read the relevant module's README. The campaign integration rules below apply to
 Crimean Tom; Flight Deck Tweaks is an independent mod.
 
