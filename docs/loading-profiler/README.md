@@ -12,7 +12,8 @@ dotnet build src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj -p:Dep
 ```
 
 Close the game before deployment and restart through Steam afterward. Override
-`-p:SeaPowerDir=...` for another installation. A plain build does not deploy.
+`-p:SeaPowerDir=...` for another installation. Builds deploy by default on Windows;
+use `-p:DeployToGame=false` for compile-only checks.
 Requires the installed BepInEx 5 runtime and Sea Power managed assemblies.
 Currently verified against Sea Power `0.8.2-23444+s358`.
 
