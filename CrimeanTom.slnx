@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
   <Project Path="src/FlightDeckTweaks/FlightDeckTweaks.csproj" />
+  <Project Path="src/SeaPower.UiHelper/SeaPower.UiHelper.csproj" />
+  <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
 </Solution>
