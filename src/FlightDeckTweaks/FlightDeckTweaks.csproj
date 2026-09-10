@@ -50,6 +50,7 @@
            Text="Sea Power was not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\rearm-times.ini" DestinationFolder="$(PluginDeployDirectory)"
           Condition="!Exists('$(PluginDeployDirectory)\rearm-times.ini')" />
     <Message Importance="high" Text="Deployed Flight Deck Tweaks to $(PluginDeployDirectory)" />
