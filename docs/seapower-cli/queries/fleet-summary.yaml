@@ -1,0 +1,7 @@
+where: '!Destroyed && SpeedKnots >= @0'
+parameters: [0]
+groupBy: new(Nation, Type)
+having: Count() >= 1
+select: new(Key.Nation as Nation, Key.Type as Type, Count() as Units, Average(SpeedKnots) as AverageSpeed)
+orderBy: Units descending, Nation, Type
+take: 10
