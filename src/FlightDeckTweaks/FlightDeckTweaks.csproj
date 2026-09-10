@@ -51,6 +51,8 @@
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
+          Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\rearm-times.ini" DestinationFolder="$(PluginDeployDirectory)"
           Condition="!Exists('$(PluginDeployDirectory)\rearm-times.ini')" />
     <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />

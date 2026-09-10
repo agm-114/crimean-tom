@@ -10,7 +10,7 @@ namespace SeaPower.StartupTweaks;
 public class StartupTweaks : MonoBehaviour
 {
     internal const string Id = "crimean-tom.startup-tweaks";
-    private const string Tag = "[Sea Power Startup Tweaks] ";
+    private const string Tag = "[Quickload] ";
     internal static StartupTweaks Instance = null!;
     private readonly Harmony harmony = new(Id);
     private readonly List<LoadAction> pending = [];

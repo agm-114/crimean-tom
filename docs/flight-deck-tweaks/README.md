@@ -155,8 +155,10 @@ Build and deploy only this mod, the default on Windows:
 dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj
 ```
 
-Deployment copies `FlightDeckTweaks.dll` into the game's
-`Sea Power_Data/StreamingAssets/FlightDeckTweaks` directory. Override `SeaPowerDir`
+Deployment copies `FlightDeckTweaks.dll` and `_info.ini` into the game's
+`Sea Power_Data/StreamingAssets/FlightDeckTweaks` directory, seeds
+`rearm-times.ini` when it is absent, and includes the Workshop `thumbnail.jpg`
+once `scripts/create-mod-icons.ps1` has generated it. Override `SeaPowerDir`
 or `AnchorChainDll` when using another installation. Restart Sea Power after
 deploying an updated DLL. Verify native UI, inventory and save integration in
 the game using the repository's Sea Power testing skill.
