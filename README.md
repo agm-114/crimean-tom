@@ -8,6 +8,7 @@ This repository contains independent Sea Power mods. Each module owns its DLL an
 | Flight Deck Tweaks | [FlightDeckTweaks](src/FlightDeckTweaks) | [Aircraft preparation](docs/flight-deck-tweaks/README.md) |
 | Sea Power CLI | [Game bridge](src/SeaPower.GameBridge), [CLI](src/SeaPower.Cli) | [UI and simulator inspection](docs/seapower-cli/README.md) |
 | Loading Profiler | [Profiler](src/SeaPower.LoadingProfiler), [bootstrap](src/SeaPower.LoadingProfiler.Bootstrap) | [Startup and scenario timings](docs/loading-profiler/README.md) |
+| Startup Tweaks | [SeaPower.StartupTweaks](src/SeaPower.StartupTweaks) | [Deferred startup loading](docs/startup-tweaks/README.md) |
 
 Read [AGENTS.md](AGENTS.md) and the relevant module's docs before changing it. Campaign design and refactoring suggestions do not apply to Flight Deck Tweaks.
 
@@ -21,7 +22,7 @@ dotnet build CrimeanTom.slnx -p:DeployToGame=false
 
 The default paths expect the Steam installation of Sea Power and the Workshop installation of AnchorChain. Override the `SeaPowerDir` or `AnchorChainDll` MSBuild properties if needed.
 
-See each module's docs for its deployment command. A plain solution build still deploys Crimean Tom on Windows; Flight Deck Tweaks and Game Bridge require explicit opt-in. Use the [Sea Power testing workflow](.agents/skills/sea-power-testing/SKILL.md) when runtime verification is needed.
+On Windows, mod builds deploy by default, including a plain solution build. Close Sea Power before building, or use `-p:DeployToGame=false` for a compile-only build. The CLI remains a standalone tool and is not copied into the game. Deployment does not launch the game or change Mod Manager selections. See each module's docs for its destination. Use the [Sea Power testing workflow](.agents/skills/sea-power-testing/SKILL.md) when runtime verification is needed.
 
 ## Browse the installed game code
 

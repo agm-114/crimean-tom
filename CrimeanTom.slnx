@@ -5,4 +5,5 @@
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" />
+  <Project Path="src/SeaPower.StartupTweaks/SeaPower.StartupTweaks.csproj" />
 </Solution>
