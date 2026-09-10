@@ -10,7 +10,7 @@
     <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
     <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
     <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
-    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerUiHelper</PluginDeployDirectory>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerGameBridge</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />

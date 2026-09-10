@@ -32,14 +32,19 @@ dotnet run --project src/SeaPower.Cli -- status
 Build and explicitly deploy the game bridge:
 
 ```powershell
-dotnet build src/SeaPower.UiHelper/SeaPower.UiHelper.csproj -p:DeployToGame=true
+dotnet build src/SeaPower.GameBridge/SeaPower.GameBridge.csproj -p:DeployToGame=true
 ```
 
 Create `enabled.txt` beside the deployed DLL in
-`Sea Power_Data/StreamingAssets/SeaPowerUiHelper`, then launch Sea Power yourself.
+`Sea Power_Data/StreamingAssets/SeaPowerGameBridge`, then launch Sea Power yourself.
 Without this file the mod does nothing. Remove it and restart to disable the mod.
 Normal builds do not deploy or enable it. Changes to the bridge DLL require a
 game restart; changes to CLI logic do not.
+
+When upgrading from UI Helper, close the game and remove its old
+`SeaPowerUiHelper/SeaPower.UiHelper.dll` before deploying the new bridge.
+Enable the new folder with `enabled.txt` and rebuild the CLI too. Its transport
+path is now `%LOCALAPPDATA%/SeaPowerGameBridge`; the old bridge cannot serve it.
 
 ## Commands
 
@@ -294,7 +299,7 @@ Results go to stdout, errors to stderr, both in the selected format.
 
 ## Transport and limits
 
-Requests and replies use JSON files under `%LOCALAPPDATA%/SeaPowerUiHelper`.
+Requests and replies use JSON files under `%LOCALAPPDATA%/SeaPowerGameBridge`.
 The directory inherits the user's permissions. There is no network listener,
 arbitrary reflection command or code-execution endpoint.
 
@@ -321,9 +326,8 @@ snapshot comparison and storage, local querying, cancellation and output formatt
 `Protocol.cs` decodes only the reply fields
 needed for those tasks; unqueried output preserves the entire bridge reply.
 
-`SeaPower.UiHelper` contains only the file request dispatcher, Noesis inspection,
+`SeaPower.GameBridge` contains only the file request dispatcher, Noesis inspection,
 unit reads, native UI/time actions and safety checks that require current game state. Its
 polling runs on Unity's main thread. It does not track pending waits or know
-about CLI presentation and timeout preferences. The bridge assembly and its
-transport directory retain the `SeaPowerUiHelper` name so there is only one
-installed bridge. Stable UI IDs and unit dumps require the current bridge build.
+about CLI presentation and timeout preferences. Stable UI IDs and unit dumps
+require the current bridge build.

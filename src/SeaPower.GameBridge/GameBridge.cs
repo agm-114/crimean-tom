@@ -1,20 +1,20 @@
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace SeaPower.UiHelper;
+namespace SeaPower.GameBridge;
 
-public class UiBridge : MonoBehaviour
+public class GameBridge : MonoBehaviour
 {
     private readonly UiControls controls = new();
     private readonly string session = Guid.NewGuid().ToString("N");
-    private readonly string directory = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "SeaPowerUiHelper");
+    private readonly string directory = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "SeaPowerGameBridge");
     private float nextPoll;
 
     private void Awake()
     {
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session }));
-        Debug.Log("[Sea Power UI Helper] Enabled local command queue. Development use only.");
+        Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
     private void Update()
@@ -23,12 +23,12 @@ public class UiBridge : MonoBehaviour
         nextPoll = Time.realtimeSinceStartup + 0.1f;
         string request = Path.Combine(directory, "request.json");
         if (!File.Exists(request)) return;
-        UiCommand? command = null;
+        GameCommand? command = null;
         bool consumed = false;
         try
         {
             if (new FileInfo(request).Length > 16384) throw new ArgumentException("Request too large");
-            command = JsonConvert.DeserializeObject<UiCommand>(File.ReadAllText(request));
+            command = JsonConvert.DeserializeObject<GameCommand>(File.ReadAllText(request));
             File.Delete(request);
             consumed = true;
             if (command == null || !Guid.TryParseExact(command.Request, "N", out _)) return;
@@ -41,11 +41,11 @@ public class UiBridge : MonoBehaviour
             if (!consumed) File.Delete(request);
             if (command != null && Guid.TryParseExact(command.Request, "N", out _))
                 Reply(command, new { error = exception.Message });
-            else Debug.LogWarning($"[Sea Power UI Helper] Rejected request: {exception.Message}");
+            else Debug.LogWarning($"[Sea Power Game Bridge] Rejected request: {exception.Message}");
         }
     }
 
-    private void Reply(UiCommand command, object value)
+    private void Reply(GameCommand command, object value)
     {
         string path = Path.Combine(directory, command.Request + ".json");
         File.WriteAllText(path + ".tmp", JsonConvert.SerializeObject(value));
@@ -59,7 +59,7 @@ public class UiBridge : MonoBehaviour
     }
 }
 
-internal class UiCommand
+internal class GameCommand
 {
     public string Session { get; set; } = "";
     public string Request { get; set; } = "";

@@ -2,7 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using SeaPower;
 
-namespace SeaPower.UiHelper;
+namespace SeaPower.GameBridge;
 
 internal static class TimeControls
 {
@@ -16,7 +16,7 @@ internal static class TimeControls
         Available ? GameTime.CurrentMissionSessionTime : null,
         Available && Singleton<SceneCreator>.InstanceExists() ? Singleton<SceneCreator>.Instance._missionStartTime : null);
 
-    internal static object Execute(UiCommand command)
+    internal static object Execute(GameCommand command)
     {
         if (Blocked) throw new InvalidOperationException("Time controls require a running mission with menus and blocking messages closed.");
         switch (command.Action)

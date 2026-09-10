@@ -4,7 +4,7 @@ namespace SeaPower.Cli;
 
 internal class GameClient
 {
-    private readonly string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SeaPowerUiHelper");
+    private readonly string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SeaPowerGameBridge");
     private string? session;
 
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
@@ -20,10 +20,10 @@ internal class GameClient
         while (true)
         {
             JsonElement response = await SendAsync(new(simulation ? "status" : "inspect"), cancellation);
-            UiReply reply = WireJson.Read(response);
+            GameReply reply = WireJson.Read(response);
             if (!simulation)
             {
-                if (reply.Controls == null) throw new InvalidDataException("Helper did not return UI controls.");
+                if (reply.Controls == null) throw new InvalidDataException("Bridge did not return UI controls.");
                 if (reply.Controls.Any(control => control.Matches(command.Request.Text)))
                 {
                     // Re-read under the baseline lock so concurrent dumps cannot save out of order.
@@ -32,7 +32,7 @@ internal class GameClient
             }
             else
             {
-                TimeStatus time = reply.Time ?? throw new InvalidDataException("Helper did not return time state.");
+                TimeStatus time = reply.Time ?? throw new InvalidDataException("Bridge did not return time state.");
                 double elapsed = time.RequireElapsed();
                 if (start != null && (time.MissionStartSeconds != start.MissionStartSeconds || elapsed < previous))
                     throw new InvalidOperationException("Mission changed while waiting.");
@@ -60,7 +60,7 @@ internal class GameClient
         return await cache.UpdateAsync(response, session!, action is "update" or "units-update", command.Query, cancellation);
     }
 
-    private async Task<JsonElement> SendAsync(UiRequest command, CancellationToken cancellation)
+    private async Task<JsonElement> SendAsync(GameRequest command, CancellationToken cancellation)
     {
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(TimeSpan.FromSeconds(12));
@@ -76,9 +76,9 @@ internal class GameClient
             {
                 token.ThrowIfCancellationRequested();
                 await CheckSessionAsync(token);
-                UiRequest request = command with { Session = session!, Request = id, Expires = DateTime.UtcNow.AddSeconds(10) };
+                GameRequest request = command with { Session = session!, Request = id, Expires = DateTime.UtcNow.AddSeconds(10) };
                 byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(request, WireJson.Options);
-                if (bytes.Length > 16384) throw new ArgumentException("Request exceeds the helper's 16 KB limit.");
+                if (bytes.Length > 16384) throw new ArgumentException("Request exceeds the bridge's 16 KB limit.");
                 await File.WriteAllBytesAsync(temporary, bytes, token);
                 try { File.Move(temporary, pending); break; }
                 catch (IOException) when (File.Exists(pending)) { await Task.Delay(100, token); }
@@ -96,7 +96,7 @@ internal class GameClient
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
         {
-            throw new TimeoutException("The UI helper did not respond within 12 seconds. Inspect before retrying an action.");
+            throw new TimeoutException("The game bridge did not respond within 12 seconds. Inspect before retrying an action.");
         }
         finally
         {
@@ -108,10 +108,10 @@ internal class GameClient
     private async Task CheckSessionAsync(CancellationToken cancellation)
     {
         string path = Path.Combine(directory, "session.json");
-        if (!File.Exists(path)) throw new InvalidOperationException("UI helper is not running or enabled.");
+        if (!File.Exists(path)) throw new InvalidOperationException("Game bridge is not running or enabled.");
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellation));
         string current = document.RootElement.GetProperty("session").GetString() ?? "";
-        if (!Guid.TryParseExact(current, "N", out _)) throw new InvalidDataException("Invalid helper session.");
+        if (!Guid.TryParseExact(current, "N", out _)) throw new InvalidDataException("Invalid bridge session.");
         if (session != null && session != current) throw new InvalidOperationException("Game session changed. Inspect before retrying an action.");
         session = current;
     }
