@@ -22,6 +22,28 @@ The default paths expect the Steam installation of Sea Power and the Workshop in
 
 See each module's docs for its deployment command. A plain solution build still deploys Crimean Tom on Windows; Flight Deck Tweaks and Game Bridge require explicit opt-in. Use the [Sea Power testing workflow](.agents/skills/sea-power-testing/SKILL.md) when runtime verification is needed.
 
+## Browse the installed game code
+
+```powershell
+./scripts/decompile-game.ps1
+./scripts/decompile-game.ps1 -Assemblies Seapower-Scripts,Noesis.NoesisGUI
+./scripts/decompile-game.ps1 -AllManaged
+```
+
+Requires `ilspycmd`, installed with `dotnet tool install --global ilspycmd`.
+The default exports the complete `Seapower-Scripts`, `Assets`, `Libraries` and
+`Plugins` assemblies as C# projects. `-AllManaged` also exports managed engine
+and third-party dependencies. Native engine code is not C# and is not decompiled.
+Override `-GameDirectory` or set `SEA_POWER_DIR` for another installation.
+
+Output lives under ignored `decompiled/game/<assembly>/<hash>/`, with folders by
+namespace. Each export records its source SHA-256 and ILSpy version. Unchanged
+exports are skipped; updates get separate directories, preserving older results.
+Search with `rg -n 'WaitForLoadingDone' decompiled/game/Seapower-Scripts`.
+Generated code is an approximation for local inspection, not source to publish
+or a guarantee that the generated project will build. The script does not launch
+or modify the game.
+
 ## Contributing to AnchorChain
 
 [external/AnchorChain](external/AnchorChain) is a Git submodule pointing to the upstream source. Initialize it after cloning this repository:
