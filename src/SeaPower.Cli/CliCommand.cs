@@ -24,6 +24,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli presets
         seapower-cli status [--format yaml|json]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
+        seapower-cli unity-explorer [status|install|enable|disable] [--confirm] [--game-dir PATH]
         seapower-cli logs [--tail 200] [--game-dir PATH] [--log-file PATH]
         seapower-cli launch --confirm [--require-pattern REGEX] [--timeout 60] [--game-dir PATH]
         seapower-cli launch --confirm --scenario FILE.ini [--timeout 120]
@@ -82,7 +83,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         query reads a saved JSON/YAML dump without contacting the game or changing baselines.
         Default timeout: 12 seconds; encyclopedia: 120; launch: 60 or 120 with --scenario; wait-for: 10; wait-sim: twice its duration,
         bounded to 30 seconds through 24 hours. Ctrl+C cancels the CLI, not actions
-        already accepted by the game. Only launch --confirm starts the game; no command enables mods.
+        already accepted by the game. Only launch --confirm starts the game.
+        unity-explorer manages the BepInEx 5 Mono plugin without the bridge. Changes require --confirm and a closed game.
+        install downloads pinned 4.9.0, verifies SHA-256 and installs disabled. It never overwrites an existing installation.
         """;
 
     internal static CliCommand Parse(string[] args)
@@ -93,6 +96,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             "inspect" or "update" or "units" or "units-update" or "status" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
+            "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
             "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm", "--scenario"],
             "load-scenario" => ["--scenario", "--confirm"],
@@ -118,10 +122,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             string key = args[index];
             string value;
-            if (action is "set-speed" or "menu" && index == 1 && !key.StartsWith("--"))
+            if (action is "set-speed" or "menu" or "unity-explorer" && index == 1 && !key.StartsWith("--"))
             {
                 value = key;
-                key = action == "menu" ? "--page" : "--speed";
+                key = action switch { "menu" => "--page", "unity-explorer" => "--operation", _ => "--speed" };
             }
             else
             {
@@ -157,10 +161,14 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         if (scenario != null && (!Path.GetExtension(scenario).Equals(".ini", StringComparison.OrdinalIgnoreCase) || !File.Exists(scenario)))
             throw new ArgumentException("--scenario requires an existing mission .ini file.");
         string page = options.ContainsKey("--page") ? Required("--page").ToLowerInvariant() : "";
+        string operation = options.ContainsKey("--operation") ? Required("--operation").ToLowerInvariant() : "status";
+        if (action == "unity-explorer" && operation is not ("status" or "install" or "enable" or "disable"))
+            throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
-        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
+        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
         if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia"
+            || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
             throw new ArgumentException($"{action} requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
@@ -171,6 +179,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         string text = action switch
         {
             "set-text" or "wait-for" => Required("--text", action == "set-text"),
+            "unity-explorer" => operation,
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
         float speed = 1;

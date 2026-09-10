@@ -19,6 +19,7 @@ try
     timeout.CancelAfter(TimeSpan.FromSeconds(command.TimeoutSeconds));
     JsonElement result;
     if (command.Request.Action == "presets") result = JsonSerializer.SerializeToElement(QueryPresets.All, SnapshotQuery.JsonOptions);
+    else if (command.Request.Action == "unity-explorer") result = await new UnityExplorerInstall(command).ExecuteAsync(timeout.Token);
     else if (command.Request.Action is "game-status" or "logs" or "launch") result = await new GameDiagnostics(command).ExecuteAsync(timeout.Token);
     else if (command.Input is { } path)
     {

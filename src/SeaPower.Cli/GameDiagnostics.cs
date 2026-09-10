@@ -6,7 +6,8 @@ namespace SeaPower.Cli;
 
 internal class GameDiagnostics(CliCommand command)
 {
-    private readonly string directory = Path.GetFullPath(command.GameDirectory
+    private readonly string directory = ResolveDirectory(command.GameDirectory);
+    internal static string ResolveDirectory(string? directory) => Path.GetFullPath(directory
         ?? Environment.GetEnvironmentVariable("SEA_POWER_DIR")
         ?? @"C:\Program Files (x86)\Steam\steamapps\common\Sea Power");
     private readonly string playerLog = Path.GetFullPath(command.LogFile ?? Path.Combine(
@@ -86,7 +87,7 @@ internal class GameDiagnostics(CliCommand command)
         }
     }
 
-    private static int[] ProcessIds()
+    internal static int[] ProcessIds()
     {
         List<int> ids = [];
         foreach (Process process in Process.GetProcessesByName("Sea Power"))
