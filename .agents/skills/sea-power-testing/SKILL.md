@@ -1,6 +1,6 @@
 ---
 name: sea-power-testing
-description: Launch, smoke-test, and diagnose Sea Power when Crimean Tom changes need proof inside the installed game. Use for generated-scenario checks, mod load markers, player-visible UI verification, Player.log failures, and stale deployments. Do not use for ordinary compile-only work.
+description: Verify Sea Power mods, generated scenarios, live UI behavior, startup failures, and deployments using seapower-cli. Use when work needs evidence from the installed game, not for ordinary compile-only changes.
 ---
 
 # Sea Power testing
@@ -8,65 +8,61 @@ description: Launch, smoke-test, and diagnose Sea Power when Crimean Tom changes
 Test the smallest slice that proves the requested behavior. A successful build is
 not proof that Sea Power loaded a mod or accepted a generated scenario.
 
-## Start with the local preflight
+## Prepare the CLI and deployment
 
-Run repository tests before launching the game:
-
-```powershell
-dotnet test CrimeanTom.slnx
-```
-
-Then inspect the installation and current process without changing either:
+Read the relevant module README and [CLI documentation](../../../docs/seapower-cli/README.md).
+Build touched projects with `-p:DeployToGame=false` before runtime checks. This
+repository has no maintained automated test suite; do not prescribe `dotnet test`
+as a preflight or add tests just to follow this skill.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File `
-  .agents/skills/sea-power-testing/scripts/sea-power-test.ps1 -Action Status
+dotnet build src/SeaPower.Cli/SeaPower.Cli.csproj
+./src/SeaPower.Cli/bin/Debug/net10.0/seapower-cli.exe game-status
 ```
 
-The helper respects `SEA_POWER_DIR` and otherwise uses the default Steam install.
-It never stops a running game, deploys files, or changes Mod Manager state.
+Examples below use `seapower-cli` for that executable. `game-status` inspects the
+installation, processes and log metadata without the bridge or a running game.
+Use `--game-dir PATH` or `SEA_POWER_DIR` for a non-default installation.
 
-## Launch and require fresh evidence
+Use the module's deployment command only when deployment is in scope. The game
+must reload a changed DLL. `SeaPower.GameBridge` requires explicit deployment
+and an `enabled.txt` beside its DLL; the CLI can be rebuilt independently.
+Do not enable mods, stop an existing game or change user settings without authority.
 
-Launch through Steam app ID `1286220`. Do not start `Sea Power.exe` directly.
-Steamworks may restart a direct launch, which makes startup evidence ambiguous.
+## Startup and logs
+
+Only launch when authorized. A request not to launch overrides this workflow.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File `
-  .agents/skills/sea-power-testing/scripts/sea-power-test.ps1 -Action Launch
+seapower-cli launch --confirm --timeout 90 --require-pattern 'loaded native Task Force Mode shim'
+seapower-cli logs --tail 200
 ```
 
-When a mod has a startup marker, require it in the fresh `Player.log`:
+Choose a marker from the current module's source. Omit `--require-pattern` for a
+stock-game startup check. `launch` opens Steam app 1286220, refuses an existing
+game, and requires a process plus fresh `Player.log` content. It excludes the
+old content when a log is appended. Never invoke `Sea Power.exe` directly.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File `
-  .agents/skills/sea-power-testing/scripts/sea-power-test.ps1 `
-  -Action Launch `
-  -RequirePattern 'Crimean Tom Operations.*loaded'
-```
+Timeout or cancellation does not close a launched game. Check `game-status` and
+`logs` before retrying. If Steam requests cloud-save conflict resolution, stop
+and ask the user rather than selecting a save. A startup marker proves loading,
+not that the scenario or campaign works.
 
-Do not reuse a marker from an earlier run. Treat a launched process without a
-fresh log and required marker as a failed test.
+`logs` returns the Player.log tail and BepInEx log tail when present. It works
+without the bridge. Increase `--tail` or read the reported file to find the first
+relevant exception and its context. An existing log is not fresh-run proof.
 
-## Pick the test mode
-
-- For a generated scenario or player-visible flow, read
-  [references/live-ui.md](references/live-ui.md).
-- For a load failure or runtime exception, inspect the latest log with
-  `sea-power-test.ps1 -Action Logs`. Search around the first relevant exception,
-  not every warning in the file.
-- For deployment, use the repository's current deployment command if one exists.
-  If it does not, inspect the target format and install location before copying.
-  Record every file created and remove only test files created during the task.
+For scenario, flight-deck or other player-visible checks, read
+[references/live-ui.md](references/live-ui.md). Use CLI controls and unit queries
+for state; use screenshots for appearance and layout.
 
 ## Boundaries
 
 - Do not restore the retired server, companion, streaming protocol, or background
   simulation to make testing easier.
-- Do not stop an existing Sea Power process, toggle user mods, overwrite saves,
-  or change game settings unless the user authorized that action.
-- Prefer typed test hooks when the new mod exposes them. Do not build a network
-  control service solely for test automation.
+- Do not overwrite user saves or installed scenarios. Record source, destination
+  and hash for any disposable scenario copied into the game; remove only your copies.
+- Use the CLI's existing command queue, not a new network control service.
 - Close Sea Power after testing only when the agent launched it and the user does
   not need it left open.
 

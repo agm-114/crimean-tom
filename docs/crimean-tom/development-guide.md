@@ -235,10 +235,12 @@ Only after management completes, clear both `Mission_<index>_*` and `TaskForceMo
 
 ## Game verification
 
-Follow `.agents/skills/sea-power-testing/SKILL.md`. The shortest useful startup check is:
+Follow `.agents/skills/sea-power-testing/SKILL.md`. Check the process with
+`seapower-cli game-status` first. When launching is authorized, a startup check is:
 
 ```powershell
-.\.agents\skills\sea-power-testing\scripts\sea-power-test.ps1 -Action Launch -TimeoutSeconds 90 -RequirePattern 'loaded native Task Force Mode shim'
+seapower-cli launch --confirm --timeout 90 --require-pattern 'loaded native Task Force Mode shim'
+seapower-cli logs --tail 200
 ```
 
 Primary logs:
