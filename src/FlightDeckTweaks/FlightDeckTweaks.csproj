@@ -53,6 +53,6 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\rearm-times.ini" DestinationFolder="$(PluginDeployDirectory)"
           Condition="!Exists('$(PluginDeployDirectory)\rearm-times.ini')" />
-    <Message Importance="high" Text="Deployed Flight Deck Tweaks to $(PluginDeployDirectory)" />
+    <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />
   </Target>
 </Project>

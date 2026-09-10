@@ -52,7 +52,7 @@ internal static class PreparationSave
             }
             catch (Exception exception)
             {
-                Debug.LogError($"[Flight Deck Tweaks] Could not restore preparation for {task.VehicleType._fileName}; using native timing. {exception}");
+                Debug.LogError($"[Deck Tweaks] Could not restore preparation for {task.VehicleType._fileName}; using native timing. {exception}");
             }
         }
     }

@@ -66,7 +66,7 @@ internal class HangarPreparation
         }
         catch (Exception exception)
         {
-            Debug.LogError($"[Flight Deck Tweaks] Could not capture returning aircraft; using native recovery. {exception}");
+            Debug.LogError($"[Deck Tweaks] Could not capture returning aircraft; using native recovery. {exception}");
         }
     }
 
@@ -240,7 +240,7 @@ internal class HangarPreparation
         }
         catch (Exception exception)
         {
-            Debug.LogError($"[Flight Deck Tweaks] Could not restore hangar preparation. {exception}");
+            Debug.LogError($"[Deck Tweaks] Could not restore hangar preparation. {exception}");
         }
     }
 }

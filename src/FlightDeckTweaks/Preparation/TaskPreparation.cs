@@ -29,7 +29,7 @@ internal class TaskPreparation(PreparationBatch batch)
         catch (Exception exception)
         {
             unavailable = true;
-            Debug.LogError($"[Flight Deck Tweaks] Preparation configuration failed; new tasks use native timing. {exception}");
+            Debug.LogError($"[Deck Tweaks] Preparation configuration failed; new tasks use native timing. {exception}");
             return null;
         }
     }

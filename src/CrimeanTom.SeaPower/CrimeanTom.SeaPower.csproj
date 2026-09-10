@@ -80,6 +80,7 @@
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <MakeDir Directories="$(CampaignDeployDirectory)" />
     <Copy SourceFiles="@(_PluginFile)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignDescriptor)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(CampaignRoster)" DestinationFolder="$(CampaignDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_CampaignArt)"
