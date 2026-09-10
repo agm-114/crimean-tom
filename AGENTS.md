@@ -4,7 +4,7 @@ Module documentation lives in `docs/crimean-tom/`, `docs/flight-deck-tweaks/`
 and `docs/seapower-cli/`. Loading profiler documentation is in `docs/loading-profiler/`.
 Startup optimization documentation is in `docs/startup-tweaks/`.
 Read the relevant module's README. The campaign integration rules below apply to
-Crimean Tom; Flight Deck Tweaks is an independent mod.
+Crimean Tom; Deck Tweaks is an independent mod.
 
 Sea Power is the tactical battle engine. Crimean Tom owns the operations campaign
 between battles.

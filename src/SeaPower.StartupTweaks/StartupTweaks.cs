@@ -1,5 +1,4 @@
 using System.Collections;
-using BepInEx;
 using HarmonyLib;
 using SeaPower;
 using SeapowerUI;
@@ -7,12 +6,11 @@ using UnityEngine;
 
 namespace SeaPower.StartupTweaks;
 
-[BepInPlugin(Id, "Sea Power Startup Tweaks", "0.1.0")]
-[BepInDependency("io.github.seapower_modders.anchorchain_preloader", BepInDependency.DependencyFlags.SoftDependency)]
 [HarmonyPatch]
-public class StartupTweaks : BaseUnityPlugin
+public class StartupTweaks : MonoBehaviour
 {
     internal const string Id = "crimean-tom.startup-tweaks";
+    private const string Tag = "[Sea Power Startup Tweaks] ";
     internal static StartupTweaks Instance = null!;
     private readonly Harmony harmony = new(Id);
     private readonly List<LoadAction> pending = [];
@@ -41,23 +39,22 @@ public class StartupTweaks : BaseUnityPlugin
     private void Awake()
     {
         Instance = this;
-        if (!Config.Bind("General", "Enabled", true, "Defer startup data into the main menu. Restart required.").Value) return;
         // Hook names and load-action contracts are verified only against this build.
         if (Application.version != "0.8.2-23444+s358")
         {
-            Logger.LogWarning($"Unsupported game version {Application.version}; leaving startup unchanged.");
+            Warn($"Unsupported game version {Application.version}; leaving startup unchanged.");
             return;
         }
         try
         {
             foreach (var type in typeof(StartupTweaks).Assembly.GetTypes().Where(type => type.IsDefined(typeof(HarmonyPatch), false) && type != typeof(ScenarioCatalogue)))
             {
-                Logger.LogInfo($"Installing hooks: {type.Name}");
+                Log($"Installing hooks: {type.Name}");
                 harmony.CreateClassProcessor(type).Patch();
             }
         }
         catch { harmony.UnpatchSelf(); throw; }
-        Logger.LogInfo("Enabled deferred startup loading.");
+        Log("Enabled deferred startup loading.");
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(BackgroundSceneController), "InitialLoadActions")]
@@ -73,7 +70,7 @@ public class StartupTweaks : BaseUnityPlugin
             .OrderByDescending(action => action.priority));
         __instance.loadActions.RemoveAll(action => loader.pending.Contains(action));
         loader.CoreReady = loader.pending.Count == 0;
-        loader.Logger.LogInfo($"Deferred {loader.pending.Count} startup stages until the menu is visible.");
+        Log($"Deferred {loader.pending.Count} startup stages until the menu is visible.");
     }
 
     private void Update()
@@ -116,7 +113,7 @@ public class StartupTweaks : BaseUnityPlugin
         if (Failed) yield break;
         CoreReady = true;
         ScenarioCatalogue.Ready();
-        Logger.LogInfo($"Core ready: {Singleton<UnitMetadataProvider>.Instance.UnitData.Count} unit records; voice ready={Singleton<VoiceMessage>.Instance._voiceLoaded}.");
+        Log($"Core ready: {Singleton<UnitMetadataProvider>.Instance.UnitData.Count} unit records; voice ready={Singleton<VoiceMessage>.Instance._voiceLoaded}.");
         StartCoroutine(LazyMusic.Warm());
         yield return LoadActions(progress.Extras);
         progress.SaveIfComplete();
@@ -135,7 +132,7 @@ public class StartupTweaks : BaseUnityPlugin
             if (Failed) { lane.Failed = true; yield break; }
             lane.End();
             if (action.description == "UnitMetadataProvider LoadUnitMetadata") UnitCatalogue.Complete();
-            Logger.LogInfo($"Background stage {action.description}: {Time.realtimeSinceStartup - start:F3}s");
+            Log($"Background stage {action.description}: {Time.realtimeSinceStartup - start:F3}s");
             yield return null;
         }
     }
@@ -154,7 +151,7 @@ public class StartupTweaks : BaseUnityPlugin
             {
                 Failed = true;
                 lane.Failed = true;
-                Logger.LogError($"Deferred loading failed at {lane.Current}: {error}");
+                Error($"Deferred loading failed at {lane.Current}: {error}");
                 break;
             }
             if (current is IEnumerator nested) yield return Run(nested, lane);
@@ -192,12 +189,14 @@ public class StartupTweaks : BaseUnityPlugin
         MenuActions.Add(button, handlerName.Replace("Button", "").Replace("_Click", ""));
     }
 
-    internal static void Log(string text) => Instance.Logger.LogInfo(text);
+    internal static void Log(string text) => Debug.Log(Tag + text);
+    private static void Warn(string text) => Debug.LogWarning(Tag + text);
+    private static void Error(string text) => Debug.LogError(Tag + text);
     internal void Fail(Exception error)
     {
         Failed = true;
         if (Progress != null) Progress.Data.Failed = true;
-        Logger.LogError($"Background loading failed: {error}");
+        Error($"Background loading failed: {error}");
     }
     private void OnDestroy() => harmony.UnpatchSelf();
     private void OnApplicationQuit() => TextureLoadingLifetime.Quitting = true;

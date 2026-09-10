@@ -1,4 +1,4 @@
-# Flight Deck Tweaks
+# Deck Tweaks
 
 Independent AnchorChain mod. Adds a Loadout dropdown to pending-launch rows in
 the Flight Operations table and tracks preparation separately for each aircraft.

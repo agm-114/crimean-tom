@@ -9,10 +9,12 @@
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
     <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
     <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
-    <PluginDeployDirectory>$(SeaPowerDir)\BepInEx\plugins\SeaPower.StartupTweaks</PluginDeployDirectory>
+    <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerStartupTweaks</PluginDeployDirectory>
+    <LegacyPluginDirectory>$(SeaPowerDir)\BepInEx\plugins\SeaPower.StartupTweaks</LegacyPluginDirectory>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="BepInEx" HintPath="$(SeaPowerDir)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" />
     <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
@@ -23,9 +25,18 @@
     <Reference Include="UnityEngine.AssetBundleModule" HintPath="$(GameManaged)\UnityEngine.AssetBundleModule.dll" Private="false" />
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
   </ItemGroup>
+  <Target Name="EnsureAnchorChainReference" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AnchorChainDll)')"
+           Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
+  </Target>
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
+    <!-- The BepInEx copy predates the AnchorChain entry point and would patch the game a second time. -->
+    <RemoveDir Directories="$(LegacyPluginDirectory)" Condition="Exists('$(LegacyPluginDirectory)')" />
+    <Delete Files="$(SeaPowerDir)\BepInEx\config\crimean-tom.startup-tweaks.cfg" />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Deployed Sea Power Startup Tweaks to $(PluginDeployDirectory)" />
   </Target>
 </Project>
