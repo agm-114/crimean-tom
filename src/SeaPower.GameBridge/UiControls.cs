@@ -1,6 +1,6 @@
 using Noesis;
 
-namespace SeaPower.UiHelper;
+namespace SeaPower.GameBridge;
 
 internal class UiControls
 {
@@ -19,7 +19,7 @@ internal class UiControls
                 windows.Add(new(element));
         }));
 
-    internal object Execute(UiCommand command)
+    internal object Execute(GameCommand command)
     {
         if (command.Action == "status") return new { time = TimeControls.Read() };
         if (command.Action == "inspect") return Inspect();

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace SeaPower.Cli;
 
-internal record UiRequest(string Action)
+internal record GameRequest(string Action)
 {
     public string Session { get; init; } = "";
     public string Request { get; init; } = "";
@@ -16,7 +16,7 @@ internal record UiRequest(string Action)
 }
 
 // Only fields used by the CLI are decoded; output retains the complete game reply.
-internal record UiReply(TimeStatus? Time, UiControl[]? Controls);
+internal record GameReply(TimeStatus? Time, UiControl[]? Controls);
 internal record UiControl(int Id, int Parent, int Order, string Type, string Name, string Text,
     bool Enabled, int? Selected, bool? Expanded, UiOption[]? Options)
 {
@@ -33,7 +33,7 @@ internal record TimeStatus(bool Available, bool Blocked, bool Paused, float Spee
     internal double RequireElapsed()
     {
         if (!Available || ElapsedSeconds == null || MissionStartSeconds == null)
-            throw new InvalidOperationException("An active mission and a helper build with mission clock support are required.");
+            throw new InvalidOperationException("An active mission and a bridge build with mission clock support are required.");
         return ElapsedSeconds.Value;
     }
 }
@@ -41,6 +41,6 @@ internal record TimeStatus(bool Available, bool Blocked, bool Paused, float Spee
 internal static class WireJson
 {
     internal static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    internal static UiReply Read(JsonElement reply) => reply.Deserialize<UiReply>(Options)
-        ?? throw new InvalidDataException("Empty helper reply.");
+    internal static GameReply Read(JsonElement reply) => reply.Deserialize<GameReply>(Options)
+        ?? throw new InvalidDataException("Empty bridge reply.");
 }

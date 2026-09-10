@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace SeaPower.Cli;
 
-internal record CliCommand(UiRequest Request, int Seconds, int TimeoutSeconds, SnapshotQuery Query, string? Input)
+internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds, SnapshotQuery Query, string? Input)
 {
     internal const string Help = """
         Sea Power CLI

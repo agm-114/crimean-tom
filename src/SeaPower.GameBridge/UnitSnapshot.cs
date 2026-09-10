@@ -1,6 +1,6 @@
 using SeaPower;
 
-namespace SeaPower.UiHelper;
+namespace SeaPower.GameBridge;
 
 internal static class UnitSnapshot
 {
