@@ -133,6 +133,33 @@ or `wait-for` next. Launch timeout or cancellation leaves the game alone; check
 `game-status` and `logs` before retrying. The CLI never resolves Steam cloud-save
 conflicts, closes an existing game, deploys DLLs or changes Mod Manager selections.
 
+### Launch into a scenario
+
+```powershell
+seapower-cli launch --confirm --scenario 'C:/Scenarios/carrier-training.ini' --timeout 120
+```
+
+Supply an existing mission `.ini` file, using an absolute path or a path relative
+to the current directory. The command does not copy or rewrite the file. Select
+the side through the mission's own settings; it does not override player taskforces.
+
+This option requires the updated `SeaPower.GameBridge.dll` and `enabled.txt` in
+`Sea Power_Data/StreamingAssets/SeaPowerGameBridge`. The CLI checks those files
+before starting Steam, then waits for a fresh bridge session and a ready main
+menu. It calls the native Scenarios Play entry point on the game thread. The
+bridge rejects a load during an active mission or after a previous startup load
+request. Startup popups may need dismissal before the main menu becomes ready.
+
+The shared launch timeout defaults to 120 seconds with `--scenario`. A successful
+reply includes `scenario.state: load-requested` and the absolute path. This means
+the request was accepted, not that tactical loading has finished. Check `status`,
+`inspect` and logs afterward. Do not retry an uncertain load against the same run.
+Existing mod hooks still run, so a generated Crimean Tom launcher opens its setup
+menu rather than skipping its settings. Ordinary mission files load directly.
+
+This flow uses Steam and the bridge, not undocumented game startup arguments.
+The CLI does not rewrite mission or save files to arrange startup.
+
 ## Full dumps and updates
 
 `inspect` returns the full visible UI tree in `controls`. `update` returns only
@@ -323,8 +350,8 @@ The CLI implements both waits by sending ordinary reads every half second:
 
 `wait-sim` defaults to 60 simulation seconds and twice that duration as its
 wall-clock timeout, bounded to 30 seconds through 24 hours. `wait-for` defaults
-to ten wall-clock seconds. Launch defaults to sixty; other commands default to
-twelve. Override these with `--timeout`, especially at speeds below 1x.
+to ten wall-clock seconds. Launch defaults to sixty, or 120 with `--scenario`;
+other commands default to twelve. Override these with `--timeout`, especially at speeds below 1x.
 Paused games consume the timeout.
 Mission changes, a backwards clock, game restarts or connection errors stop the
 wait rather than continuing against a different mission.

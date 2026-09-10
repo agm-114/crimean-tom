@@ -21,6 +21,12 @@ internal class UiControls
 
     internal object Execute(GameCommand command)
     {
+        if (command.Action == "scenario-ready") return new { ready = ScenarioControls.Ready };
+        if (command.Action == "load-scenario")
+        {
+            snapshot = "";
+            return ScenarioControls.Load(command);
+        }
         if (command.Action == "status") return new { time = TimeControls.Read() };
         if (command.Action == "inspect") return Inspect();
         if (command.Action == "units") return UnitSnapshot.Read();

@@ -51,6 +51,12 @@ internal class GameDiagnostics(CliCommand command)
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Sea Power launch requires Windows and Steam.");
         if (!File.Exists(Executable)) throw new FileNotFoundException($"Sea Power was not found at '{directory}'. Use --game-dir or SEA_POWER_DIR.");
         if (ProcessIds().Length != 0) throw new InvalidOperationException("Sea Power is already running. launch will not stop or restart it.");
+        if (command.Scenario != null)
+        {
+            string bridge = Path.Combine(directory, "Sea Power_Data", "StreamingAssets", "SeaPowerGameBridge");
+            if (!File.Exists(Path.Combine(bridge, "SeaPower.GameBridge.dll")) || !File.Exists(Path.Combine(bridge, "enabled.txt")))
+                throw new InvalidOperationException("--scenario requires SeaPower.GameBridge.dll and enabled.txt in StreamingAssets/SeaPowerGameBridge. Deploy and enable the bridge first.");
+        }
         Regex? required = command.RequirePattern is { } pattern
             ? new(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)) : null;
         string before = File.Exists(playerLog) ? await ReadLogAsync(playerLog, cancellation) : "";
@@ -66,11 +72,15 @@ internal class GameDiagnostics(CliCommand command)
                 string current = await ReadLogAsync(playerLog, cancellation);
                 string fresh = current.StartsWith(before, StringComparison.Ordinal) ? current[before.Length..] : current;
                 if (!string.IsNullOrWhiteSpace(fresh) && (required == null || required.IsMatch(fresh)))
+                {
+                    JsonElement? scenario = command.Scenario is { } path
+                        ? await new GameClient().LoadScenarioAsync(path, launchUtc, cancellation) : null;
                     return JsonSerializer.SerializeToElement(new
                     {
                         ok = true, action = "launch", launchUtc, processIds = processes,
-                        playerLog = Describe(playerLog), requiredPattern = command.RequirePattern,
+                        playerLog = Describe(playerLog), requiredPattern = command.RequirePattern, scenario,
                     }, WireJson.Options);
+                }
             }
             await Task.Delay(500, cancellation);
         }
