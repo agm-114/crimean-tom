@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.1.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <BepInExDir>$(SeaPowerDir)\BepInEx</BepInExDir>
+    <PluginDeployDirectory>$(BepInExDir)\patchers\SeaPower.LoadingProfiler</PluginDeployDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../SeaPower.LoadingProfiler/TraceDirectory.cs" Link="TraceDirectory.cs" />
+    <Reference Include="BepInEx" HintPath="$(BepInExDir)\core\BepInEx.dll" Private="false" />
+    <Reference Include="Mono.Cecil" HintPath="$(BepInExDir)\core\Mono.Cecil.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
+    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe') or !Exists('$(BepInExDir)\core\BepInEx.dll')" Text="Sea Power with BepInEx was not found. Set SeaPowerDir." />
+    <MakeDir Directories="$(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
