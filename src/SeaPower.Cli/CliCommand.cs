@@ -8,6 +8,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
     internal string? GameDirectory { get; init; }
     internal string? LogFile { get; init; }
     internal string? RequirePattern { get; init; }
+    internal string? Scenario { get; init; }
     internal int TailLines { get; init; } = 200;
     internal const string Help = """
         Sea Power CLI
@@ -25,6 +26,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
         seapower-cli logs [--tail 200] [--game-dir PATH] [--log-file PATH]
         seapower-cli launch --confirm [--require-pattern REGEX] [--timeout 60] [--game-dir PATH]
+        seapower-cli launch --confirm --scenario FILE.ini [--timeout 120]
         seapower-cli click --snapshot TOKEN --id ID [--confirm]
         seapower-cli select --snapshot TOKEN --id ID [--index N]
         seapower-cli expand|open --snapshot TOKEN --id ID
@@ -42,6 +44,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         --log-file overrides Player.log; logs also tails BepInEx/LogOutput.log when present.
         launch opens Steam app 1286220 and requires a running process plus fresh Player.log content.
         It refuses an existing game and only matches --require-pattern in new log content.
+        --scenario uses an existing INI path, absolute or relative to the current directory.
+        It requires an enabled, updated game bridge and submits the native load once the main menu is ready.
+        Success means load-requested, not tactical readiness; generated launchers can open their setup menu.
         Launch timeout/cancellation does not close the game. Check game-status before retrying.
         update and units-update compare against their last dump or update, saved
         across CLI invocations. With no matching baseline they return a full dump.
@@ -63,7 +68,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         JSONPath and LINQ options cannot be combined. Queries never filter the stored baseline.
         On deltas, LINQ queries added and updated rows separately; removed IDs remain unfiltered.
         query reads a saved JSON/YAML dump without contacting the game or changing baselines.
-        Default timeout: 12 seconds; launch: 60; wait-for: 10; wait-sim: twice its duration,
+        Default timeout: 12 seconds; launch: 60 or 120 with --scenario; wait-for: 10; wait-sim: twice its duration,
         bounded to 30 seconds through 24 hours. Ctrl+C cancels the CLI, not actions
         already accepted by the game. Only launch --confirm starts the game; no command enables mods.
         """;
@@ -77,7 +82,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "inspect" or "update" or "units" or "units-update" or "status" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
-            "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm"],
+            "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm", "--scenario"],
             "click" => ["--snapshot", "--id", "--confirm"],
             "select" => ["--snapshot", "--id", "--index"],
             "expand" or "open" => ["--snapshot", "--id"],
@@ -131,7 +136,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         if (action == "query" && !query.Active) throw new ArgumentException("query requires --query or a Dynamic LINQ option.");
         string? input = action == "query" ? Required("--input") : null;
         int seconds = Number("--seconds", 60, 1, 86400);
-        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "launch" => 60, _ => 12 };
+        string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
+        if (scenario != null && (!Path.GetExtension(scenario).Equals(".ini", StringComparison.OrdinalIgnoreCase) || !File.Exists(scenario)))
+            throw new ArgumentException("--scenario requires an existing mission .ini file.");
+        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "launch" => scenario == null ? 60 : 120, _ => 12 };
         if (action == "launch" && !options.ContainsKey("--confirm")) throw new ArgumentException("launch requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
@@ -151,7 +159,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,
             LogFile = options.ContainsKey("--log-file") ? Required("--log-file") : null,
-            RequirePattern = pattern, TailLines = Number("--tail", 200, 1, 5000),
+            RequirePattern = pattern, Scenario = scenario, TailLines = Number("--tail", 200, 1, 5000),
         };
 
         string Required(string key, bool allowEmpty = false) => options.TryGetValue(key, out string? value) && (allowEmpty || !string.IsNullOrWhiteSpace(value))

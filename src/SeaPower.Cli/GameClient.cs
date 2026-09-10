@@ -7,6 +7,42 @@ internal class GameClient
     private readonly string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SeaPowerGameBridge");
     private string? session;
 
+    internal async Task<JsonElement> LoadScenarioAsync(string path, DateTime launchUtc, CancellationToken cancellation)
+    {
+        string sessionPath = Path.Combine(directory, "session.json");
+        while (true)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (File.Exists(sessionPath) && File.GetLastWriteTimeUtc(sessionPath) >= launchUtc)
+            {
+                JsonDocument? document = null;
+                try { document = JsonDocument.Parse(await File.ReadAllTextAsync(sessionPath, cancellation)); }
+                catch (IOException) { }
+                catch (JsonException) { }
+                if (document != null)
+                {
+                    using (document)
+                    {
+                        if (!document.RootElement.TryGetProperty("capabilities", out JsonElement capabilities)
+                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "load-scenario"))
+                            throw new InvalidOperationException("The running bridge lacks scenario loading. Deploy the updated game bridge and restart.");
+                        session = document.RootElement.GetProperty("session").GetString();
+                    }
+                    break;
+                }
+            }
+            await Task.Delay(500, cancellation);
+        }
+        while (true)
+        {
+            JsonElement readiness = await SendAsync(new("scenario-ready"), cancellation);
+            if (readiness.GetProperty("ready").GetBoolean()) break;
+            await Task.Delay(500, cancellation);
+        }
+        // Never retry an uncertain load: the game may already be changing scenes.
+        return await SendAsync(new("load-scenario") { Text = path, Confirm = true }, cancellation);
+    }
+
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
     {
         if (command.Request.Action is "inspect" or "update" or "units" or "units-update")
