@@ -146,13 +146,13 @@ setup. Run the commands below from the repository root.
 Build without deploying:
 
 ```powershell
-dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj
+dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj -p:DeployToGame=false
 ```
 
-Explicitly deploy only this mod:
+Build and deploy only this mod, the default on Windows:
 
 ```powershell
-dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj -p:DeployToGame=true
+dotnet build src/FlightDeckTweaks/FlightDeckTweaks.csproj
 ```
 
 Deployment copies `FlightDeckTweaks.dll` into the game's

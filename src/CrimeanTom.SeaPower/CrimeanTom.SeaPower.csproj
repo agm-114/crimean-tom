@@ -70,7 +70,7 @@
            Text="Harmony was not found in the Sea Power BepInEx installation." />
   </Target>
 
-  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' != 'false'">
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <ItemGroup>
       <_PluginFile Include="$(TargetPath)" />
       <_PluginFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />

@@ -29,12 +29,14 @@ restart. You can also run it directly from the project:
 dotnet run --project src/SeaPower.Cli -- status
 ```
 
-Build and explicitly deploy the game bridge:
+Build and deploy the game bridge:
 
 ```powershell
-dotnet build src/SeaPower.GameBridge/SeaPower.GameBridge.csproj -p:DeployToGame=true
+dotnet build src/SeaPower.GameBridge/SeaPower.GameBridge.csproj
 ```
 
+Deployment is the default on Windows. Close the game first, or use
+`-p:DeployToGame=false` to build without deploying.
 Create `enabled.txt` beside the deployed DLL in
 `Sea Power_Data/StreamingAssets/SeaPowerGameBridge`, then launch Sea Power.
 Changes to the bridge DLL require a
