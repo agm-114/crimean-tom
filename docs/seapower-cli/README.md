@@ -54,6 +54,10 @@ seapower-cli units
 seapower-cli units-update
 seapower-cli status
 seapower-cli game-status
+seapower-cli unity-explorer status
+seapower-cli unity-explorer install --confirm
+seapower-cli unity-explorer enable --confirm
+seapower-cli unity-explorer disable --confirm
 seapower-cli logs --tail 200
 seapower-cli launch --confirm --require-pattern 'Sea Power Game Bridge'
 seapower-cli load-scenario --scenario 'C:/Scenarios/carrier-training.ini' --confirm
@@ -137,8 +141,30 @@ text, so an old load marker alone cannot satisfy the check. Patterns have a
 Startup success does not prove menu readiness or scenario loading. Use `inspect`
 or `wait-for` next. Launch timeout or cancellation leaves the game alone; check
 `game-status` and `logs` before retrying. The CLI never resolves Steam cloud-save
-conflicts, deploys DLLs or changes Mod Manager selections. Only the explicit
+conflicts or changes Mod Manager selections. Only the explicit
 `menu exit --confirm` command requests game exit.
+
+### UnityExplorer
+
+`unity-explorer status` reports installed plugin paths and whether the DLL is
+enabled for the next launch. This is a disk check, not proof of runtime loading.
+All UnityExplorer commands run without the bridge and accept `--game-dir` or
+`SEA_POWER_DIR`. Install, enable and disable require `--confirm` and refuse a
+running Sea Power process. They never launch or stop the game.
+
+`unity-explorer install --confirm` downloads the pinned
+[upstream 4.9.0 BepInEx 5 Mono release](https://github.com/sinai-dev/UnityExplorer/releases/tag/4.9.0)
+and checks its SHA-256 before extracting the two DLLs. It installs under
+`BepInEx/plugins/sinai-dev-UnityExplorer`, initially disabled. The default timeout
+is 120 seconds. An existing installation is left unchanged; this is not an updater
+or repair command. BepInEx must already be installed.
+
+`unity-explorer disable --confirm` renames `UnityExplorer.BIE5.Mono.dll` to
+`UnityExplorer.BIE5.Mono.dll.disabled`. `enable --confirm` reverses that rename
+and checks for `UniverseLib.Mono.dll` beside it. Settings, logs, UniverseLib and
+other plugins stay untouched. Repeating enable or disable is harmless.
+Multiple copies, unsupported plugin builds and linked mutation paths are rejected.
+Keep UnityExplorer disabled for normal play and enable it for runtime inspection.
 
 ### Launch into a scenario
 
@@ -456,6 +482,7 @@ Screenshots remain necessary for layout, clipping and actual tooltip visibility.
 snapshot comparison and storage, local querying, cancellation and output formatting.
 `GameDiagnostics.cs` owns installation/process inspection, log reads and explicit
 Steam launch verification. None of these require game assembly references.
+`UnityExplorerInstall.cs` owns the pinned download and on-disk plugin toggles.
 `Protocol.cs` decodes only the reply fields
 needed for those tasks; unqueried output preserves the entire bridge reply.
 
