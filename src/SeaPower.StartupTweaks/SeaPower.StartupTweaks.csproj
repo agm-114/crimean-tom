@@ -10,8 +10,7 @@
     <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
     <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
     <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
-    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerStartupTweaks</PluginDeployDirectory>
-    <LegacyPluginDirectory>$(SeaPowerDir)\BepInEx\plugins\SeaPower.StartupTweaks</LegacyPluginDirectory>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
@@ -31,12 +30,18 @@
   </Target>
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
-    <!-- The BepInEx copy predates the AnchorChain entry point and would patch the game a second time. -->
-    <RemoveDir Directories="$(LegacyPluginDirectory)" Condition="Exists('$(LegacyPluginDirectory)')" />
+    <ItemGroup>
+      <!-- Layouts this mod shipped under before; a leftover copy loads the game a second time. -->
+      <_LegacyDeployment Include="$(SeaPowerDir)\BepInEx\plugins\SeaPower.StartupTweaks" />
+      <_LegacyDeployment Include="$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerStartupTweaks" />
+    </ItemGroup>
+    <RemoveDir Directories="@(_LegacyDeployment)" />
     <Delete Files="$(SeaPowerDir)\BepInEx\config\crimean-tom.startup-tweaks.cfg" />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="Deployed Sea Power Startup Tweaks to $(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
+          Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Deployed Quickload to $(PluginDeployDirectory)" />
   </Target>
 </Project>

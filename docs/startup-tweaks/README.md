@@ -1,4 +1,4 @@
-# Startup Tweaks
+# Quickload
 
 Experimental AnchorChain mod for Sea Power `0.8.2-23444+s358`. Unsupported game
 versions keep the native startup flow. Independent of Loading Profiler.
@@ -11,15 +11,17 @@ dotnet build src/SeaPower.StartupTweaks/SeaPower.StartupTweaks.csproj -p:DeployT
 ```
 
 Close the game before deployment. Override `SeaPowerDir` for another installation.
-The DLL and its `_info.ini` go into
-`Sea Power_Data/StreamingAssets/SeaPowerStartupTweaks`. Builds deploy by default
-on Windows; use `-p:DeployToGame=false` for compile-only checks. Deployment also
-removes the pre-AnchorChain copy under `BepInEx/plugins` and its config file,
-which would otherwise patch the game a second time.
+The DLL and its `_info.ini` go into `Sea Power_Data/StreamingAssets/Quickload`,
+along with the Workshop `thumbnail.jpg` once `scripts/create-mod-icons.ps1` has
+generated it. Builds deploy by default on Windows; use `-p:DeployToGame=false`
+for compile-only checks. Deployment also removes the
+layouts this mod shipped under before, the `BepInEx/plugins` copy with its config
+file and the `SeaPowerStartupTweaks` folder, either of which would otherwise load
+the game a second time.
 
-The mod appears in the in-game mod manager as "Sea Power Startup Tweaks". Clear
-its checkbox there and restart to disable it; AnchorChain only loads mods whose
-directory is selected. No preloader changes.
+The mod appears in the in-game mod manager as "Quickload". Clear its checkbox
+there and restart to disable it; AnchorChain only loads mods whose directory is
+selected. No preloader changes.
 
 ## Loading behavior
 

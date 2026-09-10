@@ -67,7 +67,13 @@ foreach ($asset in $assets | Where-Object { $Mod -eq 'all' -or $_.id -eq $Mod })
         $bitmap.Save($temporary, $jpeg, $encoding)
         $destination = Join-Path $OutputDirectory ($asset.id + '.jpg')
         Move-Item -LiteralPath $temporary -Destination $destination -Force
-        [PSCustomObject]@{ Mod = $asset.title; Image = $destination; Width = $Size; Height = $Size; Bytes = (Get-Item -LiteralPath $destination).Length }
+
+        # The mod folder is what ships, so the icon belongs beside _info.ini there too.
+        $modDirectory = Join-Path (Split-Path $PSScriptRoot -Parent) $asset.modDirectory
+        if (!(Test-Path -LiteralPath $modDirectory -PathType Container)) { throw "Mod folder not found: $modDirectory" }
+        $thumbnail = Join-Path $modDirectory 'thumbnail.jpg'
+        Copy-Item -LiteralPath $destination -Destination $thumbnail -Force
+        [PSCustomObject]@{ Mod = $asset.title; Image = $destination; Thumbnail = $thumbnail; Width = $Size; Height = $Size; Bytes = (Get-Item -LiteralPath $destination).Length }
     } finally {
         for ($index = $resources.Count - 1; $index -ge 0; $index--) { $resources[$index].Dispose() }
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary }

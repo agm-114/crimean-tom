@@ -2,6 +2,7 @@
   {
     "id": "deck-tweaks",
     "title": "Deck Tweaks",
+    "modDirectory": "src/FlightDeckTweaks",
     "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ea/UH-2A_HU-1_hoisting_man_from_USS_JR_Craig_%28DD-885%29_c1964.jpg",
     "sourcePage": "https://commons.wikimedia.org/wiki/File:UH-2A_HU-1_hoisting_man_from_USS_JR_Craig_(DD-885)_c1964.jpg",
     "author": "U.S. Navy",
@@ -11,6 +12,7 @@
   {
     "id": "quickload",
     "title": "Quickload",
+    "modDirectory": "src/SeaPower.StartupTweaks",
     "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/a/a9/SR71_factoryfloor_SkunkWorks.jpg",
     "sourcePage": "https://commons.wikimedia.org/wiki/File:SR71_factoryfloor_SkunkWorks.jpg",
     "author": "CIA",
