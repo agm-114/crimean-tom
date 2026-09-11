@@ -29,21 +29,35 @@ internal static class NativeUi
         return stack;
     }
 
-    internal static Grid Meter(string label, ProgressBar bar, TextBlock value, FrameworkElement? action = null)
+    internal static Grid CapacityMeters(FrameworkElement action,
+        params (string Label, ProgressBar Bar, TextBlock Value)[] meters)
     {
-        var line = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        line.ColumnDefinitions.Add(new() { Width = new GridLength(120) });
-        line.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        line.ColumnDefinitions.Add(new() { Width = new GridLength(90) });
-        line.Children.Add(Text(label));
-        Grid.SetColumn(bar, 1);
-        Grid.SetColumn(value, 1);
-        value.HorizontalAlignment = HorizontalAlignment.Center;
-        value.VerticalAlignment = VerticalAlignment.Center;
-        line.Children.Add(bar);
-        line.Children.Add(value);
-        if (action != null) { Grid.SetColumn(action, 2); line.Children.Add(action); }
-        return line;
+        var grid = new Grid();
+        foreach (var width in new[] { GridLength.Auto, new GridLength(10), new GridLength(1, GridUnitType.Star), new GridLength(10), GridLength.Auto })
+            grid.ColumnDefinitions.Add(new() { Width = width });
+        for (int i = 0; i < meters.Length; i++)
+        {
+            if (i > 0) grid.RowDefinitions.Add(new() { Height = new GridLength(i == 1 ? 5 : 2.5f) });
+            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            var (label, bar, value) = meters[i];
+            var title = Text(label);
+            Grid.SetRow(title, i * 2);
+            grid.Children.Add(title);
+            var meter = new Grid();
+            value.HorizontalAlignment = HorizontalAlignment.Center;
+            meter.Children.Add(bar);
+            meter.Children.Add(value);
+            Grid.SetRow(meter, i * 2);
+            Grid.SetColumn(meter, 2);
+            Grid.SetColumnSpan(meter, i == 0 ? 3 : 1);
+            grid.Children.Add(meter);
+        }
+        action.Margin = new Thickness(0);
+        Grid.SetRow(action, 2);
+        Grid.SetRowSpan(action, Math.Max(1, meters.Length * 2 - 3));
+        Grid.SetColumn(action, 4);
+        grid.Children.Add(action);
+        return grid;
     }
 
     internal static Button Button(string label, Action action, bool primary = false)
