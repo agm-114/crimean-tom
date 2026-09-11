@@ -5,6 +5,7 @@ and `docs/seapower-cli/`. Loading profiler documentation is in `docs/loading-pro
 Startup optimization documentation is in `docs/startup-tweaks/`.
 Wet-deck controls documentation is in `docs/wet-deck-controls/`.
 Amphibious vehicle documentation is in `docs/amphibs/`.
+UNREP documentation is in `docs/unrep/`.
 Read the relevant module's README. The campaign integration rules below apply to
 Crimean Tom; Deck Tweaks is an independent mod.
 

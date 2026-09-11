@@ -1,7 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'deck-tweaks', 'quickload', 'wet-deck', 'amphibs')][string]$Mod = 'all',
+    [ValidateSet('all', 'deck-tweaks', 'quickload', 'wet-deck', 'amphibs', 'unrep')][string]$Mod = 'all',
     [ValidateRange(256, 2048)][int]$Size = 1024,
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts/mod-icons')
 )

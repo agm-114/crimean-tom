@@ -8,14 +8,16 @@ Run in PowerShell 7 on Windows:
 ./scripts/create-mod-icons.ps1 -Mod quickload -Size 512
 ./scripts/create-mod-icons.ps1 -Mod wet-deck
 ./scripts/create-mod-icons.ps1 -Mod amphibs
+./scripts/create-mod-icons.ps1 -Mod unrep
 ```
 
-Default output is four 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
+Default output is five 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
 
 - `deck-tweaks.jpg`
 - `quickload.jpg`
 - `wet-deck.jpg`
 - `amphibs.jpg`
+- `unrep.jpg`
 
 Each render is then copied to `thumbnail.jpg` in the mod folder named by
 `modDirectory` in the manifest, beside that mod's `_info.ini`. The mod builds
