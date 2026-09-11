@@ -51,6 +51,7 @@ path is now `%LOCALAPPDATA%/SeaPowerGameBridge`; the old bridge cannot serve it.
 
 ```text
 seapower-cli inspect
+seapower-cli details --snapshot TOKEN --id ID --depth 8
 seapower-cli update
 seapower-cli units
 seapower-cli units-update
@@ -254,6 +255,37 @@ so it cannot replace a unit in a tactical mission. The default timeout is 120 se
 If loading times out, inspect before retrying; the encyclopedia may still be loading.
 
 ## Full dumps and updates
+
+### Detailed element and window inspection
+
+Use `inspect` to find an element or window ID, then request its detailed subtree:
+
+```powershell
+seapower-cli inspect --where 'Name.Contains("FlightDeck")' --select 'new(Id, Name, Type)'
+seapower-cli details --snapshot TOKEN --id ID --depth 8
+seapower-cli details --snapshot TOKEN --id ID --depth 0 --format json
+```
+
+`details` is read-only and keeps the inspection token valid. It reports every
+visual child, including unnamed wrappers and hidden elements, rather than the
+filtered control list. It also includes visual ancestors and logical-parent
+identities, layout sizes and margins, grid and canvas placement, appearance,
+local dependency-property values, explicit style setters and BasedOn styles,
+template types, grid definitions and table columns. Data contexts appear only
+as type names; arbitrary game objects are not serialized.
+
+Depth zero describes only the selected element and its ancestors. The default
+depth is 8 and the maximum is 32. Dumps stop at 2,000 descendant nodes and mark
+truncated branches; style inheritance stops at four levels and 128 setters per
+style. Child `path` values identify positions within this dump, not actionable
+control IDs. Use a fresh `inspect` for actions. These are realized visual trees,
+not unrealized virtualized items or original XAML source. Null explicit styles
+do not imply an unstyled control; appearance fields report resolved values.
+
+Both the CLI and game bridge need the updated build. Reload the game after
+deploying the bridge. YAML remains the default output; JSON is also supported.
+
+### Snapshot differences
 
 `inspect` returns the full visible UI tree in `controls`. `update` returns only
 the changes since the last returned `inspect`, `update` or successful `wait-for`.

@@ -9,6 +9,7 @@ internal record GameRequest(string Action)
     public DateTime Expires { get; init; }
     public string Snapshot { get; init; } = "";
     public int Id { get; init; }
+    public int Depth { get; init; } = 8;
     public int Index { get; init; } = -1;
     public string Text { get; init; } = "";
     public bool Confirm { get; init; }
