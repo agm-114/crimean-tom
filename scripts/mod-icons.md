@@ -6,12 +6,16 @@ Run in PowerShell 7 on Windows:
 ./scripts/create-mod-icons.ps1
 ./scripts/create-mod-icons.ps1 -Mod deck-tweaks
 ./scripts/create-mod-icons.ps1 -Mod quickload -Size 512
+./scripts/create-mod-icons.ps1 -Mod wet-deck
+./scripts/create-mod-icons.ps1 -Mod amphibs
 ```
 
-Default output is two 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
+Default output is four 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
 
 - `deck-tweaks.jpg`
 - `quickload.jpg`
+- `wet-deck.jpg`
+- `amphibs.jpg`
 
 Each render is then copied to `thumbnail.jpg` in the mod folder named by
 `modDirectory` in the manifest, beside that mod's `_info.ini`. The mod builds
@@ -26,6 +30,6 @@ upstream change before replacing a hash.
 
 The script centre-crops photos above a charcoal title band with a red divider.
 It uses the Windows Bahnschrift font. It creates no AI artwork, edits no mod
-descriptions, and does not build, deploy, launch or upload either mod.
+descriptions, and does not build, deploy, launch or upload the mods.
 The `artifacts/` renders, their cached photos and the `thumbnail.jpg` copies are
 ignored by Git.
