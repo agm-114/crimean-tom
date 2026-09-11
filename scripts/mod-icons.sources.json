@@ -18,5 +18,25 @@
     "author": "CIA",
     "license": "Public domain, as identified on Wikimedia Commons",
     "sha256": "CAD26B39247E558B4DB46C7FD3CBCC92C6F31DB77DC13F55237B82BE4C54A01B"
+  },
+  {
+    "id": "wet-deck",
+    "title": "Wet Deck",
+    "modDirectory": "src/WetDeckControls",
+    "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e1/Artemis_II_Orion_Underway_Recovery_Test_10_%28URT-10%29_-_Day_3_%28KSC-20230727-PH_KAA02-0017%29.jpg",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Artemis_II_Orion_Underway_Recovery_Test_10_(URT-10)_-_Day_3_(KSC-20230727-PH_KAA02-0017).jpg",
+    "author": "NASA/Kenny Allen",
+    "license": "Public domain in the United States, NASA photograph, as identified on Wikimedia Commons",
+    "sha256": "37EEE44AA3E1581949C05622DD04363EC5E9F8ABF07A1C11619C085AFEB952AD"
+  },
+  {
+    "id": "amphibs",
+    "title": "Amphibs",
+    "modDirectory": "src/Amphibs",
+    "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/6/6f/US_Navy_090425-N-4879G-393_A_group_of_multinational_amphibious_assault_vehicles_from_the_amphibious_dock_landing_ship_USS_Ashland_%28LSD_48%29_deploy_smoke_to_cover_their_landing_during_a_simulated_amphibious_landing_demonstration.jpg",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:US_Navy_090425-N-4879G-393_A_group_of_multinational_amphibious_assault_vehicles_from_the_amphibious_dock_landing_ship_USS_Ashland_(LSD_48)_deploy_smoke_to_cover_their_landing_during_a_simulated_amphibious_landing_demonstration.jpg",
+    "author": "U.S. Navy/Patrick Grieco",
+    "license": "Public domain in the United States, U.S. Navy official photograph",
+    "sha256": "6AEABDB1930C9064BE437D0FFACA0972D567F412F8242DEE80581459CE67D1ED"
   }
 ]
