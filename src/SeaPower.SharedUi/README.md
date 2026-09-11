@@ -32,7 +32,7 @@ table can manage overflow without pushing controls outside the window.
 The window uses itself as its initial data context for native window-host commands.
 Its caller owns opening, closing, selection changes and gameplay actions.
 
-`Meter` builds a labelled capacity bar with centred values and an optional action.
+`CapacityMeters` groups capacity bars with centred values and an action beside the lower rows, matching Flight Deck.
 `Labelled` places a label above a control. `Find` searches the native visual tree.
 `ToolbarToggle.Attach` inserts a styled toggle beside an existing native button,
 handling stack, grid-column and margin-positioned toolbars. Its owner attaches

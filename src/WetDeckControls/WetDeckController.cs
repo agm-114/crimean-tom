@@ -109,11 +109,11 @@ public class WetDeckController : MonoBehaviour
         content.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var controls = new StackPanel();
         content.Children.Add(controls);
-        var capacity = new ProgressBar { Height = 16, Maximum = inventory.Definition.StorageCapacity };
-        var staged = new ProgressBar { Height = 16, Maximum = inventory.Definition.Capacity };
+        var capacity = new ProgressBar { Maximum = inventory.Definition.StorageCapacity };
+        var staged = new ProgressBar { Maximum = inventory.Definition.Capacity };
         var capacityText = Text("");
         var stagedText = Text("");
-        var crews = new ProgressBar { Height = 16, Maximum = inventory.Definition.Crews };
+        var crews = new ProgressBar { Maximum = inventory.Definition.Crews };
         var crewsText = Text("");
         var recoverAll = Button("Recover All", () =>
         {
@@ -121,21 +121,41 @@ public class WetDeckController : MonoBehaviour
             foreach (var (boat, deployment) in WetDeckOperations.Deployed(inventory)) WetDeckOperations.Recover(ship, boat, deployment);
             inventory.Message = "Recovery requires ship speed at or below 5 knots.";
         });
-        controls.Children.Add(Meter("Storage Space", capacity, capacityText, recoverAll));
-        controls.Children.Add(Meter("Deck Utilisation", staged, stagedText));
-        controls.Children.Add(Meter("Crew Utilisation", crews, crewsText));
-        var choices = new Grid { Margin = new Thickness(0, 8, 0, 8) };
-        choices.ColumnDefinitions.Add(new() { Width = new GridLength(3, GridUnitType.Star) });
+        controls.Children.Add(CapacityMeters(recoverAll,
+            ("Storage Space", capacity, capacityText),
+            ("Deck Utilisation", staged, stagedText),
+            ("Crew Utilisation", crews, crewsText)));
+        var choices = new Grid { Margin = new Thickness(0, 5, 0, 5) };
+        choices.ColumnDefinitions.Add(new() { Width = new GridLength(2, GridUnitType.Star) });
+        choices.ColumnDefinitions.Add(new() { Width = new GridLength(16) });
         choices.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var type = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+        choices.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        choices.RowDefinitions.Add(new() { Height = new GridLength(18) });
+        choices.RowDefinitions.Add(new() { Height = new GridLength(30) });
+        var type = new ComboBox { Height = 30 };
         var assigned = new ComboBox { Height = 30 };
         foreach (var craft in inventory.Definition.Craft) type.Items.Add(new ComboBoxItem { Content = Name(craft), Tag = craft });
         for (int i = 1; i <= inventory.Definition.Craft.Max(craft => craft.Count); i++) assigned.Items.Add(i.ToString());
         type.SelectedIndex = assigned.SelectedIndex = 0;
-        AddChoice("Type", type, 0);
-        AddChoice("Assigned", assigned, 1);
+        choices.Children.Add(Labelled("Type", type));
+        var assignment = new Grid();
+        assignment.ColumnDefinitions.Add(new() { Width = new GridLength(3, GridUnitType.Star) });
+        assignment.ColumnDefinitions.Add(new() { Width = new GridLength(15) });
+        assignment.ColumnDefinitions.Add(new() { Width = new GridLength(1.75f, GridUnitType.Star) });
+        assignment.Children.Add(Labelled("Assigned", assigned));
+        var all = Button("ALL", () => assigned.SelectedIndex = (SelectedCraft()?.Count ?? 1) - 1, primary: true);
+        all.Margin = new Thickness(0);
+        all.Height = 30;
+        all.VerticalAlignment = VerticalAlignment.Bottom;
+        Grid.SetColumn(all, 2);
+        assignment.Children.Add(all);
+        Grid.SetColumn(assignment, 2);
+        choices.Children.Add(assignment);
         controls.Children.Add(choices);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        var buttons = new Grid();
+        buttons.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        buttons.ColumnDefinitions.Add(new() { Width = new GridLength(10) });
+        buttons.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var message = Text("");
         var ready = Button("READY", () =>
         {
@@ -147,10 +167,13 @@ public class WetDeckController : MonoBehaviour
         {
             if (Valid() && SelectedCraft() is { } craft && Exists(craft)) { inventory.Queue(craft, Quantity(), true); inventory.Message = ""; }
         }, primary: true);
+        ready.Margin = launch.Margin = new Thickness(0);
+        Grid.SetColumn(launch, 2);
         buttons.Children.Add(ready);
         buttons.Children.Add(launch);
-        buttons.Children.Add(Button("ALL", () => assigned.SelectedIndex = (SelectedCraft()?.Count ?? 1) - 1, primary: true));
-        controls.Children.Add(buttons);
+        Grid.SetColumn(buttons, 2);
+        Grid.SetRow(buttons, 2);
+        choices.Children.Add(buttons);
         controls.Children.Add(Text("Boat Operations"));
         var rows = Table("WetDeckOperations",
             TextColumn("State", nameof(BoatOperationRow.State), 130),
@@ -216,12 +239,6 @@ public class WetDeckController : MonoBehaviour
         bool Valid() => selected == ship && CanUse(ship);
         CraftDefinition? SelectedCraft() => (type.SelectedItem as ComboBoxItem)?.Tag as CraftDefinition;
         int Quantity() => Math.Max(1, assigned.SelectedIndex + 1);
-        void AddChoice(string label, ComboBox box, int index)
-        {
-            var stack = Labelled(label, box);
-            Grid.SetColumn(stack, index);
-            choices.Children.Add(stack);
-        }
     }
 
     private void Close()
