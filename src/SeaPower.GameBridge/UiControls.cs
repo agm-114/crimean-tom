@@ -47,6 +47,11 @@ internal class UiControls
         FrameworkElement element = control.Element;
         if (!ReferenceEquals(element.DataContext, control.Context))
             throw new InvalidOperationException("Control data changed. Inspect the UI again.");
+        if (command.Action == "details")
+        {
+            if (element.View == null) throw new InvalidOperationException("Control is detached. Inspect again.");
+            return UiDetails.Read(element, command.Id, snapshot, command.Depth);
+        }
         if (!element.IsVisible || !element.IsEnabled || element.View == null)
             throw new InvalidOperationException("Control is hidden, disabled or detached.");
         // Consume before dispatch, including actions that throw after changing UI state.

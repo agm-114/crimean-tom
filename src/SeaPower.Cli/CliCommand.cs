@@ -14,6 +14,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         Sea Power CLI
 
         seapower-cli inspect
+        seapower-cli details --snapshot TOKEN --id ID [--depth 8]
         seapower-cli update
         seapower-cli units
         seapower-cli units-update
@@ -104,6 +105,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "menu" => ["--page", "--confirm"],
             "encyclopedia" => ["--unit", "--variant", "--confirm"],
             "click" => ["--snapshot", "--id", "--confirm"],
+            "details" => ["--snapshot", "--id", "--depth"],
             "select" => ["--snapshot", "--id", "--index"],
             "expand" or "open" => ["--snapshot", "--id"],
             "set-text" => ["--snapshot", "--id", "--text"],
@@ -173,7 +175,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException($"{action} requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
-        bool controlAction = action is "click" or "select" or "expand" or "open" or "set-text";
+        bool controlAction = action is "click" or "select" or "expand" or "open" or "set-text" or "details";
         string snapshot = controlAction ? Required("--snapshot") : "";
         if (controlAction) Required("--id");
         string text = action switch
@@ -189,6 +191,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         return new(new(action)
         {
             Snapshot = snapshot, Id = Number("--id", 0, 1, int.MaxValue),
+            Depth = Number("--depth", 8, 0, 32),
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
