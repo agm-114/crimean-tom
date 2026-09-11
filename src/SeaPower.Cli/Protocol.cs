@@ -19,7 +19,7 @@ internal record GameRequest(string Action)
 // Only fields used by the CLI are decoded; output retains the complete game reply.
 internal record GameReply(TimeStatus? Time, UiControl[]? Controls);
 internal record UiControl(int Id, int Parent, int Order, string Type, string Name, string Text,
-    bool Enabled, int? Selected, bool? Expanded, UiOption[]? Options)
+    bool Enabled, int? Selected, bool? Expanded, UiOption[]? Options, bool? IsChecked = null)
 {
     internal bool Matches(string value) => (Text?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false)
         || string.Equals(Name, value, StringComparison.OrdinalIgnoreCase);

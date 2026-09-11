@@ -13,7 +13,7 @@ public class GameBridge : MonoBehaviour
     private void Awake()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details" } }));
+        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot" } }));
         Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
@@ -34,7 +34,8 @@ public class GameBridge : MonoBehaviour
             if (command == null || !Guid.TryParseExact(command.Request, "N", out _)) return;
             if (command.Session != session || command.Expires < DateTime.UtcNow)
                 throw new InvalidOperationException("Expired request or stale game session. Inspect again.");
-            Reply(command, controls.Execute(command));
+            if (command.Action == "screenshot") StartCoroutine(Capture(command));
+            else Reply(command, controls.Execute(command));
         }
         catch (Exception exception)
         {
@@ -50,6 +51,26 @@ public class GameBridge : MonoBehaviour
         string path = Path.Combine(directory, command.Request + ".json");
         File.WriteAllText(path + ".tmp", JsonConvert.SerializeObject(value));
         File.Move(path + ".tmp", path);
+    }
+
+    private System.Collections.IEnumerator Capture(GameCommand command)
+    {
+        yield return new WaitForEndOfFrame();
+        Texture2D? texture = null;
+        try
+        {
+            if (command.Expires < DateTime.UtcNow) throw new TimeoutException("Screenshot request expired before a frame rendered.");
+            texture = ScreenCapture.CaptureScreenshotAsTexture();
+            if (texture == null) throw new InvalidOperationException("The game has no rendered frame to capture.");
+            string folder = Path.Combine(directory, "screenshots");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, command.Request + ".png");
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            Reply(command, new { ok = true, action = "screenshot", path, width = texture.width,
+                height = texture.height, capturedUtc = DateTime.UtcNow, time = TimeControls.Read() });
+        }
+        catch (Exception error) { Reply(command, new { error = error.Message }); }
+        finally { if (texture != null) Destroy(texture); }
     }
 
     private void OnDestroy()

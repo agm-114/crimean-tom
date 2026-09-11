@@ -51,6 +51,7 @@ path is now `%LOCALAPPDATA%/SeaPowerGameBridge`; the old bridge cannot serve it.
 
 ```text
 seapower-cli inspect
+seapower-cli screenshot
 seapower-cli details --snapshot TOKEN --id ID --depth 8
 seapower-cli update
 seapower-cli units
@@ -109,6 +110,18 @@ command or click event, while selections and text changes use control bindings.
 Buttons whose name or label includes save, load, play, launch, quit, exit, start
 or delete require `--confirm`. This bridge-side check is a precaution, not a
 substitute for reviewing the action. Do not automate overwriting user saves.
+
+## Screenshots and tab controls
+
+`screenshot` captures the next fully rendered game frame, including the native UI,
+and returns its PNG path, dimensions and capture time. Images remain in
+`%LOCALAPPDATA%/SeaPowerGameBridge/screenshots` until removed. It captures only
+the game view, not other applications or the Windows title bar. A minimized game
+may not render a frame before the command times out. Requires the updated bridge.
+
+`inspect` reports `isChecked` for checkboxes, toggles and radio-button tabs.
+`click` preserves their bindings. Clicking an already selected radio tab leaves
+it selected. Inspect after clicking to verify the selected tab and its contents.
 
 ## Installation, logs and startup
 

@@ -14,6 +14,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         Sea Power CLI
 
         seapower-cli inspect
+        seapower-cli screenshot
         seapower-cli details --snapshot TOKEN --id ID [--depth 8]
         seapower-cli update
         seapower-cli units
@@ -95,7 +96,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         if (action == "speed") action = "set-speed";
         string[] actionOptions = action switch
         {
-            "inspect" or "update" or "units" or "units-update" or "status" or "pause" or "resume" or "presets" => [],
+            "inspect" or "update" or "units" or "units-update" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
