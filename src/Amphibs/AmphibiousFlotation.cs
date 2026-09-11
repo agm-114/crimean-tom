@@ -17,7 +17,7 @@ internal class AmphibiousFlotation : MonoBehaviour
 
     internal void Apply(LandUnit unit, AmphibiousProfile profile)
     {
-        float now = GameTime.CurrentMissionSessionTime;
+        float now = GameTime.missionSessionTime;
         float elapsed = lastTime < 0 ? 0 : Mathf.Clamp(now - lastTime, 0, 1);
         lastTime = now;
         if (!AmphibiousMovement.Afloat(unit))

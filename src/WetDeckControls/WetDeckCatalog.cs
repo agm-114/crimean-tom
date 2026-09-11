@@ -67,7 +67,7 @@ internal static class WetDeckCatalog
         catch (Exception error)
         {
             Decks.Clear();
-            Debug.LogError($"[Wet Deck] Configuration rejected: {error.Message}");
+            Debug.LogError($"[Well Deck] Configuration rejected: {error.Message}");
             return false;
         }
     }
@@ -78,7 +78,7 @@ internal class DeckInventory(DeckDefinition definition)
     internal string Id { get; set; } = Guid.NewGuid().ToString("N");
     internal DeckDefinition Definition { get; } = definition;
     internal List<BoatPreparation> Tasks { get; } = [];
-    internal float LastUpdate { get; set; } = GameTime.CurrentMissionSessionTime;
+    internal float LastUpdate { get; set; } = GameTime.missionSessionTime;
     internal string Message { get; set; } = "";
     internal int OccupiedSpace => Definition.Craft.Sum(craft => Aboard[craft.Key] * craft.Space);
     internal int StagingSpace => Tasks.Where(task => task.Remaining <= 0 || task.Active).Sum(task => task.Craft.Space);

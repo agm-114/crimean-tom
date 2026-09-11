@@ -7,7 +7,7 @@ namespace FlightDeckTweaks;
 public class TaskLoadout : INotifyPropertyChanged
 {
     private readonly PendingLaunchTask task;
-    private float nextStatusUpdate;
+    private double nextStatusUpdate;
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanChange => !task._isCancelled && task.LaunchCount > 0
         && task._flightDeck._baseObject.AcceptsOrdersFromPlayer
@@ -51,8 +51,8 @@ public class TaskLoadout : INotifyPropertyChanged
         };
         task.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName != nameof(FlightDeckTask.FlightDeckTaskLabel) || GameTime.time < nextStatusUpdate) return;
-            nextStatusUpdate = GameTime.time + 1;
+            if (args.PropertyName != nameof(FlightDeckTask.FlightDeckTaskLabel) || GameTime.simulationTime < nextStatusUpdate) return;
+            nextStatusUpdate = GameTime.simulationTime + 1;
             PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
         };
     }

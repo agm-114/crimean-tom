@@ -21,7 +21,7 @@
   },
   {
     "id": "wet-deck",
-    "title": "Wet Deck",
+    "title": "Well Deck",
     "modDirectory": "src/WetDeckControls",
     "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e1/Artemis_II_Orion_Underway_Recovery_Test_10_%28URT-10%29_-_Day_3_%28KSC-20230727-PH_KAA02-0017%29.jpg",
     "sourcePage": "https://commons.wikimedia.org/wiki/File:Artemis_II_Orion_Underway_Recovery_Test_10_(URT-10)_-_Day_3_(KSC-20230727-PH_KAA02-0017).jpg",

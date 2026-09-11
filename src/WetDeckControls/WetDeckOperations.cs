@@ -59,7 +59,7 @@ internal static class WetDeckOperations
             }
             catch (Exception error)
             {
-                Debug.LogError($"[Wet Deck] Launch failed: {error}");
+                Debug.LogError($"[Well Deck] Launch failed: {error}");
                 return $"Launched {launched}. Launch failed; see game log.";
             }
         }
@@ -90,7 +90,7 @@ internal static class WetDeckOperations
     {
         if (!boat.AcceptsOrdersFromPlayer || boat.IsDestroyed) return;
         boat.RemoveWaypoints();
-        boat.SetRelativeWaypointTask(new Vector3(0, 0, -180), ship, "Wet Deck recovery");
+        boat.SetRelativeWaypointTask(new Vector3(0, 0, -180), ship, "Well Deck recovery");
         boat.setTelegraph(3);
         deployment.Recovering = true;
     }
@@ -101,7 +101,7 @@ internal static class WetDeckOperations
         foreach (var ship in Units.ToArray())
         {
             if (ship == null || ship.IsDestroyed || !Inventories.TryGetValue(ship, out var inventory)) continue;
-            float now = GameTime.CurrentMissionSessionTime;
+            float now = GameTime.missionSessionTime;
             float elapsed = Math.Max(0, now - inventory.LastUpdate);
             inventory.LastUpdate = now;
             if (elapsed > 0 && ship.IsPlayerUnit && ship.AcceptsOrdersFromPlayer)
@@ -162,7 +162,7 @@ internal static class WetDeckOperations
             var inventory = Inventory(__instance);
             inventory.Id = id;
             inventory.Tasks.Clear();
-            inventory.LastUpdate = GameTime.CurrentMissionSessionTime;
+            inventory.LastUpdate = GameTime.missionSessionTime;
             foreach (var craft in inventory.Definition.Craft)
             {
                 if (!section.TryGetValue("WetDeck_" + craft.Reference, out string saved)) continue;

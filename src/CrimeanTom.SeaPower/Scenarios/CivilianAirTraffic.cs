@@ -47,7 +47,7 @@ internal static class CivilianAirTraffic
                 unit is not Aircraft || unit.IsDestroyed || unit._taskforce != Globals._neutralTaskforce || unit._spawnedByCivRoute) continue;
             // Native routes own replacement, despawn without scoring, and their active-unit limit.
             route.AddActiveUnit(unit);
-            route._lastSpawnTime = GameTime.time;
+            route._lastSpawnTime = GameTime.missionElapsedTime;
             route._currentSpawnInterval = route._spawnInterval.x;
         }
     }

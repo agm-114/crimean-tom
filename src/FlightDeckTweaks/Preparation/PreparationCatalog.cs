@@ -30,7 +30,7 @@ internal static class PreparationCatalog
         }
         if (ammunitionNames == null) return reference;
         string entry = Value(ammunitionNames, "AmmunitionNames", reference);
-        string[] names = LocalizationLoader.ApplyNativeWeaponName(ammunitionNames, reference,
+        string[] names = LocalizationLoader.ApplyNatoWeaponName(ammunitionNames, reference,
             (entry.Length > 0 ? entry : reference).Split(','));
         string name = names.Length > 0 && !string.IsNullOrWhiteSpace(names[0]) ? names[0].Trim() : reference;
         return names.Length > 1 && !string.IsNullOrWhiteSpace(names[1]) ? $"{name} ({names[1].Trim()})" : name;
