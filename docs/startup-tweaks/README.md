@@ -27,11 +27,26 @@ selected. No preloader changes.
 
 Mission scenes load at the native `LoadMission` step, after `PreloadInis` and
 caller-supplied setup actions. Quickload does not hold an inactive scene in Unity's
-async queue while the player browses menus.
+async queue while the player browses menus. After deferred loading finishes, an
+idle-menu worker reads `level2`, `sharedassets2.assets` and
+`sharedassets2.assets.resS` into the OS file cache. It reads at most 16 MiB total
+in 64 KiB chunks, with a short delay between reads. No Unity objects load or
+activate during this work, and no file contents remain in a managed cache.
+
+Warming runs at most once per mod instance. Mission requests, shutdown and mod
+destruction stop further reads; an in-flight read may finish. Missing or
+inaccessible files are skipped. The OS can evict warmed pages, and warming does
+not reduce scene deserialization or initialization work. Speed gains are not yet
+measured.
 
 INI reads use the game's parsed-content cache and create their own handlers.
 Handlers have mutable file paths and alias lists as well as shared content, so
 Quickload does not reuse handler instances across callers or cache mod-path lookup.
+It caches only `Path.GetRelativePath` results inside `IniHandler.open`, keyed by
+the exact pair of fully qualified paths. Relative inputs use the native function
+so working-directory changes retain their meaning. The cache holds at most 8192
+entries and clears when full. File existence checks, uncached reads, aliases,
+save destinations and the native parsed-content cache retain their usual behavior.
 
 ## Loading behavior
 

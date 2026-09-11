@@ -15,6 +15,8 @@ public class StartupTweaks : MonoBehaviour
     private readonly Harmony harmony = new(Id);
     private readonly List<LoadAction> pending = [];
     private bool started;
+    private bool hooksInstalled;
+    private readonly SceneFileWarmup sceneFiles = new();
     internal bool CoreReady { get; private set; } = true;
     internal bool Failed { get; private set; }
     private MenuProgress? display;
@@ -54,6 +56,7 @@ public class StartupTweaks : MonoBehaviour
             }
         }
         catch { harmony.UnpatchSelf(); throw; }
+        hooksInstalled = true;
         Log("Enabled deferred startup loading.");
     }
 
@@ -75,6 +78,7 @@ public class StartupTweaks : MonoBehaviour
 
     private void Update()
     {
+        if (!hooksInstalled) return;
         EncyclopediaCatalogue.Update();
         if (MainMenuView.Instance is not { IsVisible: true } menu) return;
         if (!Singleton<LoadScreen>.InstanceExists() || Singleton<LoadScreen>.Instance.cameraObject.enabled) return;
@@ -89,6 +93,7 @@ public class StartupTweaks : MonoBehaviour
             Progress = new(pending.Select(action => action.description).ToArray(), LazyMusic.TimingKeys);
             StartCoroutine(LoadCore());
         }
+        if (started && !Failed && CanOpen("Options")) sceneFiles.Begin(Application.dataPath);
         if (Progress != null && displayedMenu != menu)
         {
             display = new(menu);
@@ -164,6 +169,7 @@ public class StartupTweaks : MonoBehaviour
     [HarmonyPrefix, HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoLoad))]
     private static void RequireReady()
     {
+        Instance.sceneFiles.Stop();
         ScenarioCatalogue.ValidateLaunch(Globals.currentMissionFilePath);
         bool encyclopedia = string.Equals(Path.GetFileName(Globals.currentMissionFilePath),
             "EncyclopediaMission.ini", StringComparison.OrdinalIgnoreCase);
@@ -198,8 +204,16 @@ public class StartupTweaks : MonoBehaviour
         if (Progress != null) Progress.Data.Failed = true;
         Error($"Background loading failed: {error}");
     }
-    private void OnDestroy() => harmony.UnpatchSelf();
-    private void OnApplicationQuit() => TextureLoadingLifetime.Quitting = true;
+    private void OnDestroy()
+    {
+        sceneFiles.Stop();
+        harmony.UnpatchSelf();
+    }
+    private void OnApplicationQuit()
+    {
+        sceneFiles.Stop();
+        TextureLoadingLifetime.Quitting = true;
+    }
 
     [HarmonyPrefix, HarmonyPatch(typeof(SimpleObjectParameters), nameof(SimpleObjectParameters.LoadSimpleParameters))]
     private static void UnitFile(string objectIniName, string objectIniFolder)
