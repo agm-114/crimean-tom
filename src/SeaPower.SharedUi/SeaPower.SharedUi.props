@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)NativeUi.cs" Link="SharedUi/NativeUi.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ToolbarToggle.cs" Link="SharedUi/ToolbarToggle.cs" />
+  </ItemGroup>
+</Project>
