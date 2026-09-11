@@ -68,7 +68,12 @@ internal class UiControls
                     ? routedCheck.CanExecute(button.CommandParameter, target)
                     : button.Command?.CanExecute(button.CommandParameter) ?? true;
                 if (!canExecute) throw new InvalidOperationException("Command is disabled.");
-                if (button is ToggleButton toggle) toggle.IsChecked = toggle.IsChecked != true;
+                if (button is ToggleButton toggle)
+                {
+                    // Preserve the two-way binding used by native Unit Status tabs.
+                    toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, button is RadioButton || toggle.IsChecked != true);
+                    toggle.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateSource();
+                }
                 if (button.Command is RoutedCommand routed)
                     routed.Execute(button.CommandParameter, target);
                 else if (button.Command is { } action)
@@ -139,6 +144,7 @@ internal class UiControls
                         new { index, text = ItemLabel(item, selector.DisplayMemberPath) }).ToArray() : null;
                     rows.Add(new { id, parent, order, type = element.GetType().Name, name = element.Name, text = label,
                         enabled = element.IsEnabled, selected = element is Selector selected ? selected.SelectedIndex : (int?)null,
+                        isChecked = element is ToggleButton toggle ? toggle.IsChecked : null,
                         expanded = element is TreeViewItem tree ? tree.IsExpanded : (bool?)null, options });
                     parent = id;
                 }
