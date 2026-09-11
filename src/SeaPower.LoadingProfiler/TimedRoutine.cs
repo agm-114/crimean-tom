@@ -3,14 +3,23 @@ using System.Diagnostics;
 
 namespace SeaPower.LoadingProfiler;
 
-internal class TimedRoutine(string name, IEnumerator inner) : IEnumerator, IDisposable
+internal class TimedRoutine(string name, IEnumerator inner, Action<bool>? scope = null) : IEnumerator, IDisposable
 {
     private Stopwatch? timer;
+    private int startFrame;
     private bool ended;
+    private bool disposed;
     public object Current => inner.Current;
     public bool MoveNext()
     {
-        if (timer == null) { timer = Stopwatch.StartNew(); TraceLog.Write("begin", new { name }); }
+        if (ended) return false;
+        if (timer == null)
+        {
+            timer = Stopwatch.StartNew();
+            startFrame = UnityEngine.Time.frameCount;
+            scope?.Invoke(true);
+            TraceLog.Write("begin", new { name });
+        }
         try
         {
             bool more = inner.MoveNext();
@@ -19,9 +28,11 @@ internal class TimedRoutine(string name, IEnumerator inner) : IEnumerator, IDisp
         }
         catch { Finish("failed"); throw; }
     }
-    public void Reset() => inner.Reset();
+    public void Reset() => throw new NotSupportedException();
     public void Dispose()
     {
+        if (disposed) return;
+        disposed = true;
         try { (inner as IDisposable)?.Dispose(); }
         finally { Finish("disposed"); }
     }
@@ -29,6 +40,8 @@ internal class TimedRoutine(string name, IEnumerator inner) : IEnumerator, IDisp
     {
         if (ended) return;
         ended = true;
-        TraceLog.Write(kind, new { name, seconds = timer?.Elapsed.TotalSeconds });
+        // Frames are recorded because time spent yielding belongs to no call hook.
+        TraceLog.Write(kind, new { name, seconds = timer?.Elapsed.TotalSeconds, frames = timer == null ? 0 : UnityEngine.Time.frameCount - startFrame });
+        if (timer != null) scope?.Invoke(false);
     }
 }

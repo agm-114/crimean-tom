@@ -6,7 +6,7 @@ using UnityEngine.SceneManagement;
 
 namespace SeaPower.LoadingProfiler;
 
-[BepInPlugin(PluginId, "Sea Power Loading Profiler", "0.1.0")]
+[BepInPlugin(PluginId, "Sea Power Loading Profiler", "0.2.0")]
 [BepInDependency("io.github.seapower_modders.anchorchain_preloader", BepInDependency.DependencyFlags.SoftDependency)]
 public class LoadingProfiler : BaseUnityPlugin
 {
