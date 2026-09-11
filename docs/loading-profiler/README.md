@@ -76,6 +76,8 @@ rather than interrupting the game's loading routine.
 $events = Get-Content "$env:LOCALAPPDATA/SeaPowerLoadingProfiler/SESSION/loading.jsonl" | ConvertFrom-Json
 $events | Where-Object kind -eq end | Select-Object -ExpandProperty data
 $events | Where-Object kind -eq call-end | Select-Object -ExpandProperty data
+$events | Where-Object kind -eq mission-call | Select-Object -ExpandProperty data |
+    Sort-Object seconds -Descending | Select-Object -First 15
 Import-Csv "$env:LOCALAPPDATA/SeaPowerLoadingProfiler/SESSION/bootstrap.tsv" -Delimiter "`t"
 ```
 
@@ -85,16 +87,27 @@ Replace `SESSION` with a captured directory name. Important events:
 | --- | --- |
 | `begin` / `end` | Coroutine wall duration, including nested work and waits |
 | `call-begin` / `call-end` | Synchronous startup method entry and exit |
+| `mission-call` | Synchronous method duration, recorded only during mission loading |
+| `mission-total` | Per-overload INI call counts and inclusive durations during mission loading |
 | `mission-request` | Native mission load requested, including the INI path |
 | `scene-loaded` | Unity scene-loaded notification, not necessarily usable UI |
 | `menu` | Window type and visibility sampled every 100 ms |
 | `first-update` | First profiler Update and the splash's completion state then |
-| `failed` / `call-failed` | Original game routine threw; exception behavior is preserved |
+| `failed` / `call-failed` / `mission-call-failed` | Original game routine threw; exception behavior is preserved |
 | `disposed` | Coroutine disposed before a normal completion was recorded |
 | `missing-hook` / `missing-type` | A requested hook is unavailable on this build |
 
 `screen:N` encloses `stage:N:*`; `routine:N:*` is nested inside mission loading.
 Do not sum parent and child durations. Unload screens also get their own number.
+`end` reports `frames`, the difference in Unity frame count across the coroutine.
+It does not measure time spent yielding or GPU-presented frames.
+`mission-total` reports `calls`, distinct argument paths, `cacheBypassed`,
+`notFound`, `failed`, and `seconds`. Cache bypass counts explicit false caching
+flags, not cache misses. Failures are separate from successful null results.
+Virtual INI reads include their nested physical reads, so those totals overlap.
+The capture window spans `SceneCreator.LoadMission`, including its yielded waits;
+background calls during those waits are included, but earlier `PreloadInis` work
+is not. Overlapping load routines share one aggregate window until both finish.
 A blocking dialog contributes wall time to its enclosing coroutine. Exclude
 such samples or report that wait separately. A loading screen ending does not
 prove tactical readiness; check the actual UI and simulation state too.

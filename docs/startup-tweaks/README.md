@@ -23,6 +23,16 @@ The mod appears in the in-game mod manager as "Quickload". Clear its checkbox
 there and restart to disable it; AnchorChain only loads mods whose directory is
 selected. No preloader changes.
 
+## Mission loading
+
+Mission scenes load at the native `LoadMission` step, after `PreloadInis` and
+caller-supplied setup actions. Quickload does not hold an inactive scene in Unity's
+async queue while the player browses menus.
+
+INI reads use the game's parsed-content cache and create their own handlers.
+Handlers have mutable file paths and alias lists as well as shared content, so
+Quickload does not reuse handler instances across callers or cache mod-path lookup.
+
 ## Loading behavior
 
 File validation, Workshop updates, compatibility checks and startup warnings
