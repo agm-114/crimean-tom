@@ -1,12 +1,12 @@
-# Wet Deck
+# Well Deck
 
-Independent AnchorChain mod for Sea Power `0.8.2-23444+s358`.
-Select a player-controlled Tarawa and use the WD button beside Flight Deck in the
-unit toolbar. The native Noesis window shows embarked craft, staging capacity and
-boat operations. Other ships have no button
+Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
+Select a player-controlled Tarawa and open Well Deck beside Flight Deck in
+Unit Status. The tab shows embarked craft, staging capacity and
+boat operations. Other ships have no tab
 unless configured. Each ship has a separate inventory.
 The operations table uses native GridView headers with draggable column dividers.
-The window resizes its controls to the available width and gives remaining height
+The tab resizes its controls to the available width and gives remaining height
 to the scrolling operations table. A crew utilisation bar shows active preparation crews.
 READY, LAUNCH and ALL use gold labels; row actions use the standard gray style.
 Each preparation row has Abort and Preparation/Launch controls. Preparation
@@ -75,6 +75,8 @@ dotnet build src/WetDeckControls/WetDeckControls.csproj
 
 Builds deploy by default into `Sea Power_Data/StreamingAssets/WetDeckControls`.
 Generate the square Workshop icon with `./scripts/create-mod-icons.ps1 -Mod wet-deck`.
+The internal mod identifier, deployment folder and `wet-decks.ini` filename remain
+unchanged for existing installations and saves.
 The build includes `thumbnail.jpg` when present.
 Close the game before deployment. Deployment preserves an existing
 `wet-decks.ini`; edit that copy and restart to change the complement.
@@ -82,6 +84,6 @@ Enable the mod through the game mod manager and restart.
 
 Implementation lives in `WetDeckCatalog.cs` for configuration and inventory,
 `WetDeckOperations.cs` for spawning, recovery and save hooks, and
-`WetDeckController.cs` for the HUD button and window.
-Native window, button and table construction comes from the linked source in
+`WetDeckController.cs` for the Unit Status tab and its content container.
+Native button and table construction comes from the linked source in
 [`SeaPower.SharedUi`](../../src/SeaPower.SharedUi/README.md), compiled into this DLL.

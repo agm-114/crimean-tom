@@ -3,16 +3,18 @@ using SeaPower;
 using SeapowerUI;
 using UnityEngine;
 using static SeaPower.SharedUi.NativeUi;
-using SeaPower.SharedUi;
+using SeapowerUI.ViewModels;
 
 namespace WetDeckControls;
 
 public class WetDeckController : MonoBehaviour
 {
     private MainGameView? host;
-    private ToolbarToggle? toolbar;
-    private ToggleButton? toggle;
-    private SeapowerUI.Window? window;
+    private UnitStatusViewModel? status;
+    private UnitStatusTabViewModel? tab;
+    private ContentControl? presenter;
+    private UnitStatusView? view;
+    private bool listening;
     private ObjectBase? selected;
     private Action? refresh;
     private float nextRefresh;
@@ -23,34 +25,82 @@ public class WetDeckController : MonoBehaviour
         nextRefresh = Time.realtimeSinceStartup + 0.3f;
         if (host != MainGameView.Instance) { Detach(); host = MainGameView.Instance; }
         if (host == null || !host.IsVisible) { Close(); return; }
+        if (!listening)
+        {
+            EventManager.RegisterClassHandler(typeof(UnitStatusView), FrameworkElement.LoadedEvent,
+                new RoutedEventHandler(OnViewLoaded));
+            listening = true;
+        }
         WetDeckOperations.UpdateRecovery();
-        if (toggle == null) Attach();
-        if (toggle == null) return;
+        if (status != Globals._mainGameViewModel?.UnitStatus) { Detach(); Attach(); }
+        if (tab == null) return;
+        AttachContent();
         var unit = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
         if (unit != selected) { Close(); selected = unit; }
         bool available = CanUse(selected);
-        toggle.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        tab.IsAvailable = available;
         if (!available) Close();
+        else if (tab.Content == null) Open();
         refresh?.Invoke();
     }
 
     private void Attach()
     {
-        if (host == null || (host.FindName("FlightDeckWindow") ?? Find(host, "FlightDeckWindow")) is not ToggleButton flight) return;
-        toolbar = ToolbarToggle.Attach(flight, "WetDeckButton", "WD", "Wet Deck");
-        toggle = toolbar?.Button;
-        if (toggle == null) return;
-        toggle.Checked += (_, _) => Open();
-        toggle.Unchecked += (_, _) => Close();
+        status = Globals._mainGameViewModel?.UnitStatus;
+        if (status == null) return;
+        // An extension kind leaves native lazy-content handling untouched.
+        tab = new(status, (UnitStatusTab)0x5744, "Well Deck");
+        tab.PropertyChanged += OnTabChanged;
+        status.Tabs.Insert(status.Tabs.IndexOf(status.FlightDeckTab) + 1, tab);
     }
 
     private static bool CanUse(ObjectBase? unit) => unit != null && !unit.IsDestroyed && unit._taskforce != null
         && unit.IsPlayerUnit && unit.AcceptsOrdersFromPlayer && unit._obp != null
         && WetDeckCatalog.Decks.ContainsKey(unit._obp._objectIniName);
 
+    private void AttachContent()
+    {
+        if (presenter != null || view == null || tab == null) return;
+        // Native Unit Status creates one content container per tab, not a shared presenter.
+        var flight = FindFlightDeck(view);
+        if (flight?.Parent is not Grid wrapper || wrapper.Parent is not Grid panels) return;
+        presenter = new ContentControl
+        {
+            Name = "WellDeckContent", HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+        };
+        presenter.SetBinding(ContentControl.ContentProperty, new Binding(nameof(tab.Content)) { Source = tab });
+        presenter.Visibility = tab.IsSelected ? Visibility.Visible : Visibility.Collapsed;
+        panels.Children.Add(presenter);
+    }
+
+    private void OnViewLoaded(object sender, RoutedEventArgs args)
+    {
+        if (!Equals(sender, args.Source) || sender is not UnitStatusView loaded) return;
+        if (view == loaded && presenter != null) return;
+        if (presenter?.Parent is Panel panels) panels.Children.Remove(presenter);
+        presenter = null;
+        view = loaded;
+        AttachContent();
+    }
+
+    private void OnTabChanged(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (presenter != null && args.PropertyName == nameof(UnitStatusTabViewModel.IsSelected))
+            presenter.Visibility = tab?.IsSelected == true ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static FlightDeckContentView? FindFlightDeck(DependencyObject root)
+    {
+        if (root is FlightDeckContentView flight) return flight;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindFlightDeck(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+        return null;
+    }
+
     private void Open()
     {
-        if (window != null || host == null || !CanUse(selected) || !Singleton<UnitMetadataProvider>.InstanceExists()) return;
+        if (tab == null || tab.Content != null || !CanUse(selected) || !Singleton<UnitMetadataProvider>.InstanceExists()) return;
         var ship = selected!;
         var inventory = WetDeckOperations.Inventory(ship);
         var content = new Grid { Margin = new Thickness(5) };
@@ -111,9 +161,9 @@ public class WetDeckController : MonoBehaviour
         Grid.SetRow(message, 2);
         content.Children.Add(rows);
         content.Children.Add(message);
-        var panel = Window("WetDeckWindow", $"Wet Deck: {ship.DisplayNameShort}", content);
-        panel.Unloaded += (_, _) => { if (window == panel) { window = null; refresh = null; if (toggle != null) toggle.IsChecked = false; } };
-        window = panel;
+        content.Name = "WetDeckPanel";
+        content.DataContext = content;
+        tab.Content = content;
         string previous = "";
         refresh = () =>
         {
@@ -163,7 +213,6 @@ public class WetDeckController : MonoBehaviour
                     })));
         };
         refresh();
-        WindowHostCommands.OpenWindowCommand.Execute(panel, host);
         bool Valid() => selected == ship && CanUse(ship);
         CraftDefinition? SelectedCraft() => (type.SelectedItem as ComboBoxItem)?.Tag as CraftDefinition;
         int Quantity() => Math.Max(1, assigned.SelectedIndex + 1);
@@ -177,19 +226,26 @@ public class WetDeckController : MonoBehaviour
 
     private void Close()
     {
-        var panel = window;
-        window = null;
         refresh = null;
-        if (toggle != null) toggle.IsChecked = false;
-        if (panel != null && host != null) WindowHostCommands.CloseWindowCommand.Execute(panel, host);
+        if (tab == null) return;
+        tab.Content = null;
+        if (tab.IsSelected && !CanUse(selected)) status?.SelectTab(UnitStatusTab.Engagement);
     }
 
     private void Detach()
     {
         Close();
-        toolbar?.Dispose();
-        toolbar = null;
-        toggle = null;
+        if (presenter?.Parent is Panel panels) panels.Children.Remove(presenter);
+        presenter = null;
+        view = null;
+        if (tab != null)
+        {
+            tab.PropertyChanged -= OnTabChanged;
+            status?.Tabs.Remove(tab);
+        }
+        tab = null;
+        status = null;
+        selected = null;
     }
     private void OnDestroy() => Detach();
     private static bool Exists(CraftDefinition craft) => Singleton<UnitMetadataProvider>.Instance.UnitData.ContainsKey((craft.Folder, craft.Reference));

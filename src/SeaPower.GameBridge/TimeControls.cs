@@ -13,7 +13,7 @@ internal static class TimeControls
         || Singleton<InputHandler>.Instance.IsInMessagePauseMode;
 
     internal static TimeStatus Read() => new(Available, Blocked, GameTime.IsPaused(), GameTime.TimeCompression,
-        Available ? GameTime.CurrentMissionSessionTime : null,
+        Available ? GameTime.missionSessionTime : null,
         Available && Singleton<SceneCreator>.InstanceExists() ? Singleton<SceneCreator>.Instance._missionStartTime : null);
 
     internal static object Execute(GameCommand command)
@@ -39,12 +39,12 @@ internal static class TimeControls
 }
 
 [JsonObject(NamingStrategyType = typeof(CamelCaseNamingStrategy))]
-internal class TimeStatus(bool available, bool blocked, bool paused, float speed, float? elapsedSeconds, float? missionStartSeconds)
+internal class TimeStatus(bool available, bool blocked, bool paused, float speed, double? elapsedSeconds, double? missionStartSeconds)
 {
     public bool Available { get; } = available;
     public bool Blocked { get; } = blocked;
     public bool Paused { get; } = paused;
     public float Speed { get; } = speed;
-    public float? ElapsedSeconds { get; } = elapsedSeconds;
-    public float? MissionStartSeconds { get; } = missionStartSeconds;
+    public double? ElapsedSeconds { get; } = elapsedSeconds;
+    public double? MissionStartSeconds { get; } = missionStartSeconds;
 }
