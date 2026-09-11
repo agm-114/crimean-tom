@@ -30,6 +30,16 @@
     "sha256": "37EEE44AA3E1581949C05622DD04363EC5E9F8ABF07A1C11619C085AFEB952AD"
   },
   {
+    "id": "unrep",
+    "title": "UNREP",
+    "modDirectory": "src/UNREP",
+    "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/a/ab/Rentz_and_Ranger_Unrep.jpg",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Rentz_and_Ranger_Unrep.jpg",
+    "author": "U.S. Navy/PH3 Layman",
+    "license": "Public domain in the United States, U.S. Navy official photograph",
+    "sha256": "38E15873347D68E051D9F2CD9AC5462F8D5673C3A2050850ECFFE432F5E0A924"
+  },
+  {
     "id": "amphibs",
     "title": "Amphibs",
     "modDirectory": "src/Amphibs",

@@ -8,6 +8,7 @@
   <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
   <Project Path="src/FlightDeckTweaks/FlightDeckTweaks.csproj" />
   <Project Path="src/WetDeckControls/WetDeckControls.csproj" />
+  <Project Path="src/UNREP/UNREP.csproj" />
   <Project Path="src/Amphibs/Amphibs.csproj" />
   <Project Path="src/SeaPower.GameBridge/SeaPower.GameBridge.csproj" />
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
