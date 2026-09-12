@@ -6,6 +6,8 @@ Startup optimization documentation is in `docs/quickload/`.
 Wet-deck controls documentation is in `docs/boat-ops/`.
 Amphibious vehicle documentation is in `docs/amphibs/`.
 UNREP documentation is in `docs/unrep/`.
+For UNREP continuation work, read `docs/unrep/handoff.md` for the code map,
+verified behavior, known gaps and demo scenario.
 Read the relevant module's README. The campaign integration rules below apply to
 Crimean Tom; Deck Tweaks is an independent mod.
 
