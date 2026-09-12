@@ -69,7 +69,9 @@ Keep one `UnitStatusPage` instance per mod controller. Use a unique numeric tab 
 call `Refresh` with the current host, view model and availability, and set `Content`
 after the tab exists. Dispose it when the controller is destroyed. The helper
 handles selection, replacement hosts and presenter cleanup without global class
-handlers. UNREP's `SuppliesController` is a complete caller example.
+handlers. It attaches only to a visible view belonging to the current host and
+view model, and releases old visual content when that view is replaced or closed.
+UNREP's `SuppliesController` is a complete caller example.
 
 The [control catalogue](catalogue.md) records the inspected screens and the limits
 of the survey. Run `seapower-cli ui-gallery --confirm` in a mission or encyclopedia

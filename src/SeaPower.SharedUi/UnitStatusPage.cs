@@ -31,17 +31,19 @@ internal class UnitStatusPage(int kind, string title) : IDisposable
         if (tab == null) return;
         tab.IsAvailable = available && host?.IsVisible == true;
         if (!tab.IsAvailable && tab.IsSelected) owner?.SelectTab(UnitStatusTab.Engagement);
-        if (host?.IsVisible != true) return;
-        if (view?.IsVisible != true)
-        {
-            var current = NativeUi.Find<UnitStatusView>(host);
-            if (view != current) { RemovePresenter(); view = current; }
-        }
+        // Noesis can retain old views across window recreation and scene changes.
+        // IsVisible on a cached view alone does not establish membership in this host.
+        var current = host?.IsVisible == true
+            ? NativeUi.Find<UnitStatusView>(host, candidate => candidate.IsVisible && Equals(candidate.DataContext, owner))
+            : null;
+        if (view != current) { RemovePresenter(); view = current; }
+        if (presenter != null && presenter.Parent == null) RemovePresenter();
         if (presenter != null || view == null) return;
         // Native headers are dynamic; content containers are hard-coded.
         if (NativeUi.Find<FlightDeckContentView>(view)?.Parent is not Grid wrapper || wrapper.Parent is not Grid panels) return;
         presenter = new ContentControl
         {
+            Name = "UnitStatusTabContent" + kind,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
             Visibility = tab.IsSelected ? Visibility.Visible : Visibility.Collapsed,
@@ -58,6 +60,8 @@ internal class UnitStatusPage(int kind, string title) : IDisposable
 
     private void RemovePresenter()
     {
+        // Release the visual content before another presenter binds the same tab.
+        if (presenter != null) presenter.Content = null;
         if (presenter?.Parent is Panel parent) parent.Children.Remove(presenter);
         presenter = null;
     }
