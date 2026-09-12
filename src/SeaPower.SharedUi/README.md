@@ -30,6 +30,11 @@ Tables retain native draggable column headers. Put them in a star-sized grid row
 to fill remaining window height. The window disables its outer scrolling so the
 table can manage overflow without pushing controls outside the window.
 
+Labels, table text and headers use an explicit light foreground for the game's
+dark panels. Do not rely on inherited text colors inside custom tab presenters
+or expanders; those containers can supply a black foreground. Shared entry,
+choice and checkbox controls use the same foreground.
+
 The window uses itself as its initial data context for native window-host commands.
 Its caller owns opening, closing, selection changes and gameplay actions.
 

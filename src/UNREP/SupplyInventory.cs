@@ -108,6 +108,15 @@ internal static class SupplyInventory
     internal static string Structure(Vessel ship) => string.Join("|", ship._obp._flightDeck?.FlightDeckTasks
         .Select(task => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(task).ToString()) ?? []);
 
+    internal static List<SupplyStock> Stacked(Vessel ship) => Read(ship)
+        .GroupBy(stock => new { stock.Key, stock.Category, stock.Name, stock.Unit, stock.CanChange })
+        .Select(group =>
+        {
+            var stock = SupplyStock.Stack(group.ToArray());
+            stock.Minimum = () => SupplyPolicy.For(ship).Minimum(stock.Key);
+            return stock;
+        }).ToList();
+
     private static void AddCategories(List<SupplyStock> stocks, Dictionary<string, int> current,
         Dictionary<string, int> capacities, string category, string location, Action refresh, Func<bool> usable)
     {
@@ -121,11 +130,11 @@ internal static class SupplyInventory
     [HarmonyPostfix, HarmonyPatch(typeof(Vessel), nameof(Vessel.SaveStateToFile))]
     private static void Save(Vessel __instance, IniHandler ini, string sectionName)
     {
+        SupplyPolicy.For(__instance).Save(ini, sectionName);
         if (Bins.TryGetValue(__instance, out var bins))
             foreach (var bin in bins)
             {
-                double cargo = SupplyTransfers.Jobs.Where(job => job.Source == __instance && job.Stock.Key == "unrep/" + bin.Key)
-                    .Sum(job => job.Airlift?.Cargo ?? 0);
+                double cargo = VertrepOperation.AirborneCargo(__instance, "unrep/" + bin.Key);
                 ini.writeValue(sectionName, "UNREP_" + bin.Key, (float)(bin.Amount + cargo));
             }
     }
@@ -133,6 +142,7 @@ internal static class SupplyInventory
     [HarmonyPostfix, HarmonyPatch(typeof(Vessel), nameof(Vessel.LoadStateFromFile))]
     private static void Load(Vessel __instance, IniHandler ini, string sectionName)
     {
+        SupplyPolicy.For(__instance).Load(ini, sectionName);
         foreach (var bin in Additional(__instance))
         {
             double amount = ini.readValue(sectionName, "UNREP_" + bin.Key, (float)bin.Amount);

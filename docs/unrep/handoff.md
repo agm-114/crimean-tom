@@ -4,6 +4,23 @@ Snapshot from 2026-09-12. Read [README.md](README.md) for the current feature
 contract and configuration, and the repository's `AGENTS.md` before working.
 This is context, not authorization to restart a later user's game session.
 
+Current working changes add stacked inventory rows, per-ship minimum reserves,
+and UNREP/VERTREP tabs enabled from Supplies. They are deployed and remain
+uncommitted. See README for the current workflow and
+[tab verification](verification-20260912.md) for the latest runtime checks.
+`SupplyPolicy.cs` owns switches, reserve floors and their save data;
+`TransferView.cs` owns UNREP and `VertrepView.cs` owns VERTREP. Save keys use unpadded Base64;
+padding broke INI parsing and reset minimums on reload in the first test build.
+VERTREP has Helicopters and Transfers subtabs. Helicopters manages the persistent
+aircraft pool; Transfers has a receiver queue with expandable supply plans, Use
+switches and supply ordering. Plans run to stock/capacity limits without requested
+totals. Helicopters take the first runnable receiver/supply on each pickup, keep
+their cargo when priorities change, and stay assigned when the queue is blocked.
+UNREP now lists compatible receiving ships. Each expandable ship has an ordered,
+enabled/disabled supply plan that runs to stock/capacity limits during one
+alongside visit. Ship UP/DOWN controls the next free station, and REQUEUE preserves
+the plan for a later visit. Both station slots remain supported.
+
 ## Starting point
 
 - Branch: `codex/operations-campaign-pivot`, remote `origin` on GitHub.
@@ -23,14 +40,20 @@ This is context, not authorization to restart a later user's game session.
 | --- | --- |
 | `Plugin.cs` | Load configuration, Harmony patches and persistent controller |
 | `SuppliesController.cs` | Selected ship, tab lifecycle and transfer updates |
-| `SuppliesView.cs` | Inventory filters/table and transfer controls |
+| `SuppliesView.cs` | Stacked inventory, minimum editor and method switches |
+| `TransferView.cs` | Expandable receiver list, ship queue and per-ship supply controls |
+| `VertrepView.cs` | Subtabs, helicopter management and assigned/flying/idle summary |
+| `VertrepTransfersView.cs` | Expandable receiver queue and per-ship supply controls |
+| `VertrepOperation.cs` | Receiver/supply priority, helicopter assignments and receiving-space reservations |
+| `SupplyPolicy.cs` | Per-ship method switches, reserve floors and save data |
 | `SupplyInventory.cs` | Native magazines, mounted weapons, aviation stores and aircraft rows |
 | `SupplyStock.cs` | UNREP-owned reserves and vessel save integration |
 | `SupplySettings.cs`, `supplies.ini` | Displacement-based stock/capacity and handling settings |
 | `SupplyLabels.cs` | Human-readable native magazine/location names |
-| `SupplyTransfers.cs` | Transfer jobs, compatibility, accounting and reservations |
+| `SupplyTransfers.cs` | Receiver plans, ordered supplies, queue priority, accounting and shared update/reset |
 | `ReplenishmentMovement.cs` | Movement leases, alongside stations, speed limits and collision clearance |
 | `HelicopterReplenishment.cs` | Pickup/delivery shuttle and cargo accounting |
+| `VertrepLanding.cs` | Compatible deck reservation and native approach, landing and takeoff states |
 | `HelicopterSpeedPatch.cs` | Narrow native flight-controller speed override for owned shuttles |
 
 `src/SeaPower.SharedUi/` is source compiled into each consumer, not another mod
@@ -72,17 +95,34 @@ These are gaps, not approved tasks:
 - Active jobs are not restored from saves. Finish/cancel and complete breakaway
   before saving. Otherwise native saves can retain temporary movement orders
   without the owning job. This needs design before claiming save/load support.
-- No automatic helicopter launch/recovery, visible sling, hoses or crane models.
+- VERTREP now lands at both ships for handling, reserves compatible native recovery
+  spots and takes off with the same aircraft. Initial launch and final hangar
+  recovery remain manual. No visible sling, hoses or crane models.
+- The native landing change builds without warnings and loads in the fleet
+  playground. A full landing/delivery cycle remains unverified. Approach,
+  HelicopterLanding and HelicopterTakeOff run through native game callbacks;
+  hangar taxiing, elevators and despawn are omitted for VERTREP assignments.
+- VERTREP cargo now transfers immediately at touchdown. Its native landing skips
+  rotor shutdown and its takeoff skips cold-start timing. Other recovery tasks
+  retain vanilla rotor behavior. `HandlingSeconds` is obsolete and ignored.
+- Departure now runs PreFlightAnim before HelicopterTakeOff and retains the deck
+  reservation through a native flight-control climb to 20 metres above deck.
+  The next transfer route is deferred until clearance. Build/startup checks do
+  not verify this full departure sequence in motion.
 - VERTREP transports food, water and spare parts only. Aircraft-specific lift
   certification and capacity are not modeled.
 - No safe-corridor route planning. Stationary suppliers do not start moving.
 - Native automatic replenishment operates separately.
-- Not live-tested: concurrent receivers, combat interruptions, loaded cancellation,
+- Not live-tested: combat interruptions,
   cargo loss, stationary suppliers, or active-job save/load.
 - An unrelated `EnhancedDecoyMod` field-type initialization failure appeared in
   the logs. Do not mistake it for an UNREP failure or alter that mod without scope.
 
 ## Verification evidence
+
+The latest [tab verification](verification-20260912.md) covers enabling/disabling
+tabs, ship switching, minimum enforcement, save/load and window recreation.
+The following checks describe the older transfer implementation and UI fix.
 
 There is no maintained automated test suite. Read `$sea-power-testing` before
 live checks. Do not substitute a successful build for a game check.
@@ -137,11 +177,21 @@ When launch or mission replacement is authorized:
 & $cli screenshot
 ```
 
-Use fresh `snapshot` and `id` fields for each click. In Supplies, select Food,
-choose Saipan, enter 500 and choose a method. VERTREP also selects CH-46.
-Useful control names: `SupplyInventory`, `SupplyTransferMode`,
-`SupplyTransferHelicopter`, `SupplyTransferTarget`, `SupplyTransferQuantity`,
-`StartSupplyTransfer`. `Options` is an array, so LINQ uses `Options.Length`.
+Use fresh `snapshot` and `id` fields for each click. In Supplies, enable a method
+and set the desired minimum. In UNREP, expand Saipan, enable and order its supplies,
+then QUEUE the ship. `scenarios/unrep-queue.ini` contains four receiving ships
+for queue priority and station checks.
+For VERTREP, use Transfers to expand/configure and QUEUE a receiver, then use
+Helicopters to select CH-46 and ASSIGN. The [receiver demo](scenarios/vertrep-receivers.ini)
+has two airborne CH-46s and two receivers. Useful control names: `SupplyInventory`,
+`SupplyMinimum`, `SetSupplyMinimum`, `EnableUnrep`, `EnableVertrep`,
+`UnrepReceiver`, `UnrepQueueShip`, `UnrepShipUp`, `UnrepShipDown`, `UnrepCancelShip`,
+`UnrepShipSupplies`, `UnrepSupplyUp`, `UnrepSupplyDown`, `UnrepEnableAll`, `UnrepDisableAll`,
+`VertrepTabs`, `VertrepSummary`, `VertrepReceiver`, `VertrepQueueShip`,
+`VertrepShipUp`, `VertrepShipDown`, `VertrepCancelShip`, `VertrepShipSupplies`,
+`VertrepSupplyUp`, `VertrepSupplyDown`, `VertrepEnableAll`, `VertrepDisableAll`,
+`VertrepAvailableHelicopters`, `AssignVertrepHelicopter`, `VertrepHelicopters`,
+`UnassignVertrepHelicopter`. `Options` is an array, so LINQ uses `Options.Length`.
 
 See [CLI README](../seapower-cli/README.md) for exit, encyclopedia, screenshots,
 details and time controls. Close agent-launched games after tests unless the user
