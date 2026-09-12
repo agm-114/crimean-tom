@@ -2,6 +2,8 @@
 
 Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
 Adds a Supplies tab to Unit Status for player-controlled surface ships.
+For development context, verified behavior and a runnable demo, see the
+[development handoff](handoff.md).
 The Supplies tab lists inventories with category/search filters, quantity,
 capacity and storage location. Select a transferable row and a receiving ship,
 enter a quantity or use MAX, then choose TRANSFER.
