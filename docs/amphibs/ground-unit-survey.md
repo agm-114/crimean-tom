@@ -80,4 +80,4 @@ created for them. A SAM system name alone is not enough to qualify a whole site.
 
 Before gameplay release, verify waterline and model collision geometry, shoreline
 movement, preparation requirements, weapon operation afloat and save/load behavior.
-Only then wire eligible profiles into Wet Deck launch/recovery.
+Only then wire eligible profiles into Boat Ops launch/recovery.

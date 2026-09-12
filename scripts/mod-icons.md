@@ -6,7 +6,7 @@ Run in PowerShell 7 on Windows:
 ./scripts/create-mod-icons.ps1
 ./scripts/create-mod-icons.ps1 -Mod deck-tweaks
 ./scripts/create-mod-icons.ps1 -Mod quickload -Size 512
-./scripts/create-mod-icons.ps1 -Mod wet-deck
+./scripts/create-mod-icons.ps1 -Mod boat-ops
 ./scripts/create-mod-icons.ps1 -Mod amphibs
 ./scripts/create-mod-icons.ps1 -Mod unrep
 ```
@@ -15,7 +15,7 @@ Default output is five 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
 
 - `deck-tweaks.jpg`
 - `quickload.jpg`
-- `wet-deck.jpg`
+- `boat-ops.jpg`
 - `amphibs.jpg`
 - `unrep.jpg`
 

@@ -1,9 +1,9 @@
 # Repository guidance
 
-Module documentation lives in `docs/crimean-tom/`, `docs/flight-deck-tweaks/`
+Module documentation lives in `docs/crimean-tom/`, `docs/deck-tweaks/`
 and `docs/seapower-cli/`. Loading profiler documentation is in `docs/loading-profiler/`.
-Startup optimization documentation is in `docs/startup-tweaks/`.
-Wet-deck controls documentation is in `docs/wet-deck-controls/`.
+Startup optimization documentation is in `docs/quickload/`.
+Wet-deck controls documentation is in `docs/boat-ops/`.
 Amphibious vehicle documentation is in `docs/amphibs/`.
 UNREP documentation is in `docs/unrep/`.
 Read the relevant module's README. The campaign integration rules below apply to

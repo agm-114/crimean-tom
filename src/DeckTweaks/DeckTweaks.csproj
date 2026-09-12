@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
+    <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\DeckTweaks</PluginDeployDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AnchorChain">
+      <HintPath>$(AnchorChainDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(SeaPowerDir)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Seapower-Scripts">
+      <HintPath>$(GameManaged)\Seapower-Scripts.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Noesis.NoesisGUI">
+      <HintPath>$(GameManaged)\Noesis.NoesisGUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UniRx">
+      <HintPath>$(GameManaged)\UniRx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="EnsureAnchorChainReference" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AnchorChainDll)')"
+           Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
+  </Target>
+
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\migrate-mod-deployment.ps1&quot; -Mod DeckTweaks -GameDirectory &quot;$(SeaPowerDir)&quot;" />
+    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')"
+           Text="Sea Power was not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
+    <MakeDir Directories="$(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
+          Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\rearm-times.ini" DestinationFolder="$(PluginDeployDirectory)"
+          Condition="!Exists('$(PluginDeployDirectory)\rearm-times.ini')" />
+    <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />
+  </Target>
+</Project>

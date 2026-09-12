@@ -29,7 +29,7 @@ steering remains active, and flooding, capsizing and hydrodynamic thrust are not
 simulated. Pausing freezes the smoothed pose. Shoreline transitions, save/load and
 combat need further checks. `WaterRole`, dimensions other than length, mass and
 propulsion are reference data; no sea-state restriction is enforced yet.
-Wet Deck can carry and launch the amphibious AAV7 through its ground-unit loader.
+Boat Ops can carry and launch the amphibious AAV7 through its ground-unit loader.
 Its default Tarawa complement includes four AAV7s, each occupying 2 SUs.
 
 ## Live water-effect tuning

@@ -49,7 +49,7 @@ Live survey completed on 2026-09-11 using the Tarawa smoke scenario, the editor
 and the Tarawa encyclopedia entry. No editor changes or standing orders were saved.
 
 - Unit Status: Engagement lanes and mount summaries, Flight Deck selectors and
-  capacity controls, Well Deck, Damage Control compartment/team controls, Sensors
+  capacity controls, Boat Ops, Damage Control compartment/team controls, Sensors
   with SPS-52 selected, and Supplies. Supplies displayed its placeholder through
   `UnitStatusPage` after moving between a mission and the encyclopedia.
 - Editor: Scenario, Groups, Triggers, Background Data, AI Behavior, Air Operations,
@@ -72,6 +72,6 @@ and every editor condition permutation were not exercised. Their game models and
 specialized rendering remain native. New helper methods are compile-checked;
 the gallery does not yet exercise every helper or mouse gesture.
 
-Final compile checks passed for GameBridge, CLI, UNREP, Well Deck and Amphibs,
+Final compile checks passed for GameBridge, CLI, UNREP, Boat Ops and Amphibs,
 with zero warnings and errors. The final helper additions were compile-only;
 the running build verified the earlier gallery and tab attachment implementation.

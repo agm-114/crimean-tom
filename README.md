@@ -5,11 +5,11 @@ This repository contains independent Sea Power mods. Each module owns its DLL an
 | Module | Source | Documentation |
 |---|---|---|
 | Crimean Tom | [CrimeanTom.SeaPower](src/CrimeanTom.SeaPower) | [Campaign and scenario generation](docs/crimean-tom/README.md) |
-| Deck Tweaks | [FlightDeckTweaks](src/FlightDeckTweaks) | [Aircraft preparation](docs/flight-deck-tweaks/README.md) |
+| Deck Tweaks | [DeckTweaks](src/DeckTweaks) | [Aircraft preparation](docs/deck-tweaks/README.md) |
 | UNREP | [UNREP](src/UNREP) | [Supplies tab](docs/unrep/README.md) |
 | Sea Power CLI | [Game bridge](src/SeaPower.GameBridge), [CLI](src/SeaPower.Cli) | [UI and simulator inspection](docs/seapower-cli/README.md) |
 | Loading Profiler | [Profiler](src/SeaPower.LoadingProfiler), [bootstrap](src/SeaPower.LoadingProfiler.Bootstrap) | [Startup and scenario timings](docs/loading-profiler/README.md) |
-| Quickload | [SeaPower.StartupTweaks](src/SeaPower.StartupTweaks) | [Deferred startup loading](docs/startup-tweaks/README.md) |
+| Quickload | [Quickload](src/Quickload) | [Deferred startup loading](docs/quickload/README.md) |
 
 Read [AGENTS.md](AGENTS.md) and the relevant module's docs before changing it. Campaign design and refactoring suggestions do not apply to Deck Tweaks.
 
