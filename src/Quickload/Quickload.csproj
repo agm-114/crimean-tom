@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.1.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
+    <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
+    <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
+    <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GameManaged)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.AudioModule" HintPath="$(GameManaged)\UnityEngine.AudioModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AssetBundleModule" HintPath="$(GameManaged)\UnityEngine.AssetBundleModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="EnsureAnchorChainReference" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AnchorChainDll)')"
+           Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
+  </Target>
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\migrate-mod-deployment.ps1&quot; -Mod Quickload -GameDirectory &quot;$(SeaPowerDir)&quot;" />
+    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
+    <ItemGroup>
+      <!-- Layouts this mod shipped under before; a leftover copy loads the game a second time. -->
+      <_LegacyDeployment Include="$(SeaPowerDir)\BepInEx\plugins\SeaPower.StartupTweaks" />
+      <_LegacyDeployment Include="$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerStartupTweaks" />
+    </ItemGroup>
+    <RemoveDir Directories="@(_LegacyDeployment)" />
+    <Delete Files="$(SeaPowerDir)\BepInEx\config\crimean-tom.startup-tweaks.cfg" />
+    <MakeDir Directories="$(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
+          Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Deployed Quickload to $(PluginDeployDirectory)" />
+  </Target>
+</Project>

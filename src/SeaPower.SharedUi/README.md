@@ -1,7 +1,7 @@
 # Shared UI source
 
 This module compiles into each consuming mod. It produces no DLL and needs no
-AnchorChain plugin or deployment step. Well Deck, Amphibs, UNREP and the CLI's
+AnchorChain plugin or deployment step. Boat Ops, Amphibs, UNREP and the CLI's
 development gallery consume it.
 
 Import it once in a mod's project:
