@@ -2,8 +2,12 @@
   <Folder Name="/Shared UI/">
     <File Path="src/SeaPower.SharedUi/SeaPower.SharedUi.props" />
     <File Path="src/SeaPower.SharedUi/NativeUi.cs" />
+    <File Path="src/SeaPower.SharedUi/NativeForms.cs" />
+    <File Path="src/SeaPower.SharedUi/NativeLayout.cs" />
+    <File Path="src/SeaPower.SharedUi/UnitStatusPage.cs" />
     <File Path="src/SeaPower.SharedUi/ToolbarToggle.cs" />
     <File Path="src/SeaPower.SharedUi/README.md" />
+    <File Path="src/SeaPower.SharedUi/catalogue.md" />
   </Folder>
   <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
   <Project Path="src/FlightDeckTweaks/FlightDeckTweaks.csproj" />

@@ -1,7 +1,8 @@
 # Shared UI source
 
 This module compiles into each consuming mod. It produces no DLL and needs no
-AnchorChain plugin or deployment step. Wet Deck and Amphibs consume it.
+AnchorChain plugin or deployment step. Well Deck, Amphibs, UNREP and the CLI's
+development gallery consume it.
 
 Import it once in a mod's project:
 
@@ -39,6 +40,40 @@ handling stack, grid-column and margin-positioned toolbars. Its owner attaches
 gameplay callbacks to `Button` and calls `Dispose` when the host changes to remove
 the inserted slot and restore the native layout. It does not own selection or
 window lifecycle.
+
+## Forms and layouts
+
+`Choice<T>` keeps typed values on dropdown items, supports option tooltips, and
+populates the initial selection before subscribing to changes. `Entry` supports
+single-line and multiline input. `Number` accepts finite values within bounds;
+invalid partial edits stay visible until focus leaves, then restore the last valid
+value. `Range` and `SliderField` provide a slider with its label and current value.
+`Check`, `TriState`, `Radio` and `Toggle` keep native styling. Give radio groups
+unique names for each independent view.
+
+`FormRow`, `Stack`, `Wrap`, `Columns`, `Card`, `Section`, `Tabs` and `Split` compose
+layouts. `Split` uses a native draggable splitter. `Tree`/`Branch`, `List` and
+`CollectionEditor` handle browsable collections. Callers own add/remove callbacks.
+`SearchBar` combines an entry with filters. `BrowseField` pairs a path entry with
+a browse action; it does not read files or choose a dialog policy. `Stepper`
+positions decrement/value/increment controls; callers set their limits and state.
+
+`CheckColumn` binds an editable boolean and `ProgressColumn` displays a percentage.
+`Picture` accepts an existing image source. `Menu` and `MenuAction` build a native
+context menu. `WithTooltip` wraps long tooltip text. `Bind` uses an explicit source
+so helper bindings do not depend on an inherited data context.
+
+## Unit Status tabs
+
+Keep one `UnitStatusPage` instance per mod controller. Use a unique numeric tab ID,
+call `Refresh` with the current host, view model and availability, and set `Content`
+after the tab exists. Dispose it when the controller is destroyed. The helper
+handles selection, replacement hosts and presenter cleanup without global class
+handlers. UNREP's `SuppliesController` is a complete caller example.
+
+The [control catalogue](catalogue.md) records the inspected screens and the limits
+of the survey. Run `seapower-cli ui-gallery --confirm` in a mission or encyclopedia
+to inspect sample controls. Gallery actions change sample values, not gameplay.
 
 All helper types stay internal and use native controls. Do not add globally named
 Noesis types, application resource registrations, Harmony patches or shared mutable

@@ -5,7 +5,7 @@ using Noesis;
 namespace SeaPower.SharedUi;
 
 // Compiled into each consuming mod, never distributed as a separate assembly.
-internal static class NativeUi
+internal static partial class NativeUi
 {
     internal static TextBlock Text(string text) => new()
     {
@@ -32,6 +32,7 @@ internal static class NativeUi
     internal static Grid CapacityMeters(FrameworkElement action,
         params (string Label, ProgressBar Bar, TextBlock Value)[] meters)
     {
+        if (meters.Length < 2) throw new ArgumentException("An action needs at least two meter rows.", nameof(meters));
         var grid = new Grid();
         foreach (var width in new[] { GridLength.Auto, new GridLength(10), new GridLength(1, GridUnitType.Star), new GridLength(10), GridLength.Auto })
             grid.ColumnDefinitions.Add(new() { Width = width });
@@ -78,6 +79,12 @@ internal static class NativeUi
 
     internal static GridViewColumn ContentColumn(string header, string property, float width) =>
         Column(header, width, $"<ContentControl Content=\"{{Binding {SecurityElement.Escape(property)}}}\" HorizontalAlignment=\"Left\"/>");
+
+    internal static GridViewColumn CheckColumn(string header, string property, float width) =>
+        Column(header, width, $"<CheckBox IsChecked=\"{{Binding {SecurityElement.Escape(property)}, Mode=TwoWay}}\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>");
+
+    internal static GridViewColumn ProgressColumn(string header, string property, float width) =>
+        Column(header, width, $"<ProgressBar Value=\"{{Binding {SecurityElement.Escape(property)}}}\" Maximum=\"100\" Height=\"14\" Margin=\"4,2\" VerticalAlignment=\"Center\"/>");
 
     internal static ListView Table(string name, params GridViewColumn[] columns)
     {
