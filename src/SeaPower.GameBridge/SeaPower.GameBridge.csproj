@@ -29,4 +29,5 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
   </Target>
+  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
 </Project>

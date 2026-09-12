@@ -14,6 +14,7 @@ internal record GameRequest(string Action)
     public string Text { get; init; } = "";
     public bool Confirm { get; init; }
     public float Speed { get; init; } = 1;
+    public float Value { get; init; }
 }
 
 // Only fields used by the CLI are decoded; output retains the complete game reply.
@@ -41,7 +42,8 @@ internal record TimeStatus(bool Available, bool Blocked, bool Paused, float Spee
 
 internal static class WireJson
 {
-    internal static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    internal static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true, MaxDepth = 256 };
+    internal static readonly JsonDocumentOptions DocumentOptions = new() { MaxDepth = 256 };
     internal static GameReply Read(JsonElement reply) => reply.Deserialize<GameReply>(Options)
         ?? throw new InvalidDataException("Empty bridge reply.");
 }

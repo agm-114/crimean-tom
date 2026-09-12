@@ -31,7 +31,7 @@ internal static class SnapshotData
     {
         if (Path.GetExtension(path).ToLowerInvariant() is ".yaml" or ".yml")
             text = Json.Serialize(YamlReader.Deserialize<object>(text));
-        using JsonDocument document = JsonDocument.Parse(text);
+        using JsonDocument document = JsonDocument.Parse(text, WireJson.DocumentOptions);
         return document.RootElement.Clone();
     }
 

@@ -78,6 +78,9 @@ seapower-cli select --snapshot TOKEN --id 20 --index 1
 seapower-cli expand --snapshot TOKEN --id 25
 seapower-cli open --snapshot TOKEN --id 30
 seapower-cli set-text --snapshot TOKEN --id 35 --text "Example"
+seapower-cli set-value --snapshot TOKEN --id 36 --value 50
+seapower-cli collapse --snapshot TOKEN --id 25
+seapower-cli ui-gallery --confirm
 seapower-cli wait-for --text "Flight Deck" --timeout 30
 seapower-cli wait-sim --seconds 60 --timeout 120
 ```
@@ -106,6 +109,14 @@ or a pending `wait-for` can invalidate previously returned IDs.
 Dropdown indexes are zero-based. `select` without an index selects a tree item.
 `expand` opens a tree item; `open` opens a dropdown. Buttons execute their native
 command or click event, while selections and text changes use control bindings.
+
+`select` also supports tab controls by index and individual tab items without an
+index. `expand` and `collapse` support expanders and tree items. `set-value` changes
+a slider within its native bounds while preserving its binding.
+
+`ui-gallery --confirm` opens the shared UI sample window in a mission or the
+encyclopedia. It refuses the main menu, which uses different window styles. Sample
+callbacks do not change the scenario. Close the gallery using its native X button.
 
 Buttons whose name or label includes save, load, play, launch, quit, exit, start
 or delete require `--confirm`. This bridge-side check is a precaution, not a
