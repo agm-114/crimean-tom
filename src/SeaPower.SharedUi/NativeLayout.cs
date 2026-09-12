@@ -178,11 +178,11 @@ internal static partial class NativeUi
         Source = source, Height = height, Stretch = Stretch.Uniform,
     };
 
-    internal static T? Find<T>(DependencyObject root) where T : FrameworkElement
+    internal static T? Find<T>(DependencyObject root, Func<T, bool>? predicate = null) where T : FrameworkElement
     {
-        if (root is T match) return match;
+        if (root is T match && (predicate == null || predicate(match))) return match;
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            if (Find<T>(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+            if (Find(VisualTreeHelper.GetChild(root, i), predicate) is { } found) return found;
         return null;
     }
 }
