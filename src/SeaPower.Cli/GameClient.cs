@@ -149,7 +149,7 @@ internal class GameClient
                 await CheckSessionAsync(token);
                 await Task.Delay(100, token);
             }
-            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(response, token));
+            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(response, token), WireJson.DocumentOptions);
             JsonElement result = document.RootElement.Clone();
             if (result.TryGetProperty("error", out JsonElement error)) throw new InvalidOperationException(error.GetString());
             return result;

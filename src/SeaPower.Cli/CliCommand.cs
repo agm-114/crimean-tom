@@ -15,6 +15,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
 
         seapower-cli inspect
         seapower-cli screenshot
+        seapower-cli ui-gallery --confirm
+        seapower-cli set-value --snapshot TOKEN --id ID --value 50
         seapower-cli details --snapshot TOKEN --id ID [--depth 8]
         seapower-cli update
         seapower-cli units
@@ -106,9 +108,11 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "menu" => ["--page", "--confirm"],
             "encyclopedia" => ["--unit", "--variant", "--confirm"],
             "click" => ["--snapshot", "--id", "--confirm"],
+            "ui-gallery" => ["--confirm"],
+            "set-value" => ["--snapshot", "--id", "--value"],
             "details" => ["--snapshot", "--id", "--depth"],
             "select" => ["--snapshot", "--id", "--index"],
-            "expand" or "open" => ["--snapshot", "--id"],
+            "expand" or "collapse" or "open" => ["--snapshot", "--id"],
             "set-text" => ["--snapshot", "--id", "--text"],
             "wait-for" => ["--text"],
             "query" => ["--input"],
@@ -176,7 +180,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException($"{action} requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
-        bool controlAction = action is "click" or "select" or "expand" or "open" or "set-text" or "details";
+        bool controlAction = action is "click" or "select" or "expand" or "collapse" or "open" or "set-text" or "set-value" or "details";
         string snapshot = controlAction ? Required("--snapshot") : "";
         if (controlAction) Required("--id");
         string text = action switch
@@ -186,6 +190,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
         float speed = 1;
+        float controlValue = 0;
+        if (action == "set-value" && (!float.TryParse(Required("--value"), NumberStyles.Float, CultureInfo.InvariantCulture, out controlValue)
+            || !float.IsFinite(controlValue))) throw new ArgumentException("Value must be finite.");
         if (action == "set-speed" && (!float.TryParse(Required("--speed"), NumberStyles.Float, CultureInfo.InvariantCulture, out speed)
             || !new float[] { 0.1f, 0.2f, 0.5f, 1, 2, 3, 5, 10, 20, 30, 50, 100 }.Contains(speed)))
             throw new ArgumentException("Speed must be a native step between 0.1 and 100.");
@@ -194,7 +201,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Snapshot = snapshot, Id = Number("--id", 0, 1, int.MaxValue),
             Depth = Number("--depth", 8, 0, 32),
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
-            Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed,
+            Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,

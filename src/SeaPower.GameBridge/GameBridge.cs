@@ -93,4 +93,5 @@ internal class GameCommand
     public string Text { get; set; } = "";
     public bool Confirm { get; set; }
     public float Speed { get; set; } = 1;
+    public float Value { get; set; }
 }

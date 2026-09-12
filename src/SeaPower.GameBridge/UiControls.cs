@@ -35,6 +35,7 @@ internal class UiControls
             };
         }
         if (command.Action == "status") return new { time = TimeControls.Read() };
+        if (command.Action == "ui-gallery") { snapshot = ""; return UiGallery.Open(command); }
         if (command.Action == "inspect") return Inspect();
         if (command.Action == "units") return UnitSnapshot.Read();
         if (command.Action is "pause" or "resume" or "set-speed")
@@ -87,8 +88,24 @@ internal class UiControls
             case "select" when element is TreeViewItem item:
                 item.IsSelected = true;
                 break;
+            case "select" when element is TabItem item:
+                item.SetCurrentValue(TabItem.IsSelectedProperty, true);
+                break;
             case "expand" when element is TreeViewItem item:
                 item.IsExpanded = true;
+                break;
+            case "collapse" when element is TreeViewItem item:
+                item.IsExpanded = false;
+                break;
+            case "expand" or "collapse" when element is Expander expander:
+                expander.SetCurrentValue(Expander.IsExpandedProperty, command.Action == "expand");
+                expander.GetBindingExpression(Expander.IsExpandedProperty)?.UpdateSource();
+                break;
+            case "set-value" when element is Slider range:
+                if (float.IsNaN(command.Value) || float.IsInfinity(command.Value) || command.Value < range.Minimum || command.Value > range.Maximum)
+                    throw new ArgumentOutOfRangeException(nameof(command.Value), "Value is outside the slider range.");
+                range.SetCurrentValue(Slider.ValueProperty, command.Value);
+                range.GetBindingExpression(Slider.ValueProperty)?.UpdateSource();
                 break;
             case "open" when element is ComboBox combo:
                 combo.IsDropDownOpen = true;
