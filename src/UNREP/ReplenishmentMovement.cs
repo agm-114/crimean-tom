@@ -19,8 +19,12 @@ internal class MovementLease(ObjectBase unit)
     private float leadNm;
     private float demand;
     private bool hasSpeed;
+    private bool nativeOrders;
     internal static float? Demand(ObjectBase unit) => Active.TryGetValue(unit, out var lease) && lease.Owned && lease.hasSpeed ? lease.demand : null;
-    internal bool Owned => unit != null && !unit.IsDestroyed && waypoint != null && ReferenceEquals(unit.GetLastWaypoint(), waypoint);
+    internal bool Owned => unit != null && !unit.IsDestroyed && waypoint != null
+        && (ReferenceEquals(unit.GetLastWaypoint(), waypoint) || nativeOrders && unit.GetNumberOfWaypoints() == 0);
+    internal void ReleaseSpeed() => hasSpeed = false;
+    internal void TrackNativeOrders() { waypoint = unit.GetLastWaypoint(); nativeOrders = true; }
     private Vector3 Deviation => Owned ? unit.GetLastWaypoint().WaypointPosition.ToUnity()
         - anchor!.transform.forward * (leadNm * 27.559496f) - unit.Position.Value.ToUnity() : Vector3.zero;
     internal float Distance => Owned ? Deviation.magnitude / 27.559496f : float.MaxValue;
@@ -29,6 +33,7 @@ internal class MovementLease(ObjectBase unit)
     internal void Follow(ObjectBase anchor, float lateralNm, float asternNm, string name, float height = 0, float leadNm = 0)
     {
         this.anchor = anchor;
+        nativeOrders = false;
         this.leadNm = leadNm;
         Active[unit] = this;
         unit.Formation?.MakeUnitActIndependently(unit);

@@ -19,7 +19,6 @@ internal static class SupplySettings
     internal static double HeadingTolerance { get; private set; }
     internal static double RelativeSpeedTolerance { get; private set; }
     internal static double SlingCapacityKg { get; private set; }
-    internal static double SlingHandlingSeconds { get; private set; }
     internal static double HoverToleranceNm { get; private set; }
 
     internal static void Load()
@@ -39,7 +38,6 @@ internal static class SupplySettings
         HeadingTolerance = Read("Transfer", "HeadingToleranceDegrees", 10, 1, 30);
         RelativeSpeedTolerance = Read("Transfer", "RelativeSpeedToleranceKnots", 1, 0.1, 3);
         SlingCapacityKg = Read("Helicopter", "SlingCapacityKg", 500, 1, 10000);
-        SlingHandlingSeconds = Read("Helicopter", "HandlingSeconds", 30, 1, 600);
         HoverToleranceNm = Read("Helicopter", "HoverToleranceNm", 0.05, 0.01, 0.1);
         foreach (string section in ini.getNamesOfAllSections().Where(section => section != "Transfer"))
         foreach (string stock in new[] { "Fuel", "Food", "Water", "SpareParts" })

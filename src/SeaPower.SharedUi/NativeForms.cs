@@ -33,7 +33,7 @@ internal static partial class NativeUi
 
     internal static CheckBox Check(string label, bool value, Action<bool>? changed = null)
     {
-        var box = new CheckBox { Content = label, IsChecked = value, VerticalContentAlignment = VerticalAlignment.Center };
+        var box = new CheckBox { Content = label, Foreground = TextBrush, IsChecked = value, VerticalContentAlignment = VerticalAlignment.Center };
         box.Checked += (_, _) => changed?.Invoke(true);
         box.Unchecked += (_, _) => changed?.Invoke(false);
         return box;
@@ -58,7 +58,7 @@ internal static partial class NativeUi
     internal static ComboBox Choice<T>(IEnumerable<T> values, Func<T, string> label,
         int selected = 0, Action<T>? changed = null, Func<T, string>? tooltip = null)
     {
-        var box = new ComboBox { MinHeight = 30, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var box = new ComboBox { Foreground = TextBrush, MinHeight = 30, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         foreach (var value in values)
             box.Items.Add(new ComboBoxItem { Content = label(value), Tag = value, ToolTip = tooltip?.Invoke(value) });
         if (selected < -1 || selected >= Math.Max(1, box.Items.Count))
@@ -75,7 +75,7 @@ internal static partial class NativeUi
     {
         var box = new TextBox
         {
-            Text = text, MinHeight = 30, AcceptsReturn = multiline,
+            Text = text, Foreground = TextBrush, MinHeight = 30, AcceptsReturn = multiline,
             TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
             VerticalContentAlignment = multiline ? VerticalAlignment.Top : VerticalAlignment.Center,
         };

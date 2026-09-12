@@ -7,9 +7,13 @@ namespace SeaPower.SharedUi;
 // Compiled into each consuming mod, never distributed as a separate assembly.
 internal static partial class NativeUi
 {
+    // These controls also live inside expanders and custom tab presenters, where
+    // inherited text color can fall back to black despite the game's dark theme.
+    private const string TextColor = "#D0D2D6";
+    internal static Brush TextBrush { get; } = new SolidColorBrush(Color.FromRgb(208, 210, 214));
     internal static TextBlock Text(string text) => new()
     {
-        Text = text, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+        Text = text, Foreground = TextBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -75,7 +79,7 @@ internal static partial class NativeUi
     }
 
     internal static GridViewColumn TextColumn(string header, string property, float width) =>
-        Column(header, width, $"<TextBlock Text=\"{{Binding {SecurityElement.Escape(property)}}}\" Margin=\"4,2\" VerticalAlignment=\"Center\"/>");
+        Column(header, width, $"<TextBlock Text=\"{{Binding {SecurityElement.Escape(property)}}}\" Foreground=\"{TextColor}\" Margin=\"4,2\" VerticalAlignment=\"Center\"/>");
 
     internal static GridViewColumn ContentColumn(string header, string property, float width) =>
         Column(header, width, $"<ContentControl Content=\"{{Binding {SecurityElement.Escape(property)}}}\" HorizontalAlignment=\"Left\"/>");
@@ -119,7 +123,7 @@ internal static partial class NativeUi
 
     private static GridViewColumn Column(string header, float width, string template) => new()
     {
-        Header = header, Width = width,
+        Header = Text(header), Width = width,
         CellTemplate = (DataTemplate)GUI.ParseXaml(
             $"<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">{template}</DataTemplate>"),
     };

@@ -1,82 +1,168 @@
+using System.ComponentModel;
 using SeaPower;
 
 namespace UNREP;
 
-// Real airborne helicopter, finite sling load, pickup and delivery at the ships.
-internal class HelicopterReplenishment(SupplyTransfer job, Helicopter helicopter)
+// One aircraft assignment survives repeated deck landings and planned transfers.
+internal class HelicopterReplenishment(VertrepOperation operation, Helicopter helicopter) : INotifyPropertyChanged
 {
     internal Helicopter Aircraft { get; } = helicopter;
+    internal VertrepTransfer? Transfer { get; private set; }
     internal double Cargo { get; private set; }
     internal bool Released { get; private set; }
-    internal string State { get; private set; } = "Flying to pickup";
+    internal bool InTransit { get; private set; }
+    internal bool Waiting { get; private set; }
     private MovementLease? flight;
+    private VertrepLanding? landing;
+    private Vessel? nextShip;
+    private bool leaving;
     private bool delivering;
-    private double handling;
+    private bool ending;
+    private bool returning;
+    private double delivered;
+    private string outcome = "Released";
+    public string Name => Aircraft.getName();
+    public string Supply => Transfer?.Item ?? "";
+    public string Receiver => Transfer?.Receiver ?? "";
+    public string Load => $"{Cargo:N0} kg";
+    public string Delivered => $"{delivered:N0} kg";
+    public string Status { get; private set; } = "Assigned";
+    public event PropertyChangedEventHandler? PropertyChanged;
+    internal void Refresh() => PropertyChanged?.Invoke(this, new(""));
+    internal void Cancel() => ending = true;
 
-    internal double Update(double seconds, bool ending, double remaining)
+    internal void Update(double seconds)
     {
-        if (Released) return 0;
+        InTransit = Waiting = false;
+        if (Released) return;
         if (Aircraft == null || Aircraft.IsDestroyed)
-        { Cargo = 0; Released = true; State = "Helicopter lost"; return 0; }
-        bool lowFuel = Aircraft._obp._currentFuelMass < Aircraft._obp._maxFuel * 0.2f;
-        ending |= lowFuel;
-        if (lowFuel && Cargo == 0) { Release(); State = "Low fuel: helicopter released"; return 0; }
-        if (flight == null)
         {
-            flight = new(Aircraft);
-            FlyTo(job.Source);
+            Cargo = 0;
+            Transfer = null;
+            Release();
+            Status = "Helicopter lost";
+            return;
+        }
+        if (Aircraft._obp._currentFuelMass < Aircraft._obp._maxFuel * 0.2f)
+        { ending = true; outcome = "Low fuel: released"; }
+        if (flight == null) { flight = new(Aircraft); FlyTo(operation.Source); }
+        if (leaving)
+        {
+            landing!.Update(seconds);
+            if (Aircraft == null || Aircraft.IsDestroyed) { Cargo = 0; Transfer = null; Release(); Status = "Helicopter lost"; return; }
+            InTransit = true;
+            Status = landing.Status;
+            if (!landing.Departed) return;
+            landing.Dispose();
+            landing = null;
+            leaving = false;
+            if (ending && Cargo == 0) { Release(); return; }
+            FlyTo(nextShip ?? operation.Source);
+            return;
         }
         if (!flight.Owned)
         {
-            // Do not erase player orders or a native emergency/return-to-base order.
-            Refund(); flight.Restore(); Released = true; State = "Helicopter order replaced; cargo returned"; return 0;
+            ending = true;
+            outcome = "Flight orders replaced";
+            Refund();
+            FinishOrTakeOff();
+            return;
         }
-        if (ending && delivering) { delivering = false; handling = 0; FlyTo(job.Source); }
-        if (ending && Cargo == 0) { Release(); return 0; }
-        Vessel ship = delivering ? job.Target : job.Source;
-        float gap = flight.Distance;
-        float stationSpeed = Math.Max(0, ship._velocityInKnots);
-        flight.Speed(gap < SupplySettings.HoverToleranceNm ? stationSpeed : Math.Min(70, stationSpeed + gap * 60));
-        if (gap > SupplySettings.HoverToleranceNm || Math.Abs(Aircraft._velocityInKnots - ship._velocityInKnots) > 3)
-        { handling = 0; State = delivering ? "Flying to delivery" : ending ? "Returning cargo" : "Flying to pickup"; return 0; }
-        if (!ship.SupplyAllowed.Value) { State = "Supply disabled in standing orders"; return 0; }
-        handling += seconds;
-        State = delivering ? "Unloading sling load" : "Loading sling load";
-        if (handling < SupplySettings.SlingHandlingSeconds) return 0;
-        handling = 0;
+        if (ending && Cargo == 0) { FinishOrTakeOff(); return; }
+        if (Cargo > 0 && (ending || Transfer!.Cancelled || !SupplyTransfers.Available(Transfer.Target)
+            || Transfer.Target._taskforce != operation.Source._taskforce) && !returning)
+        {
+            returning = true;
+            delivering = false;
+            FlyTo(operation.Source);
+            if (leaving) return;
+        }
+        Vessel ship = delivering ? Transfer!.Target : operation.Source;
+        landing!.Update(seconds);
+        if (!landing.Landed)
+        {
+            InTransit = !landing.Status.StartsWith("Waiting", StringComparison.Ordinal);
+            Waiting = !InTransit;
+            Status = landing.Status + (delivering ? " at receiver" : " at supplier");
+            return;
+        }
+        if (!ship.SupplyAllowed.Value) { Status = "Supply disabled"; return; }
+        if (!delivering && !returning)
+        {
+            var next = operation.NextTransfer(Aircraft);
+            Transfer = next;
+            if (Transfer == null) { Waiting = true; Status = operation.WaitingStatus; return; }
+        }
+        if (seconds <= 0) return;
+        Status = returning ? "Returning cargo" : delivering ? "Unloading" : "Loading";
+        if (returning)
+        {
+            Refund();
+            returning = false;
+            if (ending) FinishOrTakeOff();
+            return;
+        }
         if (!delivering)
         {
-            if (ending) { Refund(); Release(); return 0; }
-            if (!job.Stock.Transferable) { Release(); State = "Source storage unavailable"; return 0; }
-            double space = SupplyInventory.Read(job.Target).Where(stock => stock.Key == job.Stock.Key && stock.Transferable).Sum(stock => stock.Free);
-            Cargo = Math.Min(Math.Min(remaining, SupplySettings.SlingCapacityKg), Math.Min(job.Stock.Current, space));
-            if (Cargo <= 0) { Release(); State = "No cargo or receiving capacity"; return 0; }
-            job.Stock.Change(-Cargo);
+            Cargo = Math.Min(SupplySettings.SlingCapacityKg, Transfer!.Available);
+            Transfer.Stock.Change(-Cargo);
             delivering = true;
-            FlyTo(job.Target);
-            return 0;
+            FlyTo(Transfer.Target);
+            return;
         }
-        double delivered = 0;
-        foreach (var destination in SupplyInventory.Read(job.Target).Where(stock => stock.Key == job.Stock.Key && stock.Transferable))
+        foreach (var destination in SupplyInventory.Read(Transfer!.Target)
+            .Where(stock => stock.Key == Transfer.Stock.Key && stock.Transferable))
         {
             double part = Math.Min(Cargo, destination.Free);
             if (part <= 0) continue;
             destination.Change(part);
             Cargo -= part;
+            Transfer.Delivered += part;
             delivered += part;
         }
-        if (Cargo > 0) { State = "Holding cargo: destination full"; return delivered; }
+        if (Cargo > 0) { Status = "Holding: receiver full"; return; }
+        Transfer = null;
         delivering = false;
-        FlyTo(job.Source);
-        return delivered;
+        FlyTo(operation.Source);
+        Status = "Returning to supplier";
     }
-
-    private void FlyTo(Vessel ship) => flight!.Follow(ship, 0, 0, "UNREP helicopter station", height: 1.5f, leadNm: 0.025f);
+    private void FlyTo(Vessel ship)
+    {
+        if (landing?.ControlsPose == true)
+        {
+            nextShip = ship;
+            landing.TakeOff();
+            leaving = true;
+            return;
+        }
+        landing?.Dispose();
+        flight!.Follow(ship, 0, 0, "VERTREP waiting station", height: 1.5f, leadNm: 0.025f);
+        landing = new(Aircraft, ship, flight);
+    }
+    private void FinishOrTakeOff()
+    {
+        if (landing?.ControlsPose == true)
+        {
+            nextShip = null;
+            landing.TakeOff();
+            leaving = true;
+            Status = "Taking off";
+        }
+        else Release();
+    }
     private void Refund()
     {
-        // Cargo belongs to the source inventory until delivered. Preserve it on abort.
-        if (job.Source != null && !job.Source.IsDestroyed && Cargo > 0) job.Stock.Change(Cargo);
+        if (operation.Source != null && !operation.Source.IsDestroyed && Cargo > 0) Transfer!.Stock.Change(Cargo);
         Cargo = 0;
+        Transfer = null;
     }
-    internal void Release() { Refund(); flight?.Restore(); Released = true; }
+    internal void Release()
+    {
+        Refund();
+        landing?.Dispose();
+        landing = null;
+        flight?.Restore();
+        Released = true;
+        Status = outcome;
+    }
 }
