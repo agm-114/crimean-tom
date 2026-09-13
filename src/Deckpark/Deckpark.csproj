@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
+    <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
+    <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\1286220\3380210757\AnchorChain.dll</AnchorChainDll>
+    <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Deckpark</PluginDeployDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
+    <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
+    <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
+    <Reference Include="UniRx" HintPath="$(GameManaged)\UniRx.dll" Private="false" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(GameManaged)\UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
+    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
+    <MakeDir Directories="$(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\deckpark.ini" DestinationFolder="$(PluginDeployDirectory)" Condition="!Exists('$(PluginDeployDirectory)\deckpark.ini')" />
+  </Target>
+  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+</Project>
