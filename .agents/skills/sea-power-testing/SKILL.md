@@ -20,14 +20,10 @@ dotnet build src/SeaPower.Cli/SeaPower.Cli.csproj
 ./src/SeaPower.Cli/bin/Debug/net10.0/seapower-cli.exe game-status
 ```
 
-Examples below use `seapower-cli` for that executable. `game-status` inspects the
-installation, processes and log metadata without the bridge or a running game.
-Use `--game-dir PATH` or `SEA_POWER_DIR` for a non-default installation.
+Examples below use `seapower-cli` for that executable. `game-status` inspects the installation, processes and log metadata without the bridge or a running game.
 
-Use the module's deployment command only when deployment is in scope. The game
-must reload a changed DLL. `SeaPower.GameBridge` requires explicit deployment
-and an `enabled.txt` beside its DLL; the CLI can be rebuilt independently.
-Do not enable mods, stop an existing game or change user settings without authority.
+The game must reload a changed DLL. `SeaPower.GameBridge` requires explicit deployment and an `enabled.txt` beside its DLL; the CLI can be rebuilt independently.
+Avoid enable mods or change user settings without authority.
 
 ## Startup and logs
 
@@ -63,8 +59,6 @@ for state; use screenshots for appearance and layout.
 - Do not overwrite user saves or installed scenarios. Record source, destination
   and hash for any disposable scenario copied into the game; remove only your copies.
 - Use the CLI's existing command queue, not a new network control service.
-- Close Sea Power after testing only when the agent launched it and the user does
-  not need it left open.
 
 Report the game version, tested scenario, build or artifact identity, first
 failed step, and relevant fresh log lines. Say plainly when a result came only
