@@ -53,7 +53,10 @@ the plan for a later visit. Both station slots remain supported.
 | `SupplyTransfers.cs` | Receiver plans, ordered supplies, queue priority, accounting and shared update/reset |
 | `ReplenishmentMovement.cs` | Movement leases, alongside stations, speed limits and collision clearance |
 | `HelicopterReplenishment.cs` | Pickup/delivery shuttle and cargo accounting |
-| `VertrepLanding.cs` | Compatible deck reservation and native approach, landing and takeoff states |
+| `VertrepLanding.cs` | Deck reservation, approach lifecycle, native landing and takeoff |
+| `VertrepLanding.Queue.cs` | Per-ship waiting pool, per-point current/next slots, priority and native conflicts |
+| `HelicopterApproach.cs` | Custom alignment holding, final approach and landing-entry handoff |
+| `HelicopterMotionPatch.cs` | Suppress owned movement/AI while retaining targeting and relocation behavior |
 | `HelicopterSpeedPatch.cs` | Narrow native flight-controller speed override for owned shuttles |
 
 `src/SeaPower.SharedUi/` is source compiled into each consumer, not another mod
@@ -87,6 +90,94 @@ each consumer that needs the change. The Supplies fix was deployed in UNREP only
   mission time, then a screenshot. Never reuse old control IDs or snapshot tokens.
 
 ## Known limits and next work
+
+Waiting VERTREP flights now follow a 0.5 nm holding orbit at 150 m around the
+current visit's ship. Empty pickup legs hold around the supplier; loaded delivery
+legs hold around the receiver. Cargo-return legs hold around the supplier.
+The orbit advances native relative waypoints in 30-degree steps before arrival.
+This orbit change is build-checked only, not deployed or live-verified.
+
+The current landing design replaces the jittery micro-order guidance with
+`HelicopterApproach`. One native relative waypoint leads to a gate 300 m behind
+the rig's approach-offset point. Within 150 m, the custom controller owns pose:
+it retains measured arrival velocity, settles at the gate facing the rig, waits
+for deck clearance, then moves to the entry using velocity feedback, stopping-distance limits, bounded
+acceleration and jerk. Pitch/roll reflect acceleration and use native rate limits.
+It integrates in SI units with at most 0.05-second substeps, feeding forward ship
+translation and turn velocity. Handoff requires position within 0.25 m, relative
+speed below 0.05 m/s and settled attitude; there is no final position snap or lerp.
+Native HelicopterLanding then owns descent and rotation. Normal flight ops can
+preempt the custom approach; an already started native landing completes.
+Rotor/no-hangar and native takeoff behavior remain. The controller loaded in the
+fleet playground on 2026-09-14; the newer staging/targeting changes are build-only. The prior micro-order build loaded in Sea Power
+on 2026-09-14 and the user reported bad, jittery movement.
+
+The previous damped-descent build was run in fleet-playground on 2026-09-14,
+Sea Power 0.8.2-23810+s366. Repeated deliveries and native launch priority were
+observed; the user expanded the run to ten assigned helicopters. At least 7,000 kg
+was shown delivered by the first helicopter. Biloxi 8 was later unassigned for a
+normal recovery test, but RTB was not issued before computer use was stopped.
+Recovery priority remains unverified. These observations do not validate the new
+entry blend or holding orbit. Local telemetry is in artifacts/vertrep-20260914.jsonl
+and artifacts/vertrep-recovery-20260914.jsonl; scripts/monitor-seapower-units.ps1
+records repeatable CLI snapshots without changing mission controls.
+
+Micro-waypoint retargeting, its ParadoxNotion reference, the strict native-flight
+capture gate, and the timed entry blend have been removed. HelicopterSpeedPatch
+remains for existing demanded-speed flight, such as departure, but the custom
+approach releases that demand and suppresses native movement while it owns pose.
+
+VertrepLanding registers each visit in its ship's DeckQueue at construction and
+removes it on disposal. Every LandingSlot explicitly owns Current and Next. The
+shared pool is the unassigned eligible visits; nearest compatible point/aircraft
+pairs win, except visits waiting at least 300 simulated seconds are selected oldest
+first. Existing selections are stable and preemption retains original waiting age.
+All available points fill in one scheduling pass. The old 50 m cross-point alignment
+exclusion remains removed.
+
+A staged visit becomes Current when aligned and allowed to claim the deck. Once
+it advances 75 m beyond the gate, Next opens for another helicopter, so preparation
+overlaps the inbound leg as well as landing/turnaround. Next uses HelicopterApproach
+to hold at alignment until Current releases the deck on departure. Normal native
+ops block their assigned point and native conflict links/zones, with a 30 m physical
+fallback; unallocated tasks block the whole deck. Preemption/disposal releases the
+owned queue position. Cancelling an airborne custom approach now disposes the visit
+and redirects rather than waiting for a needless landing/takeoff cycle.
+
+This queue refactor builds without deployment or runtime verification. The prior
+scheduler/targetability build loaded on 2026-09-14 at 12:05 UTC, with six CH-46s
+assigned and Saipan queued. That startup does not verify this refactor.
+
+Targetability audit found that HasControl=false makes Radar, SensorSystemVisual,
+SeekerBase and AI reject targets, while DisableColliders disables damage hitboxes.
+Owned approaches now keep HasControl=true and hitboxes enabled, including native
+landing/turnaround. HelicopterMotionPatch replaces only the native helicopter
+movement gate, suppresses PerformMovement and its own AI, and preserves the
+parented-aircraft relocation exceptions in RelocationHandler/ObjectBase. Those
+transpilers require exactly one matching control read per method. Destruction and
+disabling release control/slots. These hooks loaded in the 12:05 UTC run, but combat
+verification remains outstanding.
+
+Vanilla Approach advances to HelicopterLanding when its approach waypoint finishes;
+it does not first establish a zero-speed hover. HelicopterLanding itself directly
+moves from the current pose to deck contact, starting with a private 5-knot motion
+speed. Do not describe that state as an authored animation with a mandatory start.
+
+Alongside station control now checks heading and relative velocity at the astern
+gate, uses lateral/closing-speed correction and station hysteresis, and measures
+supplier turn rate using simulation seconds. It selects the nearest free, clear
+station. Native collision escape speed commands are no longer overridden; the
+pair exception checks swept hull corridors rather than a third-ship radius.
+Approaches continue indefinitely without stall retries or automatic release.
+Breakaway uses lateral clearance and a no-progress timeout. This is built,
+not deployed or live-verified. Tight turns, stationary suppliers, two receivers and
+traffic still need observation in-game; there is no land-aware approach planner.
+
+UNREP and VERTREP may now run on the same ship by default. The installed
+`supplies.yml` can set `allowConcurrentUnrepAndVertrep: false` to restore mutual
+exclusion at queue/assignment time. UNREP capacity calculations reserve inbound
+VERTREP cargo. The change builds successfully but has not been verified in-game.
+Deploy the new `YamlDotNet.dll` dependency with UNREP; preserve user YAML settings.
 
 These are gaps, not approved tasks:
 

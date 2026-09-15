@@ -1,11 +1,18 @@
 using SeaPower;
 using System.Globalization;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace UNREP;
 
 internal static class SupplySettings
 {
     private static IniHandler ini = null!;
+    internal static bool AllowConcurrentUnrepAndVertrep { get; private set; } = true;
+    public class OperationsOptions
+    {
+        public bool AllowConcurrentUnrepAndVertrep { get; set; } = true;
+    }
     internal static double RangeNm { get; private set; }
     internal static double MaxSpeed { get; private set; }
     internal static double KgPerSecond { get; private set; }
@@ -24,6 +31,10 @@ internal static class SupplySettings
     internal static void Load()
     {
         string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!, "supplies.ini");
+        string optionsPath = Path.ChangeExtension(path, ".yml");
+        AllowConcurrentUnrepAndVertrep = !File.Exists(optionsPath) || (new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance).Build()
+            .Deserialize<OperationsOptions>(File.ReadAllText(optionsPath)) ?? new()).AllowConcurrentUnrepAndVertrep;
         ini = Utils.openIniFile(path, logErrors: false, useCaching: false) ?? throw new IOException($"Missing {path}");
         RangeNm = Read("Transfer", "RangeNm", 0.2, 0.01, 2);
         MaxSpeed = Read("Transfer", "MaxSpeedKnots", 12, 0, 30);

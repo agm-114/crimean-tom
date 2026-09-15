@@ -28,7 +28,10 @@ internal record UiControl(int Id, int Parent, int Order, string Type, string Nam
 internal record UiOption(int Index, string Text);
 internal record UnitState(int Id, string Name, string Type, string UnitClass, string Variant, string Nation,
     string? Taskforce, string? Side, bool PlayerControlled, bool Destroyed, UnitPosition? Position,
-    double? HeadingDegrees, double? SpeedKnots, string? Loadout, double? FuelKg);
+    double? HeadingDegrees, double? SpeedKnots, string? Loadout, double? FuelKg,
+    string? Order, string? FlightDeckState, string? Parent, UnitVector? WorldPosition,
+    double? DemandedSpeedKnots, bool? RotorsOn, bool? Landing);
+internal record UnitVector(double X, double Y, double Z);
 internal record UnitPosition(double? Latitude, double? Longitude, double? AltitudeMeters);
 internal record TimeStatus(bool Available, bool Blocked, bool Paused, float Speed, double? ElapsedSeconds, double? MissionStartSeconds)
 {
