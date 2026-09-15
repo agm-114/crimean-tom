@@ -22,6 +22,8 @@ internal class SupplyStock(string key, string category, string name, string loca
         && !double.IsNaN(Capacity) && !double.IsInfinity(Capacity) && (usable?.Invoke() ?? true);
     public string Amount => double.IsNaN(Capacity) ? $"{Current:N0} {Unit}" : $"{Current:N0} / {Capacity:N0} {Unit}";
     public string Handling => change == null ? "Inventory only" : !Transferable ? "Unavailable" : "Transferable";
+    internal Func<double>? RatePerHour { get; set; }
+    public string Rate => RatePerHour?.Invoke() is double value ? $"{value:+#,0.##;-#,0.##;0} {Unit}/h" : "";
     internal Func<double>? Minimum { get; set; }
     public string Retained => CanChange ? $"{Minimum?.Invoke() ?? 0:N0} {Unit}" : "";
     internal void Change(double amount) => change!(amount);
@@ -49,7 +51,10 @@ internal class SupplyStock(string key, string category, string name, string loca
             $"{bins.Length} locations: {string.Join(", ", bins.Select(bin => bin.Location).Distinct())}", first.Unit,
             () => bins.Sum(bin => bin.Current), () => bins.Sum(bin => bin.Capacity),
             first.CanChange ? Change : null, () => bins.Any(bin => bin.Transferable), bins.Any(bin => bin.ShowWhenEmpty))
-        { Members = bins };
+        {
+            Members = bins,
+            RatePerHour = bins.Any(bin => bin.RatePerHour != null) ? () => bins.Sum(bin => bin.RatePerHour?.Invoke() ?? 0) : null
+        };
     }
 
     private SupplyStock[]? Members { get; set; }
