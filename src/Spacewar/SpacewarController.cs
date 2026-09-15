@@ -9,109 +9,132 @@ namespace Spacewar;
 
 public class SpacewarController : MonoBehaviour
 {
-    internal List<Satellite> Satellites { get; set; } = [];
-    private readonly UnitStatusPage page = new(0x5357, "Spacewar");
-    private Action<double, double, double>? refresh;
+    internal static SpacewarController? Active { get; private set; }
+    internal static double MissionSeconds => Singleton<SceneCreator>.Instance._missionStartTime + GameTime.missionSessionTime;
+    private readonly UnitStatusPage page = new(0x5357, "Orbit");
+    private readonly OrbitalMap orbitalMap = new();
+    private readonly List<SpacecraftProxy> proxies = [];
+    private ObjectsManager? mission;
+    private SpacecraftProxy? inspected;
+    private Action? refresh;
     private float nextRefresh;
 
-    private void Update()
+    private void Awake() => Active = this;
+
+    internal void MoveSpacecraft() => proxies.ForEach(proxy => { if (proxy != null) proxy.Move(); });
+
+    internal void Select(Spacecraft craft)
     {
-        if (Time.realtimeSinceStartup < nextRefresh) return;
-        nextRefresh = Time.realtimeSinceStartup + 0.5f;
-        var selected = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
-        bool available = Satellites.Count > 0 && selected != null && selected.IsPlayerUnit
-            && Singleton<GameMain>.InstanceExists() && Singleton<GameMain>.Instance._initialized
-            && Singleton<SceneCreator>.InstanceExists();
-        page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, available);
-        if (!available) { page.Content = null; refresh = null; return; }
-        if (page.Content == null) Open();
-        // Native saved mission start plus current session preserves the orbital phase on load.
-        double seconds = Singleton<SceneCreator>.Instance._missionStartTime + GameTime.missionSessionTime;
-        refresh?.Invoke(seconds, selected!._geoPosition._latitude, selected._geoPosition._longitude);
+        var proxy = proxies.Find(item => item != null && item.Craft == craft);
+        if (proxy == null || proxy.Unit.IsDestroyed) return;
+        proxy.Move();
+        Singleton<RenderPosition>.Instance.switchToObject(proxy.Unit, performSmoothMove: false, checkAirLeader: false);
     }
 
-    private void Open()
+    private void LateUpdate()
     {
-        var rows = Satellites.Select(satellite => new SatelliteRow(satellite)).ToArray();
-        var table = Table("SpacewarSatellites", TextColumn("Satellite", nameof(SatelliteRow.Name), 140),
-            TextColumn("Role", nameof(SatelliteRow.Role), 120), TextColumn("Alt km", nameof(SatelliteRow.Altitude), 85),
-            TextColumn("Latitude", nameof(SatelliteRow.Latitude), 80), TextColumn("Longitude", nameof(SatelliteRow.Longitude), 85),
-            TextColumn("Period min", nameof(SatelliteRow.Period), 90), TextColumn("Horizon", nameof(SatelliteRow.Visibility), 120));
-        foreach (var row in rows) table.Items.Add(row);
-        table.SelectedIndex = 0;
-        var satellite = Satellites[0];
-        var choice = Choice(Satellites, item => item.Name, changed: item => satellite = item);
-        choice.Name = "SpacewarOrbitChoice";
+        bool available = Singleton<GameMain>.InstanceExists() && Singleton<GameMain>.Instance._initialized
+            && Singleton<SceneCreator>.InstanceExists() && Singleton<ObjectsManager>.InstanceExists() && !Globals._inMuseum;
+        if (!available)
+        {
+            mission = null;
+            proxies.Clear();
+            inspected = null;
+            refresh = null;
+            page.Dispose();
+            orbitalMap.Dispose();
+            OrbitalAtmosphere.Restore();
+            return;
+        }
+        double seconds = MissionSeconds;
+        SpacecraftCatalog.Units.ForEach(craft => craft.AdvanceTo(seconds));
+        var manager = Singleton<ObjectsManager>.Instance;
+        if (mission != manager)
+        {
+            mission = manager;
+            CreateProxies(manager);
+        }
+        var selected = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
+        var current = SpacecraftProxy.For(selected);
+        page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, current != null && !current.Unit.Disabled && selected!.IsPlayerUnit);
+        if (current != inspected || page.Content == null)
+        {
+            inspected = current;
+            page.Content = null;
+            refresh = null;
+            if (current != null) Open(current);
+        }
+        if (Time.realtimeSinceStartup < nextRefresh) return;
+        nextRefresh = Time.realtimeSinceStartup + 0.5f;
+        orbitalMap.Refresh(seconds, current?.Craft);
+        refresh?.Invoke();
+    }
+
+    private void CreateProxies(ObjectsManager manager)
+    {
+        proxies.Clear();
+        var existing = manager._listOfAllObjects.Concat(Globals._playerTaskforce._taskforceDisabledUnits)
+            .Select(SpacecraftProxy.For).OfType<SpacecraftProxy>().ToArray();
+        foreach (var craft in SpacecraftCatalog.Units)
+        {
+            var restored = existing.FirstOrDefault(proxy => proxy.Craft == craft);
+            if (restored != null) { proxies.Add(restored); continue; }
+            try
+            {
+                var unit = manager.createAircraft("Squadron1", "Default", null, null, "civ_h700",
+                    manager._listOfAllObjects.Count + 1, Singleton<SceneCreator>.Instance.GeoCenterPosition,
+                    SpacecraftProxy.ParkedPosition, Vector3.zero,
+                    Globals._playerTaskforce, createMinimapSymbol: true, loadWeaponSystems: false, enableColliders: false);
+                if (unit == null) throw new InvalidOperationException("Native aircraft creation returned null.");
+                proxies.Add(SpacecraftProxy.Attach(unit, craft));
+                Debug.Log($"[Spacewar] Created native proxy for {craft.Name} ({unit.UniqueID}).");
+            }
+            catch (Exception error) { Debug.LogError($"[Spacewar] Could not create {craft.Name}: {error}"); }
+        }
+    }
+
+    private void Open(SpacecraftProxy proxy)
+    {
         var description = Text("");
         description.Name = "SpacewarElements";
         var position = Text("");
         position.Name = "SpacewarPosition";
         var track = new GroundTrack();
-        var orbit = new Grid();
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
-            orbit.RowDefinitions.Add(new() { Height = height });
-        orbit.Children.Add(choice);
-        description.Margin = new Thickness(0, 8, 0, 8);
-        Grid.SetRow(description, 1);
-        orbit.Children.Add(description);
+        var root = new Grid { Name = "SpacewarPanel", Margin = new Thickness(5) };
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) })
+            root.RowDefinitions.Add(new() { Height = height });
+        root.Children.Add(description);
+        position.Margin = new Thickness(0, 8, 0, 8);
+        Grid.SetRow(position, 1);
+        root.Children.Add(position);
         var chart = new Viewbox { Child = track.Canvas, Stretch = Stretch.Uniform };
         Grid.SetRow(chart, 2);
-        orbit.Children.Add(chart);
-        Grid.SetRow(position, 3);
-        orbit.Children.Add(position);
-        var tabs = Tabs(("Satellites", table), ("Orbit", orbit));
-        tabs.Name = "SpacewarTabs";
-        table.SelectionChanged += (_, _) =>
-        {
-            if (table.SelectedIndex >= 0) choice.SelectedIndex = table.SelectedIndex;
-        };
-        var summary = Text("");
-        summary.Name = "SpacewarSummary";
-        summary.Margin = new Thickness(0, 0, 0, 6);
-        var root = new Grid { Name = "SpacewarPanel", Margin = new Thickness(5) };
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        root.Children.Add(summary);
-        Grid.SetRow(tabs, 1);
-        root.Children.Add(tabs);
+        root.Children.Add(chart);
         root.DataContext = root;
         page.Content = root;
-        refresh = (seconds, latitude, longitude) =>
+        refresh = () =>
         {
-            foreach (var row in rows) row.Update(seconds, latitude, longitude);
-            summary.Text = $"{rows.Length} satellites · {rows.Count(row => row.AboveHorizon)} above selected unit's horizon · T+{seconds / 60:N1} min";
-            var elements = satellite.Orbit;
-            var current = elements.At(seconds);
-            description.Text = $"{elements.Perigee:N0} × {elements.Apogee:N0} km · Inclination {elements.Inclination:N1}° · Period {elements.Period / 60:N1} min\n"
+            var craft = proxy.Craft;
+            var elements = craft.Orbit;
+            double seconds = craft.SimulationSeconds;
+            var current = craft.Position;
+            description.Text = $"{craft.Name} · {craft.Role}\n"
+                + $"{elements.Perigee:N0} × {elements.Apogee:N0} km · Inclination {elements.Inclination:N1}° · Period {elements.Period / 60:N1} min\n"
                 + $"Ascending node {elements.AscendingNode:N1}° · Periapsis argument {elements.PeriapsisArgument:N1}° · Epoch mean anomaly {elements.MeanAnomaly:N1}°";
-            position.Text = $"{current.Altitude:N0} km · {current.Speed:N2} km/s · Elevation {current.Elevation(latitude, longitude):N1}° from selected unit";
-            if (tabs.SelectedIndex == 1) track.Draw(elements, seconds, latitude, longitude);
+            position.Text = $"Orbital altitude {current.Altitude:N0} km · Orbital speed {current.Speed:N2} km/s\n"
+                + $"Latitude {current.Latitude:N2}° · Longitude {current.Longitude:N2}°\n"
+                + $"Display altitude {proxy.DisplayAltitudeKm:N1} km · Altitude scale {proxy.AltitudeScale:N4}\n"
+                + $"Horizontal scale {proxy.HorizontalScale:N4} · {(proxy.HorizontalScale < 0.9999 ? "Pinned toward map boundary" : "Accurate ground position")}";
+            track.Draw(elements, seconds);
         };
+        refresh();
     }
 
-    private void OnDestroy() => page.Dispose();
-}
-
-public class SatelliteRow : System.ComponentModel.INotifyPropertyChanged
-{
-    private readonly Satellite satellite;
-    private OrbitalPosition position;
-    private double elevation;
-    internal SatelliteRow(Satellite satellite) { this.satellite = satellite; position = satellite.Orbit.At(0); }
-    public string Name => satellite.Name;
-    public string Role => satellite.Role;
-    public string Altitude => position.Altitude.ToString("N0");
-    public string Latitude => $"{position.Latitude:N1}°";
-    public string Longitude => $"{position.Longitude:N1}°";
-    public string Period => (satellite.Orbit.Period / 60).ToString("N1");
-    public string Visibility => AboveHorizon ? $"Visible {elevation:N0}°" : "Below horizon";
-    internal bool AboveHorizon => elevation > 0;
-    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
-    internal void Update(double seconds, double latitude, double longitude)
+    private void OnDestroy()
     {
-        position = satellite.Orbit.At(seconds);
-        elevation = position.Elevation(latitude, longitude);
-        foreach (string property in new[] { nameof(Altitude), nameof(Latitude), nameof(Longitude), nameof(Visibility) })
-            PropertyChanged?.Invoke(this, new(property));
+        if (Active == this) Active = null;
+        OrbitalAtmosphere.Restore();
+        orbitalMap.Dispose();
+        page.Dispose();
     }
 }

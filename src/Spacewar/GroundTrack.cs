@@ -8,7 +8,6 @@ internal class GroundTrack
     private const float Width = 720, Height = 300, Top = 25;
     private static readonly Brush GridBrush = new SolidColorBrush(Color.FromRgb(65, 72, 83));
     private static readonly Brush TrackBrush = new SolidColorBrush(Color.FromRgb(213, 168, 118));
-    private static readonly Brush UnitBrush = new SolidColorBrush(Color.FromRgb(105, 191, 232));
     private readonly Canvas moving = new();
     internal Canvas Canvas { get; } = new() { Width = Width, Height = Height + 55, ClipToBounds = true };
 
@@ -26,11 +25,11 @@ internal class GroundTrack
             Line(Canvas, 0, y, Width, y, GridBrush);
             Label($"{latitude}°", 3, Math.Clamp(y + 2, Top, Top + Height - 18));
         }
-        Label("Ground track · next orbit   |   Gold: satellite   Blue: selected unit", 3, Top + Height + 8);
+        Label("Ground track · next orbit   |   Gold: selected spacecraft", 3, Top + Height + 8);
         Canvas.Children.Add(moving);
     }
 
-    internal void Draw(Orbit orbit, double seconds, double latitude, double longitude)
+    internal void Draw(Orbit orbit, double seconds)
     {
         moving.Children.Clear();
         var previous = orbit.At(seconds);
@@ -43,7 +42,6 @@ internal class GroundTrack
             previous = next;
         }
         var current = orbit.At(seconds);
-        Dot(X(longitude), Y(latitude), UnitBrush);
         Dot(X(current.Longitude), Y(current.Latitude), TrackBrush);
     }
 
