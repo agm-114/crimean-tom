@@ -92,6 +92,8 @@ internal class VertrepOperation(Vessel source)
         || op.Receivers.Any(plan => plan.Target == ship && plan.InUse));
     internal static double AirborneCargo(Vessel ship, string key) => Operations.Where(op => op.Source == ship)
         .SelectMany(op => op.Helicopters).Where(helo => helo.Transfer?.Stock.Key == key).Sum(helo => helo.Cargo);
+    internal static double IncomingCargo(Vessel ship, string key) => Operations.SelectMany(op => op.Helicopters)
+        .Where(helo => helo.Transfer?.Target == ship && helo.Transfer.Stock.Key == key).Sum(helo => helo.Cargo);
     internal static bool Assigned(Helicopter aircraft) => Operations.SelectMany(op => op.Helicopters)
         .Any(helo => helo.Aircraft == aircraft && !helo.Released);
     internal bool CanAssign(Helicopter aircraft) => aircraft != null && aircraft._isInFlight && !aircraft.IsDestroyed
@@ -102,7 +104,8 @@ internal class VertrepOperation(Vessel source)
     {
         if (!SupplyPolicy.For(Source).Vertrep) return "VERTREP disabled.";
         if (!CanAssign(aircraft)) return "Choose a free airborne helicopter compatible with this deck, with at least 20% fuel.";
-        if (SupplyTransfers.Jobs.Any(job => !job.Finished && (job.Source == Source || job.Target == Source)))
+        if (!SupplySettings.AllowConcurrentUnrepAndVertrep
+            && SupplyTransfers.Jobs.Any(job => !job.Finished && (job.Source == Source || job.Target == Source)))
             return "Supplier busy with UNREP.";
         if (Operations.Any(op => op != this && op.Receivers.Any(plan => plan.Target == Source && plan.InUse)))
             return "Supplier busy with another VERTREP operation.";
@@ -118,8 +121,8 @@ internal class VertrepOperation(Vessel source)
             return "Receiver unavailable";
         if (receiver.Cargo > 0) return "Waiting for cargo return";
         if (!VertrepLanding.HasDeck(Source) || !VertrepLanding.HasDeck(target)) return "Both ships need helicopter landing decks";
-        if (SupplyTransfers.Jobs.Any(job => !job.Finished
-            && (job.Source == Source || job.Target == Source || job.Source == target || job.Target == target))
+        if ((!SupplySettings.AllowConcurrentUnrepAndVertrep && SupplyTransfers.Jobs.Any(job => !job.Finished
+            && (job.Source == Source || job.Target == Source || job.Source == target || job.Target == target)))
             || Operations.Any(op => op != this && (op.Source == target && Uses(target)
                 || op.Receivers.Any(plan => plan.InUse && (plan.Target == Source || plan.Target == target)))))
             return "Ship busy with another operation";
@@ -164,6 +167,7 @@ internal class VertrepOperation(Vessel source)
             if (!SupplyPolicy.For(operation.Source).Vertrep) operation.Cancel();
             foreach (var helo in operation.Helicopters) helo.Update(seconds);
         }
+        if (seconds > 0) VertrepLanding.Schedule();
     }
     internal static void Clear()
     {

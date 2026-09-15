@@ -79,11 +79,18 @@ internal class HelicopterReplenishment(VertrepOperation operation, Helicopter he
         }
         Vessel ship = delivering ? Transfer!.Target : operation.Source;
         landing!.Update(seconds);
+        if (landing.Departed) { outcome = landing.Status; Release(); return; }
         if (!landing.Landed)
         {
             InTransit = !landing.Status.StartsWith("Waiting", StringComparison.Ordinal);
             Waiting = !InTransit;
             Status = landing.Status + (delivering ? " at receiver" : " at supplier");
+            return;
+        }
+        if (landing.ShouldClearDeck)
+        {
+            FlyTo(ship);
+            Status = "Clearing deck for normal flight operations";
             return;
         }
         if (!ship.SupplyAllowed.Value) { Status = "Supply disabled"; return; }
@@ -159,9 +166,9 @@ internal class HelicopterReplenishment(VertrepOperation operation, Helicopter he
     internal void Release()
     {
         Refund();
+        flight?.Restore();
         landing?.Dispose();
         landing = null;
-        flight?.Restore();
         Released = true;
         Status = outcome;
     }

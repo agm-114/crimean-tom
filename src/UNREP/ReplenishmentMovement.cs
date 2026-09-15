@@ -19,21 +19,25 @@ internal class MovementLease(ObjectBase unit)
     private float leadNm;
     private float demand;
     private bool hasSpeed;
-    private bool nativeOrders;
     internal static float? Demand(ObjectBase unit) => Active.TryGetValue(unit, out var lease) && lease.Owned && lease.hasSpeed ? lease.demand : null;
     internal bool Owned => unit != null && !unit.IsDestroyed && waypoint != null
-        && (ReferenceEquals(unit.GetLastWaypoint(), waypoint) || nativeOrders && unit.GetNumberOfWaypoints() == 0);
-    internal void ReleaseSpeed() => hasSpeed = false;
-    internal void TrackNativeOrders() { waypoint = unit.GetLastWaypoint(); nativeOrders = true; }
+        && ReferenceEquals(unit.GetLastWaypoint(), waypoint);
+    internal void ReleaseSpeed()
+    {
+        bool restore = hasSpeed && Owned && ReferenceEquals(unit.SpeedCommand.Value, speedCommand);
+        hasSpeed = false;
+        if (restore) unit.SetSpeedCommand(new ConstantSpeed(speed, unit));
+        speedCommand = null;
+    }
     private Vector3 Deviation => Owned ? unit.GetLastWaypoint().WaypointPosition.ToUnity()
         - anchor!.transform.forward * (leadNm * 27.559496f) - unit.Position.Value.ToUnity() : Vector3.zero;
     internal float Distance => Owned ? Deviation.magnitude / 27.559496f : float.MaxValue;
     internal float Ahead => Vector3.Dot(Deviation, anchor!.transform.forward) / 27.559496f;
+    internal float Across => Vector3.Dot(Deviation, anchor!.transform.right) / 27.559496f;
 
     internal void Follow(ObjectBase anchor, float lateralNm, float asternNm, string name, float height = 0, float leadNm = 0)
     {
         this.anchor = anchor;
-        nativeOrders = false;
         this.leadNm = leadNm;
         Active[unit] = this;
         unit.Formation?.MakeUnitActIndependently(unit);
@@ -45,6 +49,8 @@ internal class MovementLease(ObjectBase unit)
 
     internal void Speed(float knots)
     {
+        // Native avoidance uses telegraph changes to break mutual collision locks.
+        if (unit is Vessel && unit.CollisionAvoidance?.UnitToAvoid != null) return;
         demand = knots;
         hasSpeed = true;
         if (speedCommand != null && ReferenceEquals(unit.SpeedCommand.Value, speedCommand)
@@ -68,6 +74,7 @@ internal class MovementLease(ObjectBase unit)
     private static void KeepStationSpeed(ObjectBase __instance, ref ISpeedCommand speedCommand)
     {
         if (!Active.TryGetValue(__instance, out var lease) || !lease.Owned || !lease.hasSpeed) return;
+        if (__instance is Vessel && __instance.CollisionAvoidance?.UnitToAvoid != null) return;
         if (Math.Abs(speedCommand.GetDemandedSpeedInKnots(__instance) - lease.demand) > 0.01f)
         {
             (speedCommand as IDisposable)?.Dispose();
@@ -79,71 +86,143 @@ internal class MovementLease(ObjectBase unit)
 
 internal class AlongsideStation(SupplyTransfer job)
 {
+    private enum Phase { Rendezvous, Alongside, Breakaway }
     private MovementLease? receiver;
     private int side;
-    private int phase;
+    private Phase phase;
     private float previousHeading = job.Source.Heading.Value;
+    private float speedDemand = Math.Max(0, job.Target._velocityInKnots);
+    private float bestError = float.MaxValue;
+    private double stalledSeconds;
+    private double steadySeconds;
+    private bool onStation;
     internal bool Released { get; private set; }
+    internal bool Failed { get; private set; }
     internal int Side => side;
     internal bool OwnsReceiver => receiver?.Owned == true;
     internal string State { get; private set; } = "Waiting for transfer station";
+    private float HeadingError => Math.Abs(Mathf.DeltaAngle(job.Source.Heading.Value, job.Target.Heading.Value));
+    private Vector3 Offset => (job.Target.transform.position - job.Source.transform.position) / 27.559496f;
+    private float Lateral => Vector3.Dot(Offset, job.Source.transform.right);
+    private float Tolerance => (float)SupplySettings.StationToleranceNm;
 
-    internal bool Update(bool ending)
+    internal bool Update(bool ending, double seconds)
     {
-        if (Released) return false;
+        if (Released || seconds <= 0) return false;
         if (receiver == null)
         {
             if (ending) { Released = true; return false; }
             var used = SupplyTransfers.Jobs.Where(other => other != job && !other.Finished && other.Source == job.Source)
                 .Select(other => other.Station?.Side ?? 0).ToArray();
-            side = !used.Contains(-1) ? -1 : !used.Contains(1) ? 1 : 0;
-            if (side == 0) return false;
+            int preferred = Lateral < 0 ? -1 : 1;
+            side = new[] { preferred, -preferred }.FirstOrDefault(candidate => !used.Contains(candidate)
+                && AlongsideClearance.StationClear(job.Source, job.Target, candidate));
+            if (side == 0) { State = "Waiting for a clear station"; return false; }
             receiver = new(job.Target);
-            receiver.Follow(job.Source, side * (float)SupplySettings.StationNm, (float)SupplySettings.RendezvousNm, "UNREP rendezvous", leadNm: 0.15f);
+            Begin(Phase.Rendezvous);
         }
-        if (!receiver.Owned) { receiver.Restore(); Released = true; State = "Movement order replaced"; return false; }
-        if (ending && phase != 2)
-        {
-            phase = 2;
-            receiver.Follow(job.Source, side * (float)SupplySettings.BreakawayNm, 0, "UNREP breakaway", leadNm: 0.15f);
-        }
+        if (!receiver.Owned) { Release(); State = "Movement order replaced"; return false; }
+        if (ending && phase != Phase.Breakaway) Begin(Phase.Breakaway);
+
         float sourceSpeed = Math.Max(0, job.Source._velocityInKnots);
+        float turnRate = Math.Abs(Mathf.DeltaAngle(previousHeading, job.Source.Heading.Value)) / (float)seconds;
+        previousHeading = job.Source.Heading.Value;
+        steadySeconds = turnRate <= 0.25f ? steadySeconds + seconds : 0;
         float gap = receiver.Distance;
-        receiver.Speed(Math.Clamp(sourceSpeed + receiver.Ahead * 10, 0, (float)SupplySettings.MaxSpeed));
-        if (phase == 2)
+        float heading = HeadingError;
+        float relativeSpeed = (job.Target.transform.forward * job.Target._velocityInKnots
+            - job.Source.transform.forward * sourceSpeed).magnitude;
+        SetSpeed(sourceSpeed, heading, seconds);
+
+        if (phase == Phase.Breakaway)
         {
             State = "Breaking away";
-            if (gap < SupplySettings.StationToleranceNm) { receiver.Restore(); Released = true; }
-            return false;
+            // Clearing the lateral boundary is sufficient; do not chase an exact moving point.
+            if (side * Lateral >= SupplySettings.BreakawayNm - Tolerance) { Release(); return false; }
         }
-        if (phase == 0)
+        else if (phase == Phase.Rendezvous)
         {
-            State = "Rendezvous";
-            if (gap < SupplySettings.StationToleranceNm)
-            {
-                phase = 1;
-                receiver.Follow(job.Source, side * (float)SupplySettings.StationNm, 0, "UNREP alongside", leadNm: 0.15f);
-            }
-            return false;
+            State = gap > Tolerance ? "Rendezvous" : "Aligning astern";
+            if (gap <= Tolerance && heading <= SupplySettings.HeadingTolerance
+                && relativeSpeed <= SupplySettings.RelativeSpeedTolerance && steadySeconds >= 5)
+            { Begin(Phase.Alongside); return false; }
         }
-        float turn = Math.Abs(Mathf.DeltaAngle(previousHeading, job.Source.Heading.Value));
-        previousHeading = job.Source.Heading.Value;
-        if (gap > SupplySettings.StationToleranceNm) { State = "Taking station"; return false; }
-        receiver.Speed(sourceSpeed);
-        if (Math.Abs(Mathf.DeltaAngle(job.Source.Heading.Value, job.Target.Heading.Value)) > SupplySettings.HeadingTolerance
-            || turn > 0.5f) { State = "Waiting for steady course"; return false; }
-        if (Math.Abs(sourceSpeed - job.Target._velocityInKnots) > SupplySettings.RelativeSpeedTolerance)
-        { State = "Matching speed"; return false; }
-        State = side < 0 ? "Port station" : "Starboard station";
-        return true;
+        else
+        {
+            // A wider exit boundary avoids repeatedly dropping station at the entry threshold.
+            onStation = gap <= Tolerance * (onStation ? 1.5f : 1);
+            State = !onStation ? "Taking station" : steadySeconds < 5 || heading > SupplySettings.HeadingTolerance
+                ? "Waiting for steady course" : relativeSpeed > SupplySettings.RelativeSpeedTolerance
+                ? "Matching speed" : side < 0 ? "Port station" : "Starboard station";
+            if (onStation && steadySeconds >= 5 && heading <= SupplySettings.HeadingTolerance
+                && relativeSpeed <= SupplySettings.RelativeSpeedTolerance)
+                return true;
+        }
+
+        if (phase != Phase.Breakaway) return false;
+        float error = Math.Max(0, (float)SupplySettings.BreakawayNm - side * Lateral);
+        if (error < bestError - 0.005f) { bestError = error; stalledSeconds = 0; }
+        else stalledSeconds += seconds;
+        if (stalledSeconds >= 300)
+        {
+            Failed = true;
+            State = "Breakaway stalled; orders restored";
+            Release();
+        }
+        return false;
     }
 
+    private void Begin(Phase next)
+    {
+        phase = next;
+        onStation = false;
+        ResetProgress();
+        float astern = next == Phase.Rendezvous ? (float)SupplySettings.RendezvousNm : 0;
+        float lateral = next == Phase.Breakaway ? (float)SupplySettings.BreakawayNm : (float)SupplySettings.StationNm;
+        receiver!.Follow(job.Source, side * lateral, astern, next == Phase.Rendezvous ? "UNREP rendezvous"
+            : next == Phase.Alongside ? "UNREP alongside" : "UNREP breakaway", leadNm: 0.15f);
+    }
+
+    private void SetSpeed(float sourceSpeed, float heading, double seconds)
+    {
+        float ahead = receiver!.Ahead;
+        float across = Math.Abs(receiver.Across);
+        float alignment = Vector3.Dot(job.Target.transform.forward, job.Source.transform.forward);
+        float closingSpeed = job.Target._velocityInKnots * alignment - sourceSpeed;
+        // Compensate for the forward speed lost while steering toward the station.
+        float desired = sourceSpeed / Math.Max(0.5f, alignment) + ahead * 10 - closingSpeed * 0.5f;
+        bool maneuvering = across > Tolerance || heading > SupplySettings.HeadingTolerance;
+        if (maneuvering) desired = Math.Max(desired, 3 + Math.Min(3, across * 10));
+        float maximum = Math.Min((float)SupplySettings.MaxSpeed, job.Target.MaxForwardSpeedInKnots);
+        desired = Math.Clamp(desired, 0, Math.Max(0, maximum));
+        speedDemand = Mathf.MoveTowards(speedDemand, desired, (float)seconds * 0.1f);
+        receiver.Speed(speedDemand);
+    }
+
+    private void ResetProgress() { bestError = float.MaxValue; stalledSeconds = 0; }
     internal void Release() { receiver?.Restore(); Released = true; }
 }
 
 [HarmonyPatch(typeof(ObjectCollisionAvoidance), nameof(ObjectCollisionAvoidance.UnitToAvoid), MethodType.Setter)]
 internal static class AlongsideClearance
 {
+    internal static bool StationClear(Vessel source, Vessel receiver, int side)
+    {
+        Vector3 station = source.transform.position + source.transform.right * (side * (float)SupplySettings.StationNm * 27.559496f);
+        Vector3 hull = receiver.Compartments.getBounds().size;
+        return !source._taskforce.PlottingTable.Vehicles.Any(vehicle => vehicle.Object != null
+            && vehicle.Object != source && vehicle.Object != receiver && !vehicle.Object.IsAirUnit && !vehicle.Object.IsDestroyed
+            && Overlaps(vehicle.Object));
+
+        bool Overlaps(ObjectBase other)
+        {
+            Vector3 offset = other.transform.position - station;
+            Vector3 otherHull = other.Compartments.getBounds().size;
+            return Math.Abs(Vector3.Dot(offset, source.transform.right)) < Clearance(source.transform.right, hull.x, other, otherHull)
+                && Math.Abs(Vector3.Dot(offset, source.transform.forward)) < Clearance(source.transform.forward, hull.z, other, otherHull);
+        }
+    }
+
     [HarmonyPrefix]
     private static void AllowParallelStation(ObjectCollisionAvoidance __instance, ref ObjectBase? __0)
     {
@@ -151,17 +230,39 @@ internal static class AlongsideClearance
         if (!SupplyTransfers.Jobs.Any(job => !job.Finished && job.Station?.OwnsReceiver == true
             && (job.Source == ship && job.Target == other || job.Source == other && job.Target == ship))) return;
         if (Math.Abs(Mathf.DeltaAngle(ship.Heading.Value, other.Heading.Value)) > 30) return;
-        var separation = other.transform.position - ship.transform.position;
-        float clearance = (ship.Compartments.getBounds().size.x + other.Compartments.getBounds().size.x) / 2 + 0.015f * 27.559496f;
-        if (Math.Abs(Vector3.Dot(separation, ship.transform.right)) < clearance) return;
-        // Vanilla reacts four hull lengths away. Permit our parallel partner,
-        // but retain avoidance when any third unit is in the immediate corridor.
-        float radius = Math.Max(ship.Compartments.getBounds().size.z, other.Compartments.getBounds().size.z) * 4;
+        if (CorridorsOverlap(ship, other)) return;
+        // The scheduler returns one threat. Keep avoidance if removing that partner
+        // would hide traffic crossing either ship's projected hull corridor.
         if (ship._taskforce.PlottingTable.Vehicles.Any(vehicle => vehicle.Object != null
             && vehicle.Object != ship && vehicle.Object != other && !vehicle.Object.IsAirUnit && !vehicle.Object.IsDestroyed
-            && Vector3.Distance(vehicle.Object.transform.position, ship.transform.position) < radius)) return;
+            && (CorridorsOverlap(ship, vehicle.Object) || CorridorsOverlap(other, vehicle.Object)))) return;
         __0 = null;
     }
+
+    internal static bool CorridorsOverlap(Vessel ship, ObjectBase other)
+    {
+        Vector3 offset = other.transform.position - ship.transform.position;
+        Vector3 velocity = (other.transform.forward * other._velocityInKnots
+            - ship.transform.forward * ship._velocityInKnots) * 0.0076554087f;
+        Vector3 hull = ship.Compartments.getBounds().size;
+        Vector3 otherHull = other.Compartments.getBounds().size;
+        float start = 0, end = 90;
+        return Intersects(ship.transform.right, hull.x) && Intersects(ship.transform.forward, hull.z);
+
+        bool Intersects(Vector3 axis, float size)
+        {
+            float extent = Clearance(axis, size, other, otherHull);
+            float distance = Vector3.Dot(offset, axis), speed = Vector3.Dot(velocity, axis);
+            if (Math.Abs(speed) < 0.00001f) return Math.Abs(distance) <= extent;
+            float first = (-extent - distance) / speed, last = (extent - distance) / speed;
+            start = Math.Max(start, Math.Min(first, last));
+            end = Math.Min(end, Math.Max(first, last));
+            return start <= end;
+        }
+    }
+    private static float Clearance(Vector3 axis, float size, ObjectBase other, Vector3 hull) =>
+        (size + Math.Abs(Vector3.Dot(other.transform.right, axis)) * hull.x
+            + Math.Abs(Vector3.Dot(other.transform.forward, axis)) * hull.z) / 2 + 0.015f * 27.559496f;
 }
 
 internal static class SupplySpeedLimits
@@ -179,6 +280,7 @@ internal static class SupplySpeedLimits
         }
         foreach (var ship in sources.Where(SupplyTransfers.Available))
         {
+            if (ship.CollisionAvoidance?.UnitToAvoid != null) continue;
             if (!Limits.TryGetValue(ship, out var previous))
                 previous = (ship.SpeedCommand.Value?.GetDemandedSpeedInKnots(ship) ?? 0, null!);
             if (ReferenceEquals(ship.SpeedCommand.Value, previous.Command)) continue;

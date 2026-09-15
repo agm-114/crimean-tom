@@ -29,6 +29,12 @@ internal static class UnitSnapshot
             headingDegrees = Round(unit.Heading.Value, 1), speedKnots = Round(unit._velocityInKnots, 1),
             loadout = parameters._loadoutVariant,
             fuelKg = unit is Aircraft ? Round(parameters._currentFuelMass, 1) : null,
+            order = unit.CurrentOrderText.Value, flightDeckState = unit._flightDeckState,
+            parent = unit.transform.parent?.name,
+            worldPosition = new { x = unit.transform.position.x, y = unit.transform.position.y, z = unit.transform.position.z },
+            demandedSpeedKnots = unit.SpeedCommand.Value?.GetDemandedSpeedInKnots(unit),
+            rotorsOn = unit is Helicopter helicopter ? (bool?)helicopter._hfcs.areRotorsOn() : null,
+            landing = unit is Helicopter helo ? (bool?)helo.IsLanding : null,
         };
     }
 

@@ -13,7 +13,9 @@ internal class UnrepSupply(SupplyTransfer job, SupplyStock stock) : INotifyPrope
     public string Item => Stock.Name;
     public string Amount => $"{(Enabled ? Available : 0):N0} {Stock.Unit}";
     public string DeliveredAmount => $"{Delivered:N0} {Stock.Unit}";
-    internal double Space => SupplyInventory.Read(job.Target).Where(item => item.Key == Stock.Key && item.Transferable).Sum(item => item.Free);
+    internal double Space => Math.Max(0, SupplyInventory.Read(job.Target)
+        .Where(item => item.Key == Stock.Key && item.Transferable).Sum(item => item.Free)
+        - VertrepOperation.IncomingCargo(job.Target, Stock.Key));
     internal double Available => Math.Min(SupplyPolicy.Available(job.Source, Stock), Space);
     internal bool Runnable => Enabled && Stock.Transferable && Available >= (Stock.Whole ? 1 : 0.001);
     public string Status => !Enabled ? "Disabled" : !Stock.Transferable ? "Unavailable"
@@ -75,8 +77,8 @@ internal class SupplyTransfer(Vessel source, Vessel target)
         { Release(); State = "Ship unavailable"; return; }
         if (!ending && !Supplies.Any(plan => plan.Runnable)) { ending = true; outcome = "Complete"; }
         Station ??= new(this);
-        bool onStation = Station.Update(ending);
-        if (Station.Released) { Release(); State = ending ? outcome : Station.State; return; }
+        bool onStation = Station.Update(ending, seconds);
+        if (Station.Released) { Release(); State = ending && !Station.Failed ? outcome : Station.State; return; }
         if (!onStation || ending) { Current = null; credit = 0; State = Station.State; return; }
         string blocked = SupplyTransfers.Blocked(Source, Target);
         if (blocked.Length > 0) { Current = null; credit = 0; State = blocked; return; }
@@ -136,7 +138,8 @@ internal static class SupplyTransfers
         if (!SupplyPolicy.For(job.Source).Unrep) return "UNREP disabled";
         if (job.Source.IsFormationWingman) return "Supplier must lead formation";
         if (!job.Source.SupplyAllowed.Value || !job.Target.SupplyAllowed.Value) return "Supply disabled";
-        if (VertrepOperation.Uses(job.Source) || VertrepOperation.Uses(job.Target)) return "Ship busy with VERTREP";
+        if (!SupplySettings.AllowConcurrentUnrepAndVertrep
+            && (VertrepOperation.Uses(job.Source) || VertrepOperation.Uses(job.Target))) return "Ship busy with VERTREP";
         if (Jobs.Any(other => other != job && !other.Finished
             && (other.Target == job.Source || other.Source == job.Target || other.Target == job.Target))) return "Ship busy with UNREP";
         return job.Supplies.Any(plan => plan.Runnable) ? "" : "No enabled transfers available";

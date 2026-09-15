@@ -55,6 +55,18 @@ Locations format internal names such as `WeaponMagazineMK45_1` as
   These are configurable gameplay quantities, not historical manifests.
   They do not yet affect propulsion, aircraft refuelling, consumption or repairs.
 
+Ships can participate in UNREP and VERTREP simultaneously by default. To require
+one method at a time, edit `supplies.yml` beside the installed `UNREP.dll`:
+
+```yaml
+allowConcurrentUnrepAndVertrep: false
+```
+
+Restart Sea Power after changing this setting. A missing file or omitted setting
+defaults to `true`. Both methods must still be enabled in the ship's Supplies tab.
+UNREP leaves receiving space reserved for cargo already aboard VERTREP helicopters.
+Deployment includes `YamlDotNet.dll` and preserves existing `supplies.yml` settings.
+
 `supplies.ini` defines initial quantities and capacities as
 `BaseKg + KgPerTonne × displacement in tonnes`, using native vessel displacement.
 For example, `FoodBaseKg=100` and `FoodKgPerTonne=2` give a 5,000-tonne ship
@@ -74,6 +86,18 @@ The supplier keeps its route with demanded speed capped at 8 knots. It must be
 independent or a formation leader. Two receivers can take stations; others queue.
 Receivers leave their formation temporarily and restore their prior route and
 speed after breakaway. Replacing a receiver's waypoints releases it to the player.
+
+Receivers choose the nearest free side whose station is clear of other hulls.
+They align astern and match velocity before advancing alongside. Speed correction
+accounts for lateral approach, heading and closing speed, with gradual changes.
+Station entry and exit use separate distance tolerances. Transfers require five
+simulation seconds of steady supplier course, measured by turn rate.
+Native collision steering and escape speed changes remain active; parallel partners
+are exempt only when projected hull corridors stay clear for 90 seconds.
+Receivers keep trying to reach their assigned station without an approach timeout
+or automatic restart farther astern. Breakaway
+finishes on clearing the lateral boundary, or reports failure and restores orders
+after 300 seconds without progress. These changes have only been build-checked.
 
 Default handling limits are 0.2 nm and 12 knots for both ships, plus station
 position, heading and relative-speed checks. Rates are 20 kg/s, 0.1 items/s or
@@ -113,9 +137,58 @@ movement. Their table shows current supply, receiver, cargo, delivered quantity
 and flight/handling status. Multiple helicopters share the queue; pickups reserve
 receiving space and respect the source minimum across concurrent loads. Each trip
 carries at most 500 kg, transferred immediately at touchdown. Helicopters
-use vanilla approach and landing on compatible native recovery spots, keep their rotors running,
+fly a direct approach to compatible native recovery spots, keep their rotors running,
 then use vanilla takeoff for the next leg without a cold-start delay. They wait for a clear spot and acceptable
 sea state. Nearby aircraft and Deckpark units can block a landing spot.
+Each ship has a shared waiting pool feeding a short queue at each recovery point:
+one active helicopter and one selected follower joining or holding at alignment.
+Selection runs after all visits update and chooses the nearest compatible waiting
+helicopter for each opening. After five simulated minutes waiting, the oldest
+eligible helicopter gets priority over newer arrivals. Existing selections remain
+stable, and normal-flight interruptions preserve waiting age. Two available points
+can select two helicopters in the same update. Everyone else remains in orbit.
+The selected helicopter receives one ship-relative approach order to a gate 300 metres behind the
+landing entry along the recovery rig's heading. Within 150 metres of that gate,
+`HelicopterApproach` takes control of movement. It preserves arrival velocity,
+settles onto the approach line and aligns with the rig. It holds there under the
+same controller until the deck and corridor are clear, then reserves the landing
+spot and advances to the native approach-offset point. Once it moves at least
+75 metres forward from alignment, its follower position opens. The next helicopter
+can prepare while the first approaches, lands, handles cargo and takes off. The follower stays
+at alignment until the first aircraft releases the deck. It issues no micro-waypoints and does not invoke vanilla
+Approach or RTB, which can add unwanted routing.
+The controller integrates velocity with bounded acceleration and jerk, limits
+closure by stopping distance, and accounts for the destination ship's motion.
+Pitch and roll follow acceleration; angular rates and movement limits use the
+helicopter's native parameters with conservative approach caps. This is a custom
+kinematic controller, not the vanilla flight-physics solver or a timed position lerp.
+At the entry, within 0.25 metres and 0.05 m/s relative speed with settled attitude,
+it hands the current pose to HelicopterLanding without snapping to a target.
+Native landing then owns the descent and rotation with no movement override.
+Normal queued launches and recoveries have priority. The custom approach claims
+the deck only when leaving alignment and yields to normal operations before native
+landing starts. Known native flight operations block their own point and conflicting
+points/zones. Unallocated native tasks temporarily block the whole deck so they can
+choose a point first. A native landing already in progress completes, retaining the
+existing cargo turnaround. Cancelling while still in custom approach releases the
+queue position and redirects the airborne helicopter without a landing/takeoff detour.
+Guided helicopters retain `HasControl` and enabled hitboxes so the native radar,
+visual sensors, weapon seekers and damage collision paths still see them. The mod
+suppresses only their native movement and own AI while it owns pose. Native landing
+and deck turnaround retain that targeting eligibility too. Ship-parented aircraft
+keep the original world-origin relocation exception. Destroyed or disabled aircraft
+leave the controller and release their slots. Detection and weapon suitability
+still follow the game's normal rules.
+The previous scheduler and targeting changes loaded on 2026-09-14 in the six-CH-46
+fleet playground. Combat behavior remains unverified. The shared-pool/per-point
+queue, earlier follower preparation and waiting-age changes are build-checked only;
+they have not been deployed or observed in-game.
+Waiting helicopters orbit their current destination at 0.5 nm and 150 m altitude:
+the supplier before pickup, or the receiver while carrying a delivery. Native
+flight controls follow successive ship-relative points, advancing before arrival
+to keep moving. Cancelled deliveries returning cargo orbit the supplier instead.
+An already committed landing completes, then clears the deck if normal operations
+are waiting. Departures wait for a clear corridor.
 Departure runs native preflight animations and takeoff, then climbs under native
 flight control. The landing spot stays reserved until the helicopter is 20 metres
 above the deck; only then does it receive the next transfer route.
