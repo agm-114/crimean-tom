@@ -18,6 +18,7 @@ internal class SuppliesView
         var table = Table("SupplyInventory", TextColumn("Category", nameof(SupplyStock.Category), 145),
             TextColumn("Item", nameof(SupplyStock.Name), 170), TextColumn("Location", nameof(SupplyStock.Location), 190),
             TextColumn("Quantity / capacity", nameof(SupplyStock.Amount), 170),
+            TextColumn("Use / production", nameof(SupplyStock.Rate), 145),
             TextColumn("Minimum retained", nameof(SupplyStock.Retained), 125));
         var unrep = Check("Enable UNREP", policy.Unrep, enabled => policy.Enable(ship, false, enabled));
         unrep.Name = "EnableUnrep";

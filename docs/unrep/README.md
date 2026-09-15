@@ -5,7 +5,7 @@ Adds a Supplies tab to Unit Status for player-controlled surface ships.
 For development context, verified behavior and a runnable demo, see the
 [development handoff](handoff.md).
 The Supplies tab monitors inventories with category/search filters, quantities,
-capacities and minimum retained stocks. Identical stores in the same category
+capacities, current use/production rates and minimum retained stocks. Identical stores in the same category
 share one row with summed quantities/capacities and a list of locations. Mounted
 weapons and magazine ammunition remain separate. Transfers use the underlying
 usable magazines rather than replacing them with a synthetic inventory.
@@ -53,7 +53,38 @@ Locations format internal names such as `WeaponMagazineMK45_1` as
   and accountable categories.
 - Fuel reserve, food, fresh water and spare parts use UNREP-owned inventories.
   These are configurable gameplay quantities, not historical manifests.
-  They do not yet affect propulsion, aircraft refuelling, consumption or repairs.
+  Fuel, food and parts are consumed; fresh water is produced up to capacity.
+  Empty stores do not stop propulsion or damage control. Aircraft refuelling
+  and native replenishment cargo remain separate from these reserves.
+
+Use / production shows signed kg/hour for these reserves. Negative rates consume
+stock; positive rates produce it. Rates update with engine orders and actual DC
+work, and show zero at an empty consuming bin or a full producing bin. While
+paused, the column shows the operating rate but quantities do not change.
+Consumption applies to living, operational surface ships regardless of whether
+their UNREP/VERTREP tabs are enabled. Minimum retained stocks limit transfers,
+not onboard consumption.
+
+Fuel use follows the demanded engine setting, including during acceleration:
+full reverse uses 100% of the full-ahead rate, full ahead 100%, and flank 200%.
+Custom speed orders interpolate from stop to full and from full to flank using
+the ship's native telegraph speeds; reverse orders interpolate against full
+reverse speed. All stop consumes no fuel reserve.
+
+Food and spare parts have a steady hourly draw. Each DC team actually repairing
+leaks, fires, flooding, structure or systems adds extra parts use. Teams merely
+assigned to an undamaged compartment add nothing. Native repairs continue at
+their usual rate even after spare parts reach zero.
+
+The `[Consumption]` section of `supplies.ini` sets each rate as
+`BaseKgPerHour + KgPerTonnePerHour × displacement`. Defaults per tonne/hour are
+0.25 kg fuel at full, 0.002 kg food, 0.001 kg parts and 0.02 kg water production.
+Each active DC team adds 250 kg/hour of parts use. These are gameplay defaults.
+The prefixes are `FuelFull`, `FoodUse`, `SparePartsUse`, `WaterProduction` and
+`SparePartsPerDCTeam`. Override either coefficient under a ship catalogue section,
+or set both to zero to disable that rate. Missing settings use these defaults,
+including in existing installed INI files. Changes take effect after restarting.
+All stock changes use simulation time and clamp between zero and capacity.
 
 Ships can participate in UNREP and VERTREP simultaneously by default. To require
 one method at a time, edit `supplies.yml` beside the installed `UNREP.dll`:

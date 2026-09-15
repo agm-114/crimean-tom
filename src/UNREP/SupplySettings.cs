@@ -8,6 +8,14 @@ namespace UNREP;
 internal static class SupplySettings
 {
     private static IniHandler ini = null!;
+    private static readonly Dictionary<string, (double Base, double PerTonne)> RateDefaults = new()
+    {
+        ["FuelFull"] = (0, 0.25),
+        ["FoodUse"] = (0, 0.002),
+        ["WaterProduction"] = (0, 0.02),
+        ["SparePartsUse"] = (0, 0.001),
+        ["SparePartsPerDCTeam"] = (250, 0)
+    };
     internal static bool AllowConcurrentUnrepAndVertrep { get; private set; } = true;
     public class OperationsOptions
     {
@@ -50,6 +58,12 @@ internal static class SupplySettings
         RelativeSpeedTolerance = Read("Transfer", "RelativeSpeedToleranceKnots", 1, 0.1, 3);
         SlingCapacityKg = Read("Helicopter", "SlingCapacityKg", 500, 1, 10000);
         HoverToleranceNm = Read("Helicopter", "HoverToleranceNm", 0.05, 0.01, 0.1);
+        foreach (string section in ini.getNamesOfAllSections())
+        foreach (string key in RateDefaults.Keys)
+        {
+            Read(section, key + "BaseKgPerHour", 0, 0, 1e9);
+            Read(section, key + "KgPerTonnePerHour", 0, 0, 1e6);
+        }
         foreach (string section in ini.getNamesOfAllSections().Where(section => section != "Transfer"))
         foreach (string stock in new[] { "Fuel", "Food", "Water", "SpareParts" })
         foreach (string suffix in new[] { "", "Capacity" })
@@ -70,6 +84,18 @@ internal static class SupplySettings
 
     private static double Value(Vessel ship, string key, double maximum) =>
         Read(ship._obp._objectIniName, key, Read("Defaults", key, 0, 0, maximum), 0, maximum);
+
+    internal static double HourlyRate(Vessel ship, string key)
+    {
+        var defaults = RateDefaults[key];
+        double baseRate = Read(ship._obp._objectIniName, key + "BaseKgPerHour",
+            Read("Consumption", key + "BaseKgPerHour", defaults.Base, 0, 1e9), 0, 1e9);
+        double perTonne = Read(ship._obp._objectIniName, key + "KgPerTonnePerHour",
+            Read("Consumption", key + "KgPerTonnePerHour", defaults.PerTonne, 0, 1e6), 0, 1e6);
+        double displacement = ship.VP?._displacement ?? 0;
+        if (double.IsNaN(displacement) || double.IsInfinity(displacement)) displacement = 0;
+        return Math.Clamp(baseRate + perTonne * Math.Max(0, displacement), 0, 1e9);
+    }
 
     private static double Read(string section, string key, double fallback, double min, double max)
     {

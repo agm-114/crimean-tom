@@ -23,6 +23,16 @@ the plan for a later visit. Both station slots remain supported.
 
 ## Starting point
 
+2026-09-14 consumption update: `SupplyConsumption.cs` patches the native vessel
+fixed tick to consume fuel, food and parts and produce fresh water. It observes
+successful native compartment repair actions to add parts use per active DC team;
+repairs never depend on available parts. Fuel tracks demanded engine orders,
+with full reverse/full at 100%, flank at 200%, and interpolation for custom speeds.
+`SupplySettings.HourlyRate` reads configurable rates from `[Consumption]` and
+per-class overrides. The Supplies table displays signed kg/hour, including zero
+at empty/full limits. Saved quantities use the existing inventory save path.
+This update has been compiled only, not deployed or verified in-game.
+
 - Branch: `codex/operations-campaign-pivot`, remote `origin` on GitHub.
 - `76d248c6`: rename projects/mods to Deck Tweaks, Quickload and Boat Ops.
 - `20b53aca`: inventories, alongside UNREP and helicopter VERTREP.
@@ -188,8 +198,8 @@ Deploy the new `YamlDotNet.dll` dependency with UNREP; preserve user YAML settin
 
 These are gaps, not approved tasks:
 
-- Fuel reserve is not connected to propulsion or aircraft refuelling. Food,
-  water and spare parts do not yet drive crew consumption or repairs.
+- Empty fuel and food reserves have no propulsion or crew penalty. Aircraft
+  refuelling remains separate. Spare parts consumption does not slow or block DC.
 - Active jobs are not restored from saves. Finish/cancel and complete breakaway
   before saving. Otherwise native saves can retain temporary movement orders
   without the owning job. This needs design before claiming save/load support.

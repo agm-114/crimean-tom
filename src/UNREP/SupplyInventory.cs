@@ -9,7 +9,9 @@ internal class SupplyBin(string key, string name, double capacity, double amount
     internal string Key { get; } = key;
     internal string Name { get; } = name;
     internal double Capacity { get; } = capacity;
-    internal double Amount { get; set; } = Math.Min(amount, capacity);
+    private double storedAmount = Math.Clamp(amount, 0, capacity);
+    internal double Amount { get => storedAmount; set => storedAmount = Math.Clamp(value, 0, Capacity); }
+    internal void Change(double delta) => Amount += delta;
 }
 
 [HarmonyPatch]
@@ -48,7 +50,8 @@ internal static class SupplyInventory
         foreach (var bin in Additional(ship))
             stocks.Add(new(bin.Key == "Fuel" ? "fuel" : "unrep/" + bin.Key,
                 bin.Key == "Fuel" ? "Fuel" : "Provisions and spares", bin.Name, "UNREP inventory", "kg",
-                () => bin.Amount, () => bin.Capacity, delta => bin.Amount += delta, showWhenEmpty: true));
+                () => bin.Amount, () => bin.Capacity, bin.Change, showWhenEmpty: true)
+            { RatePerHour = () => SupplyConsumption.For(ship).Rate(bin) });
 
         foreach (var magazine in ship._obp._magazineSystems.Concat(ship._obp._campaignMagazineSystems).Distinct())
         foreach (var ammo in magazine._ammunitionList.Distinct())
