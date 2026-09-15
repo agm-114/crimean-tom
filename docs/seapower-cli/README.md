@@ -58,6 +58,9 @@ seapower-cli units
 seapower-cli units-update
 seapower-cli status
 seapower-cli game-status
+seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP'
+seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP' --changelog 'Supply consumption update' --confirm
+seapower-cli workshop-status
 seapower-cli unity-explorer status
 seapower-cli unity-explorer install --confirm
 seapower-cli unity-explorer enable --confirm
@@ -133,6 +136,76 @@ may not render a frame before the command times out. Requires the updated bridge
 `inspect` reports `isChecked` for checkboxes, toggles and radio-button tabs.
 `click` preserves their bindings. Clicking an already selected radio tab leaves
 it selected. Inspect after clicking to verify the selected tab and its contents.
+
+## Updating an existing Workshop mod
+
+`workshop-update` targets the existing Steam Workshop URL stored in the packaged
+mod's metadata. Add this section to `_info.ini`, Sea Power's native metadata file,
+or to an INI-format `mod.info` beside it. Replace the placeholder with the actual
+item ID copied from the existing Workshop page:
+
+```ini
+[Workshop]
+Url=https://steamcommunity.com/sharedfiles/filedetails/?id=YOUR_EXISTING_ITEM_ID
+Title=UNREP
+```
+
+`Title` is the expected current Steam title. The name and description to publish
+come from `[Language_en] Name` and `Description` in `_info.ini`. Both keys are
+required, and the name must be nonempty. An explicit `Description=` clears the
+English Steam description; `\n` in a description becomes a line break. Preview
+shows proposed `title`/`description` and the existing `currentTitle`/`currentDescription`.
+
+To rename a listing, set `Name` to the new name and `Workshop/Title` to its current
+Steam title. Verification accepts either the pinned old title or the desired new
+name, so subsequent uploads still work after the rename. Without `Workshop/Title`,
+the current Steam title must match `Name`. Conflicting entries
+between files are rejected. Optional `AppId` must be `1286220`, and optional
+`PublishedFileId` must agree with the URL. There is no item-ID command-line
+override and no create-new-item fallback. Missing or invalid URLs stop the command.
+
+```powershell
+# Read-only preview: verify identity, report the target and package size.
+seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP'
+
+# Update that existing item.
+seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP' --changelog 'Supply consumption update' --confirm
+seapower-cli workshop-status
+```
+
+Both preview and upload require Steam signed in, Sea Power running, and the updated
+game bridge enabled. The command uses the game's Steam connection and does not
+launch the game or ask for Steam credentials. Build both CLI and bridge, deploy
+the bridge, then restart the game when ready to use it.
+
+Before submission, the bridge requests fresh Steam item details and checks the
+exact item ID, Sea Power app ID, signed-in owner and expected title. Banned items
+and collections are rejected. It rechecks local identity and the Steam account
+before submitting. URL/title mismatches require correcting the metadata, not
+selecting another target automatically.
+
+The upload replaces the item's content with the entire packaged directory,
+updates `thumbnail.jpg` if present and at most 1,000,000 bytes, and sends native
+compatibility metadata from `_info.ini` when present. It synchronizes the English
+listing name and description from `_info.ini`, while preserving other languages,
+tags, visibility and dependencies. The folder must include
+`_info.ini` and a payload; source/build directories and file/directory links are
+rejected. Keep package contents stable during an upload. No local files are
+rewritten or silhouette data baked by this command.
+
+The default timeout is 600 wall-clock seconds. Steam lookups time out after 60
+seconds without submitting. An accepted upload continues if the CLI exits or
+times out; use `workshop-status` before retrying. Only one bridge Workshop
+operation can run at a time. Status retains the current/most recent operation
+within the game session and accepts `--operation TOKEN` to avoid reading another
+operation's result. It reports progress bytes and the Workshop URL. `updated`
+means Steam returned a successful submission callback; `agreement-required`
+includes Steam's agreement URL and exits with a nonzero code because publication
+is not complete.
+
+Implementation follows Steam's [item update API](https://partner.steamgames.com/doc/api/ISteamUGC#StartItemUpdate)
+and the installed game's uploader. Validation so far is build and offline identity
+checks only; no live Workshop item has been uploaded by this change.
 
 ## Installation, logs and startup
 

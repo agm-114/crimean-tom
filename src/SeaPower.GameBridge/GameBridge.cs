@@ -6,6 +6,7 @@ namespace SeaPower.GameBridge;
 public class GameBridge : MonoBehaviour
 {
     private readonly UiControls controls = new();
+    private readonly WorkshopControls workshop = new();
     private readonly string session = Guid.NewGuid().ToString("N");
     private readonly string directory = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "SeaPowerGameBridge");
     private float nextPoll;
@@ -13,7 +14,7 @@ public class GameBridge : MonoBehaviour
     private void Awake()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot" } }));
+        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot", "workshop-update" } }));
         Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
@@ -21,6 +22,7 @@ public class GameBridge : MonoBehaviour
     {
         if (Time.realtimeSinceStartup < nextPoll) return;
         nextPoll = Time.realtimeSinceStartup + 0.1f;
+        workshop.Tick();
         string request = Path.Combine(directory, "request.json");
         if (!File.Exists(request)) return;
         GameCommand? command = null;
@@ -34,7 +36,8 @@ public class GameBridge : MonoBehaviour
             if (command == null || !Guid.TryParseExact(command.Request, "N", out _)) return;
             if (command.Session != session || command.Expires < DateTime.UtcNow)
                 throw new InvalidOperationException("Expired request or stale game session. Inspect again.");
-            if (command.Action == "screenshot") StartCoroutine(Capture(command));
+            if (command.Action is "workshop-update" or "workshop-status") Reply(command, workshop.Execute(command));
+            else if (command.Action == "screenshot") StartCoroutine(Capture(command));
             else Reply(command, controls.Execute(command));
         }
         catch (Exception exception)
@@ -75,6 +78,7 @@ public class GameBridge : MonoBehaviour
 
     private void OnDestroy()
     {
+        workshop.Dispose();
         string path = Path.Combine(directory, "session.json");
         if (File.Exists(path) && File.ReadAllText(path).Contains(session)) File.Delete(path);
     }
@@ -92,6 +96,8 @@ internal class GameCommand
     public int Index { get; set; } = -1;
     public string Text { get; set; } = "";
     public bool Confirm { get; set; }
+    public string ModDirectory { get; set; } = "";
+    public string ChangeLog { get; set; } = "";
     public float Speed { get; set; } = 1;
     public float Value { get; set; }
 }

@@ -28,6 +28,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli presets
         seapower-cli status [--format yaml|json]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
+        seapower-cli workshop-update --mod-dir PATH [--changelog TEXT] [--confirm] [--timeout 600]
+        seapower-cli workshop-status [--operation TOKEN]
         seapower-cli unity-explorer [status|install|enable|disable] [--confirm] [--game-dir PATH]
         seapower-cli logs [--tail 200] [--game-dir PATH] [--log-file PATH]
         seapower-cli launch --confirm [--require-pattern REGEX] [--timeout 60] [--game-dir PATH]
@@ -90,6 +92,12 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         already accepted by the game. Only launch --confirm starts the game.
         unity-explorer manages the BepInEx 5 Mono plugin without the bridge. Changes require --confirm and a closed game.
         install downloads pinned 4.9.0, verifies SHA-256 and installs disabled. It never overwrites an existing installation.
+        workshop-update previews an existing item by [Workshop] Url in _info.ini or mod.info.
+        --confirm syncs Language_en Name/Description from _info.ini plus content, thumbnail and compatibility metadata.
+        It verifies the app, owner and title. Workshop/Title can pin the old title for an intentional rename.
+        It never creates an item or changes tags, visibility or dependencies.
+        Requires a packaged mod folder and the updated bridge running under Steam. It does not launch the game.
+        Timeout/Ctrl+C does not cancel accepted uploads. Use workshop-status before retrying.
         """;
 
     internal static CliCommand Parse(string[] args)
@@ -100,6 +108,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             "inspect" or "update" or "units" or "units-update" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
+            "workshop-update" => ["--mod-dir", "--changelog", "--confirm"],
+            "workshop-status" => ["--operation"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
             "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm", "--scenario"],
@@ -165,6 +175,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         int seconds = Number("--seconds", 60, 1, 86400);
         string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
         if (action == "load-scenario" && scenario == null) Required("--scenario");
+        string modDirectory = action == "workshop-update" ? Path.GetFullPath(Required("--mod-dir")) : "";
+        if (action == "workshop-update") new SeaPower.Workshop.WorkshopManifest(modDirectory).ContentFiles();
+        string changeLog = options.GetValueOrDefault("--changelog") ?? "";
+        if (changeLog.Length > 4000) throw new ArgumentException("--changelog must not exceed 4000 characters.");
         if (scenario != null && (!Path.GetExtension(scenario).Equals(".ini", StringComparison.OrdinalIgnoreCase) || !File.Exists(scenario)))
             throw new ArgumentException("--scenario requires an existing mission .ini file.");
         string page = options.ContainsKey("--page") ? Required("--page").ToLowerInvariant() : "";
@@ -173,7 +187,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
-        int defaultTimeout = action switch { "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
+        int defaultTimeout = action switch { "workshop-update" => 600, "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
         if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia"
             || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
@@ -187,6 +201,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             "set-text" or "wait-for" => Required("--text", action == "set-text"),
             "unity-explorer" => operation,
+            "workshop-status" => options.GetValueOrDefault("--operation") ?? "",
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
         float speed = 1;
@@ -202,6 +217,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Depth = Number("--depth", 8, 0, 32),
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
+            ModDirectory = modDirectory, ChangeLog = changeLog,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,

@@ -27,7 +27,7 @@ try
     }
     else result = await new GameClient().ExecuteAsync(command, timeout.Token);
     Console.WriteLine(SnapshotData.Format(result, format));
-    return 0;
+    return command.Request.Action == "workshop-update" && !result.GetProperty("ok").GetBoolean() ? 1 : 0;
 }
 catch (Exception exception)
 {
@@ -37,6 +37,8 @@ catch (Exception exception)
         : exception.Message;
     if (command?.Request.Action == "launch" && exception is OperationCanceledException)
         error += " Launch verification did not finish. Sea Power may still be running; check game-status and logs before retrying.";
+    if (command?.Request.Action == "workshop-update")
+        error += " Use workshop-status before retrying; accepted Steam uploads continue after the CLI exits.";
     Console.Error.WriteLine(SnapshotData.Format(JsonSerializer.SerializeToElement(new { error }), format));
     return cancelled.IsCancellationRequested ? 130 : 1;
 }

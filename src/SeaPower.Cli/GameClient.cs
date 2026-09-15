@@ -6,6 +6,7 @@ internal class GameClient
 {
     private readonly string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SeaPowerGameBridge");
     private string? session;
+    private string? requiredCapability;
 
     internal async Task<JsonElement> LoadScenarioAsync(string path, DateTime launchUtc, CancellationToken cancellation)
     {
@@ -46,6 +47,20 @@ internal class GameClient
 
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
     {
+        if (command.Request.Action is "workshop-update" or "workshop-status") requiredCapability = "workshop-update";
+        if (command.Request.Action == "workshop-update")
+        {
+            JsonElement result = await SendAsync(command.Request, cancellation);
+            string operation = result.GetProperty("operation").GetString()!;
+            while (result.GetProperty("state").GetString() is "checking" or "uploading")
+            {
+                await Task.Delay(500, cancellation);
+                result = await SendAsync(new("workshop-status") { Text = operation }, cancellation);
+            }
+            if (result.GetProperty("state").GetString() == "failed")
+                throw new InvalidOperationException($"{result.GetProperty("failure").GetString()} Target: {result.GetProperty("url").GetString()}. Operation: {operation}.");
+            return result;
+        }
         if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);
         if (command.Request.Action == "encyclopedia")
         {
@@ -170,6 +185,9 @@ internal class GameClient
         string path = Path.Combine(directory, "session.json");
         if (!File.Exists(path)) throw new InvalidOperationException("Game bridge is not running or enabled.");
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellation));
+        if (requiredCapability != null && (!document.RootElement.TryGetProperty("capabilities", out var capabilities)
+            || !capabilities.EnumerateArray().Any(value => value.GetString() == requiredCapability)))
+            throw new InvalidOperationException($"The running bridge lacks {requiredCapability}. Deploy the updated bridge and restart the game when ready.");
         string current = document.RootElement.GetProperty("session").GetString() ?? "";
         if (!Guid.TryParseExact(current, "N", out _)) throw new InvalidDataException("Invalid bridge session.");
         if (session != null && session != current) throw new InvalidOperationException("Game session changed. Inspect before retrying an action.");
