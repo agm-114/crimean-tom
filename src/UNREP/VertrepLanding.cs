@@ -121,7 +121,7 @@ internal partial class VertrepLanding : IDisposable
             previousOffset = null;
             arrivalVelocity = null;
             ReleasePoint(point);
-            Deck._trafficManager?.ReleaseVehicle(aircraft);
+            FlightDeckAccess.ReleaseVehicle(Deck, aircraft);
             aircraft._isLanding = aircraft.IsLanding = false;
             aircraft._flightDeckState = "";
             aircraft.EnableColliders();
@@ -137,7 +137,7 @@ internal partial class VertrepLanding : IDisposable
             point._incomingObjects.Add(aircraft);
             point._serviceState = FlightDeckPoint.ServiceState.Recovering;
             point._lastUsageStartTime = GameTime.missionElapsedTime;
-            Deck._trafficManager?.ForceClaimCorridor(aircraft, point._position, point._exitPosition);
+            FlightDeckAccess.ClaimCorridor(Deck, aircraft, point);
         }
         approach!.Update(GameTime.fixedDeltaTime, reserved);
         Status = reserved ? "Approaching landing entry" : approach.Aligned
@@ -149,8 +149,7 @@ internal partial class VertrepLanding : IDisposable
     }
     private bool SpotClear(RecoveryPoint candidate) => !candidate.IsOccupied && !candidate.IsBusy
         && !candidate.IsBlockedByPoint && CorridorClear(candidate);
-    private bool CorridorClear(RecoveryPoint candidate) => Deck.RecoveryStripClear(candidate, aircraft)
-        && Deck._trafficManager?.IsRunwayZoneOccupied(candidate._position, aircraft) != true;
+    private bool CorridorClear(RecoveryPoint candidate) => FlightDeckAccess.CorridorClear(Deck, candidate, aircraft);
 
     private void Hold(string reason)
     {
@@ -348,7 +347,7 @@ internal partial class VertrepLanding : IDisposable
                 }
                 aircraft._isInFlight = true;
                 aircraft.transform.SetParent(null, worldPositionStays: true);
-                task._flightDeck._trafficManager?.ReleaseVehicle(aircraft);
+                FlightDeckAccess.ReleaseVehicle(task._flightDeck, aircraft);
             }
         }
         approach = null;

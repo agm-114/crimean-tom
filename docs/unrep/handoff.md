@@ -23,6 +23,17 @@ the plan for a later visit. Both station slots remain supported.
 
 ## Starting point
 
+2026-09-15 FlightDeck compatibility fix: the installed Seapower-Scripts.dll SHA-256
+starts `253741f4cf4e`, while the earlier decompilation starts `ac34eed66d52`.
+The installed assembly omits `_trafficManager`, `_zoneManager`, their manager
+types, and `RecoveryStripClear`; these were not merely renamed or made private.
+`FlightDeckAccess.cs` caches optional reflection access for builds that provide
+them. Without the strip API it uses the earlier native method's no-zone geometry,
+checking ship-attached aircraft against the recovery path and aircraft radii.
+Existing point claims, blocking links, normal-ops priority and the 30 m conflict
+fallback remain active. UNREP now compiles against the installed assembly with
+zero warnings/errors. This fix has not been deployed or tested in-game.
+
 2026-09-14 consumption update: `SupplyConsumption.cs` patches the native vessel
 fixed tick to consume fuel, food and parts and produce fresh water. It observes
 successful native compartment repair actions to add parts use per active DC team;

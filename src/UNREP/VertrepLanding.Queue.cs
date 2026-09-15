@@ -97,11 +97,7 @@ internal partial class VertrepLanding
             if (other._blockedRecoveryPoints.Contains(point)
                 || other is RecoveryPoint recovery && point._blockedRecoveryPoints.Contains(recovery)
                 || other is LaunchPoint launch && point._blockedLaunchPoints.Contains(launch)) return true;
-            var zones = Deck._zoneManager;
-            var first = zones?.RunwayContaining(point._position);
-            var second = zones?.RunwayContaining(other._position);
-            if ((first != null && zones!.RunwayOrConflictContains(first, other._position))
-                || (second != null && zones!.RunwayOrConflictContains(second, point._position))) return true;
+            if (FlightDeckAccess.ZonesConflict(Deck, point._position, other._position)) return true;
             // Older ship definitions can share physical space without naming a zone.
             Vector3 offset = point._position - other._position;
             return Vector3.ProjectOnPlane(offset, Vector3.up).magnitude < Utils.heightInMeterToUnity(30);
