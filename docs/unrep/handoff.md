@@ -148,6 +148,13 @@ This queue refactor builds without deployment or runtime verification. The prior
 scheduler/targetability build loaded on 2026-09-14 at 12:05 UTC, with six CH-46s
 assigned and Saipan queued. That startup does not verify this refactor.
 
+The queue refactor subsequently loaded at 12:22 UTC. The user reported a small
+approach overshoot. Braking now includes the one-second velocity response and
+the time needed to reverse acceleration at the existing 0.75 m/s³ jerk limit.
+The near-target position gain is 0.2/s, giving an overdamped linear response
+before acceleration/jerk saturation. This braking adjustment builds but has not
+been deployed or observed in-game.
+
 Targetability audit found that HasControl=false makes Radar, SensorSystemVisual,
 SeekerBase and AI reject targets, while DisableColliders disables damage hitboxes.
 Owned approaches now keep HasControl=true and hitboxes enabled, including native

@@ -8,6 +8,9 @@ namespace UNREP;
 internal class HelicopterApproach
 {
     private const float KnotsToMetres = 0.514444f;
+    private const float VelocityResponseSeconds = 1;
+    private const float ArrivalGain = 0.2f;
+    private const float MaxJerk = 0.75f;
     private static readonly float Metre = Utils.heightInMeterToUnity(1);
     private readonly Helicopter aircraft;
     private readonly Vessel ship;
@@ -61,11 +64,11 @@ internal class HelicopterApproach
                 ArrivalSpeed(error.z, error.z >= 0 ? Math.Min(12, aircraft._maxSpeedSeaLevel * KnotsToMetres)
                     : Math.Min(3, aircraft._maxBackwardSpeed * KnotsToMetres), horizontalAcceleration));
             Vector3 desired = deckVelocity + rig * closure;
-            Vector3 requested = (desired - velocity) / 2;
+            Vector3 requested = (desired - velocity) / VelocityResponseSeconds;
             Vector3 horizontal = Vector3.ClampMagnitude(Vector3.ProjectOnPlane(requested, Vector3.up), horizontalAcceleration);
             requested = horizontal + Vector3.up * Mathf.Clamp(requested.y, -0.6f, 0.6f);
             // Bound jerk as well as acceleration. Braking never flips a steering target.
-            acceleration = Vector3.MoveTowards(acceleration, requested, 0.75f * dt);
+            acceleration = Vector3.MoveTowards(acceleration, requested, MaxJerk * dt);
             Vector3 nextVelocity = velocity + acceleration * dt;
             position += (velocity + nextVelocity) * (0.5f * dt * Metre);
             velocity = nextVelocity;
@@ -86,8 +89,19 @@ internal class HelicopterApproach
             && acceleration.magnitude < 0.1f && Quaternion.Angle(aircraft.transform.rotation, rig) < 1;
     }
 
-    private static float ArrivalSpeed(float distance, float limit, float acceleration) => Mathf.Sign(distance)
-        * Math.Min(limit, Math.Min(Math.Abs(distance) * 0.35f, Mathf.Sqrt(2 * acceleration * Math.Abs(distance))));
+    private static float ArrivalSpeed(float distance, float limit, float acceleration)
+    {
+        float remaining = Math.Abs(distance);
+        // Allow time for velocity feedback and a full acceleration-to-braking ramp.
+        // Solve distance = speed * response + speed² / (2 * acceleration).
+        float response = VelocityResponseSeconds + 2 * acceleration / MaxJerk;
+        float margin = acceleration * response;
+        float brakingSpeed = 2 * acceleration * remaining
+            / (Mathf.Sqrt(margin * margin + 2 * acceleration * remaining) + margin);
+        // ArrivalGain * VelocityResponseSeconds below 1/4 makes the linear
+        // arrival overdamped, before acceleration/jerk limits are applied.
+        return Mathf.Sign(distance) * Math.Min(limit, Math.Min(remaining * ArrivalGain, brakingSpeed));
+    }
 
     private void Rotate(Quaternion rig, float dt)
     {
