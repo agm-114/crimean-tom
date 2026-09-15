@@ -8,6 +8,7 @@
     <AssemblyName>seapower-cli</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../SeaPower.GameBridge/WorkshopManifest.cs" Link="WorkshopManifest.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="System.Linq.Dynamic.Core" Version="1.7.4" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />

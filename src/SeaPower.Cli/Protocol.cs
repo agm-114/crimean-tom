@@ -13,6 +13,8 @@ internal record GameRequest(string Action)
     public int Index { get; init; } = -1;
     public string Text { get; init; } = "";
     public bool Confirm { get; init; }
+    public string ModDirectory { get; init; } = "";
+    public string ChangeLog { get; init; } = "";
     public float Speed { get; init; } = 1;
     public float Value { get; init; }
 }
