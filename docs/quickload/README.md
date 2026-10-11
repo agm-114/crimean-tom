@@ -3,8 +3,21 @@
 The project and DLL are `Quickload`; the plugin ID is `crimean-tom.quickload`.
 Deployment disables the old `SeaPower.StartupTweaks.dll` in the Quickload folder.
 
-Experimental AnchorChain mod for Sea Power `0.8.2-23444+s358`. Unsupported game
+Experimental AnchorChain mod for Sea Power `0.8.5-261008`. Unsupported game
 versions keep the native startup flow. Independent of Loading Profiler.
+
+The October 2026 update moved encyclopedia cloning into `UnitTreeBrowserViewModel`.
+Quickload supplies cached rows to that browser's native cloning and visibility
+filters, and uses live entries when its completion event refreshes the browser.
+The October 11 startup check passed in the installed game. Native metadata,
+encyclopedia entries, voices and all seven music bundles completed, with 649 unit
+records ready. The replenishment playground reached the tactical screen.
+Cached encyclopedia browsing during loading has not been checked visually.
+
+Sea Power `0.8.5-261008` loads unit metadata on parallel workers, then finalizes
+the results on the main thread. Quickload builds cached unit labels only after
+that native stage completes. Per-unit collection updates, metadata reprioritization
+and per-file metadata progress hooks have been removed from the worker path.
 
 ## Build and deploy
 
@@ -115,8 +128,8 @@ The full native encyclopedia keeps its own unit list and data pane. While the
 detail batch is incomplete, the list uses cached class labels. A selection whose
 details are missing clears the data pane; the real entry replaces it when ready.
 The native 3D scene still needs unit metadata before it can open safely.
-Unit metadata selection priority applies to pending entries in the current folder.
-The encyclopedia batch puts the selected class first when its unit enumeration
+Native parallel metadata loading retains its own order. The encyclopedia batch
+puts the selected class first when its unit enumeration
 starts. It does not preempt a unit enumeration already in progress.
 
 Metadata completion replaces cached unit labels and removes missing or hidden

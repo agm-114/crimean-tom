@@ -1,13 +1,14 @@
 # UNREP development handoff
 
-Snapshot from 2026-09-12. Read [README.md](README.md) for the current feature
+Updated 2026-10-11. Read [README.md](README.md) for the current feature
 contract and configuration, and the repository's `AGENTS.md` before working.
 This is context, not authorization to restart a later user's game session.
 
-Current working changes add stacked inventory rows, per-ship minimum reserves,
-and UNREP/VERTREP tabs enabled from Supplies. They are deployed and remain
-uncommitted. See README for the current workflow and
-[tab verification](verification-20260912.md) for the latest runtime checks.
+The inventory and tab changes are committed and pushed. UNREP has stacked
+inventory rows, per-ship minimum reserves, and UNREP/VERTREP tabs enabled from
+Supplies. See README for the current workflow and
+[tab verification](verification-20260912.md) for the earlier runtime checks.
+Deployment and verification differ by change, as recorded below.
 `SupplyPolicy.cs` owns switches, reserve floors and their save data;
 `TransferView.cs` owns UNREP and `VertrepView.cs` owns VERTREP. Save keys use unpadded Base64;
 padding broke INI parsing and reset minimums on reload in the first test build.
@@ -22,6 +23,45 @@ alongside visit. Ship UP/DOWN controls the next free station, and REQUEUE preser
 the plan for a later visit. Both station slots remain supported.
 
 ## Starting point
+
+2026-10-11 game update: all 13 solution projects rebuilt against `0.8.5-261008`.
+Seapower-Scripts SHA-256 starts `3b193dcb71fc`. Native references, Harmony targets
+and injected parameters/fields resolve; 82 extra pattern and reflection checks
+passed. UNREP, Deck Tweaks, Boat Ops, Amphibs, Quickload and Game Bridge were
+deployed. The fleet playground reached the tactical screen with three Tarawas
+and six CH-46s. All six helicopters were assigned to Tarawa, Saipan was queued
+for VERTREP, and Belleau Wood was queued for UNREP. The session was left paused
+on the helicopter table at 14.74 seconds. Read live status before using this
+historical setup. This confirms loading and queue controls, not a complete
+replenishment cycle.
+
+Quickload initially failed because native metadata loading now uses parallel
+workers. Its per-unit collection hooks were removed; cached labels now rebuild
+after native metadata completes on the main thread. Fresh startup reached
+`Core ready: 649 unit records; voice ready=True` without that failure.
+
+AnchorChain's submodule remains on `codex/selected-mod-directories`, commit
+`a2f2a47`. Its rebuilt loader replaced the older installed Workshop DLL; the
+preloader was unchanged. Temporarily renamed mod DLLs were restored. Fresh logs
+exclude the unchecked Airdrop, Deckpark, Spacewar and campaign mods. Quickload is
+checked for this test session. Deployment backups and hashes are under the
+ignored `artifacts/test-session-20261011/` directory.
+
+2026-10-02 game update: source rebuilt against `0.8.3-261001` (Steam build
+`25654788`, Seapower-Scripts SHA-256 starts `0fe6aaf2a6d9`). Native references,
+Harmony parameters and injected fields, all UNREP transpiler patterns, and the
+five damage-control hooks pass static checks. FlightDeck, FlightDeckPoint,
+HelicopterLanding, RecoveryPoint and DeckZone match the September 15 exports
+after normalizing developer paths in log messages. No game launch or deployment
+was performed. The source compatibility declaration now names this version.
+
+The repository cleanup builds without deployment. Inventory matching is shared in
+`SupplyInventory.Transferable`, and `SupplyTransfers.Move` handles both complete
+supply lists and filtered receiver queues. Landing scheduling computes compatible
+points once per eligible helicopter per scheduling pass, retaining closest-first
+selection, overdue priority and separate current/next slots. The October 11
+startup and scenario loading checks include this cleanup; landing cycles and
+formation behavior still need the player's test.
 
 2026-09-15 FlightDeck compatibility fix: the installed Seapower-Scripts.dll SHA-256
 starts `253741f4cf4e`, while the earlier decompilation starts `ac34eed66d52`.
