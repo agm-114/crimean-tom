@@ -175,7 +175,7 @@ internal static class BoatOperations
                     {
                         string[] fields = row.Split(':');
                         if (fields.Length == 2 && float.TryParse(fields[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float seconds)
-                            && !float.IsNaN(seconds) && !float.IsInfinity(seconds) && bool.TryParse(fields[1], out bool launch))
+                            && float.IsFinite(seconds) && bool.TryParse(fields[1], out bool launch))
                             inventory.Tasks.Add(new(craft, Math.Clamp(seconds, 0, inventory.Definition.PreparationSeconds), launch));
                     }
                 }

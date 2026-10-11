@@ -53,11 +53,12 @@ internal class SpacecraftProxy : MonoBehaviour
             (float)(next._height - geo._height),
             (float)((next._latitude - geo._latitude) * OrbitalDisplay.UnitsPerDegree));
         // Crossing the antipodal map seam changes the pin's side, not its orbital speed.
-        if (velocity.magnitude > 1000) velocity = Vector3.zero;
+        float speed = velocity.magnitude;
+        if (speed > 1000) { velocity = Vector3.zero; speed = 0; }
         if (velocity.sqrMagnitude > 0.000001f) Unit.transform.rotation = Quaternion.LookRotation(velocity);
-        Unit.setVelocityInKnots(velocity.magnitude * (float)OrbitalDisplay.MetresPerUnityUnit * 1.94384449f);
+        Unit.setVelocityInKnots(speed * (float)OrbitalDisplay.MetresPerUnityUnit * 1.94384449f);
         Unit._velocityVecInUnity = velocity;
-        Unit._velocityInUnity = velocity.magnitude;
+        Unit._velocityInUnity = speed;
         Unit.Heading.Value = Unit.getHeading();
         Unit.Velocity.Value = Unit.getVelocityInKnots();
         Unit.Altitude.Value = Unit.getHeightInFeet();

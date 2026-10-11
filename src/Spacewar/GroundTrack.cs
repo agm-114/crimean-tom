@@ -32,7 +32,8 @@ internal class GroundTrack
     internal void Draw(Orbit orbit, double seconds)
     {
         moving.Children.Clear();
-        var previous = orbit.At(seconds);
+        var current = orbit.At(seconds);
+        var previous = current;
         for (int step = 1; step <= 180; step++)
         {
             var next = orbit.At(seconds + orbit.Period * step / 180);
@@ -41,7 +42,6 @@ internal class GroundTrack
                 Line(moving, X(previous.Longitude), Y(previous.Latitude), X(next.Longitude), Y(next.Latitude), TrackBrush);
             previous = next;
         }
-        var current = orbit.At(seconds);
         Dot(X(current.Longitude), Y(current.Latitude), TrackBrush);
     }
 

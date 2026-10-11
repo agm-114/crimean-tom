@@ -39,7 +39,7 @@ internal class SupplyConsumption(Vessel ship)
     {
         var command = ship.SpeedCommand.Value;
         double speed = command?.GetDemandedSpeedInKnots(ship) ?? 0;
-        if (double.IsNaN(speed) || double.IsInfinity(speed) || speed == 0) return 0;
+        if (!double.IsFinite(speed) || speed == 0) return 0;
         // Engine orders matter even before the hull reaches the requested speed.
         if (command is TelegraphSpeed telegraph)
         {

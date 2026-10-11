@@ -18,8 +18,8 @@ internal class SupplyStock(string key, string category, string name, string loca
     internal bool CanChange => change != null;
     private bool ShowWhenEmpty => showWhenEmpty;
     internal bool Visible => Current > 0 || ShowWhenEmpty;
-    internal bool Transferable => change != null && !double.IsNaN(Current) && !double.IsInfinity(Current)
-        && !double.IsNaN(Capacity) && !double.IsInfinity(Capacity) && (usable?.Invoke() ?? true);
+    internal bool Transferable => change != null && double.IsFinite(Current)
+        && double.IsFinite(Capacity) && (usable?.Invoke() ?? true);
     public string Amount => double.IsNaN(Capacity) ? $"{Current:N0} {Unit}" : $"{Current:N0} / {Capacity:N0} {Unit}";
     public string Handling => change == null ? "Inventory only" : !Transferable ? "Unavailable" : "Transferable";
     internal Func<double>? RatePerHour { get; set; }

@@ -118,7 +118,7 @@ internal class TaskPreparation(PreparationBatch batch)
         preparation.UpdateReservation(task);
         preparation.Sync(task);
         double seconds = preparation.Batch.EstimatedSeconds(task.AssignedGroundCrew) / speed;
-        task.Info = double.IsInfinity(seconds) || double.IsNaN(seconds) ? "Awaiting crew"
+        task.Info = !double.IsFinite(seconds) ? "Awaiting crew"
             : $"{task.AssignedGroundCrew} crew, batch ready in {(int)(seconds / 60)}:{(int)(seconds % 60):00}";
         return false;
     }

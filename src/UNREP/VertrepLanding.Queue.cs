@@ -61,14 +61,14 @@ internal partial class VertrepLanding
         private void Schedule()
         {
             double now = GameTime.missionSessionTime;
-            var waiting = visits.Where(visit => visit.Eligible).ToList();
+            var waiting = visits.Where(visit => visit.Eligible).ToDictionary(visit => visit,
+                visit => Points(ship, visit.aircraft).ToHashSet());
             while (waiting.Count > 0)
             {
-                var next = waiting.SelectMany(visit => slots.Where(slot => slot.CanStage(visit)
-                        && Points(ship, visit.aircraft).Contains(slot.Point))
-                    .Select(slot => new { Visit = visit, Slot = slot,
-                        Overdue = now - visit.queuedAt >= PriorityWaitSeconds,
-                        Distance = (visit.aircraft.transform.position - ship.transform.TransformPoint(slot.Point._position)).sqrMagnitude }))
+                var next = waiting.SelectMany(pair => slots.Where(slot => pair.Value.Contains(slot.Point) && slot.CanStage(pair.Key))
+                    .Select(slot => new { Visit = pair.Key, Slot = slot,
+                        Overdue = now - pair.Key.queuedAt >= PriorityWaitSeconds,
+                        Distance = (pair.Key.aircraft.transform.position - ship.transform.TransformPoint(slot.Point._position)).sqrMagnitude }))
                     .OrderBy(pair => pair.Overdue ? 0 : 1)
                     .ThenBy(pair => pair.Overdue ? pair.Visit.queuedAt : 0)
                     .ThenBy(pair => pair.Distance).ThenBy(pair => pair.Visit.aircraft.GetInstanceID()).FirstOrDefault();

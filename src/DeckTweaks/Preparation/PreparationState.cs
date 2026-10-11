@@ -82,7 +82,7 @@ internal class AircraftPreparation
     }
 
     private static string Quantity(double value) => value > 0 && value < 0.01 ? "<0.01" : $"{Math.Floor(value * 100) / 100:0.##}";
-    internal static string Duration(double seconds) => double.IsInfinity(seconds) || double.IsNaN(seconds) ? "unknown"
+    internal static string Duration(double seconds) => !double.IsFinite(seconds) ? "unknown"
         : $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m {Math.Ceiling(seconds) % 60:00}s";
 
     internal AircraftPreparation(PreparationLoadout target)
@@ -178,7 +178,7 @@ internal class AircraftPreparation
     }
 
     private static double ValidNumber(double value, double maximum) =>
-        double.IsNaN(value) || double.IsInfinity(value) || value < 0 || value > maximum
+        !double.IsFinite(value) || value < 0 || value > maximum
             ? throw new FormatException("Invalid preparation quantity") : value;
 }
 

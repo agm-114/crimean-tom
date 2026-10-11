@@ -15,8 +15,7 @@ internal class VertrepTransfer(VertrepReceiver receiver, SupplyStock stock) : IN
     internal double Cargo => Operation.Helicopters.Where(helo => helo.Transfer == this).Sum(helo => helo.Cargo);
     internal double Available => !SupplyTransfers.Available(Target) ? 0
         : Math.Min(SupplyPolicy.Available(Operation.Source, Stock), Space);
-    private double Space => Math.Max(0, SupplyInventory.Read(Target)
-        .Where(item => item.Key == Stock.Key && item.Transferable).Sum(item => item.Free)
+    private double Space => Math.Max(0, SupplyInventory.Transferable(Target, Stock.Key).Sum(item => item.Free)
         - Operation.Transfers.Where(plan => plan.Target == Target && plan.Stock.Key == Stock.Key).Sum(plan => plan.Cargo));
     internal string Blocked => !SupplyTransfers.Available(Target) || Target._taskforce != Operation.Source._taskforce ? "Receiver unavailable"
         : !VertrepLanding.HasDeck(Target) ? "No helicopter landing deck"
@@ -138,14 +137,8 @@ internal class VertrepOperation(Vessel source)
         receiver.Queue();
         return "Receiver queued";
     }
-    internal void MoveReceiver(VertrepReceiver receiver, int direction)
-    {
-        var queue = Receivers.Where(plan => plan.Queued).ToList();
-        int index = queue.IndexOf(receiver), next = index + direction;
-        if (index < 0 || next < 0 || next >= queue.Count) return;
-        int first = Receivers.IndexOf(receiver), second = Receivers.IndexOf(queue[next]);
-        (Receivers[first], Receivers[second]) = (Receivers[second], Receivers[first]);
-    }
+    internal void MoveReceiver(VertrepReceiver receiver, int direction) =>
+        SupplyTransfers.Move(Receivers, receiver, direction, plan => plan.Queued);
     internal VertrepTransfer? NextTransfer(Helicopter aircraft) => Transfers.FirstOrDefault(plan => !plan.Cancelled
         && VertrepLanding.Supports(plan.Target, aircraft) && plan.Blocked.Length == 0 && plan.Available > 0.001);
     internal string WaitingStatus => Receivers.FirstOrDefault(plan => plan.Queued)?.Status ?? "Waiting for transfers";

@@ -124,5 +124,5 @@ internal static class PreparationCatalog
         ini != null && ini.Data.TryGetValue(section, out var values) && values.TryGetValue(key, out string value) ? value.Trim() : "";
     private static double Number(IniHandler? ini, string section, string key, double fallback) =>
         double.TryParse(Value(ini, section, key), NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            && !double.IsNaN(value) && !double.IsInfinity(value) && value >= 0 ? value : fallback;
+            && double.IsFinite(value) && value >= 0 ? value : fallback;
 }

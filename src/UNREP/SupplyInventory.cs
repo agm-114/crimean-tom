@@ -111,6 +111,9 @@ internal static class SupplyInventory
     internal static string Structure(Vessel ship) => string.Join("|", ship._obp._flightDeck?.FlightDeckTasks
         .Select(task => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(task).ToString()) ?? []);
 
+    internal static IEnumerable<SupplyStock> Transferable(Vessel ship, string key) =>
+        Read(ship).Where(stock => stock.Key == key && stock.Transferable);
+
     internal static List<SupplyStock> Stacked(Vessel ship) => Read(ship)
         .GroupBy(stock => new { stock.Key, stock.Category, stock.Name, stock.Unit, stock.CanChange })
         .Select(group =>
@@ -149,7 +152,7 @@ internal static class SupplyInventory
         foreach (var bin in Additional(__instance))
         {
             double amount = ini.readValue(sectionName, "UNREP_" + bin.Key, (float)bin.Amount);
-            if (!double.IsNaN(amount) && !double.IsInfinity(amount)) bin.Amount = Math.Clamp(amount, 0, bin.Capacity);
+            if (double.IsFinite(amount)) bin.Amount = Math.Clamp(amount, 0, bin.Capacity);
         }
     }
 }

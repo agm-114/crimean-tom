@@ -13,13 +13,13 @@ internal class Orbit
     internal double AscendingNode { get; }
     internal double PeriapsisArgument { get; }
     internal double MeanAnomaly { get; }
-    internal double Axis => EarthRadius + (Perigee + Apogee) / 2;
-    internal double Eccentricity => (Apogee - Perigee) / (2 * Axis);
-    internal double Period => 2 * Math.PI * Math.Sqrt(Axis * Axis * Axis / Mu);
+    internal double Axis { get; }
+    internal double Eccentricity { get; }
+    internal double Period { get; }
 
     internal Orbit(double perigee, double apogee, double inclination, double ascendingNode, double periapsisArgument, double meanAnomaly)
     {
-        if (new[] { perigee, apogee, inclination, ascendingNode, periapsisArgument, meanAnomaly }.Any(value => double.IsNaN(value) || double.IsInfinity(value))
+        if (new[] { perigee, apogee, inclination, ascendingNode, periapsisArgument, meanAnomaly }.Any(value => !double.IsFinite(value))
             || perigee < 160 || apogee < perigee || apogee > 100000 || inclination < 0 || inclination > 180)
             throw new ArgumentException("Orbit requires 160 <= perigee <= apogee <= 100000 km and inclination 0-180 degrees.");
         Perigee = perigee;
@@ -28,6 +28,9 @@ internal class Orbit
         AscendingNode = Wrap(ascendingNode);
         PeriapsisArgument = Wrap(periapsisArgument);
         MeanAnomaly = Wrap(meanAnomaly);
+        Axis = EarthRadius + (Perigee + Apogee) / 2;
+        Eccentricity = (Apogee - Perigee) / (2 * Axis);
+        Period = 2 * Math.PI * Math.Sqrt(Axis * Axis * Axis / Mu);
     }
 
     internal OrbitalPosition At(double seconds)

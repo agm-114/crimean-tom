@@ -73,7 +73,7 @@ internal class LoadProgress
         {
             if (System.IO.File.Exists(path) && new FileInfo(path).Length <= 65536)
                 previous = JsonConvert.DeserializeObject<Dictionary<string, double>>(System.IO.File.ReadAllText(path)) ?? [];
-            if (previous.Values.Any(value => double.IsNaN(value) || double.IsInfinity(value) || value < 0)) previous.Clear();
+            if (previous.Values.Any(value => !double.IsFinite(value) || value < 0)) previous.Clear();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {

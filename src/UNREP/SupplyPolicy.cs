@@ -15,7 +15,7 @@ internal class SupplyPolicy
     internal double Minimum(string key) => minimums.GetValueOrDefault(key);
     internal void SetMinimum(string key, double value)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value) || value < 0 || value > 1e9) return;
+        if (!double.IsFinite(value) || value < 0 || value > 1e9) return;
         minimums[key] = value;
     }
     internal void Enable(Vessel ship, bool airlift, bool enabled)
@@ -27,7 +27,7 @@ internal class SupplyPolicy
     }
     internal static double Available(Vessel ship, SupplyStock stock)
     {
-        double total = SupplyInventory.Read(ship).Where(item => item.Key == stock.Key && item.Transferable).Sum(item => item.Current);
+        double total = SupplyInventory.Transferable(ship, stock.Key).Sum(item => item.Current);
         return Math.Min(stock.Withdrawable, Math.Max(0, total - For(ship).Minimum(stock.Key)));
     }
     // INI keys cannot contain the '=' padding used by standard Base64.

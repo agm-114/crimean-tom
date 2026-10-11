@@ -117,8 +117,7 @@ internal class HelicopterReplenishment(VertrepOperation operation, Helicopter he
             FlyTo(Transfer.Target);
             return;
         }
-        foreach (var destination in SupplyInventory.Read(Transfer!.Target)
-            .Where(stock => stock.Key == Transfer.Stock.Key && stock.Transferable))
+        foreach (var destination in SupplyInventory.Transferable(Transfer!.Target, Transfer.Stock.Key))
         {
             double part = Math.Min(Cargo, destination.Free);
             if (part <= 0) continue;
