@@ -7,8 +7,10 @@ namespace CrimeanTom.SeaPower;
 
 internal static partial class ScenarioDebugGenerator
 {
-    private static string ObjectivePath(ObjectiveOperation operation, bool observer) => Path.Combine(GetScenarioDirectory(),
-        $"Generated {ObjectiveName(operation)}{(observer ? " Observer" : "")}.ini");
+    private static string ObjectivePath(ObjectiveOperation operation, bool observer) =>
+        Path.Combine(GetScenarioDirectory(), ObjectiveFileName(operation, observer));
+    private static string ObjectiveFileName(ObjectiveOperation operation, bool observer) =>
+        $"Generated {ObjectiveName(operation)}{(observer ? " Observer" : "")}.ini";
     private static string ObjectiveName(ObjectiveOperation operation) => operation switch
     {
         ObjectiveOperation.AreaControl => "Area Control",
@@ -20,11 +22,11 @@ internal static partial class ScenarioDebugGenerator
         if (string.IsNullOrWhiteSpace(path)) return null;
         foreach (ObjectiveOperation operation in Enum.GetValues(typeof(ObjectiveOperation)))
         foreach (bool observer in new[] { false, true })
-            if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(ObjectivePath(operation, observer)), StringComparison.OrdinalIgnoreCase)) return operation;
+            if (MatchesLauncher(path, ObjectiveFileName(operation, observer))) return operation;
         return null;
     }
     private static bool IsObjectiveObserver(string? path) => ObjectiveFromPath(path) is { } operation &&
-        string.Equals(Path.GetFullPath(path!), Path.GetFullPath(ObjectivePath(operation, true)), StringComparison.OrdinalIgnoreCase);
+        MatchesLauncher(path, ObjectiveFileName(operation, true));
 
     private static void GenerateObjectiveEntry(string path, FleetClashGenerationOptions options, ObjectiveOperation operation, bool launcher)
     {

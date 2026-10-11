@@ -436,12 +436,7 @@ internal static class FleetOrderOfBattlePlanner
             return (0f, 0f);
         }
 
-        float spacing = kind switch
-        {
-            FleetGroupKind.Carrier => 2.75f,
-            FleetGroupKind.SubmarinePatrol => 5f,
-            _ => 1.8f,
-        };
+        float spacing = GetFormationSpacing(kind);
         return index switch
         {
             1 => (-spacing, -spacing),

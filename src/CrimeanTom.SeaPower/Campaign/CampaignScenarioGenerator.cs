@@ -8,14 +8,6 @@ using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
-internal enum CampaignContractKind
-{
-    FleetClash,
-    RouteEscort,
-    RouteInterdiction,
-    Passage,
-}
-
 internal static partial class ScenarioDebugGenerator
 {
     internal static bool IsCampaignContractPath(string? path) =>
@@ -37,7 +29,7 @@ internal static partial class ScenarioDebugGenerator
                 throw new InvalidOperationException("The task force has no deployable ships or submarines.");
             }
 
-            CampaignContractOffer offer = CampaignContractOffers.Get((int)contract + 1);
+            CampaignContractOffer offer = CampaignContractOffers.Get(CampaignContractRules.MissionIndex(contract));
             if (offer.MinimumDeploymentPoints > playerForce.PointCost)
                 throw new InvalidOperationException($"This contract's fixed nearby activity requires at least {offer.MinimumDeploymentPoints} deployed ship points. Deploy more ships or choose another contract.");
             int seed = offer.Seed;

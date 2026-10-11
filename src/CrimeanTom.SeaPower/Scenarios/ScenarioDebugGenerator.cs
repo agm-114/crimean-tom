@@ -14,6 +14,9 @@ internal static partial class ScenarioDebugGenerator
     private const string SearchLauncherFileName = "Generated Submarine Hunt.ini";
     private const string SearchObserverFileName = "Generated Submarine Hunt Observer.ini";
 
+    private static readonly string[] FleetLauncherFiles =
+        [CommandLauncherFileName, SpectatorLauncherFileName, RouteOperationLauncherFileName, RouteObserverLauncherFileName];
+
     private static int _generationCounter;
     internal static string? LastGenerationError { get; private set; }
     internal static int LastGenerationSeed { get; private set; }
@@ -82,44 +85,21 @@ internal static partial class ScenarioDebugGenerator
         }
     }
 
-    internal static bool IsLauncherPath(string? scenarioPath)
-    {
-        if (string.IsNullOrWhiteSpace(scenarioPath))
-        {
-            return false;
-        }
+    private static bool MatchesLauncher(string? path, string fileName) => !string.IsNullOrWhiteSpace(path)
+        && string.Equals(Path.GetFullPath(path), Path.GetFullPath(Path.Combine(GetScenarioDirectory(), fileName)), StringComparison.OrdinalIgnoreCase);
 
-        string fullPath = Path.GetFullPath(scenarioPath);
-        return string.Equals(
-                fullPath,
-                Path.GetFullPath(GetCommandLauncherPath()),
-                StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(
-                fullPath,
-                Path.GetFullPath(GetSpectatorLauncherPath()),
-                StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(
-                fullPath,
-                Path.GetFullPath(GetRouteOperationLauncherPath()),
-            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath) || IsSearchLauncherPath(scenarioPath) || ObjectiveFromPath(scenarioPath) is not null;
-    }
+    internal static bool IsLauncherPath(string? scenarioPath) =>
+        FleetLauncherFiles.Any(name => MatchesLauncher(scenarioPath, name))
+        || IsSearchLauncherPath(scenarioPath) || ObjectiveFromPath(scenarioPath) is not null;
 
     internal static bool IsSpectatorLauncherPath(string? scenarioPath) =>
-        !string.IsNullOrWhiteSpace(scenarioPath) &&
-        string.Equals(
-            Path.GetFullPath(scenarioPath),
-            Path.GetFullPath(GetSpectatorLauncherPath()),
-            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath) || IsSearchObserverPath(scenarioPath) || IsObjectiveObserver(scenarioPath);
+        MatchesLauncher(scenarioPath, SpectatorLauncherFileName) || IsRouteObserverPath(scenarioPath)
+        || IsSearchObserverPath(scenarioPath) || IsObjectiveObserver(scenarioPath);
 
     internal static bool IsRouteOperationLauncherPath(string? scenarioPath) =>
-        !string.IsNullOrWhiteSpace(scenarioPath) &&
-        string.Equals(
-            Path.GetFullPath(scenarioPath),
-            Path.GetFullPath(GetRouteOperationLauncherPath()),
-            StringComparison.OrdinalIgnoreCase) || IsRouteObserverPath(scenarioPath);
+        MatchesLauncher(scenarioPath, RouteOperationLauncherFileName) || IsRouteObserverPath(scenarioPath);
 
-    private static bool IsRouteObserverPath(string? path) => !string.IsNullOrWhiteSpace(path) &&
-        string.Equals(Path.GetFullPath(path), Path.GetFullPath(GetRouteObserverLauncherPath()), StringComparison.OrdinalIgnoreCase);
+    private static bool IsRouteObserverPath(string? path) => MatchesLauncher(path, RouteObserverLauncherFileName);
 
     internal static bool GenerateScenario(
         string scenarioPath,
@@ -240,11 +220,8 @@ internal static partial class ScenarioDebugGenerator
         {
             string name = Path.GetFileName(path);
             if (!string.Equals(name, "_info.ini", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, CommandLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, SpectatorLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, RouteOperationLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(name, RouteObserverLauncherFileName, StringComparison.OrdinalIgnoreCase) &&
-                  !IsSearchLauncherPath(path) && ObjectiveFromPath(path) is null)
+                !FleetLauncherFiles.Contains(name, StringComparer.OrdinalIgnoreCase) &&
+                !IsSearchLauncherPath(path) && ObjectiveFromPath(path) is null)
             {
                 File.Delete(path);
             }

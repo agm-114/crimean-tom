@@ -9,7 +9,6 @@ namespace CrimeanTom.SeaPower;
 
 internal static class TaskForceRosterGenerator
 {
-    private const string CampaignFolderName = "crimean-tom-operations";
     private const RegexOptions PatternOptions =
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
 
@@ -63,7 +62,7 @@ internal static class TaskForceRosterGenerator
                 Application.streamingAssetsPath,
                 "user",
                 "campaigns",
-                CampaignFolderName,
+                CampaignOperationsState.FolderName,
                 "player_task_force_roster.ini");
             string[] shipClasses = FindShipClasses(vesselsDirectory);
             string[] aircraftClasses = FindAircraftClasses(aircraftDirectory);
@@ -189,8 +188,7 @@ internal static class TaskForceRosterGenerator
         return new RosterStrength(
             classScore * coverage,
             classes.Count,
-            eligibleVariants.Count,
-            roleCount);
+            eligibleVariants.Count);
     }
 
     internal static bool RefreshBaseCosts()
@@ -570,13 +568,11 @@ internal static class TaskForceRosterGenerator
     internal class RosterStrength(
         double score,
         int classCount,
-        int variantCount,
-        int roleCount)
+        int variantCount)
     {
-        internal static RosterStrength Empty { get; } = new(0d, 0, 0, 0);
+        internal static RosterStrength Empty { get; } = new(0d, 0, 0);
         internal double Score { get; } = score;
         internal int ClassCount { get; } = classCount;
         internal int VariantCount { get; } = variantCount;
-        internal int RoleCount { get; } = roleCount;
     }
 }

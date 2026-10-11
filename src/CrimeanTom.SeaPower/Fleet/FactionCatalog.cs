@@ -4,7 +4,7 @@ namespace CrimeanTom.SeaPower;
 
 internal static class FactionCatalog
 {
-    private const string CoalitionArtPath = "campaigns/crimean-tom-operations/art/coalitions";
+    private const string CoalitionArtPath = "campaigns/" + CampaignOperationsState.FolderName + "/art/coalitions";
 
     internal static readonly FactionDefinition Algeria =
         new("Algeria", FleetAlignment.Eastern, [WesternMediterranean], [EasternMediterranean, ArabianSea]);

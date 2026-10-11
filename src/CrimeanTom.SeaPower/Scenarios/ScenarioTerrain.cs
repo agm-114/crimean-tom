@@ -68,7 +68,7 @@ internal static class ScenarioTerrain
         }
 
         static float Number(string value) => float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
-            && !float.IsNaN(number) && !float.IsInfinity(number) ? number
+            && float.IsFinite(number) ? number
             : throw new InvalidOperationException($"Invalid naval spawn coordinate: '{value}'.");
     }
 

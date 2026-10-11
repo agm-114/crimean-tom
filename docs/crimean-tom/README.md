@@ -40,5 +40,17 @@ to `Sea Power_Data/StreamingAssets/user/campaigns/crimean-tom-operations`.
 See the [repository README](../../README.md) for shared prerequisites and
 AnchorChain setup.
 
+Shared compiler settings and game installation defaults live in
+`src/Directory.Build.props`. The campaign project derives its source assets from
+`CampaignContentDirectory`; deployment paths remain separate. When changing the
+release version, update both the project `Version` and `Plugin.cs`'s `ACPlugin`
+attribute, currently `0.3.0`.
+
+Unit metadata used in scenario generation retains repeated INI sections in order.
+A duplicate key replaces its earlier value within that section; lookups use the
+first matching section that contains the key. Each aircraft definition is parsed
+once per carrier package. The roster and combat-profile readers have different
+inheritance and header rules and remain separate.
+
 The retired server-simulation implementation remains on
 `codex/archive-server-simulation-2026-09-04`.

@@ -6,21 +6,22 @@ internal record CampaignContractOffer(
     int Seed, FleetClashSize Size, FleetClashMatch Match, RouteOperationVariant Variant,
     int Payment, int CapReward, ScenarioActivityPlan Activity, double ChaseAllowance)
 {
-    internal FleetClashForce Enemy(int mission) => mission == 3 ? Match.First : Match.Second;
+    internal FleetClashForce Enemy(CampaignContractKind kind) => kind == CampaignContractKind.RouteInterdiction ? Match.First : Match.Second;
     internal int MinimumDeploymentPoints => Activity.MinimumFriendlyFleetPoints;
 
-    internal string Description(int mission)
+    internal string Description(CampaignContractKind kind)
     {
-        string enemy = mission == 3 ? Match.FirstName : Match.SecondName;
-        FleetClashForce force = Enemy(mission);
-        string task = mission switch
+        string enemy = kind == CampaignContractKind.RouteInterdiction ? Match.FirstName : Match.SecondName;
+        FleetClashForce force = Enemy(kind);
+        string task = kind switch
         {
-            1 => "Break the enemy fleet by destroying 75% of its ship value.",
-            2 => "Escort the protected group to its destination.",
-            3 => "Stop the protected group from reaching its destination.",
-            _ => "Get the designated high-value ships through the defended passage.",
+            CampaignContractKind.FleetClash => "Break the enemy fleet by destroying 75% of its ship value.",
+            CampaignContractKind.RouteEscort => "Escort the protected group to its destination.",
+            CampaignContractKind.RouteInterdiction => "Stop the protected group from reaching its destination.",
+            CampaignContractKind.Passage => "Get the designated high-value ships through the defended passage.",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
-        string subject = mission is 2 or 3 ? $" Protected group: {Variant}. Route: {ShippingRoutes.Pick(Match.Theater, Seed, Size, RouteEncounterKind.Random).Summary}." : string.Empty;
+        string subject = kind is CampaignContractKind.RouteEscort or CampaignContractKind.RouteInterdiction ? $" Protected group: {Variant}. Route: {ShippingRoutes.Pick(Match.Theater, Seed, Size, RouteEncounterKind.Random).Summary}." : string.Empty;
         return $"{Size} contract in {Match.Theater}. Enemy: {enemy}.\n" +
             CampaignOperationsState.Difficulty.Label + "\n" +
             $"Composition: {ScenarioDebugGenerator.GetComposition(force)}.\n" +
@@ -38,11 +39,12 @@ internal record CampaignContractOffer(
 
 internal static class CampaignContractOffers
 {
-    private static readonly Dictionary<string, CampaignContractOffer> Cache = [];
+    private static readonly Dictionary<CampaignContractKind, CampaignContractOffer> Cache = [];
     private static string _board = string.Empty;
 
     internal static CampaignContractOffer Get(int mission)
     {
+        var kind = CampaignContractRules.FromMissionIndex(mission);
         int campaignSeed = CampaignOperationsState.ContractSeed;
         int turn = CampaignOperationsState.Turn;
         ScenarioDifficulty difficulty = CampaignOperationsState.Difficulty;
@@ -52,16 +54,15 @@ internal static class CampaignContractOffers
             Cache.Clear();
             _board = board;
         }
-        string key = mission.ToString();
-        if (Cache.TryGetValue(key, out CampaignContractOffer? offer)) return offer;
+        if (Cache.TryGetValue(kind, out CampaignContractOffer? offer)) return offer;
         int seed = CampaignContractRules.OfferSeed(campaignSeed, turn, mission);
         FleetClashSize size = (FleetClashSize)CampaignContractRules.OfferSize(turn, mission);
         for (int attempt = 0; attempt < 16; attempt++)
         {
             try
             {
-                offer = Create(mission, unchecked(seed + attempt * 104729), size, difficulty);
-                Cache[key] = offer;
+                offer = Create(kind, unchecked(seed + attempt * 104729), size, difficulty);
+                Cache[kind] = offer;
                 return offer;
             }
             catch (InvalidOperationException) when (attempt < 15) { }
@@ -69,23 +70,23 @@ internal static class CampaignContractOffers
         throw new InvalidOperationException("No valid contract layout could be generated.");
     }
 
-    private static CampaignContractOffer Create(int mission, int seed, FleetClashSize size, ScenarioDifficulty difficulty)
+    private static CampaignContractOffer Create(CampaignContractKind kind, int seed, FleetClashSize size, ScenarioDifficulty difficulty)
     {
         Random random = new(seed);
-        string playerTaskforce = mission == 3 ? "Taskforce2" : "Taskforce1";
-        FleetClashMatch match = mission == 1 ? FleetClashBalancer.Generate(random, size, playerTaskforce: playerTaskforce)
+        string playerTaskforce = kind == CampaignContractKind.RouteInterdiction ? "Taskforce2" : "Taskforce1";
+        FleetClashMatch match = kind == CampaignContractKind.FleetClash ? FleetClashBalancer.Generate(random, size, playerTaskforce: playerTaskforce)
             : ScenarioDebugGenerator.GenerateRouteMatch(random, size, null, playerTaskforce);
         match = ScenarioDebugGenerator.ApplyEnemyMultiplier(match, random, size,
-            mission == 3 ? "Taskforce2" : "Taskforce1", difficulty.Multiplier, excludeCarriers: mission != 1,
+            playerTaskforce, difficulty.Multiplier, excludeCarriers: kind != CampaignContractKind.FleetClash,
             preserveComposition: false);
         RouteOperationVariant variant = (RouteOperationVariant)random.Next(3);
         double chaseAllowance = 0;
-        if (mission is 2 or 3)
+        if (kind is CampaignContractKind.RouteEscort or CampaignContractKind.RouteInterdiction)
             (match, chaseAllowance) = ScenarioDebugGenerator.ApplyRouteChaseAllowance(match, seed, size, variant,
-                RouteEncounterKind.Random, persistentAttackers: mission == 3);
-        FleetClashForce enemy = mission == 3 ? match.First : match.Second;
+                RouteEncounterKind.Random, persistentAttackers: kind == CampaignContractKind.RouteInterdiction);
+        FleetClashForce enemy = kind == CampaignContractKind.RouteInterdiction ? match.First : match.Second;
         FleetClashMatch activityMatch = match;
-        if (mission is 2 or 3)
+        if (kind is CampaignContractKind.RouteEscort or CampaignContractKind.RouteInterdiction)
         {
             RouteEncounter encounter = ShippingRoutes.Pick(match.Theater, seed, size, RouteEncounterKind.Random);
             activityMatch = match with { Latitude = (float)encounter.Center.Latitude, Longitude = (float)encounter.Center.Longitude };
@@ -93,7 +94,7 @@ internal static class CampaignContractOffers
         ScenarioActivityPlan activity = ScenarioActivityPlan.Generate(activityMatch, seed, ScenarioActivitySettings.Campaign,
             playerTaskforce, CampaignOperationsState.ContractActivityBudget);
         return new(seed, size, match, variant,
-            CampaignContractRules.Payment((int)size, enemy.PointCost + activity.Cost(playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1"), mission),
+            CampaignContractRules.Payment((int)size, enemy.PointCost + activity.Cost(playerTaskforce == "Taskforce1" ? "Taskforce2" : "Taskforce1"), kind),
             10 + (int)size * 10, activity, chaseAllowance);
     }
 
@@ -102,7 +103,7 @@ internal static class CampaignContractOffers
         int index = GetMissionIndex(mission);
         if (!CampaignOperationsState.IsActiveCampaign || index is < 1 or > 4 || mission is null) return;
         CampaignContractOffer offer = Get(index);
-        DescribeMission(mission, offer.Description(index),
+        DescribeMission(mission, offer.Description(CampaignContractRules.FromMissionIndex(index)),
             "Initial hull purchases use the builder. After the first sortie, buy hulls in the market. Aircraft, repair, rearm and loadouts remain available in native preparation.",
             (int)offer.Size + 1);
     }
