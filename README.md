@@ -6,6 +6,11 @@ This repository contains independent Sea Power mods. Each module owns its DLL an
 |---|---|---|
 | Crimean Tom | [CrimeanTom.SeaPower](src/CrimeanTom.SeaPower) | [Campaign and scenario generation](docs/crimean-tom/README.md) |
 | Deck Tweaks | [DeckTweaks](src/DeckTweaks) | [Aircraft preparation](docs/deck-tweaks/README.md) |
+| Boat Ops | [BoatOps](src/BoatOps) | [Wet-deck operations](docs/boat-ops/README.md) |
+| Amphibs | [Amphibs](src/Amphibs) | [Amphibious vehicles](docs/amphibs/README.md) |
+| Airdrop | [Airdrop](src/Airdrop) | [Aircraft cargo drops](docs/airdrop/README.md) |
+| Deckpark | [Deckpark](src/Deckpark) | [Ground units on ships](docs/deckpark/README.md) |
+| Spacewar | [Spacewar](src/Spacewar) | [Satellites and orbits](docs/spacewar/README.md) |
 | UNREP | [UNREP](src/UNREP) | [Supplies tab](docs/unrep/README.md) |
 | Sea Power CLI | [Game bridge](src/SeaPower.GameBridge), [CLI](src/SeaPower.Cli) | [UI and simulator inspection](docs/seapower-cli/README.md) |
 | Loading Profiler | [Profiler](src/SeaPower.LoadingProfiler), [bootstrap](src/SeaPower.LoadingProfiler.Bootstrap) | [Startup and scenario timings](docs/loading-profiler/README.md) |
@@ -20,6 +25,8 @@ The projects use the repository's .NET 10 SDK. Mods target `netstandard2.1` for 
 ```powershell
 dotnet build CrimeanTom.slnx -p:DeployToGame=false
 ```
+
+Shared compiler settings and installation defaults live in `src/Directory.Build.props`. The solution includes all 13 projects.
 
 The default paths expect the Steam installation of Sea Power and the Workshop installation of AnchorChain. Override the `SeaPowerDir` or `AnchorChainDll` MSBuild properties if needed.
 

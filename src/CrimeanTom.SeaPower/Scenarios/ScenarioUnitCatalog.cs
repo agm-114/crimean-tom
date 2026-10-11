@@ -8,12 +8,13 @@ internal static class ScenarioUnitCatalog
     private static readonly Dictionary<string, float[]> Speeds = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, bool> PursuitCraft = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, float> Displacements = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, CarrierAirPackage?> CarrierAirPackages = new(StringComparer.OrdinalIgnoreCase);
 
     internal static float DisplacementTons(string unitType)
     {
         if (Displacements.TryGetValue(unitType, out float displacement)) return displacement;
         string path = Path.Combine(Application.streamingAssetsPath, "original", "vessels", unitType + ".ini");
-        return Displacements[unitType] = File.Exists(path) && float.TryParse(ReadIniValue(path, "Physics", "Displacement"),
+        return Displacements[unitType] = File.Exists(path) && float.TryParse(new UnitMetadata(path).Value("Physics", "Displacement"),
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out displacement) && displacement > 0
                 ? displacement : 4000;
     }
@@ -22,8 +23,10 @@ internal static class ScenarioUnitCatalog
     {
         if (PursuitCraft.TryGetValue(unitType, out bool small)) return small;
         string path = Path.Combine(Application.streamingAssetsPath, "original", "vessels", unitType + ".ini");
-        bool Within(string section, string key, float maximum) => File.Exists(path) &&
-            float.TryParse(ReadIniValue(path, section, key), System.Globalization.NumberStyles.Float,
+        if (!File.Exists(path)) return PursuitCraft[unitType] = false;
+        var metadata = new UnitMetadata(path);
+        bool Within(string section, string key, float maximum) =>
+            float.TryParse(metadata.Value(section, key), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out float value) && value > 0 && value <= maximum;
         return PursuitCraft[unitType] = Within("General", "Length", 60) && Within("Physics", "Displacement", 500)
             && NavalWeaponReach.Read(unitType) <= 12;
@@ -36,7 +39,8 @@ internal static class ScenarioUnitCatalog
             string path = new[] { "vessels", "submarines" }.Select(folder => Path.Combine(
                 Application.streamingAssetsPath, "original", folder, unitType + ".ini")).FirstOrDefault(File.Exists)
                 ?? throw new InvalidOperationException($"Cannot read operating speed for {unitType}.");
-            string[] authored = ReadIniValue(path, "Physics", "TelegraphVelocities").Split(',');
+            var metadata = new UnitMetadata(path);
+            string[] authored = metadata.Value("Physics", "TelegraphVelocities").Split(',');
             speeds = new float[7];
             bool valid = authored.Length >= 7;
             for (int index = 0; valid && index < 7; index++)
@@ -44,7 +48,7 @@ internal static class ScenarioUnitCatalog
                     System.Globalization.CultureInfo.InvariantCulture, out speeds[index]);
             if (!valid)
             {
-                float maximum = float.TryParse(ReadIniValue(path, "Physics", "MaxForwardVelocity"),
+                float maximum = float.TryParse(metadata.Value("Physics", "MaxForwardVelocity"),
                     System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value)
                     ? Math.Max(1, value) : 32;
                 for (int index = 2; index < 7; index++) speeds[index] = (index - 1) * maximum / 5;
@@ -54,8 +58,6 @@ internal static class ScenarioUnitCatalog
         }
         return speeds[Math.Clamp(telegraph, 0, 5) + 1];
     }
-    private static readonly Dictionary<string, CarrierAirPackage?> CarrierAirPackages =
-        new(StringComparer.OrdinalIgnoreCase);
 
     internal static IReadOnlyList<ScenarioSubmarineOption> GetSubmarines(
         IEnumerable<string> nations)
@@ -68,10 +70,7 @@ internal static class ScenarioUnitCatalog
 
     internal static CarrierAirPackage? GetCarrierAirPackage(string carrierType)
     {
-        if (CarrierAirPackages.TryGetValue(carrierType, out CarrierAirPackage? cached))
-        {
-            return cached;
-        }
+        if (CarrierAirPackages.TryGetValue(carrierType, out CarrierAirPackage? cached)) return cached;
 
         CarrierAirPackage? package = ReadCarrierAirPackage(carrierType);
         CarrierAirPackages[carrierType] = package;
@@ -80,10 +79,7 @@ internal static class ScenarioUnitCatalog
 
     private static IReadOnlyList<ScenarioSubmarineOption> GetAllSubmarines()
     {
-        if (_submarines is not null)
-        {
-            return _submarines;
-        }
+        if (_submarines is not null) return _submarines;
 
         string directory = Path.Combine(Application.streamingAssetsPath, "original", "vessels");
         List<ScenarioSubmarineOption> output = [];
@@ -93,7 +89,7 @@ internal static class ScenarioUnitCatalog
             string unitPath = Path.Combine(directory, $"{unitType}.ini");
             if (unitType.Contains("_ssbn_", StringComparison.OrdinalIgnoreCase) ||
                 !File.Exists(unitPath) ||
-                !ReadIniValue(unitPath, "General", "UnitType")
+                !new UnitMetadata(unitPath).Value("General", "UnitType")
                     .Equals("Submarine", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -166,9 +162,10 @@ internal static class ScenarioUnitCatalog
                 continue;
             }
 
-            bool isHelicopter = ReadIniValue(aircraftPath, "General", "UnitType")
+            var metadata = new UnitMetadata(aircraftPath);
+            bool isHelicopter = metadata.Value("General", "UnitType")
                 .Equals("Helicopter", StringComparison.OrdinalIgnoreCase);
-            string[] loadouts = ReadFirstIniValue(aircraftPath, "AvailableLoadouts")
+            string[] loadouts = metadata.FirstValue("AvailableLoadouts")
                 .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(loadout => loadout.Trim())
                 .ToArray();
@@ -200,7 +197,7 @@ internal static class ScenarioUnitCatalog
                     null));
             }
 
-            string? aswLoadout = isHelicopter ? SelectAswLoadout(aircraftPath, loadouts) : null;
+            string? aswLoadout = isHelicopter ? metadata.SelectAswLoadout(loadouts) : null;
             if (aswLoadout is not null)
             {
                 aswCandidates.Add(new CarrierAirPlan(
@@ -210,10 +207,10 @@ internal static class ScenarioUnitCatalog
                     "AntiSub",
                     isHelicopter,
                     Math.Max(0, available),
-                    ReadSonobuoyAmmunition(aircraftPath, aswLoadout, 1985),
+                    metadata.SonobuoyAmmunition(aswLoadout, 1985),
                     loadouts.Where(loadout => (loadout.Equals("CAS", StringComparison.OrdinalIgnoreCase) ||
                             loadout.Equals("AntiArmor", StringComparison.OrdinalIgnoreCase)) &&
-                        ReadLoadoutStations(aircraftPath, loadout).Any()).ToArray()));
+                        metadata.LoadoutStations(loadout).Any()).ToArray()));
             }
         }
 
@@ -232,74 +229,72 @@ internal static class ScenarioUnitCatalog
             : new CarrierAirPackage(cap, aew, asw);
     }
 
-    internal static string? SelectAswLoadout(string aircraftPath, IReadOnlyList<string> loadouts)
+    // Preserve repeated sections and their order; native unit files can contain both.
+    private class UnitMetadata(string path)
     {
-        // Hunter fits can carry only buoys. Prefer a patrol that can also attack a contact.
-        string[] preference = ["ASW", "ASWLongRange", "ASWKiller", "ASWBomb", "ASWHunter", "ASWHunterLight"];
-        return preference.Select(wanted => loadouts.FirstOrDefault(candidate =>
-                candidate.Equals(wanted, StringComparison.OrdinalIgnoreCase)))
-            .FirstOrDefault(loadout => loadout is not null && ReadLoadoutStations(aircraftPath, loadout).Any());
-    }
+        private readonly (string Section, IReadOnlyDictionary<string, string> Values)[] sections = ReadSections(path).ToArray();
 
-    private static IEnumerable<string> ReadLoadoutStations(string aircraftPath, string loadout) =>
-        ReadSections(aircraftPath)
-            .Where(section => section.Section.StartsWith("WeaponSystem", StringComparison.OrdinalIgnoreCase) &&
-                section.Section.EndsWith(loadout, StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(section.Section["WeaponSystem".Length..^loadout.Length], out _))
-            .SelectMany(section => section.Values)
-            .Where(pair => pair.Key.StartsWith("Station", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(pair.Key["Station".Length..], out _) && !string.IsNullOrWhiteSpace(pair.Value))
-            .Select(pair => pair.Value);
-
-    private static string? ReadSonobuoyAmmunition(
-        string aircraftPath,
-        string loadout,
-        int scenarioYear)
-    {
-        foreach (string value in ReadLoadoutStations(aircraftPath, loadout))
+        internal string? SelectAswLoadout(IReadOnlyList<string> loadouts)
         {
-            if (!value.Contains("Sonobuoy", StringComparison.OrdinalIgnoreCase)) continue;
-            string ammunition = value.Split('|')[0].Trim();
-            if (!ammunition.StartsWith("DateBased_", StringComparison.OrdinalIgnoreCase)) return ammunition;
-
-            string substitutions = ReadFirstIniValue(aircraftPath, ammunition);
-            return substitutions
-                .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(entry => entry.Split(','))
-                .Where(parts => parts.Length >= 2 && int.TryParse(parts[0], out int year) && year <= scenarioYear)
-                .OrderByDescending(parts => int.Parse(parts[0]))
-                .Select(parts => parts[1].Trim())
-                .FirstOrDefault();
+            // Hunter fits can carry only buoys. Prefer a patrol that can also attack a contact.
+            string[] preference = ["ASW", "ASWLongRange", "ASWKiller", "ASWBomb", "ASWHunter", "ASWHunterLight"];
+            return preference.Select(wanted => loadouts.FirstOrDefault(candidate =>
+                    candidate.Equals(wanted, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault(loadout => loadout is not null && LoadoutStations(loadout).Any());
         }
 
-        return null;
-    }
+        internal IEnumerable<string> LoadoutStations(string loadout) =>
+            sections
+                .Where(section => section.Section.StartsWith("WeaponSystem", StringComparison.OrdinalIgnoreCase) &&
+                    section.Section.EndsWith(loadout, StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(section.Section["WeaponSystem".Length..^loadout.Length], out _))
+                .SelectMany(section => section.Values)
+                .Where(pair => pair.Key.StartsWith("Station", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(pair.Key["Station".Length..], out _) && !string.IsNullOrWhiteSpace(pair.Value))
+                .Select(pair => pair.Value);
 
-    private static string ReadIniValue(string path, string wantedSection, string wantedKey)
-    {
-        foreach ((string section, IReadOnlyDictionary<string, string> values) in ReadSections(path))
+        internal string? SonobuoyAmmunition(string loadout, int scenarioYear)
         {
-            if (section.Equals(wantedSection, StringComparison.OrdinalIgnoreCase) &&
-                values.TryGetValue(wantedKey, out string value))
+            foreach (string value in LoadoutStations(loadout))
             {
-                return value;
+                if (!value.Contains("Sonobuoy", StringComparison.OrdinalIgnoreCase)) continue;
+                string ammunition = value.Split('|')[0].Trim();
+                if (!ammunition.StartsWith("DateBased_", StringComparison.OrdinalIgnoreCase)) return ammunition;
+
+                string substitutions = FirstValue(ammunition);
+                return substitutions
+                    .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(entry => entry.Split(','))
+                    .Where(parts => parts.Length >= 2 && int.TryParse(parts[0], out int year) && year <= scenarioYear)
+                    .OrderByDescending(parts => int.Parse(parts[0]))
+                    .Select(parts => parts[1].Trim())
+                    .FirstOrDefault();
             }
+
+            return null;
         }
 
-        return string.Empty;
-    }
-
-    private static string ReadFirstIniValue(string path, string wantedKey)
-    {
-        foreach ((_, IReadOnlyDictionary<string, string> values) in ReadSections(path))
+        internal string Value(string wantedSection, string wantedKey)
         {
-            if (values.TryGetValue(wantedKey, out string value))
+            foreach ((string section, IReadOnlyDictionary<string, string> values) in sections)
             {
-                return value;
+                if (section.Equals(wantedSection, StringComparison.OrdinalIgnoreCase) &&
+                    values.TryGetValue(wantedKey, out string value))
+                    return value;
             }
+
+            return string.Empty;
         }
 
-        return string.Empty;
+        internal string FirstValue(string wantedKey)
+        {
+            foreach ((_, IReadOnlyDictionary<string, string> values) in sections)
+            {
+                if (values.TryGetValue(wantedKey, out string value)) return value;
+            }
+
+            return string.Empty;
+        }
     }
 
     internal static IEnumerable<(string Section, IReadOnlyDictionary<string, string> Values)>

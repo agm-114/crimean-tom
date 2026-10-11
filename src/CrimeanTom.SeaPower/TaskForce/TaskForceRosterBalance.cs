@@ -137,9 +137,7 @@ internal static partial class TaskForceNationRules
             discount,
             isRare: !isCoalition && strength.ClassCount < 3,
             strength.ClassCount,
-            strength.VariantCount,
-            strength.RoleCount,
-            strength.Score);
+            strength.VariantCount);
     }
 
     private static double GetStrengthPercentile(
@@ -179,17 +177,13 @@ internal static partial class TaskForceNationRules
         float discount,
         bool isRare,
         int classCount,
-        int variantCount,
-        int roleCount,
-        double strengthScore)
+        int variantCount)
     {
         internal string Label { get; } = label;
         internal float Discount { get; } = discount;
         internal bool IsRare { get; } = isRare;
         internal int ClassCount { get; } = classCount;
         internal int VariantCount { get; } = variantCount;
-        internal int RoleCount { get; } = roleCount;
-        internal double StrengthScore { get; } = strengthScore;
     }
 }
 

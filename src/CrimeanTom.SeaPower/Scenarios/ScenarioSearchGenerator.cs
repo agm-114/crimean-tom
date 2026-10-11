@@ -7,10 +7,9 @@ internal static partial class ScenarioDebugGenerator
 {
     private static string GetSearchPath(bool observer) => Path.Combine(GetScenarioDirectory(),
         observer ? SearchObserverFileName : SearchLauncherFileName);
-    private static bool IsSearchObserverPath(string? path) => !string.IsNullOrWhiteSpace(path) &&
-        string.Equals(Path.GetFullPath(path), Path.GetFullPath(GetSearchPath(true)), StringComparison.OrdinalIgnoreCase);
-    internal static bool IsSearchLauncherPath(string? path) => !string.IsNullOrWhiteSpace(path) &&
-        (string.Equals(Path.GetFullPath(path), Path.GetFullPath(GetSearchPath(false)), StringComparison.OrdinalIgnoreCase) || IsSearchObserverPath(path));
+    private static bool IsSearchObserverPath(string? path) => MatchesLauncher(path, SearchObserverFileName);
+    internal static bool IsSearchLauncherPath(string? path) =>
+        MatchesLauncher(path, SearchLauncherFileName) || IsSearchObserverPath(path);
 
     private static bool CanHunt(FleetUnitArchetype unit) => !unit.IsSubmarine && !unit.IsCarrier &&
         unit.AswCapability > 0 && NavalWeaponReach.Read(unit.UnitType, true) is > 0 and < float.PositiveInfinity;

@@ -157,15 +157,9 @@ internal static class CommanderDiscountPatch
             return false;
         }
 
-        persistentData.TryGetValue("TaskForceCommanderNationOverride", out string discountNation);
-        if (string.IsNullOrWhiteSpace(discountNation))
-        {
-            persistentData.TryGetValue("TaskForceCommanderNation", out discountNation);
-        }
-
         discount = TaskForceNationRules.GetCampaignDiscount(
             persistentData,
-            discountNation,
+            TaskForceNationRules.CommanderSelection(persistentData),
             unitNation);
         __result = discount > 0f;
         return false;

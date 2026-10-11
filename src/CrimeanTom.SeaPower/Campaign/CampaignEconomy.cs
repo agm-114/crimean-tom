@@ -29,10 +29,8 @@ internal static partial class CampaignOperationsState
     {
         var data = GetPersistentData();
         if (data is null) return offer.FullPrice;
-        data.TryGetValue("TaskForceCommanderNationOverride", out string selection);
-        if (string.IsNullOrWhiteSpace(selection)) data.TryGetValue("TaskForceCommanderNation", out selection);
         return CampaignContractRules.MarketPrice(offer.FullPrice,
-            TaskForceNationRules.GetCampaignDiscount(data, selection, offer.Nation));
+            TaskForceNationRules.GetCampaignDiscount(data, TaskForceNationRules.CommanderSelection(data), offer.Nation));
     }
 
     internal static IReadOnlyList<CampaignSalvageCandidate> ReadPendingSalvage() =>

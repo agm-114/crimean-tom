@@ -62,14 +62,6 @@ internal static class FleetClashBalancer
             specialMode);
     }
 
-    internal static int GetShipCount(FleetClashSize size) => size switch
-    {
-        FleetClashSize.Small => 3,
-        FleetClashSize.Medium => 5,
-        FleetClashSize.Large => 8,
-        _ => throw new ArgumentOutOfRangeException(nameof(size)),
-    };
-
     internal static float GetMinimumSeparation(FleetClashSize size) => size switch
     {
         FleetClashSize.Small => 36f,

@@ -5,6 +5,7 @@ namespace CrimeanTom.SeaPower;
 
 internal static partial class CampaignOperationsState
 {
+    internal const string FolderName = "crimean-tom-operations";
     private const string TurnKey = "CrimeanTomTurn";
     private const string SalvageSharesKey = "CrimeanTomSalvageShares";
     private const string ActiveMissionKey = "CrimeanTomActiveMission";

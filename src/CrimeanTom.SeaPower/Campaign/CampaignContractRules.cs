@@ -1,8 +1,34 @@
 namespace CrimeanTom.SeaPower;
 
+internal enum CampaignContractKind
+{
+    FleetClash,
+    RouteEscort,
+    RouteInterdiction,
+    Passage,
+}
+
 // Campaign economics, independent of Unity and the native UI.
 internal static class CampaignContractRules
 {
+    internal static CampaignContractKind FromMissionIndex(int index) => index switch
+    {
+        1 => CampaignContractKind.FleetClash,
+        2 => CampaignContractKind.RouteEscort,
+        3 => CampaignContractKind.RouteInterdiction,
+        4 => CampaignContractKind.Passage,
+        _ => throw new ArgumentOutOfRangeException(nameof(index)),
+    };
+
+    internal static int MissionIndex(CampaignContractKind kind) => kind switch
+    {
+        CampaignContractKind.FleetClash => 1,
+        CampaignContractKind.RouteEscort => 2,
+        CampaignContractKind.RouteInterdiction => 3,
+        CampaignContractKind.Passage => 4,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
     internal static bool IsVictory(string? result) =>
         result?.EndsWith("Victory", StringComparison.OrdinalIgnoreCase) == true;
 
@@ -12,9 +38,15 @@ internal static class CampaignContractRules
     // Each board has at least one small, medium, and large job.
     internal static int OfferSize(int turn, int mission) => (mission + turn - 2) % 3;
 
-    internal static int Payment(int size, int enemyPoints, int mission) =>
+    internal static int Payment(int size, int enemyPoints, CampaignContractKind kind) =>
         new[] { 25, 40, 60 }[size] + (int)Math.Ceiling(enemyPoints * 0.15d) +
-        (mission == 4 ? 10 : mission == 1 ? 0 : 5);
+        (kind switch
+        {
+            CampaignContractKind.FleetClash => 0,
+            CampaignContractKind.RouteEscort or CampaignContractKind.RouteInterdiction => 5,
+            CampaignContractKind.Passage => 10,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        });
 
     internal static int SalvageAward(bool victory, int payment) =>
         victory ? Math.Max(5, (int)Math.Ceiling(payment * 0.5d)) : 0;
