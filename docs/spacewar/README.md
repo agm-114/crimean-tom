@@ -3,7 +3,7 @@
 Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
 Spacewar adds configurable satellites with circular and elliptical Earth orbits.
 
-Spacewar owns the physical orbits. Nearby satellites have native aircraft
+Spacewar owns the physical orbits. Satellites have native aircraft
 representations on the player's side, with tactical-map symbols and entries in
 the native Formation Manager. Select a spacecraft, then
 open **Orbit** in Unit Status to see its orbital elements, altitude, speed,
@@ -17,7 +17,8 @@ includes spacecraft outside the local 3D area. Selecting a spacecraft thickens
 its path. Tracks follow map pan and zoom, split at the date line, and update
 every five simulation seconds. Markers update twice per real second, so native
 pause and time compression apply. Geostationary tracks can collapse to a dot.
-The overlay does not intercept map clicks or add drawings to mission saves.
+Clicking a marker or label selects its spacecraft. Track lines pass clicks through
+to the map. The overlay does not add drawings to mission saves.
 
 The starter constellation contains four fictional satellites: two low-orbit
 scouts, an equatorial geostationary relay and an elliptical relay. Role labels
@@ -38,7 +39,7 @@ is supported for starting another mission or loading a save.
 `SpacecraftCatalog` owns all spacecraft, and the controller advances every one,
 including those with inactive or missing native representations. `SpacecraftProxy`
 is the Unity component that binds an aircraft to a spacecraft. It owns compressed
-display coordinates, local-area enable/disable behavior and native UI integration.
+display coordinates and native UI integration.
 The native aircraft type remains an implementation detail of that representation.
 Physical state never comes from its transform, HUD altitude or aircraft physics.
 Existing INI section names and the `SpacewarProfile` save key remain compatible.
@@ -95,16 +96,13 @@ supported orbit displays below 32 km. Conversion to Unity coordinates then uses
 plus display altitude and its ratio to physical altitude. Native HUD altitude
 and velocity describe the displayed aircraft, not the physical spacecraft.
 
-Representations enter within 450 km of horizontal map distance from the current
-floating origin and leave beyond 500 km. The two thresholds prevent repeated
-enable/disable transitions at the boundary. These are projected map distances,
-not great-circle distances. Disabled representations leave the native active
-unit lists and park at the origin with zero velocity. Their orbital profiles
-continue to evaluate against mission time. They reappear when their ground
-positions come back into the local area. Moving the camera to another area can
-also change which spacecraft are local. Selecting a departing representation
-is cleared before it is disabled. Position is reapplied after origin relocation,
-including while paused.
+Native representations remain active. Horizontal display positions are accurate
+within 100 km of projected map distance from the scenario center. Beyond that,
+`OrbitalDisplay.Project` compresses distance toward a 450 km bound while preserving
+direction from that center. The tactical-map tracks use physical geographic
+positions. The Orbit page reports the horizontal scale, so a distant
+representation can be distinguished from its physical location. Position is
+reapplied after floating-origin relocation, including while paused.
 
 Clock zero is the simulation reference, not a real astronomical epoch. Earth
 longitude zero aligns with inertial longitude zero at that reference. The clock
@@ -127,6 +125,12 @@ clouds, Earth oblateness, precession, atmospheric drag, lunar/solar gravity,
 eclipses, TLE/SGP4, launches, maneuvers and weapons are not modeled in this version.
 
 ## Verification
+
+The runtime checks below describe earlier builds that disabled distant proxies.
+The current projection keeps them active and has not been verified in-game during
+the repository cleanup. Offline comparisons match the previous orbital arithmetic
+across circular and eccentric profiles, inclinations and clock rewind.
+
 
 On 2026-09-14, Sea Power `0.8.2-23810+s366` loaded the compressed-display build in
 `artifacts/spacewar-unit-check.ini`. Fresh logs recorded the four spacecraft,
@@ -172,7 +176,7 @@ Screenshots are in `%LOCALAPPDATA%/SeaPowerGameBridge/screenshots/`:
 Code map: `Plugin.cs` loads the independent mod, `SpacecraftCatalog.cs` reads the
 constellation, `Orbit.cs` owns orbit calculations, `Spacecraft.cs` owns physical
 state, `SpacecraftProxy.cs` updates native representations,
-`OrbitalDisplay.cs` owns altitude compression and local bounds,
+`OrbitalDisplay.cs` owns altitude and horizontal display compression,
 `OrbitalMap.cs` draws geographic tracks on the tactical map,
 `SpacecraftPatches.cs` handles motion, combat exclusion and save identity,
 `SpacewarController.cs` creates mission units and the selected spacecraft's page,

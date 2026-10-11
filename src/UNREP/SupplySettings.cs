@@ -76,32 +76,30 @@ internal static class SupplySettings
     internal static double Amount(Vessel ship, string key)
     {
         double displacement = (ship._obp as VesselParameters)?._displacement ?? 0;
-        if (double.IsNaN(displacement) || double.IsInfinity(displacement)) displacement = 0;
         double baseKg = Value(ship, key + "BaseKg", 1e9);
         double perTonne = Value(ship, key + "KgPerTonne", 1e6);
-        return Math.Clamp(baseKg + perTonne * Math.Max(0, displacement), 0, 1e9);
+        return Scale(baseKg, perTonne, displacement);
     }
 
-    private static double Value(Vessel ship, string key, double maximum) =>
-        Read(ship._obp._objectIniName, key, Read("Defaults", key, 0, 0, maximum), 0, maximum);
+    private static double Value(Vessel ship, string key, double maximum, string section = "Defaults", double fallback = 0) =>
+        Read(ship._obp._objectIniName, key, Read(section, key, fallback, 0, maximum), 0, maximum);
 
     internal static double HourlyRate(Vessel ship, string key)
     {
         var defaults = RateDefaults[key];
-        double baseRate = Read(ship._obp._objectIniName, key + "BaseKgPerHour",
-            Read("Consumption", key + "BaseKgPerHour", defaults.Base, 0, 1e9), 0, 1e9);
-        double perTonne = Read(ship._obp._objectIniName, key + "KgPerTonnePerHour",
-            Read("Consumption", key + "KgPerTonnePerHour", defaults.PerTonne, 0, 1e6), 0, 1e6);
-        double displacement = ship.VP?._displacement ?? 0;
-        if (double.IsNaN(displacement) || double.IsInfinity(displacement)) displacement = 0;
-        return Math.Clamp(baseRate + perTonne * Math.Max(0, displacement), 0, 1e9);
+        double baseRate = Value(ship, key + "BaseKgPerHour", 1e9, "Consumption", defaults.Base);
+        double perTonne = Value(ship, key + "KgPerTonnePerHour", 1e6, "Consumption", defaults.PerTonne);
+        return Scale(baseRate, perTonne, ship.VP?._displacement ?? 0);
     }
+
+    private static double Scale(double baseAmount, double perTonne, double displacement) =>
+        Math.Clamp(baseAmount + perTonne * (double.IsFinite(displacement) ? Math.Max(0, displacement) : 0), 0, 1e9);
 
     private static double Read(string section, string key, double fallback, double min, double max)
     {
         if (!ini.Data.TryGetValue(section, out var values) || !values.TryGetValue(key, out string raw)) return fallback;
         if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            || double.IsNaN(value) || double.IsInfinity(value) || value < min || value > max)
+            || !double.IsFinite(value) || value < min || value > max)
             throw new FormatException($"Invalid {section}/{key} in supplies.ini");
         return value;
     }

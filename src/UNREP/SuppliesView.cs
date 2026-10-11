@@ -34,7 +34,7 @@ internal class SuppliesView
         var apply = Button("SET MINIMUM", () =>
         {
             if (table.SelectedItem is not SupplyStock stock || !stock.CanChange) return;
-            if (!double.TryParse(minimum.Text, out double value) || double.IsNaN(value) || double.IsInfinity(value)
+            if (!double.TryParse(minimum.Text, out double value) || !double.IsFinite(value)
                 || value < 0 || value > 1e9 || stock.Whole && value != Math.Floor(value))
             { message.Text = "Enter a nonnegative quantity, whole numbers for items, up to 1,000,000,000."; return; }
             policy.SetMinimum(stock.Key, value);

@@ -21,7 +21,7 @@ internal class ServiceRates(string path)
                 && (key.Equals("MountSecondsPerKg", StringComparison.OrdinalIgnoreCase)
                     || key.Equals("RefuelSecondsPerKg", StringComparison.OrdinalIgnoreCase));
             if (!double.TryParse(line[(equals + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-                || double.IsNaN(value) || double.IsInfinity(value) || value < 0 || value == 0 && !allowsZero || value > 86400)
+                || !double.IsFinite(value) || value < 0 || value == 0 && !allowsZero || value > 86400)
                 throw new FormatException($"Invalid preparation rate: {section}/{line[..equals]}");
             Table(section)[key] = value;
         }

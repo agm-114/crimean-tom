@@ -13,8 +13,7 @@ internal class UnrepSupply(SupplyTransfer job, SupplyStock stock) : INotifyPrope
     public string Item => Stock.Name;
     public string Amount => $"{(Enabled ? Available : 0):N0} {Stock.Unit}";
     public string DeliveredAmount => $"{Delivered:N0} {Stock.Unit}";
-    internal double Space => Math.Max(0, SupplyInventory.Read(job.Target)
-        .Where(item => item.Key == Stock.Key && item.Transferable).Sum(item => item.Free)
+    internal double Space => Math.Max(0, SupplyInventory.Transferable(job.Target, Stock.Key).Sum(item => item.Free)
         - VertrepOperation.IncomingCargo(job.Target, Stock.Key));
     internal double Available => Math.Min(SupplyPolicy.Available(job.Source, Stock), Space);
     internal bool Runnable => Enabled && Stock.Transferable && Available >= (Stock.Whole ? 1 : 0.001);
@@ -92,7 +91,7 @@ internal class SupplyTransfer(Vessel source, Vessel target)
         credit += seconds * rate;
         double moved = Math.Min(credit, plan.Available);
         if (stock.Whole) moved = Math.Floor(moved);
-        foreach (var destination in SupplyInventory.Read(Target).Where(item => item.Key == stock.Key && item.Transferable))
+        foreach (var destination in SupplyInventory.Transferable(Target, stock.Key))
         {
             double part = Math.Min(moved, destination.Free);
             if (stock.Whole) part = Math.Floor(part);
@@ -154,20 +153,17 @@ internal static class SupplyTransfers
         job.Queue();
         return "Ship queued";
     }
-    internal static void Move<T>(List<T> items, T item, int direction)
+    internal static void Move<T>(List<T> items, T item, int direction, Func<T, bool>? included = null)
     {
-        int index = items.IndexOf(item), next = index + direction;
-        if (index < 0 || next < 0 || next >= items.Count) return;
-        (items[index], items[next]) = (items[next], items[index]);
-    }
-    internal static void MoveShip(SupplyTransfer job, int direction)
-    {
-        var queue = Jobs.Where(item => item.Source == job.Source && !item.Finished).ToList();
-        int index = queue.IndexOf(job), next = index + direction;
+        var queue = included == null ? items : items.Where(included).ToList();
+        int index = queue.IndexOf(item), next = index + direction;
         if (index < 0 || next < 0 || next >= queue.Count) return;
-        int first = Jobs.IndexOf(job), second = Jobs.IndexOf(queue[next]);
-        (Jobs[first], Jobs[second]) = (Jobs[second], Jobs[first]);
+        int first = included == null ? index : items.IndexOf(item);
+        int second = included == null ? next : items.IndexOf(queue[next]);
+        (items[first], items[second]) = (items[second], items[first]);
     }
+    internal static void MoveShip(SupplyTransfer job, int direction) =>
+        Move(Jobs, job, direction, item => item.Source == job.Source && !item.Finished);
     internal static void Update()
     {
         var current = Singleton<ObjectsManager>.InstanceExists() ? Singleton<ObjectsManager>.Instance : null;
