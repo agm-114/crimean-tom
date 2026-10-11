@@ -42,7 +42,7 @@ public class Quickload : MonoBehaviour
     {
         Instance = this;
         // Hook names and load-action contracts are verified only against this build.
-        if (Application.version != "0.8.2-23444+s358")
+        if (Application.version != "0.8.5-261008")
         {
             Warn($"Unsupported game version {Application.version}; leaving startup unchanged.");
             return;
@@ -213,12 +213,6 @@ public class Quickload : MonoBehaviour
     {
         sceneFiles.Stop();
         TextureLoadingLifetime.Quitting = true;
-    }
-
-    [HarmonyPrefix, HarmonyPatch(typeof(SimpleObjectParameters), nameof(SimpleObjectParameters.LoadSimpleParameters))]
-    private static void UnitFile(string objectIniName, string objectIniFolder)
-    {
-        if (Instance.Progress?.Data is { Current: not null } data) data.File = $"{objectIniFolder}/{objectIniName}.ini";
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(ResourceLoader), nameof(ResourceLoader.getAudioClipResourceFromStreamingAssetsAwaitable))]

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using HarmonyLib;
 using SeaPower;
 using SeapowerUI.ViewModels;
@@ -14,14 +15,19 @@ internal static class EncyclopediaCatalogue
         internal string Reference { get; set; } = reference;
     }
     private static readonly List<Selection> waiting = [];
-    private static readonly System.Reflection.FieldInfo selected = AccessTools.Field(typeof(ObjectInformationViewModel), "_selectedMuseumEntry");
-    private static readonly System.Reflection.MethodInfo notify = AccessTools.Method(typeof(ObjectInformationViewModel), "NotifyPropertyChanged");
+    private static readonly FieldInfo selected = AccessTools.Field(typeof(ObjectInformationViewModel), "_selectedMuseumEntry");
+    private static readonly MethodInfo notify = AccessTools.Method(typeof(ObjectInformationViewModel), "NotifyPropertyChanged");
+    private static readonly Type managerType = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+    private static readonly PropertyInfo managerInstance = AccessTools.Property(typeof(Singleton<>).MakeGenericType(managerType), "Instance");
+    private static readonly PropertyInfo unitsLoaded = AccessTools.Property(managerType, "UnitsLoaded");
 
-    [HarmonyPrefix, HarmonyPatch(typeof(ObjectInformationViewModel), "CloneMuseumEntries")]
-    private static bool Catalogue(ref ObservableCollection<MuseumEntry> __result)
+    [HarmonyPrefix, HarmonyPatch(typeof(UnitTreeBrowserViewModel), "CloneMuseumEntries")]
+    private static void Catalogue(ref ObservableCollection<MuseumEntry> source)
     {
-        if (Quickload.Instance.DataReady || UnitCatalogue.Entries.Count == 0) return true;
-        __result = new(UnitCatalogue.Entries.GroupBy(row => row.Category).Select(group => new MuseumEntry
+        // The native completion event refreshes browsers before our data lane finishes.
+        if (Quickload.Instance.DataReady || UnitCatalogue.Entries.Count == 0 || unitsLoaded.GetValue(managerInstance.GetValue(null)) is true) return;
+        // Keep the shared browser's cloning and visibility filters for cached rows too.
+        source = new(UnitCatalogue.Entries.GroupBy(row => row.Category).Select(group => new MuseumEntry
         {
             DisplayName = group.Key, MuseumEntries = new(group.Select(row => (MuseumEntry)new MuseumObjectEntry
             {
@@ -29,7 +35,6 @@ internal static class EncyclopediaCatalogue
                 MuseumEntries = [], SensorEntries = [], WeaponEntries = [], AircraftEntries = [],
             })),
         }));
-        return false;
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(ObjectInformationViewModel), nameof(ObjectInformationViewModel.SelectedMuseumEntry), MethodType.Setter)]
