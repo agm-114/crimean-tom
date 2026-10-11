@@ -1,16 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <Version>0.2.0</Version>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <SeaPowerDir Condition="'$(SeaPowerDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sea Power</SeaPowerDir>
-    <GameManaged>$(SeaPowerDir)\Sea Power_Data\Managed</GameManaged>
     <BepInExDir>$(SeaPowerDir)\BepInEx</BepInExDir>
     <PluginDeployDirectory>$(BepInExDir)\plugins\SeaPower.LoadingProfiler</PluginDeployDirectory>
-    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" ReferenceOutputAssembly="false" />

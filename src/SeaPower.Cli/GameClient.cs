@@ -24,9 +24,7 @@ internal class GameClient
                 {
                     using (document)
                     {
-                        if (!document.RootElement.TryGetProperty("capabilities", out JsonElement capabilities)
-                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "load-scenario")
-                            || !capabilities.EnumerateArray().Any(value => value.GetString() == "menu"))
+                        if (!HasCapability(document.RootElement, "load-scenario") || !HasCapability(document.RootElement, "menu"))
                             throw new InvalidOperationException("The running bridge lacks scenario loading. Deploy the updated game bridge and restart.");
                         session = document.RootElement.GetProperty("session").GetString();
                     }
@@ -47,34 +45,10 @@ internal class GameClient
 
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
     {
-        if (command.Request.Action is "workshop-update" or "workshop-status") requiredCapability = "workshop-update";
-        if (command.Request.Action == "workshop-update")
-        {
-            JsonElement result = await SendAsync(command.Request, cancellation);
-            string operation = result.GetProperty("operation").GetString()!;
-            while (result.GetProperty("state").GetString() is "checking" or "uploading")
-            {
-                await Task.Delay(500, cancellation);
-                result = await SendAsync(new("workshop-status") { Text = operation }, cancellation);
-            }
-            if (result.GetProperty("state").GetString() == "failed")
-                throw new InvalidOperationException($"{result.GetProperty("failure").GetString()} Target: {result.GetProperty("url").GetString()}. Operation: {operation}.");
-            return result;
-        }
+        requiredCapability = command.Request.Action is "workshop-update" or "workshop-status" ? "workshop-update" : null;
+        if (command.Request.Action == "workshop-update") return await UpdateWorkshopAsync(command.Request, cancellation);
         if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);
-        if (command.Request.Action == "encyclopedia")
-        {
-            await SendAsync(command.Request, cancellation);
-            while (true)
-            {
-                JsonElement readiness = await SendAsync(new("encyclopedia-ready"), cancellation);
-                if (readiness.GetProperty("ready").GetBoolean()) break;
-                if (!readiness.GetProperty("loading").GetBoolean())
-                    throw new InvalidOperationException("Encyclopedia loading ended or was interrupted. Inspect the game before retrying.");
-                await Task.Delay(500, cancellation);
-            }
-            return await SendAsync(command.Request with { Action = "encyclopedia-unit" }, cancellation);
-        }
+        if (command.Request.Action == "encyclopedia") return await OpenEncyclopediaAsync(command.Request, cancellation);
         if (command.Request.Action is "inspect" or "update" or "units" or "units-update")
             return (await DumpAsync(command, cancellation))!.Value;
         if (command.Request.Action is not ("wait-for" or "wait-sim"))
@@ -113,6 +87,34 @@ internal class GameClient
             }
             await Task.Delay(500, cancellation);
         }
+    }
+
+    private async Task<JsonElement> UpdateWorkshopAsync(GameRequest request, CancellationToken cancellation)
+    {
+        JsonElement result = await SendAsync(request, cancellation);
+        string operation = result.GetProperty("operation").GetString()!;
+        while (result.GetProperty("state").GetString() is "checking" or "uploading")
+        {
+            await Task.Delay(500, cancellation);
+            result = await SendAsync(new("workshop-status") { Text = operation }, cancellation);
+        }
+        if (result.GetProperty("state").GetString() == "failed")
+            throw new InvalidOperationException($"{result.GetProperty("failure").GetString()} Target: {result.GetProperty("url").GetString()}. Operation: {operation}.");
+        return result;
+    }
+
+    private async Task<JsonElement> OpenEncyclopediaAsync(GameRequest request, CancellationToken cancellation)
+    {
+        await SendAsync(request, cancellation);
+        while (true)
+        {
+            JsonElement readiness = await SendAsync(new("encyclopedia-ready"), cancellation);
+            if (readiness.GetProperty("ready").GetBoolean()) break;
+            if (!readiness.GetProperty("loading").GetBoolean())
+                throw new InvalidOperationException("Encyclopedia loading ended or was interrupted. Inspect the game before retrying.");
+            await Task.Delay(500, cancellation);
+        }
+        return await SendAsync(request with { Action = "encyclopedia-unit" }, cancellation);
     }
 
     private async Task<JsonElement> SubmitScenarioAsync(GameRequest command, CancellationToken cancellation)
@@ -185,14 +187,17 @@ internal class GameClient
         string path = Path.Combine(directory, "session.json");
         if (!File.Exists(path)) throw new InvalidOperationException("Game bridge is not running or enabled.");
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellation));
-        if (requiredCapability != null && (!document.RootElement.TryGetProperty("capabilities", out var capabilities)
-            || !capabilities.EnumerateArray().Any(value => value.GetString() == requiredCapability)))
+        if (requiredCapability != null && !HasCapability(document.RootElement, requiredCapability))
             throw new InvalidOperationException($"The running bridge lacks {requiredCapability}. Deploy the updated bridge and restart the game when ready.");
         string current = document.RootElement.GetProperty("session").GetString() ?? "";
         if (!Guid.TryParseExact(current, "N", out _)) throw new InvalidDataException("Invalid bridge session.");
         if (session != null && session != current) throw new InvalidOperationException("Game session changed. Inspect before retrying an action.");
         session = current;
     }
+
+    private static bool HasCapability(JsonElement session, string capability) =>
+        session.TryGetProperty("capabilities", out var capabilities)
+        && capabilities.EnumerateArray().Any(value => value.GetString() == capability);
 
     private static void DeleteOwnFile(string path)
     {

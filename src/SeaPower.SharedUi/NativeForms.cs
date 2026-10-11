@@ -110,7 +110,7 @@ internal static partial class NativeUi
     internal static Slider Range(float value, float minimum, float maximum, float step, Action<float>? changed = null)
     {
         ValidateRange(value, minimum, maximum);
-        if (float.IsNaN(step) || float.IsInfinity(step) || step <= 0) throw new ArgumentOutOfRangeException(nameof(step));
+        if (!float.IsFinite(step) || step <= 0) throw new ArgumentOutOfRangeException(nameof(step));
         var slider = new Slider
         {
             Minimum = minimum, Maximum = maximum, Value = value, SmallChange = step,
@@ -141,7 +141,7 @@ internal static partial class NativeUi
 
     private static void ValidateRange(double value, double minimum, double maximum)
     {
-        if (double.IsNaN(minimum) || double.IsInfinity(minimum) || double.IsNaN(maximum) || double.IsInfinity(maximum)
+        if (!double.IsFinite(minimum) || !double.IsFinite(maximum)
             || minimum > maximum) throw new ArgumentException("Bounds must be finite and ordered.");
         if (double.IsNaN(value) || value < minimum || value > maximum) throw new ArgumentOutOfRangeException(nameof(value));
     }

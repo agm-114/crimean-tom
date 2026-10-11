@@ -14,6 +14,9 @@
   <Project Path="src/BoatOps/BoatOps.csproj" />
   <Project Path="src/UNREP/UNREP.csproj" />
   <Project Path="src/Amphibs/Amphibs.csproj" />
+  <Project Path="src/Airdrop/Airdrop.csproj" />
+  <Project Path="src/Deckpark/Deckpark.csproj" />
+  <Project Path="src/Spacewar/Spacewar.csproj" />
   <Project Path="src/SeaPower.GameBridge/SeaPower.GameBridge.csproj" />
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />

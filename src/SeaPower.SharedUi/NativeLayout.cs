@@ -79,8 +79,8 @@ internal static partial class NativeUi
 
     internal static Grid Split(FrameworkElement first, FrameworkElement second, bool vertical = false, float firstWeight = 1, float secondWeight = 2)
     {
-        if (firstWeight <= 0 || secondWeight <= 0 || float.IsNaN(firstWeight) || float.IsNaN(secondWeight)
-            || float.IsInfinity(firstWeight) || float.IsInfinity(secondWeight)) throw new ArgumentOutOfRangeException(nameof(firstWeight));
+        if (!float.IsFinite(firstWeight) || !float.IsFinite(secondWeight) || firstWeight <= 0 || secondWeight <= 0)
+            throw new ArgumentOutOfRangeException(nameof(firstWeight));
         var grid = new Grid();
         var splitter = new GridSplitter
         {

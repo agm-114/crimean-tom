@@ -38,5 +38,5 @@ internal static class UnitSnapshot
         };
     }
 
-    private static double? Round(double value, int digits) => double.IsNaN(value) || double.IsInfinity(value) ? null : Math.Round(value, digits);
+    private static double? Round(double value, int digits) => !double.IsFinite(value) ? null : Math.Round(value, digits);
 }
