@@ -102,7 +102,7 @@ internal class UiControls
                 expander.GetBindingExpression(Expander.IsExpandedProperty)?.UpdateSource();
                 break;
             case "set-value" when element is Slider range:
-                if (float.IsNaN(command.Value) || float.IsInfinity(command.Value) || command.Value < range.Minimum || command.Value > range.Maximum)
+                if (!float.IsFinite(command.Value) || command.Value < range.Minimum || command.Value > range.Maximum)
                     throw new ArgumentOutOfRangeException(nameof(command.Value), "Value is outside the slider range.");
                 range.SetCurrentValue(Slider.ValueProperty, command.Value);
                 range.GetBindingExpression(Slider.ValueProperty)?.UpdateSource();
