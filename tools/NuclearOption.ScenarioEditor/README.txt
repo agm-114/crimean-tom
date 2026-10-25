@@ -4,6 +4,7 @@ Windows and the .NET 10 Desktop Runtime are required.
 Run NuclearOption.ScenarioEditor.exe. Keep all published files together.
 Keep overrides.json writable. Inside this repository the app uses the tracked
 tools/NuclearOption.ScenarioEditor/overrides.json file instead of its published copy.
+Keep merged-units.json with the app too; the repository copy takes precedence.
 
 1. Select a source mission and click Open selected source.
 2. Check the OUTPUT path. The default creates a separate " - Edited" mission.
@@ -23,6 +24,13 @@ to keep versions. External JSON edits reload automatically. Select a rule to edi
 disable or remove it. Save output exports the current preview as a mission.
 One global substitution list covers placed units, factory products and reserves.
 Factory buildings and production times stay intact.
+
+Merged units combines faction variants under one editable name. The default database
+has 15 counterpart groups. Counts and production combine both variants; replacement
+rules choose the physical BDF or PALA unit using the affected object's faction.
+Use the Merged units tab to add groups or change names and variants. Apply saves
+automatically. Groups preserve differing costs and capabilities. CRAM and LADS,
+the HLT/MSV support roles, APC/IFV/SAM variants, tanks, MRAP and artillery are included.
 
 The editor scans the current Windows user's standard Nuclear Option Missions
 folder at startup and whenever the window regains focus. Browse accepts other

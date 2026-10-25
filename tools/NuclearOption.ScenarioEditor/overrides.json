@@ -11,6 +11,22 @@
     {
       "From": "Fighter1",
       "To": "COIN"
+    },
+    {
+      "From": "merged:r9-sam",
+      "To": "merged:artillery"
+    },
+    {
+      "From": "RadarSAM1",
+      "To": "SPAAG2"
+    },
+    {
+      "From": "Truck2-TBM-N",
+      "To": "Truck2-TBM"
+    },
+    {
+      "From": "merged:tractor",
+      "To": "merged:munitions"
     }
   ]
 }
