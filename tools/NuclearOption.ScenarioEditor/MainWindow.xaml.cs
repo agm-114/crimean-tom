@@ -14,10 +14,13 @@ public partial class MainWindow : Window
 {
     private readonly EditorSettings _settings = EditorSettings.Load();
     private readonly SortedSet<string> _catalog = new(StringComparer.Ordinal);
-    private readonly OverrideFile _overrideFile = new();
+    private readonly JsonDatabase<OverridePlan> _overrideFile = new("overrides.json");
+    private readonly JsonDatabase<MergedUnits> _mergedFile = new("merged-units.json");
     private readonly Stack<string> _undo = new();
-    private readonly DispatcherTimer _overrideTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
+    private readonly DispatcherTimer _dataTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private OverridePlan _overrides = new();
+    private MergedUnits _mergedUnits = new();
+    private string? _editingMergeId;
     private string _savedDocument = "";
     private IReadOnlyList<UnitUsage> _sourceUsage = [];
     private IReadOnlyList<UnitUsage> _usage = [];
@@ -38,7 +41,11 @@ public partial class MainWindow : Window
         UnitMode.SelectedValue = _settings.UnitMode;
         MissionsPathLabel.Text = MissionFiles.MissionsDirectory;
         _catalog.UnionWith(UnitCatalog.All.Where(u => u.IsReplacement).Select(u => u.Id));
-        TryAction(() => SynchronizeOverrides());
+        var variants = UnitCatalog.RawUnits.Where(u => u.IsReplacement && u.Category is "Vehicle" or "Aircraft" or "Ship")
+            .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        MergedBdfVariant.ItemsSource = variants;
+        MergedPalaVariant.ItemsSource = variants;
+        TryAction(() => SynchronizeData());
         _ready = true;
         RefreshMissions();
         var argument = Environment.GetCommandLineArgs().Skip(1).FirstOrDefault();
@@ -48,9 +55,9 @@ public partial class MainWindow : Window
         else StatusLabel.Text = _missions.Count > 0 ? "Choose a source mission on the left." : "No missions found. You can browse to a scenario JSON.";
         CommandBindings.Add(new(ApplicationCommands.Save, (_, _) => SaveOutput(), (_, e) => e.CanExecute = _document is not null));
         CommandBindings.Add(new(ApplicationCommands.Undo, (_, _) => Undo(), (_, e) => e.CanExecute = _undo.Count > 0));
-        _overrideTimer.Tick += (_, _) => CheckOverrides();
-        _overrideTimer.Start();
-        Closed += (_, _) => _overrideTimer.Stop();
+        _dataTimer.Tick += (_, _) => CheckData();
+        _dataTimer.Start();
+        Closed += (_, _) => _dataTimer.Stop();
     }
 
     private void RefreshMissions()
@@ -78,7 +85,7 @@ public partial class MainWindow : Window
         if (!CanDiscard()) return;
         TryAction(() =>
         {
-            SynchronizeOverrides();
+            SynchronizeData();
             var source = Path.GetFullPath(path);
             var output = _settings.Outputs.GetValueOrDefault(source) ?? MissionFiles.DefaultOutput(source);
             MissionFiles.ValidateOutput(source, output);
@@ -114,6 +121,10 @@ public partial class MainWindow : Window
         var from = FromType.Text;
         var to = ToType.Text;
         _usage = _document.Usage;
+        _sourceUsage = _sourceDocument?.Usage ?? [];
+        _catalog.Clear();
+        _catalog.UnionWith(UnitCatalog.All.Where(u => u.IsReplacement).Select(u => u.Id));
+        _catalog.UnionWith(_sourceUsage.Select(u => u.Type));
         _catalog.UnionWith(_usage.Select(u => u.Type));
         var available = _usage.Where(u => IsAvailableSource(u.Type)).Select(u => u.Type);
         FromType.ItemsSource = UnitCatalog.Options(available);
@@ -166,7 +177,7 @@ public partial class MainWindow : Window
     private void SaveOutput() => TryAction(() =>
     {
         if (_document is null) return;
-        SynchronizeOverrides();
+        SynchronizeData();
         var output = Path.GetFullPath(OutputPathBox.Text);
         MissionFiles.ValidateOutput(_source, output);
         var actual = File.Exists(output) ? File.ReadAllText(output) : null;
@@ -232,7 +243,7 @@ public partial class MainWindow : Window
 
     private void Undo() => TryAction(() =>
     {
-        SynchronizeOverrides();
+        SynchronizeData();
         if (!_undo.TryPeek(out var previous)) return;
         ApplyPlan(OverridePlan.Parse(previous), false);
         _undo.Pop();
@@ -246,34 +257,48 @@ public partial class MainWindow : Window
         OverridesPathLabel.Text = _overrideFile.Path + " · Saves automatically";
     }
 
-    private bool SynchronizeOverrides()
+    private bool SynchronizeData()
     {
-        if (!_overrideFile.HasChanged && !_retrySync) return false;
+        if (!_overrideFile.HasChanged && !_mergedFile.HasChanged && !_retrySync) return false;
         _retrySync = true;
-        var plan = _overrideFile.Load();
-        var result = _document is null ? null : plan.Apply(File.ReadAllText(_source));
+        var merged = _mergedFile.Load();
+        UnitCatalog.SetMergedUnits(merged);
+        OverridePlan plan;
+        MissionDocument? result;
+        try
+        {
+            plan = _overrideFile.Load();
+            result = _document is null ? null : plan.Apply(File.ReadAllText(_source));
+        }
+        catch
+        {
+            UnitCatalog.SetMergedUnits(_mergedUnits);
+            throw;
+        }
+        _mergedUnits = merged;
         _overrides = plan;
         _undo.Clear();
         _editingSource = null;
         _retrySync = false;
         RefreshOverrides();
+        RefreshMergedUnits();
         if (result is not null)
         {
             _document = result;
             _workingPath = _source;
             RefreshDocument();
-            ShowRebuildStatus(result, "External overrides reloaded");
+            ShowRebuildStatus(result, "Unit databases reloaded");
         }
         return true;
     }
 
-    private void CheckOverrides()
+    private void CheckData()
     {
-        try { SynchronizeOverrides(); }
+        try { SynchronizeData(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException)
         {
             _retrySync = true;
-            StatusLabel.Text = $"Could not reload overrides: {ex.Message} Retrying automatically.";
+            StatusLabel.Text = $"Could not reload unit data: {ex.Message} Retrying automatically.";
         }
     }
 
@@ -297,7 +322,7 @@ public partial class MainWindow : Window
 
     private void ChangeOverrides(Action<OverridePlan> edit) => TryAction(() =>
     {
-        if (SynchronizeOverrides()) return;
+        if (SynchronizeData()) return;
         var plan = OverridePlan.Parse(_overrides.Serialize());
         edit(plan);
         if (plan.Serialize() != _overrides.Serialize()) ApplyPlan(plan);
@@ -320,7 +345,7 @@ public partial class MainWindow : Window
         var category = UnitCatalog.Get(rule.From).Category;
         if (category is "Vehicle" or "Aircraft" or "Ship") UnitMode.SelectedValue = category;
         EditorTabs.SelectedIndex = 0;
-        _editingSource = rule.From;
+        _editingSource = UnitCatalog.CanonicalId(rule.From);
         FromType.Text = UnitCatalog.Name(rule.From);
         ToType.Text = UnitCatalog.Name(rule.To);
     }
@@ -366,7 +391,7 @@ public partial class MainWindow : Window
     private void MissionSearchChanged(object sender, TextChangedEventArgs e) { if (_ready) FilterMissions(); }
     private void ReplacementChanged(object sender, TextChangedEventArgs e) { if (_ready) UpdatePreview(); }
     private void WindowClosing(object? sender, CancelEventArgs e) => e.Cancel = !CanDiscard();
-    private void WindowActivated(object? sender, EventArgs e) { if (_ready) { RefreshMissions(); CheckOverrides(); } }
+    private void WindowActivated(object? sender, EventArgs e) { if (_ready) { RefreshMissions(); CheckData(); } }
     private void OutputPathChanged(object sender, TextChangedEventArgs e) { if (!_refreshing) _expectedOutput = null; }
 
     private void UsageSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -376,13 +401,15 @@ public partial class MainWindow : Window
 
     private string CurrentMode => UnitMode.SelectedValue as string ?? "Vehicle";
 
-    private bool IsAvailableSource(string id) => _usage.Any(u => u.Type == id && u.MatchesCategory(CurrentMode)) &&
-        !_overrides.Substitutions.Any(r => r.From == id);
+    private bool IsAvailableSource(string id) => _usage.Any(u => u.Type == UnitCatalog.CanonicalId(id) && u.MatchesCategory(CurrentMode)) &&
+        !_overrides.Substitutions.Any(r => UnitCatalog.CanonicalId(r.From) == UnitCatalog.CanonicalId(id));
 
-    private bool IsEditingSource(string id) => _editingSource == id && _overrides.Substitutions.Any(r => r.From == id);
+    private bool IsEditingSource(string id) => _editingSource == UnitCatalog.CanonicalId(id) &&
+        _overrides.Substitutions.Any(r => UnitCatalog.CanonicalId(r.From) == UnitCatalog.CanonicalId(id));
 
     private void SelectSource(string id)
     {
+        id = UnitCatalog.CanonicalId(id);
         if (!IsAvailableSource(id))
         {
             StatusLabel.Text = "This unit already has a substitution. Use Edit in Overrides to adjust it.";
@@ -415,4 +442,71 @@ public partial class MainWindow : Window
             StatusLabel.Text = "The editor could not remember its current source or mode.";
         }
     }
+
+    private void RefreshMergedUnits()
+    {
+        MergedUnitsGrid.ItemsSource = _mergedUnits.Units.OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        MergedPathLabel.Text = _mergedFile.Path + " · Saves automatically";
+    }
+
+    private void NewMergedUnitClick(object sender, RoutedEventArgs e)
+    {
+        _editingMergeId = null;
+        MergedUnitsGrid.SelectedItem = null;
+        MergedName.Text = MergedBdfVariant.Text = MergedPalaVariant.Text = "";
+    }
+
+    private void MergedUnitSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (MergedUnitsGrid.SelectedItem is not MergedUnit unit) return;
+        _editingMergeId = unit.Id;
+        MergedName.Text = unit.Name;
+        MergedBdfVariant.Text = unit.BdfName;
+        MergedPalaVariant.Text = unit.PalaName;
+    }
+
+    private void ApplyMergedUnitClick(object sender, RoutedEventArgs e) => ChangeMergedUnits(data =>
+        data.Set(_editingMergeId, MergedName.Text, UnitCatalog.ResolveRawId(MergedBdfVariant.Text), UnitCatalog.ResolveRawId(MergedPalaVariant.Text)));
+
+    private void RemoveMergedUnitClick(object sender, RoutedEventArgs e)
+    {
+        if (MergedUnitsGrid.SelectedItem is not MergedUnit unit) return;
+        ChangeMergedUnits(data => data.Units.RemoveAll(u => u.Id == unit.Id));
+    }
+
+    private void ChangeMergedUnits(Action<MergedUnits> edit) => TryAction(() =>
+    {
+        if (SynchronizeData()) return;
+        var data = MergedUnits.Parse(_mergedUnits.Serialize());
+        edit(data);
+        if (data.Serialize() == _mergedUnits.Serialize()) return;
+        UnitCatalog.SetMergedUnits(data);
+        MissionDocument? result;
+        try
+        {
+            _overrides.Serialize();
+            result = _document is null ? null : _overrides.Apply(File.ReadAllText(_source));
+            _mergedFile.Save(data);
+        }
+        catch
+        {
+            UnitCatalog.SetMergedUnits(_mergedUnits);
+            throw;
+        }
+        _mergedUnits = data;
+        _undo.Clear();
+        _editingSource = null;
+        RefreshMergedUnits();
+        var selected = MergedUnitsGrid.Items.OfType<MergedUnit>().FirstOrDefault(u => u.Name == MergedName.Text.Trim());
+        if (selected is not null) MergedUnitsGrid.SelectedItem = selected;
+        else NewMergedUnitClick(this, new RoutedEventArgs());
+        if (result is not null)
+        {
+            _document = result;
+            _workingPath = _source;
+            RefreshDocument();
+            RefreshOverrides();
+            ShowRebuildStatus(result, "Merged units saved automatically");
+        }
+    });
 }

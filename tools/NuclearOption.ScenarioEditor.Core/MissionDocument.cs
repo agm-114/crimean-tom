@@ -14,6 +14,7 @@ public record UnitUsage(string Type, int Ground, int Aircraft, int Ships, int Fa
     public string Code => UnitCatalog.Get(Type).Code;
     public long? Cost => UnitCatalog.Get(Type).Cost;
     public string CostDisplay => UnitCatalog.Get(Type).CostDisplay;
+    public string CostDetails => UnitCatalog.CostDetails(Type);
     public int Units => Ground + Aircraft + Ships;
     public int Total => Units + Factories + Reserves;
     public string Faction => (Factions.Any(f => f.Name == "Boscali"), Factions.Any(f => f.Name == "Primeva")) switch
@@ -76,7 +77,7 @@ public class MissionDocument
              b["factoryOptions"].Text("productionType").Length > 0))
         .Select(b => new Factory(b)).ToList();
 
-    public IReadOnlyList<UnitUsage> Usage => Slots().GroupBy(s => s.Type, StringComparer.Ordinal)
+    public IReadOnlyList<UnitUsage> Usage => Slots().GroupBy(s => UnitCatalog.CanonicalId(s.Type), StringComparer.Ordinal)
         .Select(g => new UnitUsage(g.Key, g.Count(s => s.Kind == "Ground"),
             g.Count(s => s.Kind == "Aircraft"), g.Count(s => s.Kind == "Ships"),
             g.Count(s => s.Kind == "Factories"), g.Count(s => s.Kind == "Reserves"),
@@ -88,24 +89,25 @@ public class MissionDocument
     public IReadOnlyDictionary<string, ProductionRate> GetUnitProduction(string? faction = null)
     {
         return Factories.Where(f => f.Product.Length > 0 && (faction is null || f.Faction == faction))
-            .GroupBy(f => f.Product, StringComparer.Ordinal)
+            .GroupBy(f => UnitCatalog.CanonicalId(f.Product), StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => new ProductionRate(g.Select(f => f.Seconds).ToList()), StringComparer.Ordinal);
     }
 
     public IReadOnlyList<Edit> PreviewReplacement(string before, string after)
     {
         ValidateType(after);
-        return before == after ? [] : Slots().Where(s => s.Type == before)
-            .Select(s => new Edit(s.Location, before, after)).ToList();
+        return Replacements(before, after).Select(r => new Edit(r.Slot.Location, r.Slot.Type, r.Target)).ToList();
     }
 
     public int ReplaceGlobally(string before, string after)
     {
-        var edits = PreviewReplacement(before, after);
+        ValidateType(after);
+        var replacements = Replacements(before, after);
+        var edits = replacements.Select(r => new Edit(r.Slot.Location, r.Slot.Type, r.Target)).ToList();
         if (edits.Count == 0) return 0;
         Remember();
-        foreach (var slot in Slots().Where(s => s.Type == before).ToList())
-            slot.Node[slot.Key] = after;
+        foreach (var (slot, target) in replacements)
+            slot.Node[slot.Key] = target;
         _edits.AddRange(edits);
         return edits.Count;
     }
@@ -123,6 +125,16 @@ public class MissionDocument
     public void MarkSaved() => _saved = Serialize();
 
     private void Remember() => _undo.Push((Serialize(), _edits.Count));
+
+    private List<(UnitSlot Slot, string Target)> Replacements(string before, string after)
+    {
+        before = UnitCatalog.CanonicalId(before);
+        after = UnitCatalog.CanonicalId(after);
+        if (before == after) return [];
+        return Slots().Where(s => UnitCatalog.CanonicalId(s.Type) == before)
+            .Select(s => (Slot: s, Target: UnitCatalog.ReplacementFor(after, s.Faction)))
+            .Where(r => r.Slot.Type != r.Target).ToList();
+    }
 
     private IEnumerable<UnitSlot> Slots()
     {
