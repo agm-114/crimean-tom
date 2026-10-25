@@ -15,6 +15,9 @@ internal record GameRequest(string Action)
     public bool Confirm { get; init; }
     public string ModDirectory { get; init; } = "";
     public string ChangeLog { get; init; } = "";
+    public string Visibility { get; init; } = "";
+    public ulong[] Dependencies { get; init; } = [];
+    public string[] Tags { get; init; } = [];
     public float Speed { get; init; } = 1;
     public float Value { get; init; }
 }

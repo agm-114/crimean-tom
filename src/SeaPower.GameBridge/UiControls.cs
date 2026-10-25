@@ -59,6 +59,10 @@ internal class UiControls
         snapshot = "";
         switch (command.Action)
         {
+            case "double-click" when element is Control targetControl:
+                if (!command.Confirm) throw new InvalidOperationException("Double-click requires Confirm=true.");
+                DoubleClick(targetControl, command.Index);
+                break;
             case "click" when element is ButtonBase button:
                 string label = Label(button);
                 if (!command.Confirm && new[] { "save", "load", "play", "launch", "quit", "exit", "start", "delete" }
@@ -117,6 +121,29 @@ internal class UiControls
             default: throw new ArgumentException("Unsupported action for this control.");
         }
         return new { ok = true, action = command.Action };
+    }
+
+    private static void DoubleClick(Control control, int index)
+    {
+        FrameworkElement target = control;
+        if (index >= 0)
+        {
+            if (control is not Selector list || index >= list.Items.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            list.SelectedIndex = index;
+            if (list is ListBox box) box.ScrollIntoView(list.Items[index]);
+            list.UpdateLayout();
+            target = list.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement
+                ?? throw new InvalidOperationException("List row is not realized. Scroll it into view and inspect again.");
+        }
+        if (!target.IsVisible || !target.IsEnabled || target.ActualWidth <= 0 || target.ActualHeight <= 0)
+            throw new InvalidOperationException("Double-click target has no visible bounds.");
+        var view = target.View;
+        var point = target.PointToScreen(new Point(target.ActualWidth / 2, target.ActualHeight / 2));
+        int x = (int)Math.Round(point.X), y = (int)Math.Round(point.Y);
+        // Native input runs mouse gestures and InputBindings as well as routed event handlers.
+        view.MouseMove(x, y);
+        view.MouseDoubleClick(x, y, MouseButton.Left);
+        view.MouseButtonUp(x, y, MouseButton.Left);
     }
 
     private object Inspect()

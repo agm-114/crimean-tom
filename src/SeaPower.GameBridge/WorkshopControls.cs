@@ -19,7 +19,7 @@ internal class WorkshopControls : IDisposable
         if (current?.Busy == true) throw new InvalidOperationException($"Workshop operation {current.Id} is still active. Use workshop-status.");
         if (!SteamManager.Initialized || !SteamUser.BLoggedOn() || SteamUtils.GetAppID().m_AppId != WorkshopManifest.AppId)
             throw new InvalidOperationException("Sea Power must be running with Steam signed in and the updated bridge enabled.");
-        var manifest = new WorkshopManifest(command.ModDirectory);
+        var manifest = new WorkshopManifest(command.ModDirectory, command.Action == "workshop-create");
         var files = manifest.ContentFiles();
         current?.Dispose();
         current = new Upload(manifest, files, command);
@@ -33,8 +33,10 @@ internal class WorkshopControls : IDisposable
     private class Upload(WorkshopManifest manifest, FileInfo[] files, GameCommand command) : IDisposable
     {
         internal string Id { get; } = Guid.NewGuid().ToString("N");
-        internal bool Busy => state is "checking" or "uploading";
+        internal bool Busy => state is "checking" or "creating" or "adding-dependencies" or "uploading";
+        private bool Creating => command.Action == "workshop-create";
         private string state = "checking";
+        private bool agreementRequired;
         private string? failure;
         private string? remoteTitle;
         private string? remoteDescription;
@@ -45,11 +47,15 @@ internal class WorkshopControls : IDisposable
         private UGCUpdateHandle_t update = UGCUpdateHandle_t.Invalid;
         private CallResult<SteamUGCQueryCompleted_t>? queryCall;
         private CallResult<SubmitItemUpdateResult_t>? uploadCall;
+        private CallResult<CreateItemResult_t>? createCall;
+        private readonly List<CallResult<AddUGCDependencyResult_t>> dependencyCalls = [];
+        private int dependenciesRemaining;
 
         internal void Start()
         {
             try
             {
+                if (Creating) { Create(); return; }
                 query = SteamUGC.CreateQueryUGCDetailsRequest(new[] { new PublishedFileId_t(manifest.ItemId) }, 1);
                 if (query == UGCQueryHandle_t.Invalid) throw new InvalidOperationException("Steam rejected the Workshop lookup.");
                 SteamUGC.SetAllowCachedResponse(query, 0);
@@ -61,6 +67,69 @@ internal class WorkshopControls : IDisposable
                 queryCall.Set(call);
             }
             catch (Exception error) { Fail(error.Message); ReleaseQuery(); }
+        }
+
+        private ERemoteStoragePublishedFileVisibility Visibility => command.Visibility switch
+        {
+            "public" => ERemoteStoragePublishedFileVisibility.k_ERemoteStoragePublishedFileVisibilityPublic,
+            "friends-only" => ERemoteStoragePublishedFileVisibility.k_ERemoteStoragePublishedFileVisibilityFriendsOnly,
+            "private" => ERemoteStoragePublishedFileVisibility.k_ERemoteStoragePublishedFileVisibilityPrivate,
+            "unlisted" => ERemoteStoragePublishedFileVisibility.k_ERemoteStoragePublishedFileVisibilityUnlisted,
+            _ => throw new ArgumentException("Creation requires an explicit valid visibility."),
+        };
+
+        private void Create()
+        {
+            _ = Visibility;
+            if (command.Dependencies.Any(id => id == 0)) throw new ArgumentException("Invalid dependency ID.");
+            ValidateLocal();
+            owner = SteamUser.GetSteamID().m_SteamID;
+            if (!command.Confirm) { state = "preview"; return; }
+            // Persist before contacting Steam: an uncertain outcome must never create a duplicate on retry.
+            manifest.MarkCreationPending(Id);
+            state = "creating";
+            createCall = CallResult<CreateItemResult_t>.Create(Created);
+            var call = SteamUGC.CreateItem(new AppId_t(WorkshopManifest.AppId), EWorkshopFileType.k_EWorkshopFileTypeFirst);
+            if (call == SteamAPICall_t.Invalid) throw new InvalidOperationException("Steam rejected creation. Check the pending marker before retrying.");
+            createCall.Set(call);
+        }
+
+        private void Created(CreateItemResult_t result, bool ioFailure)
+        {
+            try
+            {
+                if (ioFailure || result.m_eResult != EResult.k_EResultOK || result.m_nPublishedFileId.m_PublishedFileId == 0)
+                    throw new InvalidOperationException($"Steam creation failed or is uncertain: {result.m_eResult}, IO failure={ioFailure}. Check your Workshop listings before retrying.");
+                manifest.PinCreatedItem(result.m_nPublishedFileId.m_PublishedFileId);
+                agreementRequired = result.m_bUserNeedsToAcceptWorkshopLegalAgreement;
+                if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != owner)
+                    throw new InvalidOperationException("Steam account changed after creation. The new URL is saved; nothing uploaded.");
+                var dependencies = command.Dependencies.Distinct().ToArray();
+                dependenciesRemaining = dependencies.Length;
+                if (dependenciesRemaining == 0) { Submit(); return; }
+                state = "adding-dependencies";
+                foreach (ulong id in dependencies)
+                {
+                    var callback = CallResult<AddUGCDependencyResult_t>.Create(DependencyAdded);
+                    dependencyCalls.Add(callback);
+                    var call = SteamUGC.AddDependency(new PublishedFileId_t(manifest.ItemId), new PublishedFileId_t(id));
+                    if (call == SteamAPICall_t.Invalid) throw new InvalidOperationException($"Steam rejected dependency {id}. The new URL is saved.");
+                    callback.Set(call);
+                }
+            }
+            catch (Exception error) { Fail(error.Message); }
+        }
+
+        private void DependencyAdded(AddUGCDependencyResult_t result, bool ioFailure)
+        {
+            if (state != "adding-dependencies") return;
+            try
+            {
+                if (ioFailure || result.m_eResult != EResult.k_EResultOK || result.m_nPublishedFileId.m_PublishedFileId != manifest.ItemId)
+                    throw new InvalidOperationException($"Steam could not add dependency {result.m_nChildPublishedFileId}: {result.m_eResult}. The new URL is saved.");
+                if (--dependenciesRemaining == 0) Submit();
+            }
+            catch (Exception error) { Fail(error.Message); }
         }
 
         private void Queried(SteamUGCQueryCompleted_t result, bool ioFailure)
@@ -88,18 +157,17 @@ internal class WorkshopControls : IDisposable
 
         private void Submit()
         {
-            var fresh = new WorkshopManifest(manifest.Directory);
-            if (fresh.ItemId != manifest.ItemId || fresh.Title != manifest.Title
-                || fresh.Name != manifest.Name || fresh.Description != manifest.Description)
-                throw new InvalidOperationException("Local Workshop metadata changed during verification; nothing uploaded.");
-            fresh.ContentFiles();
+            ValidateLocal();
             if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != owner)
                 throw new InvalidOperationException("Steam account changed during verification; nothing uploaded.");
             string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
-            if (File.Exists(preview) && new FileInfo(preview).Length > 1000000)
-                throw new ArgumentException("thumbnail.jpg must be at most 1,000,000 bytes.");
             update = SteamUGC.StartItemUpdate(new AppId_t(WorkshopManifest.AppId), new PublishedFileId_t(manifest.ItemId));
             if (update == UGCUpdateHandle_t.Invalid) throw new InvalidOperationException("Steam rejected the item update.");
+            if (Creating)
+            {
+                Require(SteamUGC.SetItemVisibility(update, Visibility), "visibility");
+                if (command.Tags.Length > 0) Require(SteamUGC.SetItemTags(update, command.Tags), "tags");
+            }
             Require(SteamUGC.SetItemUpdateLanguage(update, "english"), "listing language");
             Require(SteamUGC.SetItemTitle(update, manifest.Name), "name");
             Require(SteamUGC.SetItemDescription(update, manifest.Description), "description");
@@ -116,11 +184,23 @@ internal class WorkshopControls : IDisposable
             uploadCall.Set(call);
         }
 
+        private void ValidateLocal()
+        {
+            var fresh = new WorkshopManifest(manifest.Directory, Creating && manifest.ItemId == 0);
+            if (fresh.ItemId != manifest.ItemId || fresh.Title != manifest.Title
+                || fresh.Name != manifest.Name || fresh.Description != manifest.Description)
+                throw new InvalidOperationException("Local Workshop metadata changed during verification; nothing uploaded.");
+            fresh.ContentFiles();
+            string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
+            if (File.Exists(preview) && new FileInfo(preview).Length > 1000000)
+                throw new ArgumentException("thumbnail.jpg must be at most 1,000,000 bytes.");
+        }
+
         private void Submitted(SubmitItemUpdateResult_t result, bool ioFailure)
         {
             if (ioFailure || result.m_eResult != EResult.k_EResultOK || result.m_nPublishedFileId.m_PublishedFileId != manifest.ItemId)
                 Fail($"Steam upload failed or could not be confirmed: {result.m_eResult}, IO failure={ioFailure}. Check the Workshop item before retrying.");
-            else state = result.m_bUserNeedsToAcceptWorkshopLegalAgreement ? "agreement-required" : "updated";
+            else state = agreementRequired || result.m_bUserNeedsToAcceptWorkshopLegalAgreement ? "agreement-required" : Creating ? "created" : "updated";
         }
 
         internal object Status()
@@ -129,13 +209,14 @@ internal class WorkshopControls : IDisposable
             string? progress = state == "uploading" ? SteamUGC.GetItemUpdateProgress(update, out processed, out total).ToString() : null;
             return new
             {
-                ok = state is "preview" or "updated", action = "workshop-update", operation = Id, state,
-                url = manifest.Url, publishedFileId = manifest.ItemId.ToString(), appId = WorkshopManifest.AppId,
+                ok = state is "preview" or "updated" or "created", action = command.Action, operation = Id, state,
+                url = manifest.Url, publishedFileId = manifest.ItemId == 0 ? null : manifest.ItemId.ToString(), appId = WorkshopManifest.AppId,
                 title = manifest.Name, description = manifest.Description,
                 currentTitle = remoteTitle, currentDescription = remoteDescription,
                 ownerSteamId = owner == 0 ? null : owner.ToString(),
                 modDirectory = manifest.Directory, fileCount = files.Length, bytes,
                 changeLog = command.ChangeLog, progress, bytesProcessed = processed, bytesTotal = total, failure,
+                visibility = Creating ? command.Visibility : null, dependencies = command.Dependencies.Select(id => id.ToString()).ToArray(), tags = command.Tags,
                 agreementUrl = state == "agreement-required" ? "https://steamcommunity.com/sharedfiles/workshoplegalagreement" : null
             };
         }
@@ -165,6 +246,8 @@ internal class WorkshopControls : IDisposable
         {
             queryCall?.Dispose();
             uploadCall?.Dispose();
+            createCall?.Dispose();
+            dependencyCalls.ForEach(callback => callback.Dispose());
             ReleaseQuery();
         }
     }

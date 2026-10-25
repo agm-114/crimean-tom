@@ -29,6 +29,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli status [--format yaml|json]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
         seapower-cli workshop-update --mod-dir PATH [--changelog TEXT] [--confirm] [--timeout 600]
+        seapower-cli workshop-create --mod-dir PATH --visibility public|friends-only|private|unlisted [--dependencies IDS] [--tags TAGS] [--confirm]
         seapower-cli workshop-status [--operation TOKEN]
         seapower-cli unity-explorer [status|install|enable|disable] [--confirm] [--game-dir PATH]
         seapower-cli logs [--tail 200] [--game-dir PATH] [--log-file PATH]
@@ -39,6 +40,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli menu [PAGE] [--confirm]
         seapower-cli encyclopedia --unit INI_NAME [--variant 0] --confirm [--timeout 120]
         seapower-cli click --snapshot TOKEN --id ID [--confirm]
+        seapower-cli double-click --snapshot TOKEN --id ID [--index N] --confirm
         seapower-cli select --snapshot TOKEN --id ID [--index N]
         seapower-cli expand|open --snapshot TOKEN --id ID
         seapower-cli set-text --snapshot TOKEN --id ID --text TEXT
@@ -96,6 +98,12 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         --confirm syncs Language_en Name/Description from _info.ini plus content, thumbnail and compatibility metadata.
         It verifies the app, owner and title. Workshop/Title can pin the old title for an intentional rename.
         It never creates an item or changes tags, visibility or dependencies.
+        workshop-create previews a new listing; --confirm creates it and uploads the package.
+        It requires explicit visibility and refuses existing URLs or pending creations.
+        Dependencies are comma-separated Workshop IDs; tags are comma-separated names.
+        Creation pins the returned URL in the packaged _info.ini before uploading.
+        An interrupted creation leaves CreationPending there; check Steam before removing it.
+        double-click sends native Noesis double-click input; --index selects and reveals a list row first.
         Requires a packaged mod folder and the updated bridge running under Steam. It does not launch the game.
         Timeout/Ctrl+C does not cancel accepted uploads. Use workshop-status before retrying.
         """;
@@ -109,6 +117,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "inspect" or "update" or "units" or "units-update" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
             "workshop-update" => ["--mod-dir", "--changelog", "--confirm"],
+            "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
             "workshop-status" => ["--operation"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
@@ -118,6 +127,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "menu" => ["--page", "--confirm"],
             "encyclopedia" => ["--unit", "--variant", "--confirm"],
             "click" => ["--snapshot", "--id", "--confirm"],
+            "double-click" => ["--snapshot", "--id", "--index", "--confirm"],
             "ui-gallery" => ["--confirm"],
             "set-value" => ["--snapshot", "--id", "--value"],
             "details" => ["--snapshot", "--id", "--depth"],
@@ -175,8 +185,17 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         int seconds = Number("--seconds", 60, 1, 86400);
         string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
         if (action == "load-scenario" && scenario == null) Required("--scenario");
-        string modDirectory = action == "workshop-update" ? Path.GetFullPath(Required("--mod-dir")) : "";
-        if (action == "workshop-update") new SeaPower.Workshop.WorkshopManifest(modDirectory).ContentFiles();
+        bool workshop = action is "workshop-update" or "workshop-create";
+        string modDirectory = workshop ? Path.GetFullPath(Required("--mod-dir")) : "";
+        if (workshop) new SeaPower.Workshop.WorkshopManifest(modDirectory, action == "workshop-create").ContentFiles();
+        string visibility = action == "workshop-create" ? Required("--visibility").ToLowerInvariant() : "";
+        if (action == "workshop-create" && visibility is not ("public" or "friends-only" or "private" or "unlisted"))
+            throw new ArgumentException("--visibility must be public, friends-only, private or unlisted.");
+        ulong[] dependencies = (options.GetValueOrDefault("--dependencies") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(value => ulong.TryParse(value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) && id != 0
+                ? id : throw new ArgumentException("--dependencies requires comma-separated nonzero Workshop IDs.")).Distinct().ToArray();
+        string[] tags = (options.GetValueOrDefault("--tags") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(value => value.Trim()).Where(value => value.Length > 0).Distinct().ToArray();
         string changeLog = options.GetValueOrDefault("--changelog") ?? "";
         if (changeLog.Length > 4000) throw new ArgumentException("--changelog must not exceed 4000 characters.");
         if (scenario != null && (!Path.GetExtension(scenario).Equals(".ini", StringComparison.OrdinalIgnoreCase) || !File.Exists(scenario)))
@@ -187,14 +206,14 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
-        int defaultTimeout = action switch { "workshop-update" => 600, "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
-        if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia"
+        int defaultTimeout = action switch { "workshop-update" or "workshop-create" => 600, "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
+        if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia" or "double-click"
             || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
             throw new ArgumentException($"{action} requires --confirm.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
-        bool controlAction = action is "click" or "select" or "expand" or "collapse" or "open" or "set-text" or "set-value" or "details";
+        bool controlAction = action is "click" or "double-click" or "select" or "expand" or "collapse" or "open" or "set-text" or "set-value" or "details";
         string snapshot = controlAction ? Required("--snapshot") : "";
         if (controlAction) Required("--id");
         string text = action switch
@@ -217,7 +236,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Depth = Number("--depth", 8, 0, 32),
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
-            ModDirectory = modDirectory, ChangeLog = changeLog,
+            ModDirectory = modDirectory, ChangeLog = changeLog, Visibility = visibility, Dependencies = dependencies, Tags = tags,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,
