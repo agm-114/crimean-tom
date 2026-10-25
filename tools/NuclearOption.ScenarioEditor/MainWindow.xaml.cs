@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private string _source = "";
     private string _workingPath = "";
     private string? _expectedOutput;
+    private string? _editingSource;
     private bool _refreshing;
     private bool _ready;
     private bool _retrySync;
@@ -90,6 +91,7 @@ public partial class MainWindow : Window
             _sourceUsage = original.Usage;
             _savedDocument = outputJson is null ? original.Serialize() : new MissionDocument(outputJson).Serialize();
             _undo.Clear();
+            _editingSource = null;
             _refreshing = true;
             SourcePathBox.Text = source;
             OutputPathBox.Text = output;
@@ -111,10 +113,11 @@ public partial class MainWindow : Window
         var to = ToType.Text;
         _usage = _document.Usage;
         _catalog.UnionWith(_usage.Select(u => u.Type));
-        var available = _sourceUsage.Concat(_usage).Where(u => u.MatchesCategory(CurrentMode)).Select(u => u.Type);
+        var available = _usage.Where(u => IsAvailableSource(u.Type)).Select(u => u.Type);
         FromType.ItemsSource = UnitCatalog.Options(available);
         ToType.ItemsSource = UnitCatalog.Options(_catalog.Where(MatchesMode));
-        FromType.Text = from;
+        var fromId = UnitCatalog.ResolveId(from);
+        FromType.Text = IsAvailableSource(fromId) || IsEditingSource(fromId) ? from : "";
         ToType.Text = to;
         UsageGrid.ItemsSource = _usage.Where(u => u.MatchesCategory(CurrentMode)).ToList();
         FilterFactories();
@@ -133,7 +136,8 @@ public partial class MainWindow : Window
         if (_document is null || _refreshing) return;
         var before = UnitCatalog.ResolveId(FromType.Text);
         var after = UnitCatalog.ResolveId(ToType.Text);
-        var usage = _sourceUsage.FirstOrDefault(u => u.Type == before) ?? _usage.FirstOrDefault(u => u.Type == before);
+        var usage = _usage.FirstOrDefault(u => u.Type == before) ??
+            (IsEditingSource(before) ? _sourceUsage.FirstOrDefault(u => u.Type == before) : null);
         ReplacementPreview.Text = usage is null || string.IsNullOrWhiteSpace(after) ? "Choose the original type and its replacement." :
             before == after ? "Choose a different replacement type." :
             $"{usage.Total} fields will change: {usage.Ground} ground, {usage.Aircraft} aircraft, {usage.Ships} ships, {usage.Factories} factories, {usage.Reserves} reserve entries.";
@@ -144,6 +148,8 @@ public partial class MainWindow : Window
         if (_document is null) return;
         var before = UnitCatalog.ResolveId(FromType.Text);
         var after = UnitCatalog.ResolveId(ToType.Text);
+        if (!IsAvailableSource(before) && !IsEditingSource(before))
+            throw new ArgumentException("Choose a unit remaining in the current mission. To change an existing substitution, select Edit in Overrides.");
         if (!MatchesMode(before) || UnitCatalog.Get(after).Category is not "Unknown" && !MatchesMode(after))
             throw new ArgumentException("Choose source and replacement units in the current mode.");
         ChangeOverrides(plan => plan.SetSubstitution(before, after));
@@ -222,6 +228,7 @@ public partial class MainWindow : Window
         var result = _document is null ? null : plan.Apply(File.ReadAllText(_source));
         _overrides = plan;
         _undo.Clear();
+        _editingSource = null;
         _retrySync = false;
         RefreshOverrides();
         if (result is not null)
@@ -252,6 +259,7 @@ public partial class MainWindow : Window
         if (remember) _undo.Push(_overrides.Serialize());
         _overrides = plan;
         _document = result;
+        _editingSource = null;
         _workingPath = _source;
         RefreshOverrides();
         RefreshDocument();
@@ -286,6 +294,7 @@ public partial class MainWindow : Window
         var category = UnitCatalog.Get(rule.From).Category;
         if (category is "Vehicle" or "Aircraft" or "Ship") UnitMode.SelectedValue = category;
         EditorTabs.SelectedIndex = 0;
+        _editingSource = rule.From;
         FromType.Text = UnitCatalog.Name(rule.From);
         ToType.Text = UnitCatalog.Name(rule.To);
     }
@@ -297,7 +306,7 @@ public partial class MainWindow : Window
         if (category is not ("Vehicle" or "Aircraft" or "Ship")) return;
         UnitMode.SelectedValue = category;
         EditorTabs.SelectedIndex = 0;
-        FromType.Text = factory.ProductName;
+        SelectSource(factory.Product);
         ToType.Text = "";
     }
 
@@ -336,10 +345,26 @@ public partial class MainWindow : Window
 
     private void UsageSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_refreshing && UsageGrid.SelectedItem is UnitUsage usage) FromType.Text = usage.Name;
+        if (!_refreshing && UsageGrid.SelectedItem is UnitUsage usage) SelectSource(usage.Type);
     }
 
     private string CurrentMode => UnitMode.SelectedValue as string ?? "Vehicle";
+
+    private bool IsAvailableSource(string id) => _usage.Any(u => u.Type == id && u.MatchesCategory(CurrentMode)) &&
+        !_overrides.Substitutions.Any(r => r.From == id);
+
+    private bool IsEditingSource(string id) => _editingSource == id && _overrides.Substitutions.Any(r => r.From == id);
+
+    private void SelectSource(string id)
+    {
+        if (!IsAvailableSource(id))
+        {
+            StatusLabel.Text = "This unit already has a substitution. Use Edit in Overrides to adjust it.";
+            return;
+        }
+        _editingSource = null;
+        FromType.Text = UnitCatalog.Name(id);
+    }
 
     private bool MatchesMode(string id) => UnitCatalog.Get(id).Category == CurrentMode ||
         _sourceUsage.Concat(_usage).Any(u => u.Type == id && u.MatchesCategory(CurrentMode));
@@ -347,6 +372,7 @@ public partial class MainWindow : Window
     private void UnitModeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_ready || _refreshing) return;
+        _editingSource = null;
         _refreshing = true;
         FromType.Text = ToType.Text = "";
         _refreshing = false;
