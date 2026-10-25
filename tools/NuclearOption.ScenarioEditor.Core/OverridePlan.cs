@@ -11,16 +11,18 @@ public record UnitSubstitution(string From, string To,
     [JsonIgnore] public string Code => UnitCatalog.Get(From).Code;
 }
 
-public class OverridePlan
+public class OverridePlan : IJsonData<OverridePlan>
 {
     public List<UnitSubstitution> Substitutions { get; set; } = [];
 
     public void SetSubstitution(string from, string to)
     {
+        from = UnitCatalog.CanonicalId(from);
+        to = UnitCatalog.CanonicalId(to);
         ValidateId(from);
         ValidateId(to);
         if (from == to) throw new ArgumentException("Choose a different replacement unit.");
-        var index = Substitutions.FindIndex(r => r.From == from);
+        var index = Substitutions.FindIndex(r => UnitCatalog.CanonicalId(r.From) == from);
         var rule = new UnitSubstitution(from, to);
         if (index < 0) Substitutions.Add(rule);
         else Substitutions[index] = rule;
@@ -52,13 +54,14 @@ public class OverridePlan
     {
         if (Substitutions is null || Substitutions.Any(r => r is null))
             throw new JsonException("Substitutions must be an array of override rules.");
-        if (Substitutions.GroupBy(r => r.From).Any(g => g.Count() > 1))
-            throw new ArgumentException("Overrides contain duplicate source units.");
+        if (Substitutions.GroupBy(r => UnitCatalog.CanonicalId(r.From)).Any(g => g.Count() > 1))
+            throw new ArgumentException("Overrides contain duplicate source units. Combine rules for variants that share a merged entry.");
         foreach (var rule in Substitutions)
         {
             ValidateId(rule.From);
             ValidateId(rule.To);
-            if (rule.From == rule.To) throw new ArgumentException("An override must use different source and replacement units.");
+            if (UnitCatalog.CanonicalId(rule.From) == UnitCatalog.CanonicalId(rule.To))
+                throw new ArgumentException("An override must use different source and replacement units.");
         }
     }
 
@@ -66,5 +69,7 @@ public class OverridePlan
     {
         if (string.IsNullOrWhiteSpace(value) || value != value.Trim() || value.Any(char.IsControl))
             throw new ArgumentException("Override identifiers must be nonempty and have no surrounding spaces or control characters.");
+        if (value.StartsWith("merged:", StringComparison.Ordinal) && !UnitCatalog.IsMerged(value))
+            throw new ArgumentException($"Override references missing merged unit '{value}'. Remove or change its rule before deleting that group.");
     }
 }

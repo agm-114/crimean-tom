@@ -1,0 +1,16 @@
+{
+  "Units": [
+    {
+      "Id": "merged:cram",
+      "Name": "CRAM",
+      "BDF": "CRAMTrailer1",
+      "PALA": "Truck2-CRAM"
+    },
+    {
+      "Id": "merged:lads",
+      "Name": "LADS",
+      "BDF": "LaserTrailer1",
+      "PALA": "Truck2-LADS"
+    }
+  ]
+}
