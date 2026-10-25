@@ -1,10 +1,16 @@
 # Amphibs
 
-Independent AnchorChain mod for Sea Power `0.8.2-23444+s358`.
+Independent AnchorChain mod for Sea Power `0.8.5-261008`.
 `src/Amphibs/amphibious-variants.ini` registers seven amphibious variants without
 replacing their stock ground units. They reuse the source models, equipment and
-national variants. The Workshop description is blank.
+national variants.
 See [the ground-unit survey](ground-unit-survey.md) for eligibility and sources.
+
+[Workshop listing](https://steamcommunity.com/sharedfiles/filedetails/?id=3817593811).
+The [playground](scenarios/amphibs-playground.ini) starts two Tarawas near the
+beach and all seven vehicles on parallel routes ashore in sea state 3. Load it
+with `seapower-cli load-scenario` to inspect swimming speeds, flotation and wakes,
+launch AAV7s through Boat Ops or issue your own orders.
 
 ## Water movement
 

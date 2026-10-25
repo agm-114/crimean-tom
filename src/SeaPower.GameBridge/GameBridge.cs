@@ -14,7 +14,7 @@ public class GameBridge : MonoBehaviour
     private void Awake()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot", "workshop-update" } }));
+        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot", "double-click", "workshop-update", "workshop-create" } }));
         Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
@@ -36,7 +36,7 @@ public class GameBridge : MonoBehaviour
             if (command == null || !Guid.TryParseExact(command.Request, "N", out _)) return;
             if (command.Session != session || command.Expires < DateTime.UtcNow)
                 throw new InvalidOperationException("Expired request or stale game session. Inspect again.");
-            if (command.Action is "workshop-update" or "workshop-status") Reply(command, workshop.Execute(command));
+            if (command.Action is "workshop-update" or "workshop-create" or "workshop-status") Reply(command, workshop.Execute(command));
             else if (command.Action == "screenshot") StartCoroutine(Capture(command));
             else Reply(command, controls.Execute(command));
         }
@@ -98,6 +98,9 @@ internal class GameCommand
     public bool Confirm { get; set; }
     public string ModDirectory { get; set; } = "";
     public string ChangeLog { get; set; } = "";
+    public string Visibility { get; set; } = "";
+    public ulong[] Dependencies { get; set; } = [];
+    public string[] Tags { get; set; } = [];
     public float Speed { get; set; } = 1;
     public float Value { get; set; }
 }

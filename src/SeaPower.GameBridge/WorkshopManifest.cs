@@ -7,13 +7,13 @@ internal class WorkshopManifest
 {
     internal const uint AppId = 1286220;
     internal string Directory { get; }
-    internal string Title { get; }
+    internal string Title { get; private set; }
     internal string Name { get; }
     internal string Description { get; }
-    internal ulong ItemId { get; }
-    internal string Url => $"https://steamcommunity.com/sharedfiles/filedetails/?id={ItemId}";
+    internal ulong ItemId { get; private set; }
+    internal string? Url => ItemId == 0 ? null : $"https://steamcommunity.com/sharedfiles/filedetails/?id={ItemId}";
 
-    internal WorkshopManifest(string directory)
+    internal WorkshopManifest(string directory, bool create = false)
     {
         Directory = Path.GetFullPath(directory);
         string info = Path.Combine(Directory, "_info.ini");
@@ -37,9 +37,11 @@ internal class WorkshopManifest
                 Store(values, key, value, section);
             }
         }
-        if (!values.TryGetValue("Url", out string? url))
+        if (create && (values.ContainsKey("Url") || values.ContainsKey("PublishedFileId") || values.ContainsKey("CreationPending")))
+            throw new ArgumentException("Creation refused: this package has a Workshop identity or pending creation. Use workshop-update or check Steam before retrying.");
+        if (values.TryGetValue("Url", out string? url)) ItemId = ParseUrl(url);
+        else if (!create)
             throw new ArgumentException("Add [Workshop] Url=<existing Steam Workshop URL> to _info.ini or mod.info. Updates never create an item.");
-        ItemId = ParseUrl(url);
         Name = listing.TryGetValue("Name", out string? name) ? name : "";
         if (string.IsNullOrWhiteSpace(Name) || Name.Contains('\0'))
             throw new ArgumentException("Set a nonempty Language_en/Name in _info.ini to publish.");
@@ -52,6 +54,38 @@ internal class WorkshopManifest
             throw new ArgumentException("Workshop/AppId must be 1286220 for Sea Power.");
         if (values.TryGetValue("PublishedFileId", out string? id) && id != ItemId.ToString(CultureInfo.InvariantCulture))
             throw new ArgumentException("Workshop/PublishedFileId conflicts with Workshop/Url.");
+    }
+
+    internal void MarkCreationPending(string operation) => WriteIdentity(new() { ["CreationPending"] = operation });
+
+    internal void PinCreatedItem(ulong itemId)
+    {
+        if (itemId == 0 || ItemId != 0) throw new InvalidOperationException("Invalid new Workshop identity.");
+        ItemId = itemId;
+        Title = Name;
+        WriteIdentity(new() { ["Url"] = Url!, ["Title"] = Name });
+    }
+
+    private void WriteIdentity(Dictionary<string, string> values)
+    {
+        values = new(values, StringComparer.OrdinalIgnoreCase);
+        string path = Path.Combine(Directory, "_info.ini");
+        List<string> lines = File.ReadAllLines(path).ToList();
+        int start = lines.FindIndex(line => line.Trim().Equals("[Workshop]", StringComparison.OrdinalIgnoreCase));
+        if (start < 0) { lines.Add(""); lines.Add("[Workshop]"); start = lines.Count - 1; }
+        int end = start + 1;
+        while (end < lines.Count && !lines[end].TrimStart().StartsWith("[")) end++;
+        for (int index = end - 1; index > start; index--)
+        {
+            string key = lines[index].Split('=')[0].Trim();
+            if (!values.ContainsKey(key) && !key.Equals("CreationPending", StringComparison.OrdinalIgnoreCase)) continue;
+            lines.RemoveAt(index);
+            end--;
+        }
+        lines.InsertRange(end, values.Select(pair => $"{pair.Key}={pair.Value}"));
+        string temporary = path + ".workshop.tmp";
+        File.WriteAllLines(temporary, lines);
+        File.Replace(temporary, path, null);
     }
 
     private static void Store(Dictionary<string, string> values, string key, string value, string section)

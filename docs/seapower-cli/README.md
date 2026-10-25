@@ -60,6 +60,7 @@ seapower-cli status
 seapower-cli game-status
 seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP'
 seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP' --changelog 'Supply consumption update' --confirm
+seapower-cli workshop-create --mod-dir 'C:/Mods/NewMod' --visibility public --dependencies 3380210757 --confirm
 seapower-cli workshop-status
 seapower-cli unity-explorer status
 seapower-cli unity-explorer install --confirm
@@ -77,6 +78,7 @@ seapower-cli pause
 seapower-cli resume
 seapower-cli speed 10
 seapower-cli click --snapshot TOKEN --id 12 --confirm
+seapower-cli double-click --snapshot TOKEN --id 20 --index 1 --confirm
 seapower-cli select --snapshot TOKEN --id 20 --index 1
 seapower-cli expand --snapshot TOKEN --id 25
 seapower-cli open --snapshot TOKEN --id 30
@@ -124,6 +126,11 @@ callbacks do not change the scenario. Close the gallery using its native X butto
 Buttons whose name or label includes save, load, play, launch, quit, exit, start
 or delete require `--confirm`. This bridge-side check is a precaution, not a
 substitute for reviewing the action. Do not automate overwriting user saves.
+
+`double-click` sends native Noesis left-button double-click input and always requires
+`--confirm`. For a list control, `--index` selects and reveals the row first.
+This opens directories in the native file picker without computer input.
+The native folder-picker check passed in Sea Power `0.8.5-261008` on October 11, 2026.
 
 ## Screenshots and tab controls
 
@@ -204,8 +211,36 @@ includes Steam's agreement URL and exits with a nonzero code because publication
 is not complete.
 
 Implementation follows Steam's [item update API](https://partner.steamgames.com/doc/api/ISteamUGC#StartItemUpdate)
-and the installed game's uploader. Validation so far is build and offline identity
-checks only; no live Workshop item has been uploaded by this change.
+and the installed game's uploader. Quickload and Deck Tweaks were updated through
+the CLI in Sea Power `0.8.5-261008` on October 11, 2026.
+
+## Creating a Workshop mod
+
+`workshop-create` is separate from updates. It refuses a package with an existing
+Workshop URL, published-file ID or `CreationPending` marker. Without `--confirm`,
+it previews the listing and leaves the package unchanged. Visibility is required;
+valid values are `public`, `friends-only`, `private` and `unlisted`.
+
+```powershell
+seapower-cli workshop-create --mod-dir 'C:/Mods/Amphibs' --visibility public --dependencies 3380210757 --tags 'Scripting,Land Unit,Armoured Vehicle'
+seapower-cli workshop-create --mod-dir 'C:/Mods/Amphibs' --visibility public --dependencies 3380210757 --tags 'Scripting,Land Unit,Armoured Vehicle' --confirm
+```
+
+The name, description, thumbnail and compatibility come from the same package
+metadata used by updates. Dependencies are comma-separated Workshop IDs; tags
+are comma-separated names. Creation writes a pending operation marker before
+contacting Steam, then replaces it with the returned URL and title in `_info.ini`
+before uploading. Copy that identity back to source metadata when publishing
+from a separate package. `created` confirms Steam accepted the upload.
+
+If upload fails after creation, the saved URL identifies the item to finish with
+`workshop-update`. If creation itself has an unknown outcome, keep the pending
+marker and inspect `workshop-status` and your Steam listings before retrying.
+Removing the marker blindly could create a duplicate. Legal-agreement requests
+return `agreement-required` and the agreement URL.
+
+UNREP and Amphibs were created publicly through this command in Sea Power
+`0.8.5-261008` on October 11, 2026, with the AnchorChain dependency and thumbnails.
 
 ## Installation, logs and startup
 

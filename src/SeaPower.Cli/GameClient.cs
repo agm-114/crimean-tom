@@ -45,8 +45,12 @@ internal class GameClient
 
     internal async Task<JsonElement> ExecuteAsync(CliCommand command, CancellationToken cancellation)
     {
-        requiredCapability = command.Request.Action is "workshop-update" or "workshop-status" ? "workshop-update" : null;
-        if (command.Request.Action == "workshop-update") return await UpdateWorkshopAsync(command.Request, cancellation);
+        requiredCapability = command.Request.Action switch
+        {
+            "workshop-create" or "double-click" => command.Request.Action,
+            "workshop-update" or "workshop-status" => "workshop-update", _ => null,
+        };
+        if (command.Request.Action is "workshop-update" or "workshop-create") return await UploadWorkshopAsync(command.Request, cancellation);
         if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);
         if (command.Request.Action == "encyclopedia") return await OpenEncyclopediaAsync(command.Request, cancellation);
         if (command.Request.Action is "inspect" or "update" or "units" or "units-update")
@@ -89,11 +93,11 @@ internal class GameClient
         }
     }
 
-    private async Task<JsonElement> UpdateWorkshopAsync(GameRequest request, CancellationToken cancellation)
+    private async Task<JsonElement> UploadWorkshopAsync(GameRequest request, CancellationToken cancellation)
     {
         JsonElement result = await SendAsync(request, cancellation);
         string operation = result.GetProperty("operation").GetString()!;
-        while (result.GetProperty("state").GetString() is "checking" or "uploading")
+        while (result.GetProperty("state").GetString() is "checking" or "creating" or "adding-dependencies" or "uploading")
         {
             await Task.Delay(500, cancellation);
             result = await SendAsync(new("workshop-status") { Text = operation }, cancellation);
