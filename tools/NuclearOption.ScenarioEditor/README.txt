@@ -11,6 +11,11 @@ tools/NuclearOption.ScenarioEditor/overrides.json file instead of its published 
 4. Use Factory production to preview what factories will produce after substitution.
 5. Review Changes, then Save output. Ctrl+Z undoes an operation; Ctrl+S saves.
 
+The Production tab compares starting and resulting seconds per unit and units
+per hour. Units with zero final production are hidden, and Hide unchanged production
+is enabled by default. Times combine parallel factories; hover to see individual
+factory intervals. Filter by faction.
+
 Choose Ground, Air or Ships to filter both selectors and the unit table.
 Your desired changes are recorded in the Overrides tab. Every rule edit saves
 overrides.json and rebuilds the preview from source automatically. Use Git commits

@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace NuclearOption.ScenarioEditor.Core;
 
-public record UnitType(string Id, string Name, string Category, bool Disabled = false, bool EventOnly = false, long? Cost = null)
+public record UnitType(string Id, string Name, string Category, bool Disabled = false, bool EventOnly = false, long? Cost = null, string Code = "")
 {
     public string Display => Name == Id ? Id : $"{Name} [{Id}]";
     public string CostDisplay => Cost?.ToString("C0", CultureInfo.GetCultureInfo("en-US")) ?? "Unknown";

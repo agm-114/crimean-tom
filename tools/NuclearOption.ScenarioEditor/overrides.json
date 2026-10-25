@@ -5,12 +5,12 @@
       "To": "COIN"
     },
     {
-      "From": "Darkreach",
-      "To": "CAS1"
+      "From": "Multirole1",
+      "To": "SmallFighter1"
     },
     {
       "From": "Fighter1",
-      "To": "SmallFighter1"
+      "To": "COIN"
     }
   ]
 }

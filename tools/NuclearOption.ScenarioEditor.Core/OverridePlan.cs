@@ -8,6 +8,7 @@ public record UnitSubstitution(string From, string To,
 {
     [JsonIgnore] public string FromName => UnitCatalog.Name(From);
     [JsonIgnore] public string ToName => UnitCatalog.Name(To);
+    [JsonIgnore] public string Code => UnitCatalog.Get(From).Code;
 }
 
 public class OverridePlan
