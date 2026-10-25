@@ -6,14 +6,20 @@ namespace NuclearOption.ScenarioEditor.Core;
 public record UnitUsage(string Type, int Ground, int Aircraft, int Ships, int Factories, int Reserves)
 {
     public string Name => UnitCatalog.Name(Type);
-    public string Display => UnitCatalog.Display(Type);
-    public int Total => Ground + Aircraft + Ships + Factories + Reserves;
+    public long? Cost => UnitCatalog.Get(Type).Cost;
+    public string CostDisplay => UnitCatalog.Get(Type).CostDisplay;
+    public int Units => Ground + Aircraft + Ships;
+    public int Total => Units + Factories + Reserves;
+
+    public bool MatchesCategory(string category) => UnitCatalog.Get(Type).Category is { } known && known != "Unknown"
+        ? known == category
+        : category switch { "Vehicle" => Ground > 0, "Aircraft" => Aircraft > 0, "Ship" => Ships > 0, _ => false };
 }
 
 public record Edit(string Location, string Before, string After)
 {
-    public string BeforeDisplay => Location.EndsWith(" / seconds", StringComparison.Ordinal) ? Before : UnitCatalog.Display(Before);
-    public string AfterDisplay => Location.EndsWith(" / seconds", StringComparison.Ordinal) ? After : UnitCatalog.Display(After);
+    public string BeforeDisplay => UnitCatalog.Name(Before);
+    public string AfterDisplay => UnitCatalog.Name(After);
 }
 
 public class Factory(JsonObject node)
@@ -24,7 +30,6 @@ public class Factory(JsonObject node)
     public string BuildingName => UnitCatalog.Name(Building);
     public string Product => Options.Text("productionType");
     public string ProductName => UnitCatalog.Name(Product);
-    public string ProductDisplay => UnitCatalog.Display(Product);
     public double Seconds => Options["productionTime"]?.GetValue<double>() ?? 0;
     internal JsonObject Options => (JsonObject)node["factoryOptions"]!;
 }
@@ -71,32 +76,6 @@ public class MissionDocument
         Remember();
         foreach (var slot in Slots().Where(s => s.Type == before).ToList())
             slot.Node[slot.Key] = after;
-        _edits.AddRange(edits);
-        return edits.Count;
-    }
-
-    public int SetFactories(IEnumerable<Factory> factories, string? product, double? seconds)
-    {
-        if (product is not null && product.Length > 0) ValidateType(product);
-        if (seconds is not null && (!double.IsFinite(seconds.Value) || seconds <= 0))
-            throw new ArgumentException("Production time must be a finite number greater than zero.");
-        var selected = factories.Distinct().ToList();
-        var edits = new List<Edit>();
-        foreach (var factory in selected)
-        {
-            if (product is not null && product != factory.Product)
-                edits.Add(new($"Factory {factory.Name} / product", factory.Product, product));
-            if (seconds is not null && seconds != factory.Seconds)
-                edits.Add(new($"Factory {factory.Name} / seconds", factory.Seconds.ToString("G", System.Globalization.CultureInfo.InvariantCulture),
-                    seconds.Value.ToString("G", System.Globalization.CultureInfo.InvariantCulture)));
-        }
-        if (edits.Count == 0) return 0;
-        Remember();
-        foreach (var factory in selected)
-        {
-            if (product is not null) factory.Options["productionType"] = product;
-            if (seconds is not null) factory.Options["productionTime"] = seconds.Value;
-        }
         _edits.AddRange(edits);
         return edits.Count;
     }

@@ -86,7 +86,15 @@
                                 <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" /><RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Replace a unit type everywhere in this mission" FontSize="20" FontWeight="SemiBold" />
+                            <DockPanel>
+                                <ComboBox x:Name="UnitMode" DockPanel.Dock="Right" Width="140" SelectedIndex="0" SelectedValuePath="Tag"
+                                          AutomationProperties.Name="Unit mode" SelectionChanged="UnitModeChanged">
+                                    <ComboBoxItem Content="Ground" Tag="Vehicle" />
+                                    <ComboBoxItem Content="Air" Tag="Aircraft" />
+                                    <ComboBoxItem Content="Ships" Tag="Ship" />
+                                </ComboBox>
+                                <TextBlock Text="Replace units throughout this mission" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
                             <TextBlock Grid.Row="1" Text="Covers every faction, placed unit, factory product, and starting reserve entry. IDs, waypoints and objective links stay intact."
                                        TextWrapping="Wrap" Foreground="#64748B" Margin="0,6,0,16" />
                             <Grid Grid.Row="2" Margin="0,0,0,16">
@@ -94,40 +102,35 @@
                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <TextBlock Text="Replace unit" FontWeight="SemiBold" Margin="0,0,0,6" />
                                 <TextBlock Grid.Column="2" Text="With unit" FontWeight="SemiBold" Margin="0,0,0,6" />
-                                <ComboBox Grid.Row="1" x:Name="FromType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replace unit type" />
+                                <ComboBox Grid.Row="1" x:Name="FromType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Name" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replace unit type" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="→" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ToType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replacement unit type" />
+                                <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ToType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Name" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replacement unit type" />
                                 <Button Grid.Row="1" Grid.Column="3" Content="Apply globally" Click="ReplaceClick" Margin="12,0,0,0" Background="#B4EFCE" />
                             </Grid>
                             <DataGrid Grid.Row="3" x:Name="UsageGrid" SelectionMode="Single" SelectionChanged="UsageSelectionChanged">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Unit" Binding="{Binding Name}" Width="*" MinWidth="175" />
-                                    <DataGridTextColumn Header="Type ID" Binding="{Binding Type}" Width="135" />
-                                    <DataGridTextColumn Header="Ground" Binding="{Binding Ground}" Width="75" />
-                                    <DataGridTextColumn Header="Air" Binding="{Binding Aircraft}" Width="55" />
-                                    <DataGridTextColumn Header="Ships" Binding="{Binding Ships}" Width="65" />
+                                    <DataGridTextColumn Header="Unit cost" Binding="{Binding CostDisplay}" SortMemberPath="Cost" Width="125" />
+                                    <DataGridTextColumn Header="Units" Binding="{Binding Units}" Width="75" />
                                     <DataGridTextColumn Header="Factories" Binding="{Binding Factories}" Width="85" />
                                     <DataGridTextColumn Header="Reserves¹" Binding="{Binding Reserves}" Width="90" />
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Grid.Row="4" Margin="0,12,0,0">
                                 <TextBlock x:Name="ReplacementPreview" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                <TextBlock Text="¹ Reserves count matching entries, not vehicle quantities. Select a row to choose a unit. Search selectors by name or enter an exact game ID."
+                                <TextBlock Text="¹ Reserves count matching entries, not vehicle quantities. Select a row to choose a unit, or search the selectors by name."
                                            FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,6,0,0" />
                             </StackPanel>
                         </Grid>
                     </TabItem>
-                    <TabItem Header="Factory selection">
+                    <TabItem Header="Factory production">
                         <Grid Margin="18">
-                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                            <TextBlock Text="Change selected factories" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Grid.Row="1" Text="Use Ctrl or Shift to select several rows. Blank product or time fields leave that setting unchanged."
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                            <TextBlock Text="Factory production preview" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="1" Text="Global substitutions change what factories produce. Buildings and production times stay intact. Double-click a factory to choose its product for substitution."
                                        Foreground="#64748B" TextWrapping="Wrap" Margin="0,6,0,14" />
-                            <DockPanel Grid.Row="2" Margin="0,0,0,12">
-                                <Button DockPanel.Dock="Right" Content="Select visible" Click="SelectFactoriesClick" Margin="8,0,0,0" />
-                                <TextBox x:Name="FactorySearch" AutomationProperties.Name="Filter factories" ToolTip="Filter by name, faction, building or product" TextChanged="FactorySearchChanged" />
-                            </DockPanel>
-                            <DataGrid Grid.Row="3" x:Name="FactoryGrid" SelectionMode="Extended" SelectionChanged="FactorySelectionChanged">
+                            <TextBox Grid.Row="2" Margin="0,0,0,12" x:Name="FactorySearch" AutomationProperties.Name="Filter factories" ToolTip="Filter by name, faction, building or product" TextChanged="FactorySearchChanged" />
+                            <DataGrid Grid.Row="3" x:Name="FactoryGrid" SelectionMode="Single" MouseDoubleClick="FactoryDoubleClick">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Factory ID" Binding="{Binding Name}" Width="*" MinWidth="150" />
                                     <DataGridTextColumn Header="Faction" Binding="{Binding Faction}" Width="85" />
@@ -136,33 +139,45 @@
                                             <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Building}" /></Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
-                                    <DataGridTextColumn Header="Produces" Binding="{Binding ProductName}" Width="200">
-                                        <DataGridTextColumn.ElementStyle>
-                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding ProductDisplay}" /></Style>
-                                        </DataGridTextColumn.ElementStyle>
-                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Produces" Binding="{Binding ProductName}" Width="200" />
                                     <DataGridTextColumn Header="Seconds" Binding="{Binding Seconds, StringFormat=0.##}" Width="85" />
                                 </DataGrid.Columns>
                             </DataGrid>
-                            <StackPanel Grid.Row="4" Margin="0,14,0,0">
-                                <TextBlock x:Name="FactorySelectionLabel" Text="0 factories selected" Margin="0,0,0,8" FontWeight="SemiBold" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="120" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock Text="Produced unit" Margin="0,0,0,6" />
-                                    <TextBlock Grid.Column="1" Text="Time in seconds" Margin="12,0,0,6" />
-                                    <ComboBox x:Name="FactoryProduct" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" AutomationProperties.Name="Factory product type" />
-                                    <TextBox x:Name="FactorySeconds" Grid.Row="1" Grid.Column="1" Margin="12,0,0,0" AutomationProperties.Name="Factory production time" />
-                                    <Button Grid.Row="1" Grid.Column="2" Content="Apply to selected" Click="ApplyFactoriesClick" Margin="12,0,0,0" />
-                                </Grid>
-                                <CheckBox x:Name="DisableProduction" Content="Clear selected factories' product to stop production" Margin="0,10,0,0" />
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="Overrides">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Desired overrides" FontSize="20" FontWeight="SemiBold" />
+                            <StackPanel Grid.Row="1" Margin="0,6,0,12">
+                                <TextBlock Text="Edits save automatically and rebuild the preview from the original source. External changes reload automatically. Use Git commits to keep versions."
+                                           TextWrapping="Wrap" Foreground="#64748B" />
+                                <TextBlock x:Name="OverridesPathLabel" TextWrapping="Wrap" FontSize="11" Foreground="#64748B" Margin="0,6,0,8" />
                             </StackPanel>
+                            <DockPanel Grid.Row="2" Margin="0,0,0,8">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                    <Button Content="Edit" Click="EditSubstitutionClick" />
+                                    <Button Content="Enable / disable" Click="ToggleSubstitutionClick" />
+                                    <Button Content="Remove" Click="RemoveSubstitutionClick" Margin="0" />
+                                </StackPanel>
+                                <TextBlock Text="Global substitutions" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <DataGrid Grid.Row="3" x:Name="SubstitutionRules" SelectionMode="Single">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Replace" Binding="{Binding FromName}" Width="*" />
+                                    <DataGridTextColumn Header="With" Binding="{Binding ToName}" Width="*" />
+                                    <DataGridCheckBoxColumn Header="Disabled" Binding="{Binding Disabled}" Width="80" />
+                                </DataGrid.Columns>
+                            </DataGrid>
                         </Grid>
                     </TabItem>
                     <TabItem Header="Changes">
                         <Grid Margin="18">
                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                            <TextBlock Text="Edits in this session. Save output writes these changes to the target mission. Undo reverses the last operation."
+                            <TextBlock Text="Changes produced by the current overrides. Save output exports the mission. Undo reverses your last override edit."
                                        TextWrapping="Wrap" Foreground="#64748B" Margin="0,0,0,14" />
                             <DataGrid Grid.Row="1" x:Name="ChangesGrid">
                                 <DataGrid.Columns>

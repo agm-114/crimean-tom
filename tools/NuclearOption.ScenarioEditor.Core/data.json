@@ -3,517 +3,603 @@
     "Id": "6x6_1_AA",
     "Name": "AFV6 AA",
     "Code": "AA",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 1800000
   },
   {
     "Id": "6x6_1_APC",
     "Name": "AFV6 APC",
     "Code": "APC",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 1300000
   },
   {
     "Id": "6x6_1_AT",
     "Name": "AFV6 AT",
     "Code": "AT",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2100000
   },
   {
     "Id": "6x6_1_IFV",
     "Name": "AFV6 IFV",
     "Code": "IFV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 1500000
   },
   {
     "Id": "AFV8_APC",
     "Name": "AFV8 APC",
     "Code": "APC",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 5200000
   },
   {
     "Id": "AFV8_IFV",
     "Name": "AFV8 IFV",
     "Code": "IFV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 6100000
   },
   {
     "Id": "AFV8_SAM",
     "Name": "AFV8 Mobile Air Defense",
     "Code": "SAM IR",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 7500000
   },
   {
     "Id": "ammoDump",
     "Name": "Ammo Dump",
     "Code": "AMMO",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 5000000
   },
   {
     "Id": "ammunitionBunker",
     "Name": "Munitions Bunker",
     "Code": "AMMO",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 12000000
   },
   {
     "Id": "AssaultCarrier1",
     "Name": "Annex Class Carrier",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 3500000000
   },
   {
     "Id": "AttackHelo1",
     "Name": "SAH-46 Chicane",
     "Code": "SAH-46",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 31000000
   },
   {
     "Id": "Bend2",
     "Name": "Bend D25x45deg 2D",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Bend4",
     "Name": "Bend D25x45deg 4D",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "camoNet1",
     "Name": "Camo Net 1",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "CAS1",
     "Name": "A-19 Brawler",
     "Code": "A-19",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 36000000
   },
   {
     "Id": "COIN",
     "Name": "CI-22 Cricket",
     "Code": "CI-22",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 11500000
   },
   {
     "Id": "Column1",
     "Name": "Column 50m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "ConcreteBarrier1",
     "Name": "Concrete barrier",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "ConcretePad1",
     "Name": "Concrete Pad",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "ConcreteWall1",
     "Name": "Concrete Wall",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "ConcreteWall1x5",
     "Name": "Concrete Wall 10m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Cone1",
     "Name": "Cone D40x20m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Cone2",
     "Name": "Cone D25x20m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Cone3",
     "Name": "Cone D40x25m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Container1",
     "Name": "Container orange",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Container2",
     "Name": "Container blue",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Container3",
     "Name": "Container red",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Container4",
     "Name": "Container white",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "ContainerStack1",
     "Name": "Container stack",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "controlTower1",
     "Name": "Control Tower",
     "Code": "TWR",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 60000000
   },
   {
     "Id": "coolingTower",
     "Name": "Cooling Tower",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Corvette1",
     "Name": "Shard Class Corvette",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 190000000
   },
   {
     "Id": "CRAMTrailer1",
     "Name": "HLT-CRAM",
     "Code": "AAA",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 10500000
   },
   {
     "Id": "Cylinder1",
     "Name": "Cylinder D20x50m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Cylinder2",
     "Name": "Cylinder D25x50m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Darkreach",
     "Name": "SFB-81 Darkreach",
     "Code": "SFB-81",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 225000000
   },
   {
     "Id": "Destroyer1",
     "Name": "Dynamo Class Destroyer",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 1350000000
   },
   {
     "Id": "Emplacement1_23mm",
     "Name": "23mm AAA Emplacement",
     "Code": "AAA",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 250000
   },
   {
     "Id": "Emplacement1_ATGM",
     "Name": "AT-145 Emplacement",
     "Code": "ATGM",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 250000
   },
   {
     "Id": "Emplacement1_MANPADS",
     "Name": "IRM-S1 Emplacement",
     "Code": "MANPADS",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 250000
   },
   {
     "Id": "Emplacement1_MG",
     "Name": "12.7mm MG Emplacement",
     "Code": "MG",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 100000
   },
   {
     "Id": "enrichmentPlant1",
     "Name": "Enrichment Plant",
     "Code": "BLD",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 4000000000
   },
   {
     "Id": "EW1",
     "Name": "EW-25 Medusa",
     "Code": "EW-25",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 145000000
   },
   {
     "Id": "factory_large",
     "Name": "Large Factory",
     "Code": "FAC",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 60000000
   },
   {
     "Id": "factory_tall",
     "Name": "Vertical Factory",
     "Code": "FAC",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 60000000
   },
   {
     "Id": "FastBomber1",
     "Name": "Alkyon AB-4",
     "Code": "AB-4",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 390000000
   },
   {
     "Id": "Fighter1",
     "Name": "FS-12 Revoker",
     "Code": "FS-12",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 65000000
   },
   {
     "Id": "FlareStack1",
     "Name": "Flare Stack",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "FleetCarrier1",
     "Name": "Hyperion Class Carrier",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 3500000000
   },
   {
     "Id": "Frigate1",
     "Name": "Argus Class Frigate",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 750000000
   },
   {
     "Id": "FuelContainer1",
     "Name": "Fuel Container 1500L",
     "Code": "FUEL",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 50000
   },
   {
     "Id": "FuelContainer2",
     "Name": "Fuel Container 6000L",
     "Code": "FUEL",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 150000
   },
   {
     "Id": "FuelContainer3",
     "Name": "Fuel Container 10,000L",
     "Code": "FUEL",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 250000
   },
   {
     "Id": "fuelTank1",
     "Name": "Fuel Depot",
     "Code": "FUEL",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 1500000
   },
   {
     "Id": "gabionBunker1",
     "Name": "Infantry Bunker",
     "Code": "BNKR",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 100000
   },
   {
     "Id": "gabionWall_20x3x3",
     "Name": "Gabion Wall 20x3x3",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 1000
   },
   {
     "Id": "guardTower1",
     "Name": "Guard Tower",
     "Code": "TWR",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 250000
   },
   {
     "Id": "hangar_med",
     "Name": "Medium Aircraft Hangar",
     "Code": "HGR-M",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 5000000
   },
   {
     "Id": "HarborCrane",
     "Name": "Harbor Crane",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Helipad",
     "Name": "Helipad",
     "Code": "HPAD",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 1000000
   },
   {
     "Id": "hesco5",
     "Name": "Gabion Wall 10x1.5x1.5",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 1000
   },
   {
     "Id": "HLT-FC",
     "Name": "HLT Fire Control",
     "Code": "CMD",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2300000
   },
   {
     "Id": "HLT-FT",
     "Name": "HLT Fuel Tanker",
     "Code": "FUEL",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 510000
   },
   {
     "Id": "HLT-L",
     "Name": "HLT Flatbed",
     "Code": "TRK",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 460000
   },
   {
     "Id": "HLT-M",
     "Name": "HLT Munitions Truck",
     "Code": "AMMO",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2490000
   },
   {
     "Id": "HLT-MART",
     "Name": "HLT Mobile Artillery",
     "Code": "ARTY",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 14000000
   },
   {
     "Id": "HLT-R",
     "Name": "HLT Radar Truck",
     "Code": "RDR",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 20000000
   },
   {
     "Id": "HLT-T",
     "Name": "HLT Tractor",
     "Code": "TRK",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 450000
   },
   {
     "Id": "Hulldown1",
     "Name": "Hull down square",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Hulldown2",
     "Name": "Hull down circular",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "LandingCraft1",
     "Name": "OTB-31 landing craft",
     "Code": "LCAC",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 90000000
   },
   {
     "Id": "LaserTrailer1",
     "Name": "HLT-HEL",
     "Code": "LADS",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 18500000
   },
   {
     "Id": "LCV45",
     "Name": "LCV45 Recon Truck",
     "Code": "MRAP",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 650000
   },
   {
     "Id": "LightTruck1_AA",
     "Name": "LCV25 AA",
     "Code": "LCV25",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 440000
   },
   {
     "Id": "LightTruck1_AT",
     "Name": "LCV25 AT",
     "Code": "LCV25",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 550000
   },
   {
     "Id": "Linebreaker_APC",
     "Name": "Linebreaker APC",
     "Code": "APC",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 7200000
   },
   {
     "Id": "Linebreaker_IFV",
     "Name": "Linebreaker IFV",
     "Code": "IFV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 8100000
   },
   {
     "Id": "Linebreaker_SAM",
     "Name": "Linebreaker SAM",
     "Code": "SAM IR",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 9500000
   },
   {
     "Id": "MBT",
     "Name": "Type-12 MBT",
     "Code": "MBT",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 11200000
   },
   {
     "Id": "MBT1",
     "Name": "Spearhead MBT",
     "Code": "MBT",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 15300000
   },
   {
     "Id": "Multirole1",
     "Name": "KR-67 Ifrit",
     "Code": "KR-67",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 126000000
   },
   {
     "Id": "MunitionsContainer1",
     "Name": "Munitions Container",
     "Code": "CTNR",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 2000000
   },
   {
     "Id": "MunitionsPallet1",
     "Name": "Munitions Pallet",
     "Code": "CTNR",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 1200000
   },
   {
     "Id": "MunitionsPallet2",
     "Name": "Small Munitions Pallet",
     "Code": "CTNR",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 300000
   },
   {
     "Id": "NavalPallet1",
     "Name": "Naval Supply Pallet",
     "Code": "CTNR",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 1200000
   },
   {
     "Id": "NavalSupplyContainer1",
     "Name": "Naval Container",
     "Code": "CTNR",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 2000000
   },
   {
     "Id": "Nuclear Warhead",
@@ -525,309 +611,360 @@
     "Id": "PatrolBoat1",
     "Name": "Surf Class Patrol Boat",
     "Code": "PB",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 26000000
   },
   {
     "Id": "pillbox",
     "Name": "Pillbox",
     "Code": "BNKR",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 250000
   },
   {
     "Id": "pilotDismounted",
     "Name": "Pilot",
     "Code": "PILOT",
-    "Category": "Unit"
+    "Category": "Unit",
+    "Cost": 10000000
   },
   {
     "Id": "pipeline1",
     "Name": "Pipeline",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Platform_flat",
     "Name": "Flat Platform",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Platform_large",
     "Name": "Large Platform",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Platform_slope",
     "Name": "Sloped Platform",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Platform_small",
     "Name": "Small Platform",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Platform_small_columns",
     "Name": "Small Platform Columns",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "QuadVTOL1",
     "Name": "VL-49 Tarantula",
     "Code": "VL-49",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 118000000
   },
   {
     "Id": "RadarContainer1",
     "Name": "Radar Container",
     "Code": "RDR",
     "Category": "Vehicle",
-    "Disabled": true
+    "Disabled": true,
+    "Cost": 12500000
   },
   {
     "Id": "RadarSAM1",
     "Name": "T9K41 Boltstrike",
     "Code": "SAM R",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 12500000
   },
   {
     "Id": "radarStation1",
     "Name": "Radar Station",
     "Code": "RDR",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 25000000
   },
   {
     "Id": "refinery_main",
     "Name": "Refinery Structure",
     "Code": "BLD",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 2500000000
   },
   {
     "Id": "revetment1",
     "Name": "Aircraft Revetment",
     "Code": "REV",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 1000000
   },
   {
     "Id": "Ring1",
     "Name": "Ring D50m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "Ruin_Building1",
     "Name": "Ruin Building",
     "Code": "RUIN",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 0
   },
   {
     "Id": "SAMTrailer1",
     "Name": "StratoLance R9 Launcher",
     "Code": "SAM R",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 12500000
   },
   {
     "Id": "SAMTurret1",
     "Name": "Boltstrike RAM45 Launcher",
     "Code": "SAM R",
     "Category": "Vehicle",
-    "Disabled": true
+    "Disabled": true,
+    "Cost": 7000000
   },
   {
     "Id": "shelter1",
     "Name": "Hardened Aircraft Shelter",
     "Code": "HGR-H",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 6000000
   },
   {
     "Id": "SmallCarrier1",
     "Name": "Cursor Class LFD",
     "Code": "SHP",
-    "Category": "Ship"
+    "Category": "Ship",
+    "Cost": 800000000
   },
   {
     "Id": "SmallFighter1",
     "Name": "FS-20 Vortex",
     "Code": "FS-20",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 90000000
   },
   {
     "Id": "SolarPanels1",
     "Name": "Solar Panels",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 500000
   },
   {
     "Id": "SPAAG1",
     "Name": "AeroSentry SPAAG",
     "Code": "SPAAG",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 8000000
   },
   {
     "Id": "SPAAG2",
     "Name": "FGA-57 Anvil",
     "Code": "SPAAG",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 9000000
   },
   {
     "Id": "storageTank",
     "Name": "Storage Tank",
     "Code": "BLD",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 30000000
   },
   {
     "Id": "TowerCrane",
     "Name": "Tower Crane",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "trainer",
     "Name": "T/A-30 Compass",
     "Code": "T/A-30",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 21799999
   },
   {
     "Id": "Truck2-CRAM",
     "Name": "MSV CRAM",
     "Code": "AAA",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 20000000
   },
   {
     "Id": "Truck2-FC",
     "Name": "MSV Fire Control",
     "Code": "CMD",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2300000
   },
   {
     "Id": "Truck2-FT",
     "Name": "MSV Fuel Tanker",
     "Code": "FUEL",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 510000
   },
   {
     "Id": "Truck2-L",
     "Name": "MSV Flatbed",
     "Code": "TRK",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 460000
   },
   {
     "Id": "Truck2-LADS",
     "Name": "MSV LADS",
     "Code": "LADS",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 20000000
   },
   {
     "Id": "Truck2-M",
     "Name": "MSV Munitions",
     "Code": "AMMO",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2490000
   },
   {
     "Id": "Truck2-MLRS",
     "Name": "MSV MLRS",
     "Code": "MLRS",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 11000000
   },
   {
     "Id": "Truck2-MRAP",
     "Name": "MSV MRAP",
     "Code": "MRAP",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 650000
   },
   {
     "Id": "Truck2-R",
     "Name": "MSV Radar",
     "Code": "RDR",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 20000000
   },
   {
     "Id": "Truck2-RSAM",
     "Name": "MSV R9 Stratolance Launcher",
     "Code": "SAM R",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 13400000
   },
   {
     "Id": "Truck2-T",
     "Name": "MSV Tractor",
     "Code": "TRK",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 450000
   },
   {
     "Id": "Truck2-TBM",
     "Name": "MSV Ballistic Missile Launcher",
     "Code": "TBM",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 15700000
   },
   {
     "Id": "Truck2-TBM-N",
     "Name": "MSV Nuclear Ballistic Missile Launcher",
     "Code": "TBM",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 15700000
   },
   {
     "Id": "Truss1",
     "Name": "Truss 50m",
     "Code": "OBJ",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 100000
   },
   {
     "Id": "UFO",
     "Name": "???",
     "Code": "???",
     "Category": "Aircraft",
-    "EventOnly": true
+    "EventOnly": true,
+    "Cost": 1996000000
   },
   {
     "Id": "UGV1_grenade",
     "Name": "Hexhound GMG",
     "Code": "UGV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 800000
   },
   {
     "Id": "UGV1_SAM",
     "Name": "Hexhound SAM",
     "Code": "UGV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 1500000
   },
   {
     "Id": "UGVDozer1",
     "Name": "M12 Jackknife",
     "Code": "CEV",
-    "Category": "Vehicle"
+    "Category": "Vehicle",
+    "Cost": 2000000
   },
   {
     "Id": "UtilityHelo1",
     "Name": "UH-90 Ibis",
     "Code": "UH-90",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 29500000
   },
   {
     "Id": "VehicleDepot1",
     "Name": "Vehicle Depot",
     "Code": "BLD",
-    "Category": "Building"
+    "Category": "Building",
+    "Cost": 12000000
   },
   {
     "Id": "VTOLTrainer1",
     "Name": "VT-7 Vagrant",
     "Code": "VT-7",
-    "Category": "Aircraft"
+    "Category": "Aircraft",
+    "Cost": 28900000
   },
   {
     "Id": "Wreck_HLT",
     "Name": "Wreck HLT",
     "Code": "WRECK",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 0
   },
   {
     "Id": "Wreck_MBT",
     "Name": "Wreck MBT",
     "Code": "WRECK",
-    "Category": "Scenery"
+    "Category": "Scenery",
+    "Cost": 0
   }
 ]
