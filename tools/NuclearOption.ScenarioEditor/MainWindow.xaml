@@ -4,6 +4,21 @@
         Title="Nuclear Option | Scenario editor" Width="1340" Height="870"
         MinWidth="1080" MinHeight="720" WindowStartupLocation="CenterScreen"
         Closing="WindowClosing" Activated="WindowActivated">
+    <Window.Resources>
+        <DataTemplate x:Key="UnitChoiceTemplate">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                <Border Background="#E9EEF4" CornerRadius="3" Padding="5,1" Margin="8,0,0,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers><DataTrigger Binding="{Binding Code}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding Code}" FontSize="11" Foreground="#64748B" />
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="84" />
@@ -102,17 +117,31 @@
                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <TextBlock Text="Replace unit" FontWeight="SemiBold" Margin="0,0,0,6" />
                                 <TextBlock Grid.Column="2" Text="With unit" FontWeight="SemiBold" Margin="0,0,0,6" />
-                                <ComboBox Grid.Row="1" x:Name="FromType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Name" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replace unit type" />
+                                <ComboBox Grid.Row="1" x:Name="FromType" IsEditable="True" IsTextSearchEnabled="True" ItemTemplate="{StaticResource UnitChoiceTemplate}" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replace unit type" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="→" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ToType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Name" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replacement unit type" />
+                                <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ToType" IsEditable="True" IsTextSearchEnabled="True" ItemTemplate="{StaticResource UnitChoiceTemplate}" TextSearch.TextPath="Name" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replacement unit type" />
                                 <Button Grid.Row="1" Grid.Column="3" Content="Apply globally" Click="ReplaceClick" Margin="12,0,0,0" Background="#B4EFCE" />
                             </Grid>
                             <DataGrid Grid.Row="3" x:Name="UsageGrid" SelectionMode="Single" SelectionChanged="UsageSelectionChanged">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Unit" Binding="{Binding Name}" Width="*" MinWidth="175" />
+                                    <DataGridTextColumn Header="Unit" Binding="{Binding Name}" Width="*" MinWidth="175">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding UnitCounts}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="80" />
+                                    <DataGridTextColumn Header="Faction" Binding="{Binding Faction}" Width="75" />
                                     <DataGridTextColumn Header="Unit cost" Binding="{Binding CostDisplay}" SortMemberPath="Cost" Width="125" />
-                                    <DataGridTextColumn Header="Units" Binding="{Binding Units}" Width="75" />
-                                    <DataGridTextColumn Header="Factories" Binding="{Binding Factories}" Width="85" />
+                                    <DataGridTextColumn Header="Units" Binding="{Binding Units}" Width="75">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding UnitCounts}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Factories" Binding="{Binding Factories}" Width="85">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding FactoryCounts}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
                                     <DataGridTextColumn Header="Reserves¹" Binding="{Binding Reserves}" Width="90" />
                                 </DataGrid.Columns>
                             </DataGrid>
@@ -133,7 +162,7 @@
                             <DataGrid Grid.Row="3" x:Name="FactoryGrid" SelectionMode="Single" MouseDoubleClick="FactoryDoubleClick">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Factory ID" Binding="{Binding Name}" Width="*" MinWidth="150" />
-                                    <DataGridTextColumn Header="Faction" Binding="{Binding Faction}" Width="85" />
+                                    <DataGridTextColumn Header="Faction" Binding="{Binding FactionName}" Width="85" />
                                     <DataGridTextColumn Header="Building" Binding="{Binding BuildingName}" Width="125">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Building}" /></Style>
@@ -143,6 +172,43 @@
                                     <DataGridTextColumn Header="Seconds" Binding="{Binding Seconds, StringFormat=0.##}" Width="85" />
                                 </DataGrid.Columns>
                             </DataGrid>
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="Production">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <DockPanel>
+                                <ComboBox x:Name="ProductionFaction" DockPanel.Dock="Right" Width="160" AutomationProperties.Name="Production faction"
+                                          SelectionChanged="ProductionFactionChanged" />
+                                <TextBlock Text="Production before and after" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <StackPanel Grid.Row="1" Margin="0,8,0,16">
+                                <TextBlock Text="Factories run in parallel. Seconds per unit is their combined average output interval. Hover over a time to see individual factory intervals."
+                                           TextWrapping="Wrap" Foreground="#64748B" />
+                                <CheckBox x:Name="HideUnchangedProduction" Content="Hide unchanged production" IsChecked="True" Margin="0,10,0,0"
+                                          Checked="ProductionFilterChanged" Unchecked="ProductionFilterChanged" />
+                            </StackPanel>
+                            <DataGrid Grid.Row="2" x:Name="ProductionGrid" SelectionMode="Single">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Unit" Binding="{Binding Name}" Width="*" MinWidth="165" />
+                                    <DataGridTextColumn Header="Start seconds / unit" Binding="{Binding Before.SecondsDisplay}" SortMemberPath="Before.SecondsPerUnit" Width="165">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Before.FactoryIntervalsDisplay}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="After seconds / unit" Binding="{Binding After.SecondsDisplay}" SortMemberPath="After.SecondsPerUnit" Width="165">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding After.FactoryIntervalsDisplay}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Start / hour" Binding="{Binding Before.UnitsPerHour, StringFormat=0.##}" Width="100" />
+                                    <DataGridTextColumn Header="After / hour" Binding="{Binding After.UnitsPerHour, StringFormat=0.##}" Width="100" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock Grid.Row="3" Text="Units with zero final production are hidden. Rates assume all factories are operating. Placed units and starting reserves do not add production."
+                                       TextWrapping="Wrap" Foreground="#64748B" FontSize="12" Margin="0,12,0,0" />
                         </Grid>
                     </TabItem>
                     <TabItem Header="Overrides">
@@ -169,6 +235,7 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Replace" Binding="{Binding FromName}" Width="*" />
                                     <DataGridTextColumn Header="With" Binding="{Binding ToName}" Width="*" />
+                                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="90" />
                                     <DataGridCheckBoxColumn Header="Disabled" Binding="{Binding Disabled}" Width="80" />
                                 </DataGrid.Columns>
                             </DataGrid>

@@ -3,13 +3,30 @@ using System.Text.Json.Nodes;
 
 namespace NuclearOption.ScenarioEditor.Core;
 
-public record UnitUsage(string Type, int Ground, int Aircraft, int Ships, int Factories, int Reserves)
+public record FactionUsage(string Name, int Units, int Factories, int Reserves)
+{
+    public static string DisplayName(string name) => name switch { "Boscali" => "BDF", "Primeva" => "PALA", "" => "Unassigned", _ => name };
+}
+
+public record UnitUsage(string Type, int Ground, int Aircraft, int Ships, int Factories, int Reserves, IReadOnlyList<FactionUsage> Factions)
 {
     public string Name => UnitCatalog.Name(Type);
+    public string Code => UnitCatalog.Get(Type).Code;
     public long? Cost => UnitCatalog.Get(Type).Cost;
     public string CostDisplay => UnitCatalog.Get(Type).CostDisplay;
     public int Units => Ground + Aircraft + Ships;
     public int Total => Units + Factories + Reserves;
+    public string Faction => (Factions.Any(f => f.Name == "Boscali"), Factions.Any(f => f.Name == "Primeva")) switch
+    {
+        (true, true) => "BOTH", (true, false) => "BDF", (false, true) => "PALA",
+        _ => string.Join(", ", Factions.Select(f => FactionUsage.DisplayName(f.Name)))
+    };
+    public string UnitCounts => FormatCounts(f => f.Units);
+    public string FactoryCounts => FormatCounts(f => f.Factories);
+
+    private string FormatCounts(Func<FactionUsage, int> count) => string.Join("\n",
+        new[] { "Boscali", "Primeva" }.Union(Factions.Select(f => f.Name), StringComparer.Ordinal)
+            .Select(name => $"{FactionUsage.DisplayName(name)}: {Factions.Where(f => f.Name == name).Sum(count)}"));
 
     public bool MatchesCategory(string category) => UnitCatalog.Get(Type).Category is { } known && known != "Unknown"
         ? known == category
@@ -26,6 +43,7 @@ public class Factory(JsonObject node)
 {
     public string Name => node.Text("UniqueName");
     public string Faction => node.Text("faction");
+    public string FactionName => FactionUsage.DisplayName(Faction);
     public string Building => node.Text("type");
     public string BuildingName => UnitCatalog.Name(Building);
     public string Product => Options.Text("productionType");
@@ -50,6 +68,8 @@ public class MissionDocument
     public IReadOnlyList<Edit> Edits => _edits;
     public bool CanUndo => _undo.Count > 0;
     public bool IsDirty => Serialize() != _saved;
+    public IReadOnlyList<string> Factions => Slots().Select(s => s.Faction).Where(f => f.Length > 0)
+        .Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase).ToList();
     public IReadOnlyList<Factory> Factories => _root.Objects("buildings")
         .Where(b => b["factoryOptions"] is JsonObject &&
             (b.Text("type").StartsWith("factory", StringComparison.OrdinalIgnoreCase) ||
@@ -59,8 +79,18 @@ public class MissionDocument
     public IReadOnlyList<UnitUsage> Usage => Slots().GroupBy(s => s.Type, StringComparer.Ordinal)
         .Select(g => new UnitUsage(g.Key, g.Count(s => s.Kind == "Ground"),
             g.Count(s => s.Kind == "Aircraft"), g.Count(s => s.Kind == "Ships"),
-            g.Count(s => s.Kind == "Factories"), g.Count(s => s.Kind == "Reserves")))
+            g.Count(s => s.Kind == "Factories"), g.Count(s => s.Kind == "Reserves"),
+            g.GroupBy(s => s.Faction).Select(f => new FactionUsage(f.Key,
+                f.Count(s => s.Kind is "Ground" or "Aircraft" or "Ships"),
+                f.Count(s => s.Kind == "Factories"), f.Count(s => s.Kind == "Reserves"))).ToList()))
         .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+    public IReadOnlyDictionary<string, ProductionRate> GetUnitProduction(string? faction = null)
+    {
+        return Factories.Where(f => f.Product.Length > 0 && (faction is null || f.Faction == faction))
+            .GroupBy(f => f.Product, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => new ProductionRate(g.Select(f => f.Seconds).ToList()), StringComparer.Ordinal);
+    }
 
     public IReadOnlyList<Edit> PreviewReplacement(string before, string after)
     {
@@ -99,14 +129,14 @@ public class MissionDocument
         foreach (var (array, kind) in new[] { ("vehicles", "Ground"), ("aircraft", "Aircraft"), ("ships", "Ships") })
             foreach (var node in _root.Objects(array))
                 if (node.Text("type") is { Length: > 0 })
-                    yield return new(node, "type", kind, $"{kind} / {node.Text("faction")} / {node.Text("UniqueName")}");
+                    yield return new(node, "type", kind, $"{kind} / {node.Text("faction")} / {node.Text("UniqueName")}", node.Text("faction"));
         foreach (var factory in Factories)
             if (factory.Product.Length > 0)
-                yield return new(factory.Options, "productionType", "Factories", $"Factory / {factory.Faction} / {factory.Name}");
+                yield return new(factory.Options, "productionType", "Factories", $"Factory / {factory.Faction} / {factory.Name}", factory.Faction);
         foreach (var faction in _root.Objects("factions"))
             foreach (var supply in faction.Objects("supplies"))
                 if (supply.Text("UnitType") is { Length: > 0 })
-                    yield return new(supply, "UnitType", "Reserves", $"Reserve / {faction.Text("factionName")} / {supply.Text("UnitType")}");
+                    yield return new(supply, "UnitType", "Reserves", $"Reserve / {faction.Text("factionName")} / {supply.Text("UnitType")}", faction.Text("factionName"));
     }
 
     private static JsonObject Parse(string json)
@@ -126,7 +156,7 @@ public class MissionDocument
             throw new ArgumentException("Enter an exact unit type ID without leading spaces or control characters.");
     }
 
-    private record UnitSlot(JsonObject Node, string Key, string Kind, string Location)
+    private record UnitSlot(JsonObject Node, string Key, string Kind, string Location, string Faction)
     {
         public string Type => Node.Text(Key);
     }

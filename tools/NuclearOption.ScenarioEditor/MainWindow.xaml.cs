@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<UnitUsage> _usage = [];
     private IReadOnlyList<MissionFile> _missions = [];
     private MissionDocument? _document;
+    private MissionDocument? _sourceDocument;
     private string _source = "";
     private string _workingPath = "";
     private string? _expectedOutput;
@@ -88,6 +89,7 @@ public partial class MainWindow : Window
             _source = source;
             _workingPath = source;
             _document = result;
+            _sourceDocument = original;
             _sourceUsage = original.Usage;
             _savedDocument = outputJson is null ? original.Serialize() : new MissionDocument(outputJson).Serialize();
             _undo.Clear();
@@ -121,6 +123,12 @@ public partial class MainWindow : Window
         ToType.Text = to;
         UsageGrid.ItemsSource = _usage.Where(u => u.MatchesCategory(CurrentMode)).ToList();
         FilterFactories();
+        var faction = ProductionFaction.SelectedItem as string ?? "All factions";
+        var factions = new[] { "All factions" }.Concat((_sourceDocument?.Factions ?? []).Concat(_document.Factions)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase)).ToList();
+        ProductionFaction.ItemsSource = factions;
+        ProductionFaction.SelectedItem = factions.Contains(faction) ? faction : "All factions";
+        RefreshProduction();
         ChangesGrid.ItemsSource = _document.Edits.ToList();
         UndoButton.IsEnabled = _undo.Count > 0;
         SaveButton.IsEnabled = EditorTabs.IsEnabled = true;
@@ -187,6 +195,24 @@ public partial class MainWindow : Window
         var search = FactorySearch.Text;
         FactoryGrid.ItemsSource = _document.Factories.Where(f =>
             $"{f.Name} {f.Faction} {f.Building} {f.BuildingName} {f.Product} {f.ProductName}".Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private void RefreshProduction()
+    {
+        if (_sourceDocument is null || _document is null) return;
+        var faction = ProductionFaction.SelectedItem as string;
+        ProductionGrid.ItemsSource = UnitProduction.Compare(_sourceDocument, _document, faction == "All factions" ? null : faction)
+            .Where(row => row.HasFinalProduction && (HideUnchangedProduction.IsChecked != true || row.IsChanged)).ToList();
+    }
+
+    private void ProductionFactionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_ready && !_refreshing) RefreshProduction();
+    }
+
+    private void ProductionFilterChanged(object sender, RoutedEventArgs e)
+    {
+        if (_ready && !_refreshing) RefreshProduction();
     }
 
     private bool DocumentDirty => _document is not null && _document.Serialize() != _savedDocument;
