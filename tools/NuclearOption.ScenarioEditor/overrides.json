@@ -27,6 +27,14 @@
     {
       "From": "merged:tractor",
       "To": "merged:munitions"
+    },
+    {
+      "From": "Darkreach",
+      "To": "EW1"
+    },
+    {
+      "From": "QuadVTOL1",
+      "To": "UtilityHelo1"
     }
   ]
 }
