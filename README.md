@@ -20,6 +20,8 @@ Read [AGENTS.md](AGENTS.md) and the relevant module's docs before changing it. C
 
 ## Build and deploy
 
+The standalone [Nuclear Option scenario editor](docs/nuclear-option-editor/README.md) lives in `tools/` and has its own solution. It supports global unit substitution and factory production edits, with separate source and output missions.
+
 The projects use the repository's .NET 10 SDK. Mods target `netstandard2.1` for Sea Power; the standalone CLI targets `net10.0` without game dependencies. Run commands from the repository root. Build all modules without deploying:
 
 ```powershell

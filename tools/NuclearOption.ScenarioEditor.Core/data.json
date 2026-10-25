@@ -1,0 +1,833 @@
+[
+  {
+    "Id": "6x6_1_AA",
+    "Name": "AFV6 AA",
+    "Code": "AA",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "6x6_1_APC",
+    "Name": "AFV6 APC",
+    "Code": "APC",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "6x6_1_AT",
+    "Name": "AFV6 AT",
+    "Code": "AT",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "6x6_1_IFV",
+    "Name": "AFV6 IFV",
+    "Code": "IFV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "AFV8_APC",
+    "Name": "AFV8 APC",
+    "Code": "APC",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "AFV8_IFV",
+    "Name": "AFV8 IFV",
+    "Code": "IFV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "AFV8_SAM",
+    "Name": "AFV8 Mobile Air Defense",
+    "Code": "SAM IR",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "ammoDump",
+    "Name": "Ammo Dump",
+    "Code": "AMMO",
+    "Category": "Building"
+  },
+  {
+    "Id": "ammunitionBunker",
+    "Name": "Munitions Bunker",
+    "Code": "AMMO",
+    "Category": "Building"
+  },
+  {
+    "Id": "AssaultCarrier1",
+    "Name": "Annex Class Carrier",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "AttackHelo1",
+    "Name": "SAH-46 Chicane",
+    "Code": "SAH-46",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Bend2",
+    "Name": "Bend D25x45deg 2D",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Bend4",
+    "Name": "Bend D25x45deg 4D",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "camoNet1",
+    "Name": "Camo Net 1",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "CAS1",
+    "Name": "A-19 Brawler",
+    "Code": "A-19",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "COIN",
+    "Name": "CI-22 Cricket",
+    "Code": "CI-22",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Column1",
+    "Name": "Column 50m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "ConcreteBarrier1",
+    "Name": "Concrete barrier",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "ConcretePad1",
+    "Name": "Concrete Pad",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "ConcreteWall1",
+    "Name": "Concrete Wall",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "ConcreteWall1x5",
+    "Name": "Concrete Wall 10m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Cone1",
+    "Name": "Cone D40x20m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Cone2",
+    "Name": "Cone D25x20m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Cone3",
+    "Name": "Cone D40x25m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Container1",
+    "Name": "Container orange",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Container2",
+    "Name": "Container blue",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Container3",
+    "Name": "Container red",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Container4",
+    "Name": "Container white",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "ContainerStack1",
+    "Name": "Container stack",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "controlTower1",
+    "Name": "Control Tower",
+    "Code": "TWR",
+    "Category": "Building"
+  },
+  {
+    "Id": "coolingTower",
+    "Name": "Cooling Tower",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Corvette1",
+    "Name": "Shard Class Corvette",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "CRAMTrailer1",
+    "Name": "HLT-CRAM",
+    "Code": "AAA",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Cylinder1",
+    "Name": "Cylinder D20x50m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Cylinder2",
+    "Name": "Cylinder D25x50m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Darkreach",
+    "Name": "SFB-81 Darkreach",
+    "Code": "SFB-81",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Destroyer1",
+    "Name": "Dynamo Class Destroyer",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "Emplacement1_23mm",
+    "Name": "23mm AAA Emplacement",
+    "Code": "AAA",
+    "Category": "Building"
+  },
+  {
+    "Id": "Emplacement1_ATGM",
+    "Name": "AT-145 Emplacement",
+    "Code": "ATGM",
+    "Category": "Building"
+  },
+  {
+    "Id": "Emplacement1_MANPADS",
+    "Name": "IRM-S1 Emplacement",
+    "Code": "MANPADS",
+    "Category": "Building"
+  },
+  {
+    "Id": "Emplacement1_MG",
+    "Name": "12.7mm MG Emplacement",
+    "Code": "MG",
+    "Category": "Building"
+  },
+  {
+    "Id": "enrichmentPlant1",
+    "Name": "Enrichment Plant",
+    "Code": "BLD",
+    "Category": "Building"
+  },
+  {
+    "Id": "EW1",
+    "Name": "EW-25 Medusa",
+    "Code": "EW-25",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "factory_large",
+    "Name": "Large Factory",
+    "Code": "FAC",
+    "Category": "Building"
+  },
+  {
+    "Id": "factory_tall",
+    "Name": "Vertical Factory",
+    "Code": "FAC",
+    "Category": "Building"
+  },
+  {
+    "Id": "FastBomber1",
+    "Name": "Alkyon AB-4",
+    "Code": "AB-4",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Fighter1",
+    "Name": "FS-12 Revoker",
+    "Code": "FS-12",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "FlareStack1",
+    "Name": "Flare Stack",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "FleetCarrier1",
+    "Name": "Hyperion Class Carrier",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "Frigate1",
+    "Name": "Argus Class Frigate",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "FuelContainer1",
+    "Name": "Fuel Container 1500L",
+    "Code": "FUEL",
+    "Category": "Unit"
+  },
+  {
+    "Id": "FuelContainer2",
+    "Name": "Fuel Container 6000L",
+    "Code": "FUEL",
+    "Category": "Unit"
+  },
+  {
+    "Id": "FuelContainer3",
+    "Name": "Fuel Container 10,000L",
+    "Code": "FUEL",
+    "Category": "Unit"
+  },
+  {
+    "Id": "fuelTank1",
+    "Name": "Fuel Depot",
+    "Code": "FUEL",
+    "Category": "Building"
+  },
+  {
+    "Id": "gabionBunker1",
+    "Name": "Infantry Bunker",
+    "Code": "BNKR",
+    "Category": "Building"
+  },
+  {
+    "Id": "gabionWall_20x3x3",
+    "Name": "Gabion Wall 20x3x3",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "guardTower1",
+    "Name": "Guard Tower",
+    "Code": "TWR",
+    "Category": "Building"
+  },
+  {
+    "Id": "hangar_med",
+    "Name": "Medium Aircraft Hangar",
+    "Code": "HGR-M",
+    "Category": "Building"
+  },
+  {
+    "Id": "HarborCrane",
+    "Name": "Harbor Crane",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Helipad",
+    "Name": "Helipad",
+    "Code": "HPAD",
+    "Category": "Building"
+  },
+  {
+    "Id": "hesco5",
+    "Name": "Gabion Wall 10x1.5x1.5",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "HLT-FC",
+    "Name": "HLT Fire Control",
+    "Code": "CMD",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-FT",
+    "Name": "HLT Fuel Tanker",
+    "Code": "FUEL",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-L",
+    "Name": "HLT Flatbed",
+    "Code": "TRK",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-M",
+    "Name": "HLT Munitions Truck",
+    "Code": "AMMO",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-MART",
+    "Name": "HLT Mobile Artillery",
+    "Code": "ARTY",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-R",
+    "Name": "HLT Radar Truck",
+    "Code": "RDR",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "HLT-T",
+    "Name": "HLT Tractor",
+    "Code": "TRK",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Hulldown1",
+    "Name": "Hull down square",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Hulldown2",
+    "Name": "Hull down circular",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "LandingCraft1",
+    "Name": "OTB-31 landing craft",
+    "Code": "LCAC",
+    "Category": "Ship"
+  },
+  {
+    "Id": "LaserTrailer1",
+    "Name": "HLT-HEL",
+    "Code": "LADS",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "LCV45",
+    "Name": "LCV45 Recon Truck",
+    "Code": "MRAP",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "LightTruck1_AA",
+    "Name": "LCV25 AA",
+    "Code": "LCV25",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "LightTruck1_AT",
+    "Name": "LCV25 AT",
+    "Code": "LCV25",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Linebreaker_APC",
+    "Name": "Linebreaker APC",
+    "Code": "APC",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Linebreaker_IFV",
+    "Name": "Linebreaker IFV",
+    "Code": "IFV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Linebreaker_SAM",
+    "Name": "Linebreaker SAM",
+    "Code": "SAM IR",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "MBT",
+    "Name": "Type-12 MBT",
+    "Code": "MBT",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "MBT1",
+    "Name": "Spearhead MBT",
+    "Code": "MBT",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Multirole1",
+    "Name": "KR-67 Ifrit",
+    "Code": "KR-67",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "MunitionsContainer1",
+    "Name": "Munitions Container",
+    "Code": "CTNR",
+    "Category": "Unit"
+  },
+  {
+    "Id": "MunitionsPallet1",
+    "Name": "Munitions Pallet",
+    "Code": "CTNR",
+    "Category": "Unit"
+  },
+  {
+    "Id": "MunitionsPallet2",
+    "Name": "Small Munitions Pallet",
+    "Code": "CTNR",
+    "Category": "Unit"
+  },
+  {
+    "Id": "NavalPallet1",
+    "Name": "Naval Supply Pallet",
+    "Code": "CTNR",
+    "Category": "Unit"
+  },
+  {
+    "Id": "NavalSupplyContainer1",
+    "Name": "Naval Container",
+    "Code": "CTNR",
+    "Category": "Unit"
+  },
+  {
+    "Id": "Nuclear Warhead",
+    "Name": "Nuclear Warhead",
+    "Code": "",
+    "Category": "Resource"
+  },
+  {
+    "Id": "PatrolBoat1",
+    "Name": "Surf Class Patrol Boat",
+    "Code": "PB",
+    "Category": "Ship"
+  },
+  {
+    "Id": "pillbox",
+    "Name": "Pillbox",
+    "Code": "BNKR",
+    "Category": "Building"
+  },
+  {
+    "Id": "pilotDismounted",
+    "Name": "Pilot",
+    "Code": "PILOT",
+    "Category": "Unit"
+  },
+  {
+    "Id": "pipeline1",
+    "Name": "Pipeline",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Platform_flat",
+    "Name": "Flat Platform",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Platform_large",
+    "Name": "Large Platform",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Platform_slope",
+    "Name": "Sloped Platform",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Platform_small",
+    "Name": "Small Platform",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Platform_small_columns",
+    "Name": "Small Platform Columns",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "QuadVTOL1",
+    "Name": "VL-49 Tarantula",
+    "Code": "VL-49",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "RadarContainer1",
+    "Name": "Radar Container",
+    "Code": "RDR",
+    "Category": "Vehicle",
+    "Disabled": true
+  },
+  {
+    "Id": "RadarSAM1",
+    "Name": "T9K41 Boltstrike",
+    "Code": "SAM R",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "radarStation1",
+    "Name": "Radar Station",
+    "Code": "RDR",
+    "Category": "Building"
+  },
+  {
+    "Id": "refinery_main",
+    "Name": "Refinery Structure",
+    "Code": "BLD",
+    "Category": "Building"
+  },
+  {
+    "Id": "revetment1",
+    "Name": "Aircraft Revetment",
+    "Code": "REV",
+    "Category": "Building"
+  },
+  {
+    "Id": "Ring1",
+    "Name": "Ring D50m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Ruin_Building1",
+    "Name": "Ruin Building",
+    "Code": "RUIN",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "SAMTrailer1",
+    "Name": "StratoLance R9 Launcher",
+    "Code": "SAM R",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "SAMTurret1",
+    "Name": "Boltstrike RAM45 Launcher",
+    "Code": "SAM R",
+    "Category": "Vehicle",
+    "Disabled": true
+  },
+  {
+    "Id": "shelter1",
+    "Name": "Hardened Aircraft Shelter",
+    "Code": "HGR-H",
+    "Category": "Building"
+  },
+  {
+    "Id": "SmallCarrier1",
+    "Name": "Cursor Class LFD",
+    "Code": "SHP",
+    "Category": "Ship"
+  },
+  {
+    "Id": "SmallFighter1",
+    "Name": "FS-20 Vortex",
+    "Code": "FS-20",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "SolarPanels1",
+    "Name": "Solar Panels",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "SPAAG1",
+    "Name": "AeroSentry SPAAG",
+    "Code": "SPAAG",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "SPAAG2",
+    "Name": "FGA-57 Anvil",
+    "Code": "SPAAG",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "storageTank",
+    "Name": "Storage Tank",
+    "Code": "BLD",
+    "Category": "Building"
+  },
+  {
+    "Id": "TowerCrane",
+    "Name": "Tower Crane",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "trainer",
+    "Name": "T/A-30 Compass",
+    "Code": "T/A-30",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Truck2-CRAM",
+    "Name": "MSV CRAM",
+    "Code": "AAA",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-FC",
+    "Name": "MSV Fire Control",
+    "Code": "CMD",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-FT",
+    "Name": "MSV Fuel Tanker",
+    "Code": "FUEL",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-L",
+    "Name": "MSV Flatbed",
+    "Code": "TRK",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-LADS",
+    "Name": "MSV LADS",
+    "Code": "LADS",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-M",
+    "Name": "MSV Munitions",
+    "Code": "AMMO",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-MLRS",
+    "Name": "MSV MLRS",
+    "Code": "MLRS",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-MRAP",
+    "Name": "MSV MRAP",
+    "Code": "MRAP",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-R",
+    "Name": "MSV Radar",
+    "Code": "RDR",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-RSAM",
+    "Name": "MSV R9 Stratolance Launcher",
+    "Code": "SAM R",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-T",
+    "Name": "MSV Tractor",
+    "Code": "TRK",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-TBM",
+    "Name": "MSV Ballistic Missile Launcher",
+    "Code": "TBM",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truck2-TBM-N",
+    "Name": "MSV Nuclear Ballistic Missile Launcher",
+    "Code": "TBM",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "Truss1",
+    "Name": "Truss 50m",
+    "Code": "OBJ",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "UFO",
+    "Name": "???",
+    "Code": "???",
+    "Category": "Aircraft",
+    "EventOnly": true
+  },
+  {
+    "Id": "UGV1_grenade",
+    "Name": "Hexhound GMG",
+    "Code": "UGV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "UGV1_SAM",
+    "Name": "Hexhound SAM",
+    "Code": "UGV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "UGVDozer1",
+    "Name": "M12 Jackknife",
+    "Code": "CEV",
+    "Category": "Vehicle"
+  },
+  {
+    "Id": "UtilityHelo1",
+    "Name": "UH-90 Ibis",
+    "Code": "UH-90",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "VehicleDepot1",
+    "Name": "Vehicle Depot",
+    "Code": "BLD",
+    "Category": "Building"
+  },
+  {
+    "Id": "VTOLTrainer1",
+    "Name": "VT-7 Vagrant",
+    "Code": "VT-7",
+    "Category": "Aircraft"
+  },
+  {
+    "Id": "Wreck_HLT",
+    "Name": "Wreck HLT",
+    "Code": "WRECK",
+    "Category": "Scenery"
+  },
+  {
+    "Id": "Wreck_MBT",
+    "Name": "Wreck MBT",
+    "Code": "WRECK",
+    "Category": "Scenery"
+  }
+]

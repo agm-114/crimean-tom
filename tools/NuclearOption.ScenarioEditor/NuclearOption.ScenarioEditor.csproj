@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>NuclearOption.ScenarioEditor</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NuclearOption.ScenarioEditor.Core/NuclearOption.ScenarioEditor.Core.csproj" />
+    <Content Include="README.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,183 @@
+<Window x:Class="NuclearOption.ScenarioEditor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nuclear Option | Scenario editor" Width="1340" Height="870"
+        MinWidth="1080" MinHeight="720" WindowStartupLocation="CenterScreen"
+        Closing="WindowClosing" Activated="WindowActivated">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="84" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Border Background="#152B3D" Padding="24,14">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Undo" x:Name="UndoButton" Click="UndoClick" IsEnabled="False" />
+                    <Button Content="Save output" x:Name="SaveButton" Click="SaveClick" IsEnabled="False"
+                            Background="#B4EFCE" BorderBrush="#B4EFCE" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="NUCLEAR OPTION" Foreground="#8DDCB8" FontSize="11" FontWeight="Bold" />
+                    <TextBlock Text="Scenario editor" Foreground="White" FontSize="27" FontWeight="SemiBold" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <Grid Grid.Row="1" Margin="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="265" />
+                <ColumnDefinition Width="18" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Background="White" BorderBrush="#D6DFE8" BorderThickness="1" Padding="14">
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="Source missions" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock x:Name="MissionsPathLabel" TextWrapping="Wrap" FontSize="11" Foreground="#64748B" Margin="0,0,0,12" />
+                        <WrapPanel Margin="0,0,0,12">
+                            <Button Content="Refresh" Click="RefreshClick" />
+                            <Button Content="Browse..." Click="BrowseSourceClick" Margin="0" />
+                        </WrapPanel>
+                        <TextBox x:Name="MissionSearch" AutomationProperties.Name="Search missions" ToolTip="Search mission names"
+                                 TextChanged="MissionSearchChanged" Margin="0,0,0,10" />
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Bottom" Text="Select a mission, then open it. The source folder stays read-only."
+                               TextWrapping="Wrap" Foreground="#64748B" FontSize="12" Margin="0,12,0,0" />
+                    <Button DockPanel.Dock="Bottom" Content="Open selected source" Click="OpenSelectedClick" Margin="0,12,0,0" />
+                    <ListBox x:Name="MissionList" BorderThickness="0"
+                             MouseDoubleClick="MissionDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="6,10" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="ToolTip" Value="{Binding Path}" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Name}" TextWrapping="Wrap" /></DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="14" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Background="White" BorderBrush="#D6DFE8" BorderThickness="1" Padding="16">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="82" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock Text="SOURCE" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#64748B" />
+                        <TextBox x:Name="SourcePathBox" Grid.Column="1" IsReadOnly="True" Background="#F7F9FC" AutomationProperties.Name="Source scenario" />
+                        <Button Grid.Column="2" Content="Reload" Click="ReloadClick" Margin="8,0,0,0" />
+                        <TextBlock Grid.Row="1" Text="OUTPUT" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#237250" />
+                        <TextBox x:Name="OutputPathBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" AutomationProperties.Name="Target output scenario" TextChanged="OutputPathChanged" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="Folder..." Click="ChooseOutputClick" Margin="8,8,0,0" />
+                        <TextBlock x:Name="DocumentInfo" Grid.Row="2" Grid.ColumnSpan="3" Text="Open a source mission to begin."
+                                   Margin="0,12,0,0" Foreground="#64748B" TextWrapping="Wrap" />
+                    </Grid>
+                </Border>
+                <TabControl Grid.Row="2" x:Name="EditorTabs" IsEnabled="False" Background="White" BorderBrush="#D6DFE8">
+                    <TabItem Header="Global substitution">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" /><RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Replace a unit type everywhere in this mission" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="1" Text="Covers every faction, placed unit, factory product, and starting reserve entry. IDs, waypoints and objective links stay intact."
+                                       TextWrapping="Wrap" Foreground="#64748B" Margin="0,6,0,16" />
+                            <Grid Grid.Row="2" Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <TextBlock Text="Replace unit" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <TextBlock Grid.Column="2" Text="With unit" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <ComboBox Grid.Row="1" x:Name="FromType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replace unit type" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="→" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ToType" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" TextBoxBase.TextChanged="ReplacementChanged" AutomationProperties.Name="Replacement unit type" />
+                                <Button Grid.Row="1" Grid.Column="3" Content="Apply globally" Click="ReplaceClick" Margin="12,0,0,0" Background="#B4EFCE" />
+                            </Grid>
+                            <DataGrid Grid.Row="3" x:Name="UsageGrid" SelectionMode="Single" SelectionChanged="UsageSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Unit" Binding="{Binding Name}" Width="*" MinWidth="175" />
+                                    <DataGridTextColumn Header="Type ID" Binding="{Binding Type}" Width="135" />
+                                    <DataGridTextColumn Header="Ground" Binding="{Binding Ground}" Width="75" />
+                                    <DataGridTextColumn Header="Air" Binding="{Binding Aircraft}" Width="55" />
+                                    <DataGridTextColumn Header="Ships" Binding="{Binding Ships}" Width="65" />
+                                    <DataGridTextColumn Header="Factories" Binding="{Binding Factories}" Width="85" />
+                                    <DataGridTextColumn Header="Reserves¹" Binding="{Binding Reserves}" Width="90" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Grid.Row="4" Margin="0,12,0,0">
+                                <TextBlock x:Name="ReplacementPreview" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="¹ Reserves count matching entries, not vehicle quantities. Select a row to choose a unit. Search selectors by name or enter an exact game ID."
+                                           FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="Factory selection">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock Text="Change selected factories" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="1" Text="Use Ctrl or Shift to select several rows. Blank product or time fields leave that setting unchanged."
+                                       Foreground="#64748B" TextWrapping="Wrap" Margin="0,6,0,14" />
+                            <DockPanel Grid.Row="2" Margin="0,0,0,12">
+                                <Button DockPanel.Dock="Right" Content="Select visible" Click="SelectFactoriesClick" Margin="8,0,0,0" />
+                                <TextBox x:Name="FactorySearch" AutomationProperties.Name="Filter factories" ToolTip="Filter by name, faction, building or product" TextChanged="FactorySearchChanged" />
+                            </DockPanel>
+                            <DataGrid Grid.Row="3" x:Name="FactoryGrid" SelectionMode="Extended" SelectionChanged="FactorySelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Factory ID" Binding="{Binding Name}" Width="*" MinWidth="150" />
+                                    <DataGridTextColumn Header="Faction" Binding="{Binding Faction}" Width="85" />
+                                    <DataGridTextColumn Header="Building" Binding="{Binding BuildingName}" Width="125">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Building}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Produces" Binding="{Binding ProductName}" Width="200">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding ProductDisplay}" /></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Seconds" Binding="{Binding Seconds, StringFormat=0.##}" Width="85" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Grid.Row="4" Margin="0,14,0,0">
+                                <TextBlock x:Name="FactorySelectionLabel" Text="0 factories selected" Margin="0,0,0,8" FontWeight="SemiBold" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="120" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <TextBlock Text="Produced unit" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Column="1" Text="Time in seconds" Margin="12,0,0,6" />
+                                    <ComboBox x:Name="FactoryProduct" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="Display" TextSearch.TextPath="Display" AutomationProperties.Name="Factory product type" />
+                                    <TextBox x:Name="FactorySeconds" Grid.Row="1" Grid.Column="1" Margin="12,0,0,0" AutomationProperties.Name="Factory production time" />
+                                    <Button Grid.Row="1" Grid.Column="2" Content="Apply to selected" Click="ApplyFactoriesClick" Margin="12,0,0,0" />
+                                </Grid>
+                                <CheckBox x:Name="DisableProduction" Content="Clear selected factories' product to stop production" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="Changes">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                            <TextBlock Text="Edits in this session. Save output writes these changes to the target mission. Undo reverses the last operation."
+                                       TextWrapping="Wrap" Foreground="#64748B" Margin="0,0,0,14" />
+                            <DataGrid Grid.Row="1" x:Name="ChangesGrid">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Location" Binding="{Binding Location}" Width="*" />
+                                    <DataGridTextColumn Header="Before" Binding="{Binding BeforeDisplay}" Width="230" />
+                                    <DataGridTextColumn Header="After" Binding="{Binding AfterDisplay}" Width="230" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </Grid>
+        <Border Grid.Row="2" Background="#E5EBF2" Padding="20,10">
+            <TextBlock x:Name="StatusLabel" Text="Ready" TextWrapping="Wrap" />
+        </Border>
+    </Grid>
+</Window>
