@@ -10,5 +10,10 @@
   <ItemGroup>
     <ProjectReference Include="../NuclearOption.ScenarioEditor.Core/NuclearOption.ScenarioEditor.Core.csproj" />
     <Content Include="README.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="overrides.json" CopyToOutputDirectory="PreserveNewest" />
+    <Watch Include="**/*.xaml" Exclude="bin/**;obj/**" />
+    <Watch Include="../NuclearOption.ScenarioEditor.Core/data.json" />
+    <Watch Remove="overrides.json" />
+    <Content Update="overrides.json" Watch="false" />
   </ItemGroup>
 </Project>

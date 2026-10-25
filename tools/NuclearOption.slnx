@@ -1,5 +1,4 @@
 <Solution>
   <Project Path="NuclearOption.ScenarioEditor.Core/NuclearOption.ScenarioEditor.Core.csproj" />
   <Project Path="NuclearOption.ScenarioEditor/NuclearOption.ScenarioEditor.csproj" />
-  <Project Path="NuclearOption.ScenarioEditor.Tests/NuclearOption.ScenarioEditor.Tests.csproj" />
 </Solution>

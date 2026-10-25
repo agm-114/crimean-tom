@@ -10,6 +10,7 @@ public class EditorSettings
         "NuclearOptionScenarioEditor", "settings.json");
 
     public string? LastSource { get; set; }
+    public string UnitMode { get; set; } = "Vehicle";
     public Dictionary<string, string> Outputs { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static EditorSettings Load()
