@@ -1,3 +1,16 @@
 {
-  "Substitutions": []
+  "Substitutions": [
+    {
+      "From": "FastBomber1",
+      "To": "COIN"
+    },
+    {
+      "From": "Darkreach",
+      "To": "CAS1"
+    },
+    {
+      "From": "Fighter1",
+      "To": "SmallFighter1"
+    }
+  ]
 }
