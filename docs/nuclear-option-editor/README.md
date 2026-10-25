@@ -40,6 +40,38 @@ The app checks for external override changes every 750 ms and when it regains fo
 
 When running anywhere inside this repository, the app uses `tools/NuclearOption.ScenarioEditor/overrides.json`. The displayed path confirms this. A standalone published copy outside the repository uses `overrides.json` beside its executable. That file must remain with the app and be writable.
 
+## Merged faction variants
+
+[merged-units.json](../../tools/NuclearOption.ScenarioEditor/merged-units.json) defines editable BDF/PALA counterpart groups. The **Merged units** tab adds, renames and removes groups and assigns each faction's physical variant. Applying an edit saves the database and rebuilds the preview automatically. External JSON changes reload automatically, just like overrides. Each physical variant can belong to only one group.
+
+Names, counts, faction breakdowns and production rates combine group members throughout the UI. When a merged group is a replacement target, each placed unit, factory product or reserve entry receives the configured variant for its own faction. Exported missions contain physical game IDs. Unit costs show a range where variants differ; hover for each faction's cost. The database editor shows physical variant names so you can distinguish them.
+
+The defaults contain 15 groups, selected from the wiki's faction counterparts and checked against the supplied scenario's unit ownership:
+
+| Group | BDF variant | PALA variant |
+|---|---|---|
+| APC | AFV8 APC | Linebreaker APC |
+| IFV | AFV8 IFV | Linebreaker IFV |
+| IR SAM | AFV8 Mobile Air Defense | Linebreaker SAM |
+| Main battle tank | Type-12 MBT | Spearhead MBT |
+| MRAP | LCV45 Recon Truck | MSV MRAP |
+| Tractor | HLT Tractor | MSV Tractor |
+| Flatbed | HLT Flatbed | MSV Flatbed |
+| Munitions truck | HLT Munitions Truck | MSV Munitions |
+| Fuel tanker | HLT Fuel Tanker | MSV Fuel Tanker |
+| Radar truck | HLT Radar Truck | MSV Radar |
+| Fire control | HLT Fire Control | MSV Fire Control |
+| R9 SAM | StratoLance R9 Launcher | MSV R9 Stratolance Launcher |
+| CRAM | HLT-CRAM | MSV CRAM |
+| LADS | HLT-HEL | MSV LADS |
+| Artillery | HLT Mobile Artillery | MSV MLRS |
+
+These groups represent matching faction roles, not identical capabilities. The [AFV8 page](https://nuclearoption.wiki.gg/wiki/AFV8) identifies the Linebreaker counterpart; [Type-12 MBT](https://nuclearoption.wiki.gg/wiki/Type-12_MBT) identifies the Spearhead; [LCV45](https://nuclearoption.wiki.gg/wiki/LCV45) identifies MSV MRAP. The [MSV page](https://nuclearoption.wiki.gg/wiki/MSV) describes the HLT counterparts, including the R9 trailer and mobile-artillery pairing. Artillery intentionally groups tube artillery with MLRS, while preserving the physical weapons and vehicles chosen for each side.
+
+AFV6 and LCV25 remain separate because these light vehicles lack an unambiguous second-faction variant in the catalogue. Shared systems such as Boltstrike, AeroSentry, Anvil and ballistic-missile launchers also remain separate. No aircraft or ship classes are paired solely because their roles resemble one another. Disabled prototypes are excluded. These defaults remain adjustable in the app.
+
+Stable `merged:` IDs let you rename a group without breaking its rules. Remove or change rules referencing a group before deleting it. Merges that would make two existing source rules overlap are rejected. Replacements into a group fail before changing anything if an affected unit has an unmapped faction. Changing the merged database clears override undo history, because older rules may depend on the previous mappings.
+
 **Save output** writes the current working document, leaving the source untouched. Existing outputs receive timestamped `.bak` copies. If an output changed externally, the editor asks before replacing it. First exports copy `meta.json` when present and update its `FileName`. Existing output metadata stays intact. Extra source assets such as thumbnails or custom map files are not copied.
 
 JSON formatting and escaping may change when saving. Unedited values and unknown properties survive. The editor does not run Nuclear Option or validate whether a replacement unit can navigate a particular location. Check exported missions in the game's mission editor before playing.

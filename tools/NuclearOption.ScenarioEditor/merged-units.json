@@ -11,6 +11,84 @@
       "Name": "LADS",
       "BDF": "LaserTrailer1",
       "PALA": "Truck2-LADS"
+    },
+    {
+      "Id": "merged:apc",
+      "Name": "APC",
+      "BDF": "AFV8_APC",
+      "PALA": "Linebreaker_APC"
+    },
+    {
+      "Id": "merged:ifv",
+      "Name": "IFV",
+      "BDF": "AFV8_IFV",
+      "PALA": "Linebreaker_IFV"
+    },
+    {
+      "Id": "merged:ir-sam",
+      "Name": "IR SAM",
+      "BDF": "AFV8_SAM",
+      "PALA": "Linebreaker_SAM"
+    },
+    {
+      "Id": "merged:mbt",
+      "Name": "Main battle tank",
+      "BDF": "MBT",
+      "PALA": "MBT1"
+    },
+    {
+      "Id": "merged:mrap",
+      "Name": "MRAP",
+      "BDF": "LCV45",
+      "PALA": "Truck2-MRAP"
+    },
+    {
+      "Id": "merged:tractor",
+      "Name": "Tractor",
+      "BDF": "HLT-T",
+      "PALA": "Truck2-T"
+    },
+    {
+      "Id": "merged:flatbed",
+      "Name": "Flatbed",
+      "BDF": "HLT-L",
+      "PALA": "Truck2-L"
+    },
+    {
+      "Id": "merged:munitions",
+      "Name": "Munitions truck",
+      "BDF": "HLT-M",
+      "PALA": "Truck2-M"
+    },
+    {
+      "Id": "merged:fuel",
+      "Name": "Fuel tanker",
+      "BDF": "HLT-FT",
+      "PALA": "Truck2-FT"
+    },
+    {
+      "Id": "merged:radar",
+      "Name": "Radar truck",
+      "BDF": "HLT-R",
+      "PALA": "Truck2-R"
+    },
+    {
+      "Id": "merged:fire-control",
+      "Name": "Fire control",
+      "BDF": "HLT-FC",
+      "PALA": "Truck2-FC"
+    },
+    {
+      "Id": "merged:r9-sam",
+      "Name": "R9 SAM",
+      "BDF": "SAMTrailer1",
+      "PALA": "Truck2-RSAM"
+    },
+    {
+      "Id": "merged:artillery",
+      "Name": "Artillery",
+      "BDF": "HLT-MART",
+      "PALA": "Truck2-MLRS"
     }
   ]
 }
