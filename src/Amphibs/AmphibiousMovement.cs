@@ -12,7 +12,7 @@ internal static class AmphibiousMovement
     private static IEnumerable<CodeInstruction> AllowWater(IEnumerable<CodeInstruction> instructions)
     {
         var code = instructions.ToList();
-        var height = AccessTools.Method(typeof(TerrainUtils), nameof(TerrainUtils.GetHeightAt), [typeof(GeoPosition), typeof(bool), typeof(bool)]);
+        var height = AccessTools.Method(typeof(TerrainUtils), nameof(TerrainUtils.GetHeightAt), [typeof(GeoPosition), typeof(bool), typeof(bool), typeof(bool)]);
         var replacement = AccessTools.Method(typeof(AmphibiousMovement), nameof(MovementHeight));
         if (code.Count(instruction => instruction.Calls(height)) != 2)
             throw new InvalidOperationException("LandUnit.ApplyMovement terrain checks changed.");
@@ -30,9 +30,9 @@ internal static class AmphibiousMovement
         }
     }
 
-    private static float MovementHeight(GeoPosition position, bool log, bool isCalledFromJob, LandUnit unit)
+    private static float MovementHeight(GeoPosition position, bool log, bool isCalledFromJob, bool demPeak, LandUnit unit)
     {
-        float height = TerrainUtils.GetHeightAt(position, log, isCalledFromJob);
+        float height = TerrainUtils.GetHeightAt(position, log, isCalledFromJob, demPeak);
         return AmphibiousCatalog.TryGet(unit, out _) ? Math.Max(0, height) : height;
     }
 
