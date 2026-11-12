@@ -48,5 +48,27 @@
     "author": "U.S. Navy/Patrick Grieco",
     "license": "Public domain in the United States, U.S. Navy official photograph",
     "sha256": "6AEABDB1930C9064BE437D0FFACA0972D567F412F8242DEE80581459CE67D1ED"
+  },
+  {
+    "id": "ooda",
+    "title": "OODA",
+    "modDirectory": "src/OODA",
+    "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/c/c3/CIC-USS-CarlVinson-2001.jpg",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:CIC-USS-CarlVinson-2001.jpg",
+    "author": "U.S. Navy/Inez Lawson",
+    "license": "Public domain in the United States, U.S. Navy official photograph",
+    "sha256": "B33FD6C67AD2D8259C235EC6FDC9A9D2A02E470B4CE16CDE12C20869E5586351",
+    "crop": { "x": 71, "y": 284, "width": 1174, "height": 916 }
+  },
+  {
+    "id": "observer",
+    "title": "Observer",
+    "modDirectory": "src/Observer",
+    "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/8/86/US_Navy_021206-N-1328C-501_Signalman_3rd_Class_Tiffany_Culereth_from_Bronx%2C_N.Y.%2C_observes_ships_in_the_area_through_binoculars_called_%22Big_Eyes.%22.jpg",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:US_Navy_021206-N-1328C-501_Signalman_3rd_Class_Tiffany_Culereth_from_Bronx%2C_N.Y.%2C_observes_ships_in_the_area_through_binoculars_called_%22Big_Eyes.%22.jpg",
+    "author": "U.S. Navy/Eric A. Clement",
+    "license": "Public domain in the United States, U.S. Navy official photograph",
+    "sha256": "B5A9241CC176F18CA1958F628B566C6E797AEFF43068ADF31A4ABBD021B67A9C",
+    "crop": { "x": 128, "y": 178, "width": 1060, "height": 835 }
   }
 ]

@@ -1,7 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'deck-tweaks', 'quickload', 'boat-ops', 'amphibs', 'unrep')][string]$Mod = 'all',
+    [ValidateSet('all', 'deck-tweaks', 'quickload', 'boat-ops', 'amphibs', 'unrep', 'ooda', 'observer')][string]$Mod = 'all',
     [ValidateRange(256, 2048)][int]$Size = 1024,
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts/mod-icons')
 )
@@ -42,12 +42,21 @@ foreach ($asset in $assets | Where-Object { $Mod -eq 'all' -or $_.id -eq $Mod })
         $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
         $graphics.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 
-        # Centre-crop into the photo panel without stretching either source.
+        # Fit the selected source area to the photo panel without stretching.
+        $area = [Drawing.RectangleF]::new(0, 0, $photo.Width, $photo.Height)
+        if ($null -ne $asset.crop) {
+            $area = [Drawing.RectangleF]::new($asset.crop.x, $asset.crop.y, $asset.crop.width, $asset.crop.height)
+            if ($area.X -lt 0 -or $area.Y -lt 0 -or $area.Width -le 0 -or $area.Height -le 0 -or
+                $area.Right -gt $photo.Width -or $area.Bottom -gt $photo.Height) {
+                throw "Crop is outside the source photo: $($asset.id)"
+            }
+        }
         $photoHeight = [int]($Size * 0.78)
-        $scale = [Math]::Max($Size / $photo.Width, $photoHeight / $photo.Height)
+        $scale = [Math]::Max($Size / $area.Width, $photoHeight / $area.Height)
         $cropWidth = [single]($Size / $scale)
         $cropHeight = [single]($photoHeight / $scale)
-        $crop = [Drawing.RectangleF]::new(($photo.Width - $cropWidth) / 2, ($photo.Height - $cropHeight) / 2, $cropWidth, $cropHeight)
+        $crop = [Drawing.RectangleF]::new($area.X + ($area.Width - $cropWidth) / 2,
+            $area.Y + ($area.Height - $cropHeight) / 2, $cropWidth, $cropHeight)
         $graphics.DrawImage($photo, [Drawing.RectangleF]::new(0, 0, $Size, $photoHeight), $crop, [Drawing.GraphicsUnit]::Pixel)
         $accent = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(190, 72, 58))
         $resources.Add($accent)
