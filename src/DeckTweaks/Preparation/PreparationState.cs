@@ -43,10 +43,9 @@ internal class AircraftPreparation
             elapsed += operation.Amount * operation.Seconds / workSpeed;
             completion[operation.Reference] = elapsed;
         }
-        string queued = working ? "" : " after crew assigned";
         double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
         double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
-        List<string> lines = [Ready ? "Ready" : working ? Activity(weaponName) : waiting,
+        List<string> lines = [Ready ? "Ready" : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)",
             $"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%"];
         if (Fuel < 1)
         {
@@ -63,9 +62,8 @@ internal class AircraftPreparation
             double missing = store.Amount - mounted;
             if (missing <= 0) continue;
             deviations++;
-            lines.Add($"{weaponName(store.Reference)}: {Quantity(mounted)}/{Quantity(store.Amount)} loaded; "
-                + $"{Quantity(missing)} missing\n  Load work: {Duration(missing * store.MountSeconds / workSpeed)}; "
-                + $"loaded in {Duration(completion[store.Reference])}{queued}");
+            lines.Add($"{weaponName(store.Reference)}: {Quantity(mounted)}/{Quantity(store.Amount)}"
+                + $" · {PerUnit(store.MountSeconds / workSpeed)} · loaded in {Duration(completion[store.Reference])}");
         }
         foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
@@ -73,17 +71,17 @@ internal class AircraftPreparation
             double excess = mounted.Value - wanted;
             if (excess <= 0) continue;
             deviations++;
-            lines.Add($"{weaponName(mounted.Key)}: {Quantity(excess)} {(wanted > 0 ? "excess" : "incompatible")} to remove, "
-                + $"{Duration(excess * knownStores[mounted.Key].RemoveSeconds / workSpeed)} unloading work\n  "
-                + $"Removed in {Duration(completion[mounted.Key])}{queued}");
+            lines.Add($"{weaponName(mounted.Key)}: remove {Quantity(excess)} {(wanted > 0 ? "excess" : "incompatible")}"
+                + $" · {PerUnit(knownStores[mounted.Key].RemoveSeconds / workSpeed)} · off in {Duration(completion[mounted.Key])}");
         }
         if (deviations == 0) lines.Add("Weapons match selected loadout.");
         return string.Join("\n", lines);
     }
 
     private static string Quantity(double value) => value > 0 && value < 0.01 ? "<0.01" : $"{Math.Floor(value * 100) / 100:0.##}";
+    private static string PerUnit(double seconds) => $"{(seconds is > 0 and < 1 ? $"{seconds:0.##}s" : Duration(seconds))}/u";
     internal static string Duration(double seconds) => !double.IsFinite(seconds) ? "unknown"
-        : $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m {Math.Ceiling(seconds) % 60:00}s";
+        : seconds > 59 ? $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m{Math.Ceiling(seconds) % 60:00}s" : $"{Math.Ceiling(seconds):0}s";
 
     internal AircraftPreparation(PreparationLoadout target)
     {

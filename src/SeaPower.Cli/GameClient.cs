@@ -54,45 +54,89 @@ internal class GameClient
         if (command.Request.Action is "workshop-update" or "workshop-create") return await UploadWorkshopAsync(command.Request, cancellation);
         if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);
         if (command.Request.Action == "encyclopedia") return await OpenEncyclopediaAsync(command.Request, cancellation);
+        if (command.Request.Action == "advance-sim") return await AdvanceSimulationAsync(command, cancellation);
+        if (command.Request.Action == "wait-sim")
+        {
+            TimeStatus start = await ReadTimeAsync(new("status"), cancellation);
+            TimeStatus time = await WaitForSimulationAsync(start, command.Seconds, null, cancellation);
+            return SimulationResult(command, start, time);
+        }
         if (command.Request.Action is "inspect" or "update" or "units" or "units-update")
             return (await DumpAsync(command, cancellation))!.Value;
-        if (command.Request.Action is not ("wait-for" or "wait-sim"))
+        if (command.Request.Action != "wait-for")
             return await SendAsync(command.Request, cancellation);
 
-        TimeStatus? start = null;
-        double previous = 0;
-        bool simulation = command.Request.Action == "wait-sim";
         while (true)
         {
-            JsonElement response = await SendAsync(new(simulation ? "status" : "inspect"), cancellation);
-            GameReply reply = WireJson.Read(response);
-            if (!simulation)
+            GameReply reply = WireJson.Read(await SendAsync(new("inspect"), cancellation));
+            if (reply.Controls == null) throw new InvalidDataException("Bridge did not return UI controls.");
+            if (reply.Controls.Any(control => control.Matches(command.Request.Text)))
             {
-                if (reply.Controls == null) throw new InvalidDataException("Bridge did not return UI controls.");
-                if (reply.Controls.Any(control => control.Matches(command.Request.Text)))
-                {
-                    // Re-read under the baseline lock so concurrent dumps cannot save out of order.
-                    if (await DumpAsync(command, cancellation) is { } dump) return dump;
-                }
-            }
-            else
-            {
-                TimeStatus time = reply.Time ?? throw new InvalidDataException("Bridge did not return time state.");
-                double elapsed = time.RequireElapsed();
-                if (start != null && (time.MissionStartSeconds != start.MissionStartSeconds || elapsed < previous))
-                    throw new InvalidOperationException("Mission changed while waiting.");
-                start ??= time;
-                previous = elapsed;
-                double advanced = elapsed - start.RequireElapsed();
-                if (advanced >= command.Seconds)
-                    return JsonSerializer.SerializeToElement(new
-                    {
-                        ok = true, action = "wait-sim", requestedSeconds = command.Seconds, advancedSeconds = advanced, time,
-                    }, WireJson.Options);
+                // Re-read under the baseline lock so concurrent dumps cannot save out of order.
+                if (await DumpAsync(command, cancellation) is { } dump) return dump;
             }
             await Task.Delay(500, cancellation);
         }
     }
+
+    private async Task<JsonElement> AdvanceSimulationAsync(CliCommand command, CancellationToken cancellation)
+    {
+        float speed = command.Request.Speed;
+        TimeStatus before = await ReadTimeAsync(new("status"), cancellation);
+        before.RequireElapsed();
+        TimeStatus? start = null;
+        try
+        {
+            start = await ReadTimeAsync(new("set-speed") { Speed = speed }, cancellation);
+            await WaitForSimulationAsync(start, command.Seconds, speed, cancellation);
+            TimeStatus paused = await ReadTimeAsync(new("pause"), cancellation);
+            return SimulationResult(command, start, paused);
+        }
+        catch
+        {
+            using CancellationTokenSource cleanup = new(TimeSpan.FromSeconds(3));
+            try
+            {
+                TimeStatus time = await ReadTimeAsync(new("status"), cleanup.Token);
+                TimeStatus reference = start ?? before;
+                if ((start != null || before.Paused || before.Speed != speed)
+                    && time.Available && !time.Blocked && !time.Paused && time.Speed == speed
+                    && time.MissionStartSeconds == reference.MissionStartSeconds && time.ElapsedSeconds >= reference.ElapsedSeconds)
+                    await ReadTimeAsync(new("pause"), cleanup.Token);
+            }
+            catch (Exception) { } // Preserve the original error if the game can no longer be paused.
+            throw;
+        }
+    }
+
+    private async Task<TimeStatus> WaitForSimulationAsync(TimeStatus start, int seconds, float? speed, CancellationToken cancellation)
+    {
+        double initial = start.RequireElapsed();
+        double previous = initial;
+        while (true)
+        {
+            TimeStatus time = await ReadTimeAsync(new("status"), cancellation);
+            double elapsed = time.RequireElapsed();
+            if (time.MissionStartSeconds != start.MissionStartSeconds || elapsed < previous)
+                throw new InvalidOperationException("Mission changed while waiting.");
+            if (speed.HasValue && (time.Blocked || time.Paused || time.Speed != speed.Value))
+                throw new InvalidOperationException("Simulation advance was interrupted by a pause, speed change, or open menu.");
+            if (elapsed - initial >= seconds) return time;
+            previous = elapsed;
+            await Task.Delay(speed.HasValue ? 100 : 500, cancellation);
+        }
+    }
+
+    private async Task<TimeStatus> ReadTimeAsync(GameRequest request, CancellationToken cancellation) =>
+        WireJson.Read(await SendAsync(request, cancellation)).Time
+        ?? throw new InvalidDataException("Bridge did not return time state.");
+
+    private static JsonElement SimulationResult(CliCommand command, TimeStatus start, TimeStatus time) =>
+        JsonSerializer.SerializeToElement(new
+        {
+            ok = true, action = command.Request.Action, requestedSeconds = command.Seconds,
+            advancedSeconds = time.RequireElapsed() - start.RequireElapsed(), time,
+        }, WireJson.Options);
 
     private async Task<JsonElement> UploadWorkshopAsync(GameRequest request, CancellationToken cancellation)
     {
