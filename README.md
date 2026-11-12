@@ -2,6 +2,8 @@
 
 This repository contains independent Sea Power mods. Each module owns its DLL and deployment folder.
 
+The [Crimean Tom Workshop bundle](docs/crimean-tom/workshop-bundle.md) packages Amphibs and Deck Tweaks together.
+
 | Module | Source | Documentation |
 |---|---|---|
 | Crimean Tom | [CrimeanTom.SeaPower](src/CrimeanTom.SeaPower) | [Campaign and scenario generation](docs/crimean-tom/README.md) |
