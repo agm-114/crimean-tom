@@ -36,7 +36,7 @@ internal class PlayerChart
             };
             MarkerDrawing center = new() { Location = mark.Position, ColorPreset = color };
             Add(center);
-            Add(new TextDrawing($"OODA · {mark.Label}") { Location = mark.Position, ColorPreset = color });
+            Add(new TextDrawing(mark.Label) { Location = mark.Position, ColorPreset = color });
             if (mark.Kind == ChartMarkKind.SearchArea && mark.RadiusNm is > 0 and <= 150)
             {
                 MarkerDrawing edge = new() { Location = mark.Position.GeoOffsetByDistanceOnHeading(mark.RadiusNm.Value, 90) };
