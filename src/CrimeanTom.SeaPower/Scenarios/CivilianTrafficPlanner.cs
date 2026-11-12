@@ -11,26 +11,25 @@ internal static class CivilianTrafficPlanner
             ("civ_707", 6000), ("civ_dc-10", 6000), ("civ_il-62", 6000)];
     private static readonly Dictionary<(ChartPosition, ChartPosition), bool> safeLegs = [];
 
-    internal static IReadOnlyList<CivilianTrafficUnit> Generate(int seed, string region, ChartPosition center,
-        float separationNm, int vesselCount, int aircraftCount)
+    internal static void AddTraffic(List<CivilianTrafficUnit> traffic, int seed, ChartPosition center, double radius,
+        int vesselCount, int aircraftCount, IEnumerable<CivilianTrafficRoute> shipping, IEnumerable<CivilianTrafficRoute> air,
+        ChartPosition? placementCenter = null)
     {
-        List<CivilianTrafficUnit> traffic = [];
-        double radius = Math.Max(90, separationNm * 0.75);
-        if (vesselCount > 0) AddVessels(traffic, new(seed ^ 0x43A9E27), region, center, radius, vesselCount);
+        placementCenter ??= center;
+        if (vesselCount > 0) AddVessels(traffic, new(seed ^ 0x43A9E27), shipping, center, placementCenter, radius, vesselCount);
         // Independent streams: switching one traffic toggle never reshuffles the other traffic type.
-        if (aircraftCount > 0) AddAirliners(traffic, new(seed ^ 0x416972), center, radius * 1.5, aircraftCount);
-        return traffic;
+        if (aircraftCount > 0) AddAirliners(traffic, new(seed ^ 0x416972), air, center, placementCenter, radius * 1.5, aircraftCount);
     }
 
-    private static void AddVessels(List<CivilianTrafficUnit> traffic, Random random, string region,
-        ChartPosition center, double radius, int count)
+    private static void AddVessels(List<CivilianTrafficUnit> traffic, Random random, IEnumerable<CivilianTrafficRoute> shipping,
+        ChartPosition center, ChartPosition placementCenter, double radius, int count)
     {
-        var routes = ShippingRoutes.RegionalRoutes(region)
-            .Select(route => new CivilianTrafficRoute(route.Origin, route.Destination, route.Points)).ToArray();
-        var windows = routes.SelectMany(route => route.Near(center, radius)).ToArray();
-        if (windows.Length == 0) windows = routes.SelectMany(route => route.Near(center, radius * 2)).ToArray();
+        var routes = shipping.ToArray();
+        var windows = routes.SelectMany(route => route.Near(placementCenter, radius)).ToArray();
+        if (windows.Length == 0) windows = routes.SelectMany(route => route.Near(placementCenter, radius * 2)).ToArray();
+        int startingCount = traffic.Count;
         int merchantTarget = (int)Math.Ceiling(count * 0.8);
-        for (int attempt = 0; attempt < count * 12 && traffic.Count < merchantTarget && windows.Length > 0; attempt++)
+        for (int attempt = 0; attempt < count * 12 && traffic.Count - startingCount < merchantTarget && windows.Length > 0; attempt++)
         {
             var window = windows[random.Next(windows.Length)];
             var (start, onward) = window.Sample(random);
@@ -41,12 +40,13 @@ internal static class CivilianTrafficPlanner
                 $"{window.Route.Origin} to {window.Route.Destination}");
         }
         // Fishing remains local. Do not replace a missing shipping lane with a fleet of arbitrary merchants.
-        int fishingTarget = Math.Min(count - merchantTarget, traffic.Count / 3);
+        int fishingTarget = Math.Min(count - merchantTarget, (traffic.Count - startingCount) / 3);
         int target = traffic.Count + fishingTarget;
         for (int attempt = 0; attempt < 80 && traffic.Count < target; attempt++)
         {
-            double angle = random.NextDouble() * Math.PI * 2, distance = 8 + random.NextDouble() * 45;
-            ChartPosition start = center.Offset(new((float)(Math.Cos(angle) * distance), 0, (float)(Math.Sin(angle) * distance)));
+            double angle = random.NextDouble() * Math.PI * 2;
+            double distance = Math.Min(8, radius / 4) + random.NextDouble() * Math.Min(45, radius / 2);
+            ChartPosition start = placementCenter.Offset(new((float)(Math.Cos(angle) * distance), 0, (float)(Math.Sin(angle) * distance)));
             ChartPosition next = start.Offset(new((float)(random.NextDouble() * 16 - 8), 0, (float)(random.NextDouble() * 16 - 8)));
             if (start.DistanceTo(next) < 3 || !ScenarioTerrain.IsNavigable(start, next, 8)) continue;
             Add(traffic, FishingBoats[random.Next(FishingBoats.Length)], start, [next, start], center, "Local fishing grounds");
@@ -82,13 +82,13 @@ internal static class CivilianTrafficPlanner
             (float)(-direction.Z / magnitude * distance), 0, (float)(direction.X / magnitude * distance)));
     }
 
-    private static void AddAirliners(List<CivilianTrafficUnit> traffic, Random random, ChartPosition center,
-        double radius, int count)
+    private static void AddAirliners(List<CivilianTrafficUnit> traffic, Random random, IEnumerable<CivilianTrafficRoute> air,
+        ChartPosition center, ChartPosition placementCenter, double radius, int count)
     {
         // Spawn/despawn outside the initial traffic area while retaining the airport-to-airport course.
-        var routes = AirlinerRoutes.Routes.SelectMany(route => route.Crossings(center, radius + 30)
+        var routes = air.SelectMany(route => route.Crossings(placementCenter, radius + 30)
             .Select(points => route with { Points = points })).ToArray();
-        var windows = routes.SelectMany(route => route.Near(center, radius)).ToArray();
+        var windows = routes.SelectMany(route => route.Near(placementCenter, radius)).ToArray();
         int added = 0;
         for (int attempt = 0; attempt < count * 12 && added < count && windows.Length > 0; attempt++)
         {
