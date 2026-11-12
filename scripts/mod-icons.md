@@ -9,15 +9,19 @@ Run in PowerShell 7 on Windows:
 ./scripts/create-mod-icons.ps1 -Mod boat-ops
 ./scripts/create-mod-icons.ps1 -Mod amphibs
 ./scripts/create-mod-icons.ps1 -Mod unrep
+./scripts/create-mod-icons.ps1 -Mod ooda
+./scripts/create-mod-icons.ps1 -Mod observer
 ```
 
-Default output is five 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
+Default output is seven 1024 × 1024 JPEGs in `artifacts/mod-icons/`:
 
 - `deck-tweaks.jpg`
 - `quickload.jpg`
 - `boat-ops.jpg`
 - `amphibs.jpg`
 - `unrep.jpg`
+- `ooda.jpg`
+- `observer.jpg`
 
 Each render is then copied to `thumbnail.jpg` in the mod folder named by
 `modDirectory` in the manifest, beside that mod's `_info.ini`. The mod builds
@@ -30,8 +34,9 @@ against the SHA-256 values in `mod-icons.sources.json` on every run. The manifes
 records the original file pages, credits and public-domain status. Review an
 upstream change before replacing a hash.
 
-The script centre-crops photos above a charcoal title band with a red divider.
+The script fits the photo above a charcoal title band with a red divider.
+The optional `crop` in the manifest selects a rectangle in source pixels.
 It uses the Windows Bahnschrift font. It creates no AI artwork, edits no mod
 descriptions, and does not build, deploy, launch or upload the mods.
-The `artifacts/` renders, their cached photos and the `thumbnail.jpg` copies are
-ignored by Git.
+Git ignores the renders, cached photos, and generated thumbnails. OODA and
+Observer use pinned source photos and fixed crops in the manifest.
