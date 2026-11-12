@@ -15,6 +15,9 @@ public class Plugin : IAnchorChainMod
     public void TriggerEntryPoint()
     {
         new Harmony("crimean-tom.ooda").PatchAll(typeof(Plugin).Assembly);
+        GameObject host = new("OODA Decisions");
+        UnityEngine.Object.DontDestroyOnLoad(host);
+        host.AddComponent<DecisionWindow>();
         Debug.Log("[OODA] Loaded.");
     }
 
@@ -68,5 +71,13 @@ public class Plugin : IAnchorChainMod
     {
         drill?.Finish();
         drill = null;
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoUnload))]
+    private static void EndDecisionSession()
+    {
+        MissionCommunications.Reset();
+        DecisionWindow.EndMission();
     }
 }
