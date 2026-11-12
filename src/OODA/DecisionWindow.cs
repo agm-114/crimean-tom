@@ -26,6 +26,8 @@ public class DecisionWindow : MonoBehaviour
     private TextBlock? status;
     private TextBlock? chartStatus;
     private TextBlock? clockStatus;
+    private TextBlock? paceSource;
+    private TextBlock? paceReason;
     private Button? replanButton;
     private Button? takeControl;
     private float nextRefresh;
@@ -150,6 +152,7 @@ public class DecisionWindow : MonoBehaviour
         string membership = string.Join("|", ships.Select(PlayerPicture.Id));
         if (revision == controller.Revision && tabMembership == membership)
         {
+            RefreshTimeControl();
             foreach (Vessel ship in ships)
                 if (shipStates.TryGetValue(PlayerPicture.Id(ship), out TextBlock line)) line.Text = ShipState(ship);
             return;
@@ -162,6 +165,7 @@ public class DecisionWindow : MonoBehaviour
         shipStates.Clear();
         AddTab("mission", "Mission Command", MissionPage());
         AddTab("trace", "Decision log", Stack(Timeline(controller.Events, showShipNames: true)));
+        AddTab("time", "Time Control", TimeControlPage());
         AddTab("contacts", "Contact picture", ContactsPage());
         foreach (Vessel ship in ships)
         {
@@ -174,6 +178,24 @@ public class DecisionWindow : MonoBehaviour
 
     private void AddTab(string id, string title, FrameworkElement content) => tabs!.Items.Add(new TabItem
         { Header = title, Tag = id, Content = Scroll(content) });
+
+    private FrameworkElement TimeControlPage()
+    {
+        paceSource = Text("");
+        paceSource.FontWeight = FontWeights.SemiBold;
+        paceReason = Text("");
+        RefreshTimeControl();
+        return Stack(Card(Stack(paceSource, paceReason)),
+            Section("Recent speed changes", Timeline(controller.Events.Where(item => item.Stage == "Time control"), showShipNames: true)));
+    }
+
+    private void RefreshTimeControl()
+    {
+        if (paceSource == null || paceReason == null) return;
+        var (source, reason) = controller.ClockExplanation;
+        paceSource.Text = $"{controller.ClockStatus} · {source}";
+        paceReason.Text = reason;
+    }
 
     private FrameworkElement MissionPage()
     {
@@ -378,6 +400,7 @@ public class DecisionWindow : MonoBehaviour
     {
         window = null;
         tabs = null;
+        paceSource = paceReason = null;
         shipStates.Clear();
         if (launcher != null) launcher.Button.IsChecked = false;
     }

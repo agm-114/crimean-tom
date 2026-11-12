@@ -4,7 +4,7 @@ using SeaPower.GameBridge;
 
 namespace OODA;
 
-internal enum DecisionRole { Operational, RoutineTactical, SurfaceDefense, UrgentTactical }
+internal enum DecisionRole { Operational, RoutineTactical, SurfaceDefense, AirDefense, UrgentTactical }
 
 internal record DecisionPrompt(string Instructions, JObject Input)
 {
@@ -15,6 +15,7 @@ internal record DecisionPrompt(string Instructions, JObject Input)
     private static readonly string Routine = Read("routine-tactical");
     private static readonly string TimeRules = Read("time-rules");
     private static readonly string Defense = Read("surface-defense");
+    private static readonly string AirDefense = Read("air-defense");
     private static readonly string Urgent = Read("urgent-tactical");
     private static readonly string[] ContextFields =
     [
@@ -41,6 +42,7 @@ internal record DecisionPrompt(string Instructions, JObject Input)
             DecisionRole.Operational => string.Join("\n\n", Shared, Guide, Operational, TimeRules),
             DecisionRole.RoutineTactical => string.Join("\n\n", Shared, Guide, Routine, TimeRules),
             DecisionRole.SurfaceDefense => string.Join("\n\n", Shared, Defense),
+            DecisionRole.AirDefense => string.Join("\n\n", Shared, AirDefense),
             DecisionRole.UrgentTactical => string.Join("\n\n", Shared, Urgent),
             _ => throw new ArgumentOutOfRangeException(nameof(role))
         };

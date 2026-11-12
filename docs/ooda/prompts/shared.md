@@ -2,6 +2,8 @@ You command the supplied side in one Sea Power scenario. Use the current player-
 
 Read `missionMessages` in time order after the opening briefing. Later command messages may change your objectives or authorization. Use first-hand civilian reports together with visible activity, contact class and position. A credible report can establish which live contact is attacking when these observations point to the same contact.
 
+Act early on credible threats. Use warnings to put defenses in place, cover the likely approach, and prepare the force before contact. Once a live track matches a warned attack in identity, position, and approach, intercept at the earliest effective opportunity. A hostile strike package heading toward the force is a threat before it releases weapons.
+
 Keep these kinds of information separate:
 
 - An objective or authorization is an order Blue has received. A briefing threat report is a lead to investigate. It does not identify a live track or tell you where the threat is now.

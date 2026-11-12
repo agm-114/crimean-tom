@@ -38,6 +38,11 @@ internal class DecisionController
     private bool lookupUsed;
     private bool replan;
     private bool reviewingFire;
+    private bool wasAssessingAttack;
+    private string? timedAttacker;
+    private bool airDefensePending;
+    private double raidWarningAt = double.NegativeInfinity;
+    private readonly HashSet<(string Id, bool Nearby)> raidTracks = [];
     private string? statusMessage;
 
     internal DecisionController(IDecisionProvider? urgentProvider = null) => this.urgentProvider = urgentProvider ?? codex;
@@ -60,6 +65,7 @@ internal class DecisionController
     internal string ChartPoint => chartPoint?.Label ?? "No chart point added";
     internal bool ManageTime => clock.Enabled;
     internal string ClockStatus => clock.Status;
+    internal (string Source, string Reason) ClockExplanation => clock.Explain(ManagingClock);
     internal JArray PlanMarks() => new(marks.Select(mark => mark.Describe()));
     private bool AssessingAttack => defense.ActiveGunfire || defense.Pending || regular?.Role == DecisionRole.SurfaceDefense;
     private bool ManagingClock => Mode == ControlMode.AiControl && ManageTime;
@@ -70,20 +76,49 @@ internal class DecisionController
         interrupts.Expire(now);
         if (Mode != ControlMode.Manual)
         {
-            foreach (TimeEvent item in timeObservations.Poll(side))
-                if (interrupts.Observe(item, now, ManagingClock) is { } rule)
-                    Add("Time control", $"Interrupt · {rule.Speed}× for {rule.HoldSeconds}s", item.Detail,
-                        item.SubjectId, item.Label);
+            foreach (TimeEvent item in timeObservations.Poll(side)) ObserveTimeEvent(item, now);
+            bool assessingAttack = AssessingAttack;
+            if (assessingAttack)
+            {
+                string? attackerId = PlayerCombat.Recent().Where(item => GameTime.missionElapsedTime - item.LastSeen <= 12)
+                    .OrderByDescending(item => item.LastSeen).FirstOrDefault()?.AttackerId;
+                if (!wasAssessingAttack || attackerId != null && attackerId != timedAttacker)
+                {
+                    Vehicle? track = attackerId == null ? null : PlayerPicture.LiveContact(side, attackerId);
+                    ObserveTimeEvent(new(TimeEventKind.SurfaceAttack, attackerId,
+                        track == null ? "Surface attack" : PlayerPicture.ContactLabel(track), "Surface",
+                        track?.CurrentRelationship().ToString() ?? "Unknown",
+                        attackerId == null ? "New attack report" : "Gunfire observed"), now);
+                }
+                if (attackerId != null) timedAttacker = attackerId;
+            }
+            else timedAttacker = null;
+            wasAssessingAttack = assessingAttack;
         }
         else PlayerCombat.TakeMissileImpacts();
-        clock.Tick(side, Mode == ControlMode.AiControl, plan != null, AssessingAttack, interrupts.Speed);
+        clock.Tick(side, Mode == ControlMode.AiControl, plan != null, interrupts.Current);
+    }
+
+    private void ObserveTimeEvent(TimeEvent item, double now)
+    {
+        if (interrupts.Observe(item, now, ManagingClock) is { } rule)
+            Add("Time control", $"Interrupt · {rule.Speed}× for {rule.HoldSeconds}s", item.Detail, item.SubjectId, item.Label);
+        if (item.Kind is TimeEventKind.HostileNearby or TimeEventKind.TrackAppeared or TimeEventKind.RadarContact or TimeEventKind.TrackChanged
+            && item.Category is "Air" or "Helicopter" && item.Posture == "Hostile" && item.SubjectId is { } id
+            && GameTime.missionElapsedTime - raidWarningAt <= 900 && raidTracks.Add((id, item.Kind == TimeEventKind.HostileNearby)))
+        {
+            airDefensePending = true;
+            TimeEvent raidContact = item with { Kind = TimeEventKind.AirRaidWarning, Detail = "Hostile aircraft tracked after the raid warning" };
+            if (interrupts.Observe(raidContact, now, ManagingClock) is { } raidRule)
+                Add("Time control", $"Interrupt · {raidRule.Speed}× for {raidRule.HoldSeconds}s", raidContact.Detail, item.SubjectId, item.Label);
+        }
     }
 
     internal void SetTimeManagement(bool enabled)
     {
         clock.Enabled = enabled;
         if (!enabled) interrupts.CancelActive();
-        clock.Tick(PlayerPicture.Side, Mode == ControlMode.AiControl, plan != null, AssessingAttack, interrupts.Speed);
+        clock.Tick(PlayerPicture.Side, Mode == ControlMode.AiControl, plan != null, interrupts.Current);
     }
 
     internal void SetMode(ControlMode mode)
@@ -93,13 +128,15 @@ internal class DecisionController
         Cancel(ref regular);
         Cancel(ref urgent);
         Mode = mode;
+        wasAssessingAttack = false;
+        timedAttacker = null;
         if (mode != ControlMode.AiControl)
         {
             chart.Clear();
             interrupts.CancelActive();
         }
         if (mode == ControlMode.Manual) timeObservations.Reset();
-        clock.Tick(PlayerPicture.Side, mode == ControlMode.AiControl, plan != null, AssessingAttack, interrupts.Speed);
+        clock.Tick(PlayerPicture.Side, mode == ControlMode.AiControl, plan != null, interrupts.Current);
         statusMessage = null;
         replan = mode != ControlMode.Manual;
         Add("Control", "Changed", mode.ToString());
@@ -125,6 +162,11 @@ internal class DecisionController
         nextTactical = nextOperational = urgentPreviews = 0;
         receivedMessages = 0;
         lookupUsed = replan = reviewingFire = false;
+        wasAssessingAttack = false;
+        timedAttacker = null;
+        airDefensePending = false;
+        raidWarningAt = double.NegativeInfinity;
+        raidTracks.Clear();
         events.Clear();
         Revision++;
     }
@@ -177,12 +219,14 @@ internal class DecisionController
         }
         ReadCommunications();
         if (Mode != ControlMode.Manual) defense.Poll(side);
-        if (!reviewingFire && defense.Pending && regular is { Role: not DecisionRole.SurfaceDefense } interrupted)
+        if (!reviewingFire && regular is { Role: not DecisionRole.AirDefense } interrupted
+            && (airDefensePending || defense.Pending && interrupted.Role != DecisionRole.SurfaceDefense))
         {
             if (interrupted.Role == DecisionRole.Operational) { replan = true; nextOperational = 0; }
+            if (interrupted.Role == DecisionRole.SurfaceDefense) defense.Pending = true;
             Cancel(ref regular);
         }
-        clock.Tick(side, Mode == ControlMode.AiControl, plan != null, AssessingAttack, interrupts.Speed);
+        clock.Tick(side, Mode == ControlMode.AiControl, plan != null, interrupts.Current);
         CompleteUrgent();
         if (Mode == ControlMode.Manual) return;
         if (regular is { } work)
@@ -213,6 +257,14 @@ internal class DecisionController
         }
         clock.Resume();
         if (PlayerTime.Blocked || GameTime.RadioSequenceForcesNormalTime) return;
+
+        if (!reviewingFire && airDefensePending)
+        {
+            airDefensePending = false;
+            Vessel[] escorts = PlayerPicture.Ships(side);
+            Start(DecisionRole.AirDefense, PlayerPicture.Read(side, escorts), escorts, []);
+            return;
+        }
 
         if (!reviewingFire && defense.Pending)
         {
@@ -248,12 +300,21 @@ internal class DecisionController
     {
         IReadOnlyList<MissionCommunications.Message> messages = MissionCommunications.Messages;
         if (receivedMessages == messages.Count) return;
-        if (messages.Skip(receivedMessages).Any(message => message.Kind == "Mission popup")) clock.YieldPause();
+        var updates = messages.Skip(receivedMessages).ToArray();
+        if (updates.Any(message => message.Kind == "Mission popup")) clock.YieldPause();
         receivedMessages = messages.Count;
         Revision++;
         if (Mode == ControlMode.Manual) return;
+        if (updates.LastOrDefault(message => message.WarnsOfAirRaid) is { } warning)
+        {
+            raidWarningAt = warning.Time;
+            raidTracks.Clear();
+            airDefensePending = true;
+            ObserveTimeEvent(new(TimeEventKind.AirRaidWarning, null, "Inbound strike", "Air", "Hostile", "Raid warning received"),
+                UnityEngine.Time.realtimeSinceStartupAsDouble);
+        }
         defense.OnMessages();
-        Cancel(ref regular);
+        if (regular?.Role != DecisionRole.AirDefense) Cancel(ref regular);
         replan = true;
         nextOperational = 0;
     }
@@ -288,7 +349,8 @@ internal class DecisionController
         ["chartPoint"] = chartPoint?.Label, ["briefing"] = Briefing,
         ["plan"] = plan?.DeepClone(), ["lastInput"] = LastInput?.DeepClone(), ["missionMessages"] = MissionCommunications.Snapshot(),
         ["planMarks"] = PlanMarks(),
-        ["time"] = new JObject { ["managed"] = ManagingClock, ["status"] = ClockStatus, ["interrupts"] = interrupts.Describe() },
+        ["time"] = new JObject { ["managed"] = ManagingClock, ["status"] = ClockStatus,
+            ["source"] = ClockExplanation.Source, ["reason"] = ClockExplanation.Reason, ["interrupts"] = interrupts.Describe() },
         ["lastUrgentInput"] = LastUrgentInput?.DeepClone(), ["urgentShipId"] = UrgentShip,
         ["events"] = new JArray(events.Select(item => new JObject { ["time"] = item.Time, ["stage"] = item.Stage,
             ["status"] = item.Status, ["detail"] = item.Detail, ["shipId"] = item.ShipId, ["shipName"] = item.ShipName,
@@ -306,9 +368,9 @@ internal class DecisionController
         view["timeInterrupts"] = interrupts.Describe();
         view["timeInterrupts"]!["allowedSpeeds"] = new JArray(ManagingClock
             ? DecisionClock.Speeds.Where(speed => speed <= PlayerTime.Maximum) : Enumerable.Empty<int>());
-        if (role == DecisionRole.SurfaceDefense && PlayerPicture.Side is { } defensiveSide)
+        if (role is DecisionRole.SurfaceDefense or DecisionRole.AirDefense && PlayerPicture.Side is { } defensiveSide)
             SurfaceDefense.Describe(defensiveSide, view);
-        else if (PlayerPicture.Side is { } side)
+        if (role != DecisionRole.SurfaceDefense && PlayerPicture.Side is { } side)
         {
             view["standingOrders"] = PlayerDoctrine.Read(side);
             view["availableTimeCompressions"] = new JArray(Mode == ControlMode.AiControl && ManageTime
@@ -325,7 +387,7 @@ internal class DecisionController
         {
             ["name"] = "get_owned_unit", ["requestField"] = "inspectGroupId", ["description"] = "Set inspectGroupId to an owned group ID for its heading and extended route, or null to submit the plan."
         }) : new JArray();
-        view["lastOrderResults"] = new JArray(events.Where(item => item.ShipId != null && item.Stage is "Tactical" or "Surface defense")
+        view["lastOrderResults"] = new JArray(events.Where(item => item.ShipId != null && item.Stage is "Tactical" or "Surface defense" or "Air defense")
             .Reverse().Take(8).Select(item => new JObject
             {
                 ["groupId"] = item.ShipId, ["result"] = item.Status, ["reason"] = item.Detail, ["roeWarning"] = item.RoeWarning
@@ -348,6 +410,11 @@ internal class DecisionController
         if (work.Role == DecisionRole.SurfaceDefense)
         {
             ApplyDefense(result, side);
+            return;
+        }
+        if (work.Role == DecisionRole.AirDefense)
+        {
+            ApplyAirDefense(result, side);
             return;
         }
         bool objectivesChanged = PlayerPicture.Objectives().ToString(Formatting.None) != objectiveState;
@@ -435,7 +502,7 @@ internal class DecisionController
         Add("Tactical", $"Reply received · {work.Clock.Elapsed.TotalSeconds:0.0}s", $"{handled.Count} group decisions");
         if (Mode == ControlMode.AiControl && !replan && (int?)result["timeCompression"] is { } speed
             && LastInput?["availableTimeCompressions"] is JArray offered && offered.Values<int>().Contains(speed)
-            && clock.Apply(speed, offered.Values<int>().Max(), side, AssessingAttack, interrupts.Speed))
+            && clock.Apply(speed, offered.Values<int>().Max(), Short((string?)result["timeReason"]), side, interrupts.Current))
             Add("Time control", $"Set {GameTime.TimeCompression:0.##}×", Short((string?)result["timeReason"]));
     }
 
@@ -525,6 +592,46 @@ internal class DecisionController
         }
     }
 
+    private void ApplyAirDefense(JObject result, Taskforce side)
+    {
+        ApplyStandingOrders(result["standingOrderChanges"], side);
+        string reason = Short((string?)result["reason"]);
+        if (result["targetIds"] is not JArray { Count: > 0 } ids || LastInput?["contacts"] is not JArray contacts)
+        {
+            Add("Air defense", "Raid response", reason);
+            return;
+        }
+        Vessel[] ships = PlayerPicture.Ships(side);
+        HashSet<Vessel> assigned = [];
+        foreach (string id in ids.Values<string>().OfType<string>().Distinct().Take(4))
+        {
+            if (!contacts.Any(item => (string?)item["id"] == id && (string?)item["posture"] == "Hostile")
+                || PlayerPicture.LiveContact(side, id) is not { } track || !track.BaseObject.IsAirUnit
+                || track.CurrentRelationship() != RelationsState.Hostile || track.PositionEstimate is not { } estimate) continue;
+            string target = PlayerPicture.ContactLabel(track);
+            if (ships.Any(ship => ship._currentEngageTasks.Any(task => task._targetObject == track.BaseObject)))
+            {
+                Add("Air defense", "Already engaging", target);
+                continue;
+            }
+            Vessel? responder = null;
+            foreach (Vessel ship in ships.OrderBy(assigned.Contains)
+                .ThenBy(ship => GeoPosition.HaversineDistanceNmi(ship.getGeoPosition(), estimate.Item1)))
+            {
+                if (Mode != ControlMode.Observe && !PlayerOrders.EngageAir(ship, side, track)) continue;
+                responder = ship;
+                break;
+            }
+            if (responder == null) Add("Air defense", "No air-defense weapon available", target);
+            else
+            {
+                assigned.Add(responder);
+                Add("Air defense", Mode == ControlMode.Observe ? "Intercept suggested" : "Intercept queued",
+                    $"{target} · {reason}", PlayerPicture.Id(responder), responder.getName());
+            }
+        }
+    }
+
     private static ChartMark[] ReadMarks(JToken? proposed)
     {
         List<ChartMark> result = [];
@@ -605,6 +712,7 @@ internal class DecisionController
     {
         DecisionRole.Operational => "Mission Command",
         DecisionRole.SurfaceDefense => "Surface defense",
+        DecisionRole.AirDefense => "Air defense",
         _ => "Tactical"
     };
     private static string Short(string? value, int length = 350) => value is { Length: > 0 } ? value[..Math.Min(length, value.Length)].Replace('\r', ' ').Replace('\n', ' ') : "";

@@ -58,4 +58,14 @@ internal static class PlayerOrders
         return ship._currentEngageTasks.Any(task => task._targetObject == target)
             ? "Engagement queued" : "No weapon available";
     }
+
+    internal static bool EngageAir(Vessel ship, Taskforce side, Vehicle contact)
+    {
+        if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null
+            || !PlayerPicture.IsLive(contact) || contact.CurrentRelationship() != RelationsState.Hostile
+            || !contact.BaseObject.IsAirUnit) return false;
+        ObjectBase target = contact.BaseObject;
+        ship._ai.AutoAttackByClick(target, Ammunition.Type.Missile, attackAsFormation: false);
+        return ship._currentEngageTasks.Any(task => task._targetObject == target);
+    }
 }

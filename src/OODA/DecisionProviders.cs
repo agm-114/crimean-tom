@@ -116,7 +116,7 @@ internal static class DecisionSchema
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
                 ("radiusNm", Number(nullable: true))))), ("timeRules", TimeRules())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
-            ("standingOrderChanges", Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())))),
+            ("standingOrderChanges", StandingOrders()),
             ("timeCompression", new JObject { ["type"] = new JArray("integer", "null"),
                 ["enum"] = new JArray(DecisionClock.Speeds.Select(speed => new JValue(speed)).Append(JValue.CreateNull())) }),
             ("timeReason", Text(nullable: true)), ("timeRules", TimeRules())),
@@ -126,6 +126,7 @@ internal static class DecisionSchema
             ("evidence", Choice("ObservedGunfire", "AttackReport", "None")),
             ("messageIndex", new JObject { ["type"] = new JArray("integer", "null") }), ("reason", Text()),
             ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())),
+        DecisionRole.AirDefense => Object(("standingOrderChanges", StandingOrders()), ("targetIds", Array(Text())), ("reason", Text())),
         _ => Object(("optionId", Text()), ("reason", Text()))
     };
 
@@ -133,6 +134,8 @@ internal static class DecisionSchema
         (verb, Choice(values)),
         ("destinationId", Text(nullable: true)), ("reason", Text()));
     private static JObject Array(JObject items) => new() { ["type"] = "array", ["items"] = items };
+    private static JObject StandingOrders() =>
+        Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())));
     private static JObject TimeRules() => new()
     {
         ["type"] = new JArray("array", "null"),
