@@ -4,11 +4,11 @@ internal static class ScenarioWildlife
 {
     private static readonly string[] Whales = ["bio_fin_whale", "bio_humpback_whale", "bio_blue_whale"];
 
-    internal static void WriteTo(MissionWriter mission, int seed, ChartPosition center, float separationNm)
+    internal static void WriteTo(MissionWriter mission, int seed, ChartPosition center, float separationNm, int count = 2)
     {
         Random random = new(seed ^ 0x5768616C);
         List<ChartPosition> placed = [];
-        for (int attempt = 0; attempt < 80 && placed.Count < 2; attempt++)
+        for (int attempt = 0; attempt < 80 && placed.Count < count; attempt++)
         {
             MissionPosition position = new((float)((random.NextDouble() - 0.5) * Math.Max(30, separationNm)),
                 -100, (float)((random.NextDouble() - 0.5) * 48));

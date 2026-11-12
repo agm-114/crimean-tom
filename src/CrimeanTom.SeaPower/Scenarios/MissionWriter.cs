@@ -48,6 +48,13 @@ internal class MissionWriter
         current = previous;
     }
 
+    internal void CopyTo(Action<string, string, string> write)
+    {
+        foreach (var (name, values) in sections)
+        foreach (var (key, value) in values)
+            write(name, key, value);
+    }
+
     public override string ToString()
     {
         StringBuilder text = new();

@@ -1,19 +1,13 @@
-using HarmonyLib;
 using SeaPower;
 
 namespace CrimeanTom.SeaPower;
-
-[HarmonyPatch(typeof(SceneCreator), "LoadCivilianRoutes")]
-internal static class CivilianAirTrafficLoadPatch
-{
-    private static void Postfix(IniHandler ini) => CivilianAirTraffic.RegisterInitialAircraft(ini);
-}
 
 internal static class CivilianAirTraffic
 {
     private const string InitialAircraftKey = "CrimeanTomInitialAircraft";
 
-    internal static void WriteRoutes(MissionWriter mission, IEnumerable<CivilianTrafficUnit> traffic, int seed)
+    internal static void WriteRoutes(MissionWriter mission, IEnumerable<CivilianTrafficUnit> traffic, int seed,
+        int minimumSpawnInterval = 360, int maximumSpawnInterval = 900)
     {
         Random random = new(seed ^ 0x54696D65);
         int count = int.Parse(mission.Read("Mission", "NumberOfCivilianRoutes", "0"));
@@ -30,8 +24,7 @@ internal static class CivilianAirTraffic
             mission.Write("MaxUnits", 1);
             mission.Write("SpawnInGroupsOf", 1);
             mission.Write("Repeatable", true);
-            // The installed loader reads the first value twice when given an interval range.
-            mission.Write("SpawnInterval", random.Next(360, 901));
+            mission.Write("SpawnInterval", random.Next(minimumSpawnInterval, maximumSpawnInterval + 1));
             mission.WriteWaypoints(unit.AirTrafficRoute!);
             mission.Write(InitialAircraftKey, unit.Reference);
         }

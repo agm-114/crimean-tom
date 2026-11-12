@@ -238,9 +238,14 @@ internal static partial class ScenarioDebugGenerator
         ScenarioParameters parameters,
         FleetClashMatch match)
     {
-        var traffic = CivilianTrafficPlanner.Generate(parameters.Seed, match.Theater,
-            new(match.Latitude, match.Longitude), parameters.SeparationNm,
-            parameters.NeutralVesselCount, parameters.NeutralAircraftCount);
+        var shipping = parameters.NeutralVesselCount > 0
+            ? ShippingRoutes.RegionalRoutes(match.Theater).Select(route => new CivilianTrafficRoute(route.Origin, route.Destination, route.Points))
+            : [];
+        var air = parameters.NeutralAircraftCount > 0 ? AirlinerRoutes.Routes : [];
+        List<CivilianTrafficUnit> traffic = [];
+        CivilianTrafficPlanner.AddTraffic(traffic, parameters.Seed, new(match.Latitude, match.Longitude),
+            Math.Max(90, parameters.SeparationNm * 0.75), parameters.NeutralVesselCount, parameters.NeutralAircraftCount,
+            shipping, air);
         // Terrain and route coverage can reduce the requested counts. Never leave dangling neutral references.
         mission.Set("Mission", "NumberOfNeutralVessels", traffic.Count(unit => !unit.IsAircraft));
         mission.Set("Mission", "NumberOfNeutralAircraft", traffic.Count(unit => unit.IsAircraft));
