@@ -13,6 +13,8 @@ internal record GameRequest(string Action)
     public int Index { get; init; } = -1;
     public string Text { get; init; } = "";
     public bool Confirm { get; init; }
+    public double? Latitude { get; init; }
+    public double? Longitude { get; init; }
     public string ModDirectory { get; init; } = "";
     public string PreviewDirectory { get; init; } = "";
     public string ChangeLog { get; init; } = "";

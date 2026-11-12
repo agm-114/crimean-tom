@@ -56,6 +56,10 @@ seapower-cli details --snapshot TOKEN --id ID --depth 8
 seapower-cli update
 seapower-cli units
 seapower-cli units-update
+seapower-cli player-view --json
+seapower-cli player-view --ship SHIP_ID --json
+seapower-cli player-waypoint --ship SHIP_ID --latitude LAT --longitude LON --confirm
+seapower-cli ooda-status --json
 seapower-cli status
 seapower-cli game-status
 seapower-cli workshop-update --mod-dir 'C:/Mods/UNREP'

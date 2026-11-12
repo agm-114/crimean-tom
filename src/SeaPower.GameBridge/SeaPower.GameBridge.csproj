@@ -4,6 +4,7 @@
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerGameBridge</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" />
     <Reference Include="com.rlabrecque.steamworks.net" HintPath="$(GameManaged)\com.rlabrecque.steamworks.net.dll" Private="false" />
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
@@ -11,6 +12,8 @@
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
     <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(GameManaged)\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="Unity.Entities" HintPath="$(GameManaged)\Unity.Entities.dll" Private="false" />
     <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(GameManaged)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
     <Reference Include="UnityEngine.ImageConversionModule" HintPath="$(GameManaged)\UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
