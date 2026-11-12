@@ -41,4 +41,20 @@ internal static class PlayerOrders
         return route.Count > 0 && Math.Abs(route[0].wpGP._latitude - point._latitude) < 0.0004
             && Math.Abs(route[0].wpGP._longitude - point._longitude) < 0.0004;
     }
+
+    internal static string EngageSurface(Vessel ship, Taskforce side, Vehicle contact)
+    {
+        if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null)
+            return "Rejected · ship is unavailable for defensive fire";
+        if (!PlayerPicture.IsLive(contact) || contact.BaseObject is not Vessel target || target == ship)
+            return "Rejected · target is no longer an eligible surface contact";
+        if (PlayerPicture.Ships(side).Any(unit => unit._currentEngageTasks.Any(task => task._targetObject == target)))
+            return "Kept · contact already engaged";
+
+        ship._ai.AutoAttackByClick(target, Ammunition.Type.Projectile, salvo: 6, attackAsFormation: false);
+        if (!ship._currentEngageTasks.Any(task => task._targetObject == target))
+            ship._ai.AutoAttackByClick(target, attackAsFormation: false);
+        return ship._currentEngageTasks.Any(task => task._targetObject == target)
+            ? "Applied · native engagement queued" : "Rejected · no native weapon could engage";
+    }
 }
