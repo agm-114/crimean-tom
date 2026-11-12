@@ -41,6 +41,7 @@ internal class WorkshopControls : IDisposable
         private string? remoteTitle;
         private string? remoteDescription;
         private ulong owner;
+        private readonly ulong account = SteamUser.GetSteamID().m_SteamID;
         private readonly long bytes = files.Sum(file => file.Length);
         private readonly DateTime queryDeadline = DateTime.UtcNow.AddSeconds(60);
         private UGCQueryHandle_t query = UGCQueryHandle_t.Invalid;
@@ -83,7 +84,7 @@ internal class WorkshopControls : IDisposable
             _ = Visibility;
             if (command.Dependencies.Any(id => id == 0)) throw new ArgumentException("Invalid dependency ID.");
             ValidateLocal();
-            owner = SteamUser.GetSteamID().m_SteamID;
+            owner = account;
             if (!command.Confirm) { state = "preview"; return; }
             // Persist before contacting Steam: an uncertain outcome must never create a duplicate on retry.
             manifest.MarkCreationPending(Id);
@@ -102,7 +103,7 @@ internal class WorkshopControls : IDisposable
                     throw new InvalidOperationException($"Steam creation failed or is uncertain: {result.m_eResult}, IO failure={ioFailure}. Check your Workshop listings before retrying.");
                 manifest.PinCreatedItem(result.m_nPublishedFileId.m_PublishedFileId);
                 agreementRequired = result.m_bUserNeedsToAcceptWorkshopLegalAgreement;
-                if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != owner)
+                if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != account)
                     throw new InvalidOperationException("Steam account changed after creation. The new URL is saved; nothing uploaded.");
                 var dependencies = command.Dependencies.Distinct().ToArray();
                 dependenciesRemaining = dependencies.Length;
@@ -146,8 +147,7 @@ internal class WorkshopControls : IDisposable
                 owner = item.m_ulSteamIDOwner;
                 if (item.m_eFileType != EWorkshopFileType.k_EWorkshopFileTypeFirst || item.m_bBanned)
                     throw new InvalidOperationException("URL does not identify an updateable Sea Power Workshop item.");
-                manifest.ValidateTarget(item.m_nPublishedFileId.m_PublishedFileId, item.m_nConsumerAppID.m_AppId,
-                    owner, SteamUser.GetSteamID().m_SteamID, remoteTitle);
+                manifest.ValidateTarget(item.m_nPublishedFileId.m_PublishedFileId, item.m_nConsumerAppID.m_AppId, remoteTitle);
                 if (!command.Confirm) { state = "preview"; return; }
                 Submit();
             }
@@ -158,7 +158,7 @@ internal class WorkshopControls : IDisposable
         private void Submit()
         {
             ValidateLocal();
-            if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != owner)
+            if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != account)
                 throw new InvalidOperationException("Steam account changed during verification; nothing uploaded.");
             string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
             update = SteamUGC.StartItemUpdate(new AppId_t(WorkshopManifest.AppId), new PublishedFileId_t(manifest.ItemId));

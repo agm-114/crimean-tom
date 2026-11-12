@@ -186,10 +186,10 @@ launch the game or ask for Steam credentials. Build both CLI and bridge, deploy
 the bridge, then restart the game when ready to use it.
 
 Before submission, the bridge requests fresh Steam item details and checks the
-exact item ID, Sea Power app ID, signed-in owner and expected title. Banned items
-and collections are rejected. It rechecks local identity and the Steam account
-before submitting. URL/title mismatches require correcting the metadata, not
-selecting another target automatically.
+exact item ID, Sea Power app ID and expected title. Banned items and collections
+are rejected. It rechecks local identity and the signed-in account before
+submitting. Steam determines whether that account can update the item. Correct
+the package metadata if the URL or title does not match.
 
 The upload replaces the item's content with the entire packaged directory,
 updates `thumbnail.jpg` if present and at most 1,000,000 bytes, and sends native
