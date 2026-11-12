@@ -9,19 +9,16 @@ public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        if (!AmphibiousCatalog.Load()) return;
         var harmony = new Harmony("crimean-tom.amphibs");
         try
         {
+            AmphibsSettings.Register(harmony);
             harmony.PatchAll(typeof(Plugin).Assembly);
             AmphibiousVariants.RegisterLoadedVariants();
-            if (AmphibiousCatalog.ShowTuningPanel)
-            {
-                var host = new GameObject("Amphibs tuning");
-                UnityEngine.Object.DontDestroyOnLoad(host);
-                host.AddComponent<WaterEffectsPanel>();
-            }
-            Debug.Log($"[Amphibs] Loaded {AmphibiousCatalog.Profiles.Count} amphibious profiles.");
+            var host = new GameObject("Amphibs tuning");
+            UnityEngine.Object.DontDestroyOnLoad(host);
+            host.AddComponent<WaterEffectsPanel>();
+            Debug.Log("[Amphibs] Loaded amphibious movement and water effects.");
         }
         catch (Exception error)
         {

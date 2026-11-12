@@ -8,10 +8,9 @@ are outside this scan.
 
 ## Variant profiles
 
-`amphibious-variants.ini` reserves separate IDs and points at original units.
-The mod reads Candidate profiles at startup and registers separate counterparts
-with the original models, weapons, sensors and national liveries. Conditional
-profiles remain excluded. Build output and deployment include this INI.
+The seven Candidate units have INI extensions in `src/Amphibs/unit_extensions/`.
+Sea Power merges each extension into the stock unit with `#!extend`. Amphibs
+reads the merged `[Amphibs]` section when the unit spawns.
 
 | Source ID | Decision | Notes |
 | --- | --- | --- |

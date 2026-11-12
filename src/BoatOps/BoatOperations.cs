@@ -31,20 +31,20 @@ internal static class BoatOperations
     internal static string Launch(ObjectBase ship, CraftDefinition craft, int count)
     {
         var inventory = Inventory(ship);
-        if (!Singleton<UnitMetadataProvider>.Instance.UnitData.ContainsKey((craft.Folder, craft.Reference)))
+        if (craft.AvailableUnit is not { } unit)
             return "Craft unavailable. Amphibious vehicles require the Amphibs mod.";
         if (Math.Abs(ship._velocityInKnots) > 5) return "Slow the ship to 5 knots or less to launch.";
         int launched = 0;
         for (int i = 0; i < count && inventory.Count(craft) > 0; i++)
         {
-            GeoPosition? position = LaunchPosition(ship, craft);
+            GeoPosition? position = LaunchPosition(ship, unit._length);
             if (position == null) return $"Launched {launched}. No clear water astern.";
             try
             {
                 bool seals = craft.Reference == "all_assault_raft";
                 var manager = Singleton<ObjectsManager>.Instance;
                 ObjectBase boat = craft.Folder == "land_units"
-                    ? manager.createLandUnit("Random", "", craft.Reference, Units.Count + 1,
+                    ? manager.createLandUnit("Random", "", unit._objectIniName, Units.Count + 1,
                         Singleton<SceneCreator>.Instance.GeoCenterPosition, position.Value,
                         1, new Vector3(0, ship.transform.eulerAngles.y + 180, 0), ship._taskforce, nationOverride: ship.Nation.Value)
                     : manager.createShip(seals ? "Variant1" : "Random", seals ? "Commandos" : "", craft.Reference,
@@ -66,9 +66,8 @@ internal static class BoatOperations
         return launched == 0 ? "Ready craft before launching." : $"Launched {launched}.";
     }
 
-    private static GeoPosition? LaunchPosition(ObjectBase ship, CraftDefinition craft)
+    private static GeoPosition? LaunchPosition(ObjectBase ship, float craftLength)
     {
-        float craftLength = Singleton<UnitMetadataProvider>.Instance.UnitData[(craft.Folder, craft.Reference)].Item2._length;
         // Leave ten metres between hulls, directly along the parent's stern line.
         float distance = (ship._obp._length + craftLength) * 0.5f + 10;
         float angle = ship.transform.eulerAngles.y + 180;
@@ -165,11 +164,11 @@ internal static class BoatOperations
             inventory.LastUpdate = GameTime.missionSessionTime;
             foreach (var craft in inventory.Definition.Craft)
             {
-                if (!section.TryGetValue("BoatOps_" + craft.Reference, out string saved)) continue;
+                if (!craft.TryReadSavedValue(section, "BoatOps_", out string saved)) continue;
                 string[] values = saved.Split(',');
                 if (values.Length != 2 || !int.TryParse(values[0], out int aboard) || !int.TryParse(values[1], out int staged)) continue;
                 inventory.Aboard[craft.Key] = Math.Clamp(aboard, 0, craft.Count);
-                if (section.TryGetValue("BoatOpsPrep_" + craft.Reference, out string preparation))
+                if (craft.TryReadSavedValue(section, "BoatOpsPrep_", out string preparation))
                 {
                     foreach (string row in preparation.Split(';').Take(inventory.Aboard[craft.Key]))
                     {

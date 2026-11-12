@@ -1,6 +1,6 @@
 # Boat Ops
 
-Independent AnchorChain mod for Sea Power `0.9.0-261111`.
+Independent AnchorChain mod for Sea Power `0.9.1-261112`.
 Published as [[CT] Boat Ops](https://steamcommunity.com/sharedfiles/filedetails/?id=3817610390).
 Select a player-controlled Tarawa and open Boat Ops beside Flight Deck in
 Unit Status. The tab shows embarked craft, staging capacity and
@@ -20,7 +20,7 @@ when no deployed, controllable boats remain to recall.
 `boat-ops.ini` sits beside the DLL. Section names are ship catalogue references.
 `StorageCapacity` limits occupied space aboard; `StagingCapacity` limits space
 used by boats preparing or ready to launch. Both use abstract space units.
-Craft entries use `vessels/unit=count,space` or `land_units/amphibs_unit=count,space`.
+Craft entries use `vessels/unit=count,space` or `land_units/unit=count,space`.
 A count alone defaults to one space
 per craft. Counts range from 1 to 128, with no more than 128 craft in total.
 Each craft must fit the staging capacity, and the starting complement must fit

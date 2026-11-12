@@ -12,14 +12,16 @@
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
-    <None Update="amphibious-variants.ini" CopyToOutputDirectory="PreserveNewest" />
+    <ModData Include="amphibious-variants.ini;unit_extensions\*.ini" />
+    <None Update="@(ModData)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Import Project="..\SeaPower.SharedUi\SeaPower.SharedUi.props" />
+  <Import Project="..\SeaPower.SharedSettings\SeaPower.SharedSettings.props" />
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\amphibious-variants.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ModData)" DestinationFiles="@(ModData->'$(PluginDeployDirectory)\%(Identity)')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
   </Target>
 </Project>
