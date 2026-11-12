@@ -83,9 +83,9 @@ internal static partial class NativeUi
         return box;
     }
 
-    // Partial edits remain visible but never reach the model. Losing focus
-    // restores the last valid value instead of silently clamping an invalid edit.
-    internal static TextBox Number(double value, double minimum, double maximum, Action<double>? changed = null)
+    // Callers that validate the whole form can keep invalid text visible until it is corrected.
+    internal static TextBox Number(double value, double minimum, double maximum, Action<double>? changed = null,
+        Action<string?>? validation = null)
     {
         ValidateRange(value, minimum, maximum);
         var box = Entry(value.ToString(CultureInfo.CurrentCulture));
@@ -95,15 +95,18 @@ internal static partial class NativeUi
             if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double number)
                 || double.IsNaN(number) || number < minimum || number > maximum)
             {
-                box.ToolTip = $"Enter a number from {minimum} to {maximum}.";
+                string error = $"Enter a number from {minimum} to {maximum}.";
+                box.ToolTip = error;
+                validation?.Invoke(error);
                 return;
             }
             box.ToolTip = null;
+            validation?.Invoke(null);
             if (accepted == number) return;
             accepted = number;
             changed?.Invoke(number);
         };
-        box.LostFocus += (_, _) => box.Text = accepted.ToString(CultureInfo.CurrentCulture);
+        if (validation == null) box.LostFocus += (_, _) => box.Text = accepted.ToString(CultureInfo.CurrentCulture);
         return box;
     }
 
