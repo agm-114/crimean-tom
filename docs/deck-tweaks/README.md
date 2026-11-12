@@ -19,9 +19,8 @@ aircraft. One assigned crew works on one aircraft at a time, in this order:
 
 1. Refuel.
 2. Load built-in guns, chaff and flares.
-3. Remove stores incompatible with the selected loadout, including excess quantities.
-4. Load weapons shared by more of the aircraft's date-appropriate loadouts first.
-5. Load the more specialized weapons last.
+3. Fill weapon stations that are known to be free. Load weapons shared by more of the aircraft's date-appropriate loadouts first.
+4. Remove excess or incompatible stores as needed, then fill newly available stations before unloading the next type of store.
 
 Changing loadouts keeps fuel, common stores and fractional loading or unloading
 progress. Incompatible stores remain aboard until crews remove them; removal
@@ -29,11 +28,23 @@ defaults to 1.1 times mounting time. Both loadouts must fit the ship's ammunitio
 incompatible stores are still mounted. Those stores return to stock as unloading
 finishes. Native code reserves the complete requested loadout.
 
+**Abort** queues the batch to unload its mounted stores with any crews left
+over from normal preparation. The row stays visible until every aircraft is
+empty, then the aircraft return to the hangar with their remaining fuel.
+**Cancel Abort** resumes the selected loadout from the stores still aboard.
+The row hides Preparation, Launch and Prioritise while unloading.
+
 State shows counts by actual activity, such as `1x Refueling`, `1x Loading Mk 46`,
 `1x Unloading Mk 46`, `1x Awaiting Crew` and `1x Ready`.
 Info shows assigned crew and the estimated time until the batch is
 ready, assuming its current crew allocation. The game's flight-deck timing
 multiplier applies. Instant preparation settings complete all work immediately.
+
+With [UNREP](../unrep/README.md#aviation-fuel-and-deck-tweaks) installed and
+aviation fuel enabled, crews draw internal fuel from the ship as they load it.
+If the tank runs dry, affected aircraft wait and resume as stock arrives. This
+also applies to instant preparation. Recovery, abort and loadout changes keep
+fuel already aboard. Deck Tweaks works independently when UNREP is absent.
 
 Hover over a row's State cell or closed Loadout dropdown for each aircraft's fuel in kg and percentage,
 effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
@@ -54,12 +65,14 @@ tooltip opens. Hovering does not change preparation or reserve ammunition.
 Scope:
 
 - Progress belongs to individual aircraft within a batch or squadron's hangar
-  queue. Loadout swaps and cancellation preserve it. Aircraft are not bound to
-  the same serial number when respawned by the game.
+  queue. Loadout swaps and Cancel Abort preserve the current fuel and stores.
+  Aircraft are not bound to the same serial number when respawned by the game.
 - Mounted weapons remain reserved while an aircraft is aboard. Recovery does
   not also make those weapons available in the ship's ammunition pool.
 - Stores are tracked by ammunition reference and quantity, not individual pylons.
   Fractional quantities represent loading work, not launchable partial weapons.
+  Station layouts identify where a retained weapon could be mounted. If the
+  layout cannot rule out a conflict, crews clear the possible blocker first.
   External tanks have mounting time; their fuel is not modeled separately.
 - Recovery servicing duration, aircraft already airborne, AI preparation and scripted
   launches keep their native behavior. Normal player recovery captures fuel and
@@ -72,10 +85,18 @@ Scope:
 
 ## Timing configuration
 
-`rearm-times.ini` sits beside the deployed DLL. Aircraft and weapon tables contain
-explicit exceptions only. Missing rows use the defaults and are not generated,
-so these tables stay small.
-Edit it and restart the game to tune rates. Deployment preserves an existing file.
+Open **Options → Gameplay → Deck Tweaks** for the preparation rates and
+exception tables. **Use mod defaults** starts checked and follows the settings
+shipped with each update. Uncheck it to edit the settings, then select
+**Accept**. Custom settings are saved to `CrimeanTom/Settings/DeckTweaks.ini`
+under the game's local data directory. A previous `rearm-times.ini` seeds the
+custom values the first time you unlock the page.
+
+Expand an override table to edit its values. In custom mode you can search by
+in-game name or ID, choose an entry, enter a value, and select **Add**. Select
+**Remove** to return an entry to its normal rate. Mounting, removal and refueling
+rates apply when Deck Tweaks calculates a loadout's work.
+Work already calculated for a pending batch keeps its rates until recalculated.
 
 | Section | Values |
 | --- | --- |
@@ -125,11 +146,8 @@ For example, aircraft `1.25` × nation `0.8` leaves duration unchanged. Values a
 These modifiers do not change recovery servicing, taxiing, launch intervals or AI
 tasks. The stock instant setting completes preparation immediately.
 
-All configuration values must be positive and at most 86,400, except
-`MountSecondsPerKg` and `RefuelSecondsPerKg` may be zero to disable mass scaling.
-Removal may take longer than mounting. Invalid configuration logs an error and leaves new tasks
-on native timing. The generated table is rewritten in sorted order, so custom
-comments are not retained.
+All configuration values must be positive and at most 86,400.
+`MountSecondsPerKg` and `RefuelSecondsPerKg` can be zero to disable mass scaling.
 
 ## Code boundaries
 
@@ -164,8 +182,7 @@ dotnet build src/DeckTweaks/DeckTweaks.csproj
 ```
 
 Deployment copies `DeckTweaks.dll` and `_info.ini` into the game's
-`Sea Power_Data/StreamingAssets/DeckTweaks` directory, seeds
-`rearm-times.ini` when it is absent, and includes the Workshop `thumbnail.jpg`
+`Sea Power_Data/StreamingAssets/DeckTweaks` directory and includes the Workshop `thumbnail.jpg`
 once `scripts/create-mod-icons.ps1` has generated it. Override `SeaPowerDir`
 or `AnchorChainDll` when using another installation. Restart Sea Power after
 deploying an updated DLL. Verify native UI, inventory and save integration in

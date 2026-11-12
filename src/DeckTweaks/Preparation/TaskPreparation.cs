@@ -10,6 +10,8 @@ internal class TaskPreparation(PreparationBatch batch)
 {
     private static readonly ConditionalWeakTable<PendingLaunchTask, TaskPreparation> Tasks = new();
     private static bool unavailable;
+    private PreparationLoadout? abortReturnTarget;
+    private Func<double, double>? drawFuel;
     internal PreparationBatch Batch { get; } = batch;
     internal StoreReservation Reservation { get; private set; } = new();
     internal static TaskPreparation? Find(PendingLaunchTask task) => Tasks.TryGetValue(task, out var preparation) ? preparation : null;
@@ -18,9 +20,14 @@ internal class TaskPreparation(PreparationBatch batch)
     private static double WorkSpeed(PendingLaunchTask task)
     {
         FlightDeckTimingsMode mode = Singleton<OptionsManager>.Instance.FlightDeckTimingsMode;
-        return mode == FlightDeckTimingsMode.Cheater || !DM_TestTools._allowAircraftReadyUpTime ? double.PositiveInfinity
+        bool skipReadyUp = task._ltp._skipReadyUp && task._stateMachine.CurrentState is not AbortPreparation;
+        return mode == FlightDeckTimingsMode.Cheater || skipReadyUp || !DM_TestTools._allowAircraftReadyUpTime ? double.PositiveInfinity
             : Globals._multipliers[mode] / PreparationCatalog.OperationTimeMultiplier(task);
     }
+
+    internal static bool CompleteImmediately(PendingLaunchTask task) =>
+        (task._ltp._skipReadyUp || !DM_TestTools._allowAircraftReadyUpTime)
+        && double.IsPositiveInfinity(DeckFuel.Available(task._flightDeck));
 
     internal static PreparationLoadout? Plan(PendingLaunchTask task, Loadout loadout)
     {
@@ -36,7 +43,7 @@ internal class TaskPreparation(PreparationBatch batch)
 
     internal static TaskPreparation Attach(PendingLaunchTask task, PreparationBatch batch, StoreReservation? reservation = null)
     {
-        TaskPreparation preparation = new(batch) { Reservation = reservation ?? new() };
+        TaskPreparation preparation = new(batch) { Reservation = reservation ?? new(), drawFuel = DeckFuel.Attach(task) };
         Tasks.Remove(task);
         Tasks.Add(task, preparation);
         preparation.Sync(task);
@@ -50,9 +57,45 @@ internal class TaskPreparation(PreparationBatch batch)
         preparation.UpdateReservation(replacement);
     }
 
+    internal void BeginAbort(PendingLaunchTask task)
+    {
+        if (abortReturnTarget != null) return;
+        abortReturnTarget = Batch.Aircraft[0].Target;
+        Batch.Retarget(new(0, [], abortReturnTarget.FuelCapacity, refuel: false));
+        task._stateMachine.setState(new AbortPreparation(task, this));
+        Sync(task);
+    }
+
+    internal void CancelAbort(PendingLaunchTask task)
+    {
+        if (abortReturnTarget is not { } target) return;
+        abortReturnTarget = null;
+        Batch.Retarget(target);
+        task._stateMachine.SetStateByName(task.AssignedDeckSpots >= task.LaunchCount
+            ? nameof(HandleAwaitGroundCrewTask) : nameof(HandleAwaitDeckSpaceTask));
+        Sync(task);
+    }
+
+    internal void UpdateAbort(PendingLaunchTask task)
+    {
+        double speed = WorkSpeed(task);
+        if (double.IsPositiveInfinity(speed)) Batch.Complete();
+        else Batch.Advance(GameTime.deltaTime * speed, task.AssignedGroundCrew);
+        if (Batch.ReadyCount == Batch.Aircraft.Count)
+        {
+            task._flightDeck.abortLaunchTask(task._uid, delayed: true);
+            return;
+        }
+        UpdateReservation(task);
+        Sync(task);
+        task.Info = task.AssignedGroundCrew == 0 ? "Abort queued (awaiting crew)"
+            : $"{task.AssignedGroundCrew} crew, abort complete in {AircraftPreparation.Duration(Batch.EstimatedSeconds(task.AssignedGroundCrew) / speed)}";
+    }
+
     private void UpdateReservation(PendingLaunchTask task)
     {
-        StoreReservation next = StoreReservation.Excess(Batch, Batch.Aircraft[0].Target);
+        // The original loadout stays reserved so the task can resume without buying it again.
+        StoreReservation next = StoreReservation.Excess(Batch, abortReturnTarget ?? Batch.Aircraft[0].Target);
         Reservation.Replace(task._flightDeck, next);
         Reservation = next;
     }
@@ -65,18 +108,34 @@ internal class TaskPreparation(PreparationBatch batch)
 
     internal string Label(PendingLaunchTask task, string waiting)
     {
-        int crews = task._stateMachine.CurrentState is HandleReadyUpTask ? Math.Max(0, task.AssignedGroundCrew) : 0;
-        return string.Join("\n", Batch.Aircraft.Select(aircraft => aircraft.Ready ? "Ready"
+        int crews = ActiveCrews(task);
+        string complete = abortReturnTarget == null ? "Ready" : "Empty";
+        bool noFuel = DeckFuel.Available(task._flightDeck) <= 0;
+        return string.Join("\n", Batch.Aircraft.Select(aircraft => aircraft.Ready ? complete
+            : aircraft.NeedsFuel && noFuel ? "Awaiting aviation fuel"
             : crews-- > 0 ? aircraft.Activity(PreparationCatalog.WeaponName) : waiting).GroupBy(activity => activity)
             .Select(group => $"{group.Count()}x {group.Key}"));
     }
 
     internal IEnumerable<PreparationLine> Describe(PendingLaunchTask task)
     {
-        int crews = task._stateMachine.CurrentState is HandleReadyUpTask ? Math.Max(0, task.AssignedGroundCrew) : 0;
-        string waiting = task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask ? "Awaiting deck space" : "Awaiting crew";
-        return DescribeAircraft(Batch, WorkSpeed(task), crews, waiting);
+        string waiting = task._stateMachine.CurrentState switch
+        {
+            AbortPreparation => "Awaiting crew to unload",
+            HandleAwaitDeckSpaceTask => "Awaiting deck space",
+            _ => "Awaiting crew",
+        };
+        double stock = DeckFuel.Available(task._flightDeck);
+        double needed = Batch.Aircraft.Where(aircraft => aircraft.NeedsFuel)
+            .Sum(aircraft => (1 - aircraft.Fuel) * aircraft.Target.FuelCapacity);
+        if (needed > stock)
+            return new[] { new PreparationLine($"Aviation fuel: {stock:N0} kg available, {needed:N0} kg needed for this batch.") }
+                .Concat(DescribeAircraft(Batch, WorkSpeed(task), ActiveCrews(task), waiting));
+        return DescribeAircraft(Batch, WorkSpeed(task), ActiveCrews(task), waiting);
     }
+
+    private static int ActiveCrews(PendingLaunchTask task) =>
+        task._stateMachine.CurrentState is HandleReadyUpTask or AbortPreparation ? Math.Max(0, task.AssignedGroundCrew) : 0;
 
     internal IEnumerable<PreparationLine> DescribeSwap(PendingLaunchTask task, PreparationLoadout target)
     {
@@ -112,7 +171,7 @@ internal class TaskPreparation(PreparationBatch batch)
             || !__instance._flightDeck._baseObject.AcceptsOrdersFromPlayer) return;
         if (Plan(__instance, Selected(__instance)) is not { } target) return;
         PreparationBatch batch = new(__instance.LaunchCount, target);
-        if (__instance._ltp._skipReadyUp || !DM_TestTools._allowAircraftReadyUpTime) batch.Complete();
+        if (CompleteImmediately(__instance)) batch.Complete();
         Attach(__instance, batch);
     }
 
@@ -124,12 +183,13 @@ internal class TaskPreparation(PreparationBatch batch)
         double speed = WorkSpeed(task);
         task.UpdateAssignedGroundCrew();
         if (double.IsPositiveInfinity(speed))
-            preparation.Batch.Complete();
-        else preparation.Batch.Advance(GameTime.deltaTime * speed, Math.Max(0, task.AssignedGroundCrew));
+            preparation.Batch.Complete(preparation.drawFuel);
+        else preparation.Batch.Advance(GameTime.deltaTime * speed, Math.Max(0, task.AssignedGroundCrew), preparation.drawFuel);
         preparation.UpdateReservation(task);
         preparation.Sync(task);
         double seconds = preparation.Batch.EstimatedSeconds(task.AssignedGroundCrew) / speed;
-        task.Info = !double.IsFinite(seconds) ? "Awaiting crew"
+        task.Info = preparation.Batch.Aircraft.Any(aircraft => aircraft.NeedsFuel) && DeckFuel.Available(task._flightDeck) <= 0
+            ? "Awaiting aviation fuel" : !double.IsFinite(seconds) ? "Awaiting crew"
             : $"{task.AssignedGroundCrew} crew, batch ready in {(int)(seconds / 60)}:{(int)(seconds % 60):00}";
         return false;
     }

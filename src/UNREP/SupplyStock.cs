@@ -16,9 +16,12 @@ internal class SupplyStock(string key, string category, string name, string loca
     internal double Free => Math.Max(0, Capacity - Current);
     internal bool Whole => Unit == "items";
     internal bool CanChange => change != null;
+    internal bool IsFuelCargo { get; set; }
     private bool ShowWhenEmpty => showWhenEmpty;
-    internal bool Visible => Current > 0 || ShowWhenEmpty;
-    internal bool Transferable => change != null && double.IsFinite(Current)
+    internal Func<bool>? IsEnabled { get; set; }
+    internal bool Enabled => IsEnabled?.Invoke() ?? true;
+    internal bool Visible => Enabled && (Current > 0 || ShowWhenEmpty);
+    internal bool Transferable => Enabled && change != null && double.IsFinite(Current)
         && double.IsFinite(Capacity) && (usable?.Invoke() ?? true);
     public string Amount => double.IsNaN(Capacity) ? $"{Current:N0} {Unit}" : $"{Current:N0} / {Capacity:N0} {Unit}";
     public string Handling => change == null ? "Inventory only" : !Transferable ? "Unavailable" : "Transferable";
@@ -34,10 +37,13 @@ internal class SupplyStock(string key, string category, string name, string loca
     {
         if (bins.Length == 1) return bins[0];
         var first = bins[0];
+        var withdrawalOrder = bins.Any(bin => bin.IsFuelCargo)
+            ? bins.OrderByDescending(bin => bin.IsFuelCargo).ToArray() : bins;
         void Change(double amount)
         {
             double remaining = Math.Abs(amount);
-            foreach (var bin in bins.Where(bin => bin.Transferable))
+            var order = amount < 0 ? withdrawalOrder : bins;
+            foreach (var bin in order.Where(bin => bin.Transferable))
             {
                 double part = Math.Min(remaining, amount < 0 ? bin.Current : bin.Free);
                 if (first.Whole) part = Math.Floor(part);
@@ -53,6 +59,7 @@ internal class SupplyStock(string key, string category, string name, string loca
             first.CanChange ? Change : null, () => bins.Any(bin => bin.Transferable), bins.Any(bin => bin.ShowWhenEmpty))
         {
             Members = bins,
+            IsEnabled = () => bins.Any(bin => bin.Enabled),
             RatePerHour = bins.Any(bin => bin.RatePerHour != null) ? () => bins.Sum(bin => bin.RatePerHour?.Invoke() ?? 0) : null
         };
     }

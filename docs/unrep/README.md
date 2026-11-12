@@ -1,6 +1,6 @@
 # UNREP
 
-Independent AnchorChain mod for Sea Power `0.9.0-261111`.
+Independent AnchorChain mod for Sea Power `0.9.1-261112`.
 Flight-deck traffic and zone APIs vary between game assemblies. UNREP uses them
 when present. Builds without them use landing-point claims and blocking links,
 the existing 30 m conflict check, and a physical recovery-strip clearance check.
@@ -55,12 +55,13 @@ Locations format internal names such as `WeaponMagazineMK45_1` as
 - Aircraft rows show available squadron aircraft, pending launch batches and
   recovery servicing. Aircraft transfer by flying and recovering, not as cargo.
 - Replenishment cargo shows each native supply system's fuel, ammunition points
-  and accountable categories.
+  and accountable categories. Ships with a sourced `CargoFuelCapacityKg` get a
+  separate UNREP cargo tank when the game supplies no native cargo tank.
 - Fuel reserve, food, fresh water and spare parts use UNREP-owned inventories.
   These are configurable gameplay quantities, not historical manifests.
   Fuel, food and parts are consumed; fresh water is produced up to capacity.
   Empty stores do not stop propulsion or damage control. Aircraft refuelling
-  and native replenishment cargo remain separate from these reserves.
+  draws from a separate aviation fuel inventory when enabled.
 
 Use / production shows signed kg/hour for these reserves. Negative rates consume
 stock; positive rates produce it. Rates update with engine orders and actual DC
@@ -70,11 +71,29 @@ Consumption applies to living, operational surface ships regardless of whether
 their UNREP/VERTREP tabs are enabled. Minimum retained stocks limit transfers,
 not onboard consumption.
 
-Fuel use follows the demanded engine setting, including during acceleration:
-full reverse uses 100% of the full-ahead rate, full ahead 100%, and flank 200%.
-Custom speed orders interpolate from stop to full and from full to flank using
-the ship's native telegraph speeds; reverse orders interpolate against full
-reverse speed. All stop consumes no fuel reserve.
+In **Gameplay → UNREP**, uncheck **Use mod defaults** to edit the fuel percentages,
+reserve formulas, or switches for fresh water, food, spare parts and aviation
+fuel. Optional reserves are enabled by default. Disabling one removes it from
+inventory and transfer plans and stops its use or production.
+Existing stock and minimums are preserved for re-enabling it.
+An airborne load of a disabled reserve returns to its supplier.
+
+Fuel use follows the demanded engine setting, including during acceleration.
+Percentages apply to the ship's fuel burn at Ahead Standard.
+
+| Order | Default fuel use |
+| --- | ---: |
+| Ahead Flank | 300% |
+| Ahead Full | 200% |
+| Ahead Standard | 100% |
+| Ahead 2/3 | 60% |
+| Ahead 1/3 | 30% |
+| All Stop | 10% |
+| Back Full | 150% |
+
+Custom speeds interpolate between the ship's native telegraph speeds and
+their configured percentages. Speeds beyond the ladder use the nearest endpoint.
+The percentage fields accept 0–1,000%.
 
 Food and spare parts have a steady hourly draw. Each DC team actually repairing
 leaks, fires, flooding, structure or systems adds extra parts use. Teams merely
@@ -83,12 +102,13 @@ their usual rate even after spare parts reach zero.
 
 The `[Consumption]` section of `supplies.ini` sets each rate as
 `BaseKgPerHour + KgPerTonnePerHour × displacement`. Defaults per tonne/hour are
-0.25 kg fuel at full, 0.002 kg food, 0.001 kg parts and 0.02 kg water production.
-Each active DC team adds 250 kg/hour of parts use. These are gameplay defaults.
-The prefixes are `FuelFull`, `FoodUse`, `SparePartsUse`, `WaterProduction` and
-`SparePartsPerDCTeam`. Override either coefficient under a ship catalogue section,
-or set both to zero to disable that rate. Missing settings use these defaults,
-including in existing installed INI files. Changes take effect after restarting.
+0.65 kg fuel at Ahead Standard, 0.006 kg food, 0.001 kg parts and 0.04 kg water production.
+Each active DC team adds 100 kg/hour of parts use. These are gameplay defaults.
+The prefixes are `FuelStandard`, `FoodUse`, `SparePartsUse`, `WaterProduction` and
+`SparePartsPerDCTeam`. Existing `FuelFull` keys remain aliases for the base
+rate, which now represents Ahead Standard. Gameplay changes to amounts,
+capacities and base rates apply when the next mission loads. Engine percentages
+and optional reserve switches apply when you accept the settings.
 All stock changes use simulation time and clamp between zero and capacity.
 
 Ships can participate in UNREP and VERTREP simultaneously by default. To require
@@ -105,14 +125,88 @@ Deployment includes `YamlDotNet.dll` and preserves existing `supplies.yml` setti
 
 `supplies.ini` defines initial quantities and capacities as
 `BaseKg + KgPerTonne × displacement in tonnes`, using native vessel displacement.
-For example, `FoodBaseKg=100` and `FoodKgPerTonne=2` give a 5,000-tonne ship
-10,100 kg of food. `FoodCapacityBaseKg` and `FoodCapacityKgPerTonne` determine
+For example, `FoodBaseKg=100` and `FoodKgPerTonne=3` give a 5,000-tonne ship
+15,100 kg of food. `FoodCapacityBaseKg` and `FoodCapacityKgPerTonne` determine
 its storage limit independently. Fuel, water and spare parts use the same scheme.
-`[Defaults]` applies to every ship; a catalogue section such as `[usn_lha_tarawa]`
-overrides either term independently. Invalid displacement uses the base alone;
-results are capped at one billion kg and starting stock cannot exceed capacity.
-Native stores are read from the game, not scaled by displacement.
-Deployment preserves an installed configuration. Restart after editing it.
+`[Defaults]` supplies the initial stock and capacity formulas. Invalid displacement
+uses the base alone. Starting stock is clamped to capacity, including when loading
+a save. Native stores remain separate from the calculated reserves.
+
+### Per-unit tuning
+
+Name the vessel extension after its stock INI, using `<vessel>_unrep.ini`.
+Add an `[UNREP]` section and choose a prefix such as `Food`,
+`FoodCapacity`, or `FoodUse` and set any of its coefficients independently.
+For quantities, use `BaseKg` and `KgPerTonne`. For rates, use `BaseKgPerHour` and
+`KgPerTonnePerHour`. A `Multiplier` multiplies the resulting formula. An
+absolute `Kg` or `KgPerHour` replaces the formula and multiplier.
+
+```ini
+#!extend vessels/usn_lha_tarawa.ini
+[UNREP]
+FoodCapacityMultiplier=2
+FoodUseMultiplier=2
+WaterCapacityKg=85000
+```
+
+For each key, local ship sections in `supplies.ini` take precedence over native
+extensions, which take precedence over the Gameplay defaults. A local multiplier
+of 1 cancels a multiplier supplied by an extension. Values are nonnegative.
+Base and absolute values accept up to 1 billion kg or kg/hour, per-tonne
+coefficients accept up to 1 million, and multipliers accept 0–100. Formula
+outputs are capped at 1 billion kg or kg/hour before the fuel telegraph factor.
+
+Fuel accepts the same overrides, including `FuelCapacityKg`,
+`FuelCapacityMultiplier`, `FuelStandardKgPerHour` and `FuelStandardMultiplier`.
+The bundled extensions tune provisions and spares using the
+[installed vessel survey](vessel-survey.md), which also lists the sourced cargo
+tanks and bunker overrides. `CargoFuelCapacityKg` is a per-unit value. That tank
+starts full, persists in saves, and supplies other ships alongside. The donor
+sends cargo before drawing from its own propulsion reserve, and the receiver
+fills its propulsion reserve first. Both use the same fuel retention floor.
+Deployment preserves an installed `supplies.ini`. Restart after editing INI files.
+
+### Aviation fuel and Deck Tweaks
+
+Aviation fuel is its own saved stock, with a separate minimum retained quantity
+and alongside transfer row. It is transferable between ships with aviation
+tanks. Player-controlled surface ships use it for aircraft internal fuel.
+Flight decks with aircraft use the ship-type estimates below or the general
+formula of 4 kg per tonne initially and 8 kg per tonne of capacity.
+Per-unit `AviationFuelKg` and `AviationFuelCapacityKg` can override those
+amounts. An explicit capacity also adds tanks to oilers without embarked
+aircraft. Sourced loads are listed in the [vessel survey](vessel-survey.md).
+
+#### Ship-type estimates
+
+With **Estimate reserves by ship type** enabled, these capacity estimates apply
+to ships of at least 1,000 tonnes. Starting stock uses half the estimated
+capacity. Carrier roles are `Carrier` and `CVS` in the vessel INI.
+
+| Stock and ship type | Base (kg) | Per tonne (kg) |
+| --- | ---: | ---: |
+| Aviation fuel, carriers of at least 50,000 tonnes | 200,000 | 85 |
+| Aviation fuel, smaller carriers | 25,000 | 28 |
+| Aviation fuel, other landing ships with aircraft | 20,000 | 5 |
+| Propulsion fuel, conventional carriers of at least 50,000 tonnes | 250,000 | 90 |
+| Fresh water, surface ships | 15,000 | 10 |
+
+Editing either global coefficient for a stock or capacity uses that global
+formula for the corresponding quantity. Per-unit overrides and configured
+multipliers still apply. The estimates are rounded gameplay approximations
+based on the capacities in the [vessel survey](vessel-survey.md).
+
+- **UNREP alone** keeps native preparation timing. It charges one full internal
+  tank when each player aircraft is created for launch. A launch waits if there
+  is too little fuel for the next aircraft.
+- **UNREP and Deck Tweaks** charge only the fuel added during preparation.
+  Recovered or aborted aircraft retain fuel already aboard. A partially fueled
+  batch resumes when fuel arrives. Instant preparation still needs stock.
+- **Deck Tweaks alone** continues its normal timed preparation with no shared
+  ship inventory.
+
+Land airfields, AI and scripted flight tasks, external drop-tank fuel and
+helicopter VERTREP are outside aviation-fuel accounting.
 
 ## Transfers
 
@@ -267,7 +361,7 @@ movement orders without the UNREP job that owns them.
 dotnet build src/UNREP/UNREP.csproj
 ```
 
-Builds deploy `UNREP.dll`, `_info.ini` and the generated thumbnail to
+Builds deploy `UNREP.dll`, `_info.ini`, the vessel extensions and the generated thumbnail to
 `Sea Power_Data/StreamingAssets/UNREP`. Enable UNREP in Mod Manager and restart
 the game. For compilation without deployment, use `-p:DeployToGame=false`.
 

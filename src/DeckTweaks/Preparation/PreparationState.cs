@@ -11,11 +11,16 @@ internal class StoreRequirement(string reference, double amount, double mountSec
     internal int Priority { get; } = priority;
 }
 
-internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequirement> stores, double fuelCapacity = 0)
+internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequirement> stores, double fuelCapacity = 0,
+    StoreStations? stations = null, bool refuel = true)
 {
     internal double RefuelSeconds { get; } = refuelSeconds;
     internal IReadOnlyList<StoreRequirement> Stores { get; } = stores;
     internal double FuelCapacity { get; } = fuelCapacity;
+    internal StoreStations? Stations { get; } = stations;
+    internal bool Refuel { get; } = refuel;
+    internal double Amount(string reference) =>
+        Stores.FirstOrDefault(store => store.Reference.Equals(reference, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
 }
 
 internal readonly struct PreparationLine(string text, string? perUnit = null, string? completion = null)
@@ -34,6 +39,7 @@ internal class AircraftPreparation
     internal PreparationLoadout Target { get; private set; }
     internal double RemainingWork => Operations().Sum(operation => operation.Amount * operation.Seconds);
     internal bool Ready => RemainingWork <= 0;
+    internal bool NeedsFuel => Target.Refuel && Fuel < 1;
     internal string Activity(Func<string, string> weaponName)
     {
         var operation = Operations().FirstOrDefault();
@@ -52,9 +58,9 @@ internal class AircraftPreparation
         }
         double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
         double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
-        yield return new(Ready ? "Ready" : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)");
+        yield return new(Ready ? (Target.Refuel ? "Ready" : "Empty") : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)");
         yield return new($"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%");
-        if (Fuel < 1)
+        if (Target.Refuel && Fuel < 1)
         {
             if (double.IsPositiveInfinity(workSpeed))
                 yield return new("Refueling", completion: "Refueled instantly");
@@ -77,7 +83,7 @@ internal class AircraftPreparation
         }
         foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            double wanted = Target.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+            double wanted = Target.Amount(mounted.Key);
             if (mounted.Value <= wanted) continue;
             storesMatch = false;
             yield return new($"{weaponName(mounted.Key)}: {Math.Ceiling(mounted.Value):0}/{wanted:0}",
@@ -111,55 +117,91 @@ internal class AircraftPreparation
         return preview;
     }
 
-    private IEnumerable<(string Reference, double Amount, double Seconds, string Activity)> Operations()
+    private IEnumerable<(string Reference, double Amount, double Seconds, string Activity, double FinalAmount)> Operations()
     {
-        if (Fuel < 1) yield return ("", 1 - Fuel, Target.RefuelSeconds, "Refueling");
+        if (Target.Refuel && Fuel < 1) yield return ("", 1 - Fuel, Target.RefuelSeconds, "Refueling", 1);
         foreach (StoreRequirement store in Target.Stores.Where(store => store.Priority == 0))
         {
             double missing = store.Amount - Mounted.GetValueOrDefault(store.Reference);
-            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading");
+            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading", store.Amount);
         }
-        foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+
+        var removals = Mounted.Select(pair => (Reference: pair.Key, Mounted: pair.Value, Wanted: Target.Amount(pair.Key)))
+            .Where(store => store.Mounted > store.Wanted).OrderBy(store => store.Reference, StringComparer.Ordinal).ToArray();
+        var loads = Target.Stores.Where(store => store.Priority != 0 && Mounted.GetValueOrDefault(store.Reference) < store.Amount)
+            .OrderBy(store => store.Priority).ThenBy(store => store.Reference, StringComparer.Ordinal)
+            .Select(store => (Store: store, Mounted: Mounted.GetValueOrDefault(store.Reference))).ToArray();
+        for (int removed = 0; removed <= removals.Length; removed++)
         {
-            double wanted = Target.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
-            if (mounted.Value > wanted)
-                yield return (mounted.Key, mounted.Value - wanted, knownStores[mounted.Key].RemoveSeconds, "Unloading");
-        }
-        foreach (StoreRequirement store in Target.Stores.Where(store => store.Priority != 0)
-            .OrderBy(store => store.Priority).ThenBy(store => store.Reference, StringComparer.Ordinal))
-        {
-            double missing = store.Amount - Mounted.GetValueOrDefault(store.Reference);
-            if (missing > 0) yield return (store.Reference, missing, store.MountSeconds, "Loading");
+            // Fill clear stations first and check for newly freed space after each removal.
+            bool allClear = removed == removals.Length;
+            if (loads.Length > 0 && (allClear || Target.Stations != null))
+            {
+                var blocked = allClear ? null : Target.Stations!.BlockedBy(removals.Skip(removed).Select(store => store.Reference));
+                for (int index = 0; index < loads.Length; index++)
+                {
+                    var (store, mounted) = loads[index];
+                    double limit = allClear ? store.Amount : blocked == null ? 0 : Target.Stations!.FreeCapacity(store.Reference, blocked);
+                    limit = Math.Min(store.Amount, limit);
+                    if (limit <= mounted) continue;
+                    yield return (store.Reference, limit - mounted, store.MountSeconds, "Loading", limit);
+                    loads[index].Mounted = limit;
+                }
+            }
+            if (allClear) break;
+            var removal = removals[removed];
+            yield return (removal.Reference, removal.Mounted - removal.Wanted, knownStores[removal.Reference].RemoveSeconds,
+                "Unloading", removal.Wanted);
         }
     }
 
-    internal void Advance(double seconds)
+    internal bool Advance(double seconds, Func<double, double>? drawFuel = null)
     {
+        bool progressed = false;
         while (seconds > 0)
         {
             var operation = Operations().FirstOrDefault();
             if (operation.Amount <= 0) break;
             double work = Math.Min(seconds, operation.Amount * operation.Seconds);
             double amount = work / operation.Seconds;
-            if (operation.Reference == "") Fuel = work >= operation.Amount * operation.Seconds ? 1 : Fuel + amount;
+            if (operation.Reference == "")
+            {
+                double before = Fuel;
+                double target = work >= operation.Amount * operation.Seconds ? 1 : Fuel + amount;
+                if (!RefuelTo(target, drawFuel)) return progressed || Fuel > before;
+            }
             else
             {
                 double before = Mounted.GetValueOrDefault(operation.Reference);
                 double after = before + (operation.Activity == "Unloading" ? -amount : amount);
-                if (work >= operation.Amount * operation.Seconds)
-                    after = Target.Stores.FirstOrDefault(store => store.Reference.Equals(operation.Reference, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+                if (work >= operation.Amount * operation.Seconds) after = operation.FinalAmount;
                 if (after <= 0) Mounted.Remove(operation.Reference);
                 else Mounted[operation.Reference] = after;
             }
+            progressed = true;
             seconds -= work;
         }
+        return progressed;
     }
 
-    internal void Complete()
+    internal void Complete(Func<double, double>? drawFuel = null)
     {
-        Fuel = 1;
+        if (NeedsFuel && !RefuelTo(1, drawFuel)) return;
         Mounted.Clear();
         foreach (StoreRequirement store in Target.Stores) Mounted[store.Reference] = store.Amount;
+    }
+
+    private bool RefuelTo(double target, Func<double, double>? drawFuel)
+    {
+        double needed = (target - Fuel) * Target.FuelCapacity;
+        double delivered = needed > 0 ? drawFuel?.Invoke(needed) ?? needed : 0;
+        if (delivered < needed)
+        {
+            Fuel = Math.Min(target, Fuel + delivered / Target.FuelCapacity);
+            return false;
+        }
+        Fuel = target;
+        return true;
     }
 
     internal XElement Save() => new("Aircraft", new XAttribute("Fuel", Fuel), Mounted.Select(pair =>
@@ -193,7 +235,7 @@ internal class PreparationBatch(int count, PreparationLoadout target)
     internal double RemainingWork => Aircraft.Sum(aircraft => aircraft.RemainingWork);
     internal int ReadyCount => Aircraft.Count(aircraft => aircraft.Ready);
     internal void Retarget(PreparationLoadout loadout) => Aircraft.ForEach(aircraft => aircraft.Retarget(loadout));
-    internal void Complete() => Aircraft.ForEach(aircraft => aircraft.Complete());
+    internal void Complete(Func<double, double>? drawFuel = null) => Aircraft.ForEach(aircraft => aircraft.Complete(drawFuel));
 
     internal PreparationBatch Preview(PreparationLoadout target)
     {
@@ -211,14 +253,16 @@ internal class PreparationBatch(int count, PreparationLoadout target)
         return availability.Max();
     }
 
-    internal void Advance(double seconds, int crews)
+    internal void Advance(double seconds, int crews, Func<double, double>? drawFuel = null)
     {
         while (seconds > 0 && crews > 0)
         {
             AircraftPreparation[] working = Aircraft.Where(aircraft => !aircraft.Ready).Take(crews).ToArray();
             if (working.Length == 0) break;
             double step = Math.Min(seconds, working.Min(aircraft => aircraft.RemainingWork));
-            foreach (AircraftPreparation aircraft in working) aircraft.Advance(step);
+            bool progressed = false;
+            foreach (AircraftPreparation aircraft in working) progressed |= aircraft.Advance(step, drawFuel);
+            if (!progressed) break;
             seconds -= step;
         }
     }

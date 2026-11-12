@@ -30,6 +30,11 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="rearm-times.ini" LogicalName="rearm-times.ini" />
+  </ItemGroup>
+  <Import Project="..\SeaPower.SharedUi\SeaPower.SharedUi.props" />
+  <Import Project="..\SeaPower.SharedSettings\SeaPower.SharedSettings.props" />
 
   <Target Name="EnsureAnchorChainReference" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(AnchorChainDll)')"
@@ -45,8 +50,6 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\rearm-times.ini" DestinationFolder="$(PluginDeployDirectory)"
-          Condition="!Exists('$(PluginDeployDirectory)\rearm-times.ini')" />
     <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />
   </Target>
 </Project>

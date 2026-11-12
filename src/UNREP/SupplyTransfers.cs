@@ -41,6 +41,7 @@ internal class SupplyTransfer(Vessel source, Vessel target)
     public string State { get; private set; } = "Ready";
     internal void SyncSupplies()
     {
+        Supplies.RemoveAll(plan => !plan.Stock.Enabled);
         var keys = SupplyInventory.Read(Target).Where(stock => stock.CanChange).Select(stock => stock.Key).ToHashSet();
         var stocks = SupplyInventory.Read(Source).Where(stock => stock.CanChange && keys.Contains(stock.Key))
             .GroupBy(stock => stock.Key).Select(group => SupplyStock.Stack(group.ToArray()));
