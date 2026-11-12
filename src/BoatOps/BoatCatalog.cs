@@ -1,3 +1,4 @@
+using HarmonyLib;
 using SeaPower;
 using UnityEngine;
 
@@ -5,11 +6,35 @@ namespace BoatOps;
 
 internal class CraftDefinition(string folder, string reference, int count, int space)
 {
+    private static Func<string, bool>? supportsStockUnit;
     internal string Folder { get; } = folder;
-    internal string Reference { get; } = reference;
+    internal string Reference { get; } = folder == "land_units" && reference.StartsWith("amphibs_", StringComparison.Ordinal)
+        ? reference.Substring("amphibs_".Length) : reference;
     internal int Count { get; } = count;
     internal int Space { get; } = space;
     internal string Key => $"{Folder}/{Reference}";
+    internal SimpleObjectParameters? AvailableUnit
+    {
+        get
+        {
+            var units = Singleton<UnitMetadataProvider>.Instance.UnitData;
+            if (!units.TryGetValue((Folder, Reference), out var entry)) return null;
+            if (Folder != "land_units") return entry.Item2;
+            if (Utils.openIniFile("/land_units", $"/{Reference}.ini", logErrors: false)?.doesSectionExist("Amphibs") != true)
+                return null;
+
+            // Amphibs is optional. Ask it whether swimming is enabled for this stock craft.
+            if (supportsStockUnit == null && AccessTools.Method("Amphibs.AmphibiousCatalog:SupportsStockUnit") is { } method)
+                supportsStockUnit = (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), method);
+            if (supportsStockUnit?.Invoke(Reference) == false)
+                return units.TryGetValue((Folder, "amphibs_" + Reference), out var variant) ? variant.Item2 : null;
+            return entry.Item2;
+        }
+    }
+
+    internal bool TryReadSavedValue(Dictionary<string, string> section, string prefix, out string value) =>
+        section.TryGetValue(prefix + Reference, out value)
+        || Folder == "land_units" && section.TryGetValue(prefix + "amphibs_" + Reference, out value);
 }
 
 internal class DeckDefinition(int capacity, int storageCapacity, List<CraftDefinition> craft, int preparationSeconds, int crews)
@@ -47,15 +72,15 @@ internal static class BoatCatalog
                     string[] parts = entry.Key.Split('/');
                     string[] values = entry.Value.Split(',');
                     int space = 1;
-                    if (parts.Length != 2 || !(parts[0] == "vessels"
-                        || parts[0] == "land_units" && parts[1].StartsWith("amphibs_", StringComparison.Ordinal))
+                    if (parts.Length != 2 || parts[0] is not ("vessels" or "land_units")
                         || string.IsNullOrWhiteSpace(parts[1]) || parts[1].Contains("\\") || parts[1].Contains("..")
                         || values.Length is < 1 or > 2 || !int.TryParse(values[0], out int count) || count is < 1 or > 128
                         || values.Length == 2 && !int.TryParse(values[1], out space) || space < 1 || space > capacity)
                         throw new FormatException($"Invalid craft entry {section}/{entry.Key}");
                     craft.Add(new(parts[0], parts[1], count, space));
                 }
-                if (craft.Count == 0 || craft.Sum(item => item.Count) > 128)
+                if (craft.Count == 0 || craft.Sum(item => item.Count) > 128
+                    || craft.Select(item => item.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count() != craft.Count)
                     throw new FormatException($"Invalid complement in {section}");
                 int occupied = craft.Sum(item => item.Count * item.Space);
                 int storage = ini.readValue(section, "StorageCapacity", occupied);

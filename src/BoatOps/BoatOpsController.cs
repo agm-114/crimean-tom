@@ -265,9 +265,9 @@ public class BoatOpsController : MonoBehaviour
         selected = null;
     }
     private void OnDestroy() => Detach();
-    private static bool Exists(CraftDefinition craft) => Singleton<UnitMetadataProvider>.Instance.UnitData.ContainsKey((craft.Folder, craft.Reference));
-    private static string Name(CraftDefinition craft) => Singleton<UnitMetadataProvider>.Instance.UnitData.TryGetValue((craft.Folder, craft.Reference), out var data)
-        ? $"{data.Item2.DefaultName} ({craft.Space} SUs)" : craft.Reference + " (not installed)";
+    private static bool Exists(CraftDefinition craft) => craft.AvailableUnit != null;
+    private static string Name(CraftDefinition craft) => craft.AvailableUnit is { } unit
+        ? $"{unit.DefaultName} ({craft.Space} SUs)" : craft.Reference + " (unavailable)";
 
 }
 

@@ -2,6 +2,7 @@ using Noesis;
 using SeaPower;
 using SeapowerUI;
 using UnityEngine;
+using SeaPower.SharedSettings;
 using static SeaPower.SharedUi.NativeUi;
 
 namespace Amphibs;
@@ -11,6 +12,7 @@ public class WaterEffectsPanel : MonoBehaviour
     private MainGameView? host;
     private SeapowerUI.Window? window;
     private AmphibiousProfile? current;
+    private SettingsValues? displayed;
     private float nextRefresh;
 
     private void Update()
@@ -18,11 +20,13 @@ public class WaterEffectsPanel : MonoBehaviour
         if (Time.realtimeSinceStartup < nextRefresh) return;
         nextRefresh = Time.realtimeSinceStartup + 0.3f;
         if (host != MainGameView.Instance) { Close(); host = MainGameView.Instance; current = null; }
+        if (!AmphibsSettings.ShowTuningPanel) { Close(); current = null; return; }
         var unit = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
         AmphibiousProfile? profile = unit && AmphibiousCatalog.TryGet(unit, out var found) ? found : null;
-        if (profile == current) return;
+        if (profile == current && displayed == AmphibsSettings.Settings.Current) return;
         Close();
         current = profile;
+        displayed = AmphibsSettings.Settings.Current;
         if (profile != null && host != null && host.IsVisible) Open(profile);
     }
 
@@ -38,9 +42,12 @@ public class WaterEffectsPanel : MonoBehaviour
         {
             try
             {
-                WaterEffectSettings.Save(profile);
+                var settings = AmphibsSettings.Settings;
+                if (settings.UseDefaults) return;
+                settings.Apply(false, settings.Current);
+                displayed = settings.Current;
                 foreach (var setting in WaterEffectSettings.All) baseline[setting.Key] = profile.Value(setting.Key);
-                message.Text = "Saved to water-effects.ini. Builds preserve these overrides.";
+                message.Text = "Saved to local Amphibs settings.";
             }
             catch (Exception error) { message.Text = "Save failed: " + error.Message; }
         }, primary: true));

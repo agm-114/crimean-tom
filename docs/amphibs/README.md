@@ -1,12 +1,21 @@
 # Amphibs
 
-Independent AnchorChain mod for Sea Power `0.9.0-261111`.
-`src/Amphibs/amphibious-variants.ini` registers seven amphibious variants without
-replacing their stock ground units. They reuse the source models, equipment and
-national variants.
+Independent AnchorChain mod for Sea Power `0.9.1-261112`.
+The files in `src/Amphibs/unit_extensions/` use Sea Power's `#!extend` directive
+to define swimming behavior for seven stock ground units. In Gameplay → Amphibs,
+uncheck **Use mod defaults** to edit the two independent checkboxes under Default units.
+
+- **Extend existing units** is on by default. The seven stock units gain swimming behavior in existing missions.
+- **Create variants** is off by default. Enable it to add separate `amphibs_` units and load missions that reference those IDs.
+
+Apply your changes and restart Sea Power. Both forms use the same per-vehicle tuning.
+To enable swimming on another mobile ground unit, extend its definition with
+an `[Amphibs]` section containing `WaterSpeedKnots` and `LengthMeters`.
 See [the ground-unit survey](ground-unit-survey.md) for eligibility and sources.
 
 [Workshop listing](https://steamcommunity.com/sharedfiles/filedetails/?id=3817593811).
+Use the [Crimean Tom release script](../crimean-tom/workshop-bundle.md) to update
+the standalone listing and the bundle together.
 The [playground](scenarios/amphibs-playground.ini) starts two Tarawas near the
 beach and all seven vehicles on parallel routes ashore in sea state 3. Load it
 with `seapower-cli load-scenario` to inspect swimming speeds, flotation and wakes,
@@ -14,13 +23,13 @@ launch AAV7s through Boat Ops or issue your own orders.
 
 ## Water movement
 
-Candidate profiles bypass the native ground-unit water stop and cap swimming
-speed at `WaterSpeedKnots`. Conditional profiles do not register. Native ground
-orders remain in use. Firing afloat is blocked unless `WeaponsAfloat=True`.
+Amphibious units follow native ground orders and cap swimming speed at
+`WaterSpeedKnots`. Firing afloat is blocked unless `WeaponsAfloat=True`.
 
 `WaterlineOffsetMeters` sets the model origin relative to sea level. Negative
 values lower the hull, limited by seabed height in shallow water. `WakeScale`
-scales native small-vessel bow-wave and propwash effects; zero disables them.
+in `[WakeCoefficients]` scales bow-wave and propwash effects for all units.
+Set it to zero to disable those effects.
 Effects originate near the bow and stern using `LengthMeters` and remain at
 sea level independently of the hull offset. Emission stops on land, at rest or
 when destroyed. These are visual wakes, not wake-homing torpedo targets.
@@ -38,11 +47,17 @@ propulsion are reference data; no sea-state restriction is enforced yet.
 Boat Ops can carry and launch the amphibious AAV7 through its ground-unit loader.
 Its default Tarawa complement includes four AAV7s, each occupying 2 SUs.
 
-## Live water-effect tuning
+## Amphibs settings
 
-The tuning panel is hidden by default. Set `ShowTuningPanel=True` in
-`[WakeCoefficients]` in `water-effects.ini` and restart to enable it.
-Selecting an amphibious vehicle then opens a draggable, resizable Water effects panel.
+Open **Options → Gameplay → Amphibs** to see the swimming and water-effect
+settings. **Use mod defaults** starts checked and follows the settings shipped
+with each update. Uncheck it to edit the settings, then select **Accept**.
+Custom settings are saved to `CrimeanTom/Settings/Amphibs.ini` under the game's
+local data directory. A previous `water-effects.ini` seeds the custom values
+the first time you unlock the page.
+
+Enable **Show live water-effects panel** in custom mode to tune effects while
+looking at a selected amphibious vehicle.
 Bow position defaults to `1`, with a `0.5` to `2` slider range.
 Bow position uses the box half-length: `1` is the bow edge, and `1.4` is 20%
 of the full hull length beyond it. Other longitudinal coefficients use full length.
@@ -81,12 +96,8 @@ Foam opacity scales with swimming speed, as it does for vanilla ships.
 The panel exposes numeric tuning, not every vanilla asset option: particle
 prefabs and overlay textures remain fixed, and cavitation is not implemented.
 
-Save writes shared values to `[WakeCoefficients]` and box corrections plus waterline
-height to the selected profile in `water-effects.ini` beside the deployed DLL.
-Old per-profile wake parameters are ignored, not reinterpreted as coefficients.
-It overrides the shipped INI and survives builds. Subsequent saves keep a `.bak`.
-Revert restores the values from when the panel opened or its last successful save.
-Copy saved overrides into the repository deliberately when promoting tuning to defaults.
+The live panel's **Save** writes to the same local Amphibs file as the Gameplay
+page. **Revert** restores the values from when the panel opened or last saved.
 
 ## Build and icon
 

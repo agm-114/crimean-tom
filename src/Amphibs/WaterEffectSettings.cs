@@ -1,6 +1,3 @@
-using System.Globalization;
-using System.Text.RegularExpressions;
-
 namespace Amphibs;
 
 internal class WaterEffectSetting(string key, string label, float initial, float min, float max)
@@ -11,6 +8,11 @@ internal class WaterEffectSetting(string key, string label, float initial, float
     internal float Min { get; } = min;
     internal float Max { get; } = max;
     internal bool IsToggle => Key.EndsWith("Enabled", StringComparison.Ordinal);
+    internal float ValidOrDefault(double value, float? fallback = null)
+    {
+        float number = (float)value;
+        return float.IsFinite(number) && number >= Min && number <= Max ? number : fallback ?? Default;
+    }
     internal string Group => Key switch
     {
         "WaterlineOffsetMeters" or "BoxScaleX" or "BoxScaleY" or "BoxScaleZ" => "Vehicle box",
@@ -31,7 +33,6 @@ internal class WaterEffectSetting(string key, string label, float initial, float
 
 internal static class WaterEffectSettings
 {
-    internal static readonly Dictionary<string, float> Shared = new();
     internal static bool IsPerUnit(string key) => key == "WaterlineOffsetMeters" || key.StartsWith("BoxScale", StringComparison.Ordinal);
     internal static readonly WaterEffectSetting[] All =
     [
@@ -69,6 +70,7 @@ internal static class WaterEffectSettings
         .. Trail("HullFoam", 0.55f),
         .. Trail("SternFoam", -0.45f),
     ];
+    internal static readonly IReadOnlyDictionary<string, WaterEffectSetting> ByKey = All.ToDictionary(field => field.Key);
 
     private static IEnumerable<WaterEffectSetting> Trail(string prefix, float position)
     {
@@ -84,30 +86,4 @@ internal static class WaterEffectSettings
         if (prefix == "SternFoam") yield return new(prefix + "Opacity", "Opacity", 1.2f, 0, 2);
     }
 
-    internal static void Save(AmphibiousProfile profile)
-    {
-        string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!, "water-effects.ini");
-        string original = File.Exists(path) ? File.ReadAllText(path) : "; Saved Amphibs water-effect overrides. Builds preserve this file.\r\n";
-        foreach (string sectionName in new[] { "WakeCoefficients", profile.Id })
-        {
-        string pattern = @"(?ms)^\[" + Regex.Escape(sectionName) + @"\][^\r\n]*\r?\n.*?(?=^\[|\z)";
-        if (!Regex.IsMatch(original, pattern)) original = original.TrimEnd() + "\r\n\r\n[" + sectionName + "]\r\n";
-        original = Regex.Replace(original, pattern, match =>
-        {
-            string section = match.Value.TrimEnd();
-            foreach (var setting in All)
-            {
-                if (IsPerUnit(setting.Key) != (sectionName == profile.Id)) continue;
-                string line = setting.Key + "=" + profile.Value(setting.Key).ToString("0.###", CultureInfo.InvariantCulture);
-                string key = @"(?m)^" + Regex.Escape(setting.Key) + @"=[^\r\n]*";
-                section = Regex.IsMatch(section, key) ? Regex.Replace(section, key, line) : section + "\r\n" + line;
-            }
-            return section + "\r\n\r\n";
-        });
-        }
-        string temporary = path + ".tmp";
-        File.WriteAllText(temporary, original);
-        if (File.Exists(path)) File.Replace(temporary, path, path + ".bak");
-        else File.Move(temporary, path);
-    }
 }
