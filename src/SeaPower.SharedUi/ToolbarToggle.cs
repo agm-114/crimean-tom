@@ -8,6 +8,23 @@ namespace SeaPower.SharedUi;
 // Owns the inserted slot and restores the native toolbar layout when detached.
 internal class ToolbarToggle : IDisposable
 {
+    private static readonly ControlTemplate IconTemplate = (ControlTemplate)GUI.ParseXaml("""
+        <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ToggleButton">
+            <Border x:Name="Face" Background="#A79D89" BorderBrush="#272625" BorderThickness="1">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Content="{TemplateBinding Content}" />
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Face" Property="Background" Value="#C4B79E" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="Face" Property="Background" Value="#E4AD72" />
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+        """);
+
     private Grid? toolbar;
     private Panel? buttonPanel;
     private ColumnDefinition? column;
@@ -21,7 +38,7 @@ internal class ToolbarToggle : IDisposable
     {
         var button = new ToggleButton
         {
-            Name = name, Content = content, ToolTip = tooltip, Style = anchor.Style,
+            Name = name, Content = content, ToolTip = tooltip, Style = anchor.Style, Template = IconTemplate,
             Width = 32, Height = 32, VerticalAlignment = VerticalAlignment.Bottom, Visibility = Visibility.Collapsed,
         };
         var attachment = new ToolbarToggle(button);
