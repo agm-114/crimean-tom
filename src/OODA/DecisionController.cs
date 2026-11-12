@@ -153,6 +153,14 @@ internal class DecisionController
     internal void Tick()
     {
         Taskforce? side = PlayerPicture.Side;
+        if (side != null && Mode == ControlMode.AiControl && MissionCommunications.Acknowledge() is { } popup)
+        {
+            clock.Resume();
+            ReadCommunications();
+            string title = popup.Title.Length > 0 ? popup.Title : "Mission message";
+            Add("Mission popup", "Acknowledged", popup.Button.Length > 0 ? $"{title} · {popup.Button}" : title);
+            return;
+        }
         if (side == null || !Singleton<MissionManager>.InstanceExists() || Singleton<MissionManager>.Instance.MissionEnded)
         {
             if (Mode != ControlMode.Manual) SetMode(ControlMode.Manual);
