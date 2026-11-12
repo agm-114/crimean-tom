@@ -42,19 +42,20 @@ internal static class PlayerOrders
             && Math.Abs(route[0].wpGP._longitude - point._longitude) < 0.0004;
     }
 
-    internal static string EngageSurface(Vessel ship, Taskforce side, Vehicle contact)
+    internal static string EngageSurface(Vessel ship, Taskforce side, Vehicle contact, bool gunsOnly)
     {
         if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null)
             return "Rejected · ship is unavailable for defensive fire";
         if (!PlayerPicture.IsLive(contact) || contact.BaseObject is not Vessel target || target == ship)
             return "Rejected · target is no longer an eligible surface contact";
-        if (PlayerPicture.Ships(side).Any(unit => unit._currentEngageTasks.Any(task => task._targetObject == target)))
-            return "Kept · contact already engaged";
+        if (ship._currentEngageTasks.Any(task => task._targetObject == target))
+            return "Already engaging";
 
         ship._ai.AutoAttackByClick(target, Ammunition.Type.Projectile, salvo: 6, attackAsFormation: false);
-        if (!ship._currentEngageTasks.Any(task => task._targetObject == target))
-            ship._ai.AutoAttackByClick(target, attackAsFormation: false);
+        if (ship._currentEngageTasks.Any(task => task._targetObject == target)) return "Gun order queued";
+        if (gunsOnly) return "Guns unavailable";
+        ship._ai.AutoAttackByClick(target, attackAsFormation: false);
         return ship._currentEngageTasks.Any(task => task._targetObject == target)
-            ? "Applied · native engagement queued" : "Rejected · no native weapon could engage";
+            ? "Engagement queued" : "No weapon available";
     }
 }

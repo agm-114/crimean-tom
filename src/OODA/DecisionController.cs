@@ -477,8 +477,9 @@ internal class DecisionController
     {
         string reason = Short((string?)result["reason"]);
         if ((string?)result["action"] == "Hold") { Add("Surface defense", "Held fire", reason); return; }
+        Vessel[] available = PlayerPicture.Ships(side);
         if ((string?)result["action"] != "Engage" || (string?)result["shipId"] is not { } shipId
-            || PlayerPicture.Ships(side).FirstOrDefault(unit => PlayerPicture.Id(unit) == shipId) is not { } ship)
+            || available.FirstOrDefault(unit => PlayerPicture.Id(unit) == shipId) is not { } ship)
         {
             Add("Surface defense", "Rejected · no eligible responder", reason);
             return;
@@ -492,21 +493,30 @@ internal class DecisionController
         if (SurfaceDefense.ReviewEvidence(result, side, target) is { } evidenceWarning) warnings.Add(evidenceWarning);
         RelationsState relationship = target.CurrentRelationship();
         if (relationship is RelationsState.Friendly or RelationsState.Neutral) warnings.Add($"The target is plotted as {relationship}.");
-        if (ship._weaponStatus == ObjectBase.WeaponStatus.Hold) warnings.Add("The firing ship is on Weapons Hold.");
+        Vessel[] responders = ship.Formation is { } formation ? available.Where(unit => unit.Formation == formation).ToArray() : [ship];
+        string[] weaponsHold = responders.Where(unit => unit._weaponStatus == ObjectBase.WeaponStatus.Hold).Select(unit => unit.getName()).ToArray();
+        if (weaponsHold.Length > 0) warnings.Add($"Weapons Hold: {string.Join(", ", weaponsHold)}.");
         if ((string?)result["roeAssessment"] != "Consistent")
         {
             string assessment = Short((string?)result["roeReason"]);
             warnings.Add(assessment.Length > 0 ? assessment : "The decision did not establish that the fire was authorized.");
         }
-        string detail = $"{PlayerPicture.ContactLabel(target)} · {reason}";
-        string status = "Suggested · engage attacker";
-        if (Mode == ControlMode.AiControl)
+        bool gunsOnly = (string?)result["weapons"] == "Guns";
+        string Engage(Vessel responder)
         {
-            try { status = PlayerOrders.EngageSurface(ship, side, target); }
-            catch (Exception error) { status = $"Rejected · {Short(error.Message)}"; }
+            if (Mode != ControlMode.AiControl) return gunsOnly ? "Gun engagement suggested" : "Engagement suggested";
+            try { return PlayerOrders.EngageSurface(responder, side, target, gunsOnly); }
+            catch (Exception error) { return $"Rejected · {Short(error.Message)}"; }
         }
+        var outcomes = responders.Select(unit => (Name: unit.getName(), Status: Engage(unit))).ToArray();
+        string[] statuses = outcomes.Select(outcome => outcome.Status).Distinct().ToArray();
+        string status = statuses.Length == 1 ? statuses[0] : "Group engagement";
+        string detail = $"{PlayerPicture.ContactLabel(target)} · {reason}";
+        if (statuses.Length > 1) detail += $"\n{string.Join(" · ", outcomes.Select(outcome => $"{outcome.Name} — {outcome.Status}"))}";
+        Vessel groupLead = ship.Formation?.LeaderStation?.UnitObject is Vessel leader && responders.Contains(leader) ? leader : ship;
         string? warning = warnings.Count > 0 ? string.Join(" ", warnings) : null;
-        Add("Surface defense", status, detail, shipId, ship.getName(), warning);
+        string? groupNames = statuses.Length == 1 ? string.Join(", ", outcomes.Select(outcome => outcome.Name)) : null;
+        Add("Surface defense", status, detail, PlayerPicture.Id(groupLead), groupNames, warning);
         if (warning != null)
         {
             reviewingFire = true;

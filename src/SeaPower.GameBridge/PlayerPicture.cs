@@ -30,8 +30,12 @@ internal static class PlayerPicture
     internal static string Id(Vehicle track) => $"track-{track.Id}";
     internal static bool IsLive(Vehicle track) => track.BaseObject && !track.BaseObject.IsDestroyed && track.HasLiveTrack && track.IsVisible();
     internal static bool IsVisual(Vehicle track) => IsLive(track) && track.IsObservedByVisual;
-    internal static string ContactLabel(Vehicle track) => track.HasReportedIdentity ? track.BaseObject.DisplayNameShort
-        : track.Class?.Value ?? (track.Identified.Value ? track.BaseObject.ClassNameShort : Id(track));
+    internal static string ContactLabel(Vehicle track)
+    {
+        if (track.HasReportedIdentity && track.BaseObject.DisplayNameShort is { Length: > 0 } name) return name;
+        if (track.Identified.Value && track.BaseObject.ClassNameShort is { Length: > 0 } className) return className;
+        return track.Class?.Value ?? Id(track);
+    }
     internal static Vehicle? LiveContact(Taskforce side, string id) => side.PlottingTable?.Vehicles
         .FirstOrDefault(track => Id(track) == id && IsLive(track));
 
@@ -89,6 +93,8 @@ internal static class PlayerPicture
         ["speedKnots"] = Math.Round(ship._velocityInKnots, 1), ["order"] = ship.CurrentOrderText.Value,
         ["weaponsPosture"] = ship._weaponStatus.ToString(),
         ["formationLeaderId"] = ship.Formation?.LeaderStation?.UnitObject is Vessel leader && leader != ship ? Id(leader) : null,
+        ["engagedContacts"] = new JArray(ship._currentEngageTasks
+            .Select(task => task._targetObject?.GetMapVehicle(ship._taskforce)).OfType<Vehicle>().Where(IsLive).Select(Id).Distinct()),
         ["route"] = new JArray(ship.GetAllWaypointsGeoPositions(getRelative: false).Take(12).Select(waypoint => Point(waypoint.wpGP)))
     };
 
