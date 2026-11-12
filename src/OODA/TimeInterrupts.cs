@@ -5,7 +5,7 @@ namespace OODA;
 internal enum TimeEventKind { RadarContact, TrackAppeared, TrackChanged, TrackLost, HostileNearby, SurfaceAttack, AirRaidWarning, UnitStatusChanged, UnitDamaged, MissileHit }
 
 internal record TimeEvent(TimeEventKind Kind, string? SubjectId, string Label, string Category, string Posture, string Detail,
-    string? MissileId = null)
+    string? MissileId = null, string? PreviousPosture = null)
 {
     internal JObject Describe() => new()
     {
@@ -33,9 +33,8 @@ internal class TimeInterrupts
 {
     private static readonly TimeRule[] Defaults =
     [
-        new(TimeEventKind.RadarContact, null, null, null, 5, 5),
-        new(TimeEventKind.TrackChanged, null, null, "Hostile", 5, 6),
-        new(TimeEventKind.HostileNearby, null, null, null, 5, 8),
+        new(TimeEventKind.TrackChanged, null, null, "Hostile", 10, 3),
+        new(TimeEventKind.HostileNearby, null, null, null, 5, 5),
         new(TimeEventKind.SurfaceAttack, null, null, null, 1, 8),
         new(TimeEventKind.AirRaidWarning, null, null, null, 2, 10),
         new(TimeEventKind.UnitDamaged, null, null, null, 3, 8),
@@ -47,10 +46,15 @@ internal class TimeInterrupts
 
     internal ActiveTimeInterrupt? Current => active.Values.OrderBy(item => item.Rule.Speed).ThenByDescending(item => item.EndsAt).FirstOrDefault();
 
-    internal bool Replace(TimeRule[] next)
+    internal bool Replace(TimeRule[] next, double now)
     {
         if (rules.SequenceEqual(next)) return false;
+        ActiveTimeInterrupt[] pending = active.Values.Where(item => item.EndsAt > now)
+            .OrderBy(item => item.EndsAt - item.Rule.HoldSeconds).ToArray();
         rules = next;
+        active.Clear();
+        foreach (ActiveTimeInterrupt item in pending)
+            Activate(item.Trigger, item.EndsAt - item.Rule.HoldSeconds, now);
         return true;
     }
 
@@ -64,12 +68,19 @@ internal class TimeInterrupts
     {
         if (recent.Count == 16) recent.Dequeue();
         recent.Enqueue(item);
-        if (!managed) return null;
+        return managed ? Activate(item, now, now) : null;
+    }
+
+    private TimeRule? Activate(TimeEvent item, double startedAt, double now)
+    {
         TimeRule? custom = rules.Where(rule => rule.Matches(item))
             .OrderBy(rule => rule.SubjectId == null).ThenBy(rule => rule.Speed).ThenByDescending(rule => rule.HoldSeconds)
             .FirstOrDefault();
-        TimeRule? rule = custom ?? Defaults.FirstOrDefault(rule => rule.Matches(item));
-        return rule != null && active.TryAdd(rule, new(rule, item, custom != null, now + rule.HoldSeconds)) ? rule : null;
+        TimeRule? rule = custom ?? Defaults.FirstOrDefault(rule => rule.Matches(item)
+            && (rule.Kind != TimeEventKind.TrackChanged || item.PreviousPosture is { } prior && prior != item.Posture));
+        if (rule == null) return null;
+        double endsAt = startedAt + rule.HoldSeconds;
+        return endsAt > now && active.TryAdd(rule, new(rule, item, custom != null, endsAt)) ? rule : null;
     }
 
     internal JObject Describe() => new()

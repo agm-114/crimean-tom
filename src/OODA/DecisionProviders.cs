@@ -114,12 +114,11 @@ internal static class DecisionSchema
         DecisionRole.Operational => Object(("objective", Text()), ("assignments", Array(Order("task", "Transit", "Screen", "Hold"))),
             ("inspectGroupId", Text(nullable: true)), ("mapMarks", Array(Object(
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
-                ("radiusNm", Number(nullable: true))))), ("timeRules", TimeRules())),
+                ("radiusNm", Number(nullable: true))))), ("timePolicy", TimePolicy())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
             ("standingOrderChanges", StandingOrders()),
-            ("timeCompression", new JObject { ["type"] = new JArray("integer", "null"),
-                ["enum"] = new JArray(DecisionClock.Speeds.Select(speed => new JValue(speed)).Append(JValue.CreateNull())) }),
-            ("timeReason", Text(nullable: true)), ("timeRules", TimeRules())),
+            ("timeCompression", TimeSpeed(nullable: true)),
+            ("timeReason", Text(nullable: true)), ("timePolicy", TimePolicy())),
         DecisionRole.SurfaceDefense => Object(("action", Choice("Engage", "Hold")), ("shipId", Text(nullable: true)),
             ("targetId", Text(nullable: true)), ("victimId", Text(nullable: true)),
             ("weapons", Choice("Guns", "BestAvailable", "None")),
@@ -136,15 +135,20 @@ internal static class DecisionSchema
     private static JObject Array(JObject items) => new() { ["type"] = "array", ["items"] = items };
     private static JObject StandingOrders() =>
         Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())));
-    private static JObject TimeRules() => new()
+    private static JObject TimeSpeed(bool nullable = false) => new()
     {
-        ["type"] = new JArray("array", "null"),
-        ["items"] = Object(("event", Choice(Enum.GetNames(typeof(TimeEventKind)))), ("subjectId", Text(nullable: true)),
-            ("category", Text(nullable: true)), ("posture", Text(nullable: true)), ("speed", new JObject
-            {
-                ["type"] = "integer", ["enum"] = new JArray(DecisionClock.Speeds)
-            }), ("holdSeconds", new JObject { ["type"] = "integer" }))
+        ["type"] = nullable ? new JArray("integer", "null") : new JValue("integer"),
+        ["enum"] = new JArray(DecisionClock.Speeds.Select(speed => new JValue(speed))
+            .Concat(nullable ? [JValue.CreateNull()] : Enumerable.Empty<JValue>()))
     };
+    private static JObject TimePolicy() => Object(("cruiseSpeed", TimeSpeed(nullable: true)), ("cruiseReason", Text(nullable: true)),
+        ("rules", new JObject
+        {
+            ["type"] = new JArray("array", "null"),
+            ["items"] = Object(("event", Choice(Enum.GetNames(typeof(TimeEventKind)))), ("subjectId", Text(nullable: true)),
+                ("category", Text(nullable: true)), ("posture", Text(nullable: true)), ("speed", TimeSpeed()),
+                ("holdSeconds", new JObject { ["type"] = "integer" }))
+        }), ("defaultSuggestion", Text(nullable: true)));
     private static JObject Text(bool nullable = false) => new() { ["type"] = nullable ? new JArray("string", "null") : new JValue("string") };
     private static JObject Number(bool nullable = false) => new() { ["type"] = nullable ? new JArray("number", "null") : new JValue("number") };
     private static JObject Choice(params string[] values) => new() { ["type"] = "string", ["enum"] = new JArray(values) };

@@ -8,8 +8,8 @@ namespace OODA;
 internal class DecisionClock
 {
     private const int OpeningSpeed = 5;
-    private const int MaximumSpeed = 20;
-    private static readonly int[] NativeSpeeds = [1, 2, 3, OpeningSpeed, 10, MaximumSpeed];
+    internal const int DefaultCruiseSpeed = 20;
+    private static readonly int[] NativeSpeeds = [1, 2, 3, 5, 10, 20];
     private bool openingPauseUsed;
     private long openingPauseUntil;
     private int? requestedSpeed;
@@ -21,6 +21,8 @@ internal class DecisionClock
 
     internal static IReadOnlyList<int> Speeds => NativeSpeeds;
     internal bool Enabled { get; set; } = true;
+    internal int CruiseSpeed { get; private set; } = DefaultCruiseSpeed;
+    internal string? CruiseReason { get; private set; }
     internal string Status => openingPauseUntil != 0 && GameTime.IsPaused() ? "Time paused for opening plan"
         : GameTime.IsPaused() ? "Time paused" : $"Time {GameTime.TimeCompression:0.##}×";
 
@@ -38,7 +40,7 @@ internal class DecisionClock
 
     internal static IEnumerable<int> Options(Taskforce side)
     {
-        float limit = Math.Min(PlayerTime.Maximum, NormalTimeReason(side) == null ? MaximumSpeed : 1);
+        float limit = Math.Min(PlayerTime.Maximum, NormalTimeReason(side) == null ? NativeSpeeds[^1] : 1);
         return NativeSpeeds.Where(speed => speed <= limit);
     }
 
@@ -75,10 +77,18 @@ internal class DecisionClock
     internal bool Apply(int speed, int offeredMaximum, string reason, Taskforce side, ActiveTimeInterrupt? interrupt)
     {
         if (!Enabled || GameTime.IsPaused() || PlayerTime.Blocked) return false;
-        requestedSpeed = speed == offeredMaximum && offeredMaximum < MaximumSpeed ? null : speed;
+        requestedSpeed = speed == offeredMaximum && offeredMaximum < NativeSpeeds[^1] ? null : speed;
         requestedReason = reason;
-        requestedSpeedUntil = Stopwatch.GetTimestamp() + (speed == 1 ? 8 : 30) * Stopwatch.Frequency;
+        requestedSpeedUntil = Stopwatch.GetTimestamp() + (speed <= OpeningSpeed ? 8 : 30) * Stopwatch.Frequency;
         return SetSpeed(Target(side, hasPlan: true, interrupt));
+    }
+
+    internal bool SetCruise(int speed, string reason)
+    {
+        if (speed == CruiseSpeed) return false;
+        CruiseSpeed = speed;
+        CruiseReason = reason;
+        return true;
     }
 
     private int Target(Taskforce side, bool hasPlan, ActiveTimeInterrupt? interrupt)
@@ -88,20 +98,19 @@ internal class DecisionClock
             (paceSource, paceReason) = ("Automatic limit", limitReason);
             return 1;
         }
-        if (interrupt != null)
+        int? temporary = Stopwatch.GetTimestamp() < requestedSpeedUntil ? requestedSpeed : null;
+        int target = temporary ?? (hasPlan ? CruiseSpeed : OpeningSpeed);
+        if (interrupt != null && interrupt.Rule.Speed < target)
         {
             paceSource = interrupt.Custom ? "AI time rule" : "Default time rule";
             paceReason = $"{interrupt.Trigger.Label} · {interrupt.Trigger.Detail}";
             return interrupt.Rule.Speed;
         }
-        if (requestedSpeed is { } desired && Stopwatch.GetTimestamp() < requestedSpeedUntil)
-        {
-            (paceSource, paceReason) = ("AI decision", string.IsNullOrWhiteSpace(requestedReason) ? "The AI selected this speed." : requestedReason);
-            return desired;
-        }
-        (paceSource, paceReason) = hasPlan ? ("Cruise", "The plan is running with no active slowdown.")
+        (paceSource, paceReason) = temporary != null
+            ? ("AI decision", string.IsNullOrWhiteSpace(requestedReason) ? "The AI selected this speed." : requestedReason)
+            : hasPlan ? ("Cruise", CruiseReason ?? "The plan is running with no active slowdown.")
             : ("Opening plan", "OODA is preparing the initial plan.");
-        return hasPlan ? MaximumSpeed : OpeningSpeed;
+        return target;
     }
 
     private bool SetSpeed(int speed)
@@ -141,6 +150,8 @@ internal class DecisionClock
         openingPauseUntil = requestedSpeedUntil = 0;
         requestedSpeed = null;
         requestedReason = null;
+        CruiseSpeed = DefaultCruiseSpeed;
+        CruiseReason = null;
         lastManagedSpeed = null;
         (paceSource, paceReason) = ("Opening plan", "OODA is preparing the initial plan.");
     }
