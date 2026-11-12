@@ -1,3 +1,4 @@
+using System.Reflection;
 using SeaPower;
 using SeapowerUI;
 using SeapowerUI.ViewModels;
@@ -21,7 +22,11 @@ internal static class ScenarioControls
         if (mission == null || !mission.doesSectionExist("Mission")) throw new ArgumentException("The selected file has no [Mission] section.");
         if (Singleton<MenuSystemViewModel>.Instance.CurrentWindow is not ScenarioMenuView)
             throw new InvalidOperationException("Open the Scenarios menu before submitting the load request.");
-        Globals.currentMissionFilePath = path;
+        if (typeof(Globals).GetMethod("OpenMission", [typeof(string)]) is MethodInfo openMission)
+            openMission.Invoke(null, [path]);
+        else if (typeof(Globals).GetField(nameof(Globals.currentMissionFilePath)) is FieldInfo missionPath)
+            missionPath.SetValue(null, path);
+        else throw new MissingMethodException("The native scenario loading API changed. Update the bridge.");
         // Same entry point as the native Scenarios Play button, including mod hooks.
         MissionManager.DoLoad();
         return new { ok = true, state = "load-requested", path };
