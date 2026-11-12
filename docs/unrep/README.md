@@ -1,6 +1,6 @@
 # UNREP
 
-Independent AnchorChain mod for Sea Power `0.8.5-261008`.
+Independent AnchorChain mod for Sea Power `0.9.0-261111`.
 Flight-deck traffic and zone APIs vary between game assemblies. UNREP uses them
 when present. Builds without them use landing-point claims and blocking links,
 the existing 30 m conflict check, and a physical recovery-strip clearance check.

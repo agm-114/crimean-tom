@@ -10,11 +10,11 @@ internal class MovementLease(ObjectBase unit)
 {
     private static readonly Dictionary<ObjectBase, MovementLease> Active = [];
     private readonly List<WaypointData> route = unit.ExportWaypoints();
-    private readonly float speed = unit.SpeedCommand.Value?.GetDemandedSpeedInKnots(unit) ?? 0;
+    private readonly SpeedRequest originalSpeed = unit.Speed.Request;
     private readonly UnitFormation? formation = unit.Formation;
     private readonly bool independent = unit.Formation?.GetStationForUnit(unit)?.UnitActsIndependently.Value ?? true;
     private object? waypoint;
-    private ISpeedCommand? speedCommand;
+    private SpeedRequest? speedCommand;
     private ObjectBase? anchor;
     private float leadNm;
     private float demand;
@@ -22,12 +22,13 @@ internal class MovementLease(ObjectBase unit)
     internal static float? Demand(ObjectBase unit) => Active.TryGetValue(unit, out var lease) && lease.Owned && lease.hasSpeed ? lease.demand : null;
     internal bool Owned => unit != null && !unit.IsDestroyed && waypoint != null
         && ReferenceEquals(unit.GetLastWaypoint(), waypoint);
+    private bool OwnsSpeed => speedCommand is { } command && unit.Speed.Request.Equals(command);
     internal void ReleaseSpeed()
     {
-        bool restore = hasSpeed && Owned && ReferenceEquals(unit.SpeedCommand.Value, speedCommand);
+        bool restore = hasSpeed && Owned && OwnsSpeed;
         hasSpeed = false;
-        if (restore) unit.SetSpeedCommand(new ConstantSpeed(speed, unit));
         speedCommand = null;
+        if (restore) unit.SetSpeedCommand(originalSpeed);
     }
     private Vector3 Deviation => Owned ? unit.GetLastWaypoint().WaypointPosition.ToUnity()
         - anchor!.transform.forward * (leadNm * 27.559496f) - unit.Position.Value.ToUnity() : Vector3.zero;
@@ -53,10 +54,8 @@ internal class MovementLease(ObjectBase unit)
         if (unit is Vessel && unit.CollisionAvoidance?.UnitToAvoid != null) return;
         demand = knots;
         hasSpeed = true;
-        if (speedCommand != null && ReferenceEquals(unit.SpeedCommand.Value, speedCommand)
-            && Math.Abs(speedCommand.GetDemandedSpeedInKnots(unit) - knots) < 0.2) return;
-        speedCommand = new ConstantSpeed(knots, unit);
-        unit.SetSpeedCommand(speedCommand);
+        if (speedCommand is { } command && OwnsSpeed && Math.Abs(command.Value - knots) < 0.2) return;
+        unit.SetSpeedCommand(SpeedRequest.Knots(knots));
     }
 
     internal void Restore()
@@ -65,22 +64,18 @@ internal class MovementLease(ObjectBase unit)
         if (!Owned) return;
         unit.RemoveWaypoints();
         unit.ImportWaypoints(route);
-        if (ReferenceEquals(unit.SpeedCommand.Value, speedCommand)) unit.SetSpeedCommand(new ConstantSpeed(speed, unit));
+        if (OwnsSpeed) unit.SetSpeedCommand(originalSpeed);
         if (!independent && unit.Formation == formation) formation?.ReturnToFormation(unit);
         waypoint = null;
     }
 
-    [HarmonyPrefix, HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.SetSpeedCommand))]
-    private static void KeepStationSpeed(ObjectBase __instance, ref ISpeedCommand speedCommand)
+    [HarmonyPrefix, HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.SetSpeedCommand), [typeof(SpeedRequest)], [ArgumentType.Ref])]
+    private static void KeepStationSpeed(ObjectBase __instance, ref SpeedRequest request)
     {
         if (!Active.TryGetValue(__instance, out var lease) || !lease.Owned || !lease.hasSpeed) return;
         if (__instance is Vessel && __instance.CollisionAvoidance?.UnitToAvoid != null) return;
-        if (Math.Abs(speedCommand.GetDemandedSpeedInKnots(__instance) - lease.demand) > 0.01f)
-        {
-            (speedCommand as IDisposable)?.Dispose();
-            speedCommand = new ConstantSpeed(lease.demand, __instance);
-        }
-        lease.speedCommand = speedCommand;
+        request = SpeedRequest.Knots(lease.demand);
+        lease.speedCommand = request;
     }
 }
 
@@ -267,28 +262,27 @@ internal static class AlongsideClearance
 
 internal static class SupplySpeedLimits
 {
-    private static readonly Dictionary<Vessel, (float Original, ISpeedCommand Command)> Limits = [];
+    private static readonly Dictionary<Vessel, (SpeedRequest Original, SpeedRequest Command)> Limits = [];
     internal static void Update()
     {
         var sources = SupplyTransfers.Jobs.Where(job => !job.Finished && job.Station != null).Select(job => job.Source).Distinct().ToArray();
         foreach (var ship in Limits.Keys.Except(sources).ToArray())
         {
             var previous = Limits[ship];
-            if (ship != null && !ship.IsDestroyed && ReferenceEquals(ship.SpeedCommand.Value, previous.Command))
-                ship.SetSpeedCommand(new ConstantSpeed(previous.Original, ship));
+            if (ship != null && !ship.IsDestroyed && ship.Speed.Request.Equals(previous.Command))
+                ship.SetSpeedCommand(previous.Original);
             Limits.Remove(ship!);
         }
         foreach (var ship in sources.Where(SupplyTransfers.Available))
         {
             if (ship.CollisionAvoidance?.UnitToAvoid != null) continue;
-            if (!Limits.TryGetValue(ship, out var previous))
-                previous = (ship.SpeedCommand.Value?.GetDemandedSpeedInKnots(ship) ?? 0, null!);
-            if (ReferenceEquals(ship.SpeedCommand.Value, previous.Command)) continue;
+            SpeedRequest original = ship.Speed.Request;
+            if (Limits.TryGetValue(ship, out var previous) && original.Equals(previous.Command)) continue;
             // Keep the supplier's course and route; cap only its demanded speed.
             float demand = ship.SpeedCommand.Value?.GetDemandedSpeedInKnots(ship) ?? 0;
-            var command = new ConstantSpeed(Math.Clamp(demand, 0, (float)SupplySettings.UnrepSpeed), ship);
+            SpeedRequest command = SpeedRequest.Knots(Math.Clamp(demand, 0, (float)SupplySettings.UnrepSpeed));
             ship.SetSpeedCommand(command);
-            Limits[ship] = (previous.Original, command);
+            Limits[ship] = (original, command);
         }
     }
 }
