@@ -5,6 +5,7 @@ using UnityEngine;
 namespace SeaPower.GameBridge;
 
 internal enum WaypointDisposition { Applied, Unchanged, Rejected }
+internal record SurfaceOrderResult(string Status, string Detail = "");
 
 internal static class PlayerOrders
 {
@@ -42,21 +43,63 @@ internal static class PlayerOrders
             && Math.Abs(route[0].wpGP._longitude - point._longitude) < 0.0004;
     }
 
-    internal static string EngageSurface(Vessel ship, Taskforce side, Vehicle contact, bool gunsOnly)
+    internal static SurfaceOrderResult EngageSurface(Vessel ship, Taskforce side, Vehicle contact, bool gunsOnly)
     {
         if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null)
-            return "Rejected · ship is unavailable for defensive fire";
+            return new("Rejected", "Ship is unavailable for defensive fire");
         if (!PlayerPicture.IsLive(contact) || contact.BaseObject is not Vessel target || target == ship)
-            return "Rejected · target is no longer an eligible surface contact";
+            return new("Rejected", "Target is no longer an eligible surface contact");
         if (ship._currentEngageTasks.Any(task => task._targetObject == target))
-            return "Already engaging";
+            return new("Already engaging", QueuedWeapons(ship, target));
 
         ship._ai.AutoAttackByClick(target, Ammunition.Type.Projectile, salvo: 6, attackAsFormation: false);
-        if (ship._currentEngageTasks.Any(task => task._targetObject == target)) return "Gun order queued";
-        if (gunsOnly) return "Guns unavailable";
+        if (ship._currentEngageTasks.Any(task => task._targetObject == target)) return new("Gun order queued", QueuedWeapons(ship, target));
+        string gunFailure;
+        try { gunFailure = ExplainGunRejection(ship, target); }
+        catch (Exception error)
+        {
+            Debug.LogWarning($"[Game Bridge] Gun readiness check failed: {error.Message}");
+            gunFailure = "Sea Power queued no gun task and the mount check could not determine why";
+        }
+        if (gunsOnly) return new("Guns unavailable", gunFailure);
         ship._ai.AutoAttackByClick(target, attackAsFormation: false);
         return ship._currentEngageTasks.Any(task => task._targetObject == target)
-            ? "Engagement queued" : "No weapon available";
+            ? new("Engagement queued", $"Guns unavailable: {gunFailure}. Native fallback queued {QueuedWeapons(ship, target)}")
+            : new("No weapon available", $"Guns unavailable: {gunFailure}. Native fallback queued no task");
+    }
+
+    private static string QueuedWeapons(Vessel ship, ObjectBase target) => string.Join(", ", ship._currentEngageTasks
+        .Where(task => task._targetObject == target)
+        .Select(task => $"{task._shotsToFire}× {task._ammunition?._ap?._displayedName ?? task._ammoId}"));
+
+    private static string ExplainGunRejection(Vessel ship, Vessel target)
+    {
+        List<Ammunition> candidates = ship._ai.AmmunitionForTarget(target, Ammunition.Type.Projectile);
+        if (candidates.Count == 0) return "No stocked gun ammunition matched the target";
+        Vector3 position = target.transform.position;
+        float distance = (position - ship.transform.position).magnitude;
+        IEnumerable<string> checks = candidates.SelectMany(ammo =>
+        {
+            AmmunitionParameters parameters = ammo._ap;
+            if (distance <= parameters._launchRangesInUnity.x) return ["target inside minimum range"];
+            List<WeaponSystem>? mounts = ship.GetWeaponSystemsForAmmunition(parameters._ammunitionFileName, copyList: false);
+            return mounts is { Count: > 0 } ? mounts.Select(mount => GunMountCheck(mount, ammo, target, position))
+                : ["no mount for matching ammunition"];
+        });
+        return string.Join(", ", checks.Distinct());
+    }
+
+    private static string GunMountCheck(WeaponSystem mount, Ammunition ammo, Vessel target, Vector3 position)
+    {
+        if (mount is WeaponSystemCIWS { _isOffensive: false }) return "mount is defensive only";
+        if (mount.Inoperable.Value || mount._isOffline) return "mount offline or inoperable";
+        if (mount._isEmpty || WeaponSelector.isWeaponSystemOutOfAmmo(mount, ammo._ap._ammunitionFileName)) return "mount out of matching ammunition";
+        if (mount._vwp._engageOnlyInsideArc && !mount.targetIsInFiringArc(position)) return "target outside firing arc";
+        if (mount._executingEngageTask) return "mount busy with another engagement";
+        if (mount._isReloading) return "mount reloading";
+        if (mount._vwp._blockedByFlightDeck && mount._baseObject._performingAirOps) return "mount blocked by flight operations";
+        return WeaponSelector.isWeaponSystemUsable(mount, ammo, target)
+            ? "mount appeared usable but Sea Power queued no gun task" : "native weapon or fire-control check failed";
     }
 
     internal static bool EngageAir(Vessel ship, Taskforce side, Vehicle contact)

@@ -8,7 +8,8 @@ namespace OODA;
 
 internal enum ControlMode { Manual, Observe, AiControl }
 
-internal record DecisionEvent(double Time, string Stage, string Status, string Detail, string? ShipId, string? ShipName, string? RoeWarning);
+internal record DecisionEvent(double Time, string Stage, string Status, string Detail, string? ShipId, string? ShipName,
+    string? RoeWarning, string? TargetId);
 
 internal class DecisionController
 {
@@ -359,7 +360,7 @@ internal class DecisionController
         ["lastUrgentInput"] = LastUrgentInput?.DeepClone(), ["urgentShipId"] = UrgentShip,
         ["events"] = new JArray(events.Select(item => new JObject { ["time"] = item.Time, ["stage"] = item.Stage,
             ["status"] = item.Status, ["detail"] = item.Detail, ["shipId"] = item.ShipId, ["shipName"] = item.ShipName,
-            ["roeWarning"] = item.RoeWarning }))
+            ["roeWarning"] = item.RoeWarning, ["targetId"] = item.TargetId }))
     };
 
     internal string Assignment(string shipId) => plan?["assignments"]?.OfType<JObject>()
@@ -408,7 +409,8 @@ internal class DecisionController
         view["lastOrderResults"] = new JArray(events.Where(item => item.ShipId != null && item.Stage is "Tactical" or "Surface defense" or "Air defense")
             .Reverse().Take(8).Select(item => new JObject
             {
-                ["groupId"] = item.ShipId, ["result"] = item.Status, ["reason"] = item.Detail, ["roeWarning"] = item.RoeWarning
+                ["groupId"] = item.ShipId, ["shipName"] = item.ShipName, ["targetId"] = item.TargetId,
+                ["result"] = item.Status, ["reason"] = item.Detail, ["roeWarning"] = item.RoeWarning
             }));
         DecisionPrompt prompt = DecisionPrompt.ForMission(role, view);
         Briefing = (string?)prompt.Input["briefing"];
@@ -603,21 +605,25 @@ internal class DecisionController
             warnings.Add(assessment.Length > 0 ? assessment : "The decision did not establish that the fire was authorized.");
         }
         bool gunsOnly = (string?)result["weapons"] == "Guns";
-        string Engage(Vessel responder)
-        {
-            if (Mode != ControlMode.AiControl) return gunsOnly ? "Gun engagement suggested" : "Engagement suggested";
-            try { return PlayerOrders.EngageSurface(responder, side, target, gunsOnly); }
-            catch (Exception error) { return $"Rejected · {Short(error.Message)}"; }
-        }
-        var outcomes = responders.Select(unit => (Name: unit.getName(), Status: Engage(unit))).ToArray();
-        string[] statuses = outcomes.Select(outcome => outcome.Status).Distinct().ToArray();
-        string status = statuses.Length == 1 ? statuses[0] : "Group engagement";
-        string detail = $"{PlayerPicture.ContactLabel(target)} · {reason}";
-        if (statuses.Length > 1) detail += $"\n{string.Join(" · ", outcomes.Select(outcome => $"{outcome.Name} — {outcome.Status}"))}";
-        Vessel groupLead = ship.Formation?.LeaderStation?.UnitObject is Vessel leader && responders.Contains(leader) ? leader : ship;
         string? warning = warnings.Count > 0 ? string.Join(" ", warnings) : null;
-        string? groupNames = statuses.Length == 1 ? string.Join(", ", outcomes.Select(outcome => outcome.Name)) : null;
-        Add("Surface defense", status, detail, PlayerPicture.Id(groupLead), groupNames, warning);
+        string targetName = PlayerPicture.ContactLabel(target);
+        bool gunsUnavailable = false;
+        bool engagementQueued = false;
+        foreach (Vessel responder in responders)
+        {
+            SurfaceOrderResult outcome;
+            try
+            {
+                outcome = Mode == ControlMode.AiControl ? PlayerOrders.EngageSurface(responder, side, target, gunsOnly)
+                    : new(gunsOnly ? "Gun engagement suggested" : "Engagement suggested");
+            }
+            catch (Exception error) { outcome = new("Rejected", Short(error.Message)); }
+            gunsUnavailable |= outcome.Status == "Guns unavailable";
+            engagementQueued |= outcome.Status is "Gun order queued" or "Engagement queued" or "Already engaging";
+            string detail = outcome.Detail.Length > 0 ? $"{targetName} · {outcome.Detail} · {reason}" : $"{targetName} · {reason}";
+            Add("Surface defense", outcome.Status, detail, PlayerPicture.Id(responder), responder.getName(), warning, targetId);
+        }
+        if (gunsUnavailable && !engagementQueued) defense.ReviewGunFailure(targetId);
         if (warning != null)
         {
             reviewingFire = true;
@@ -729,10 +735,11 @@ internal class DecisionController
         catch (Exception error) { Add("Urgent preview", "Failed", error.Message, work.ShipId); }
     }
 
-    private void Add(string stage, string status, string detail, string? shipId = null, string? shipName = null, string? roeWarning = null)
+    private void Add(string stage, string status, string detail, string? shipId = null, string? shipName = null,
+        string? roeWarning = null, string? targetId = null)
     {
         if (events.Count == 90) events.Dequeue();
-        events.Enqueue(new(GameTime.missionElapsedTime, stage, status, Short(detail, 900), shipId, shipName, roeWarning));
+        events.Enqueue(new(GameTime.missionElapsedTime, stage, status, Short(detail, 900), shipId, shipName, roeWarning, targetId));
         Revision++;
         UnityEngine.Debug.Log($"[OODA] {stage} | {status}{(shipId == null ? "" : $" | {shipId}")} | {Short(detail, 900)}"
             + (roeWarning == null ? "" : $" | Possibly illegal fire: {roeWarning}"));
