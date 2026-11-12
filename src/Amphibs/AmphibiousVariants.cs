@@ -6,6 +6,35 @@ namespace Amphibs;
 [HarmonyPatch]
 internal static class AmphibiousVariants
 {
+    internal static void RegisterLoadedVariants()
+    {
+        if (!Singleton<UnitMetadataProvider>.InstanceExists()) return;
+        UnitMetadataProvider catalog = Singleton<UnitMetadataProvider>.Instance;
+        if (catalog.UnitData == null || catalog.UnitIdMap == null) return;
+
+        // AnchorChain can start after the game's initial metadata pass.
+        const string folder = "land_units";
+        int nextId = catalog.UnitIdMap.Keys.DefaultIfEmpty(-1).Max() + 1;
+        var variants = AmphibiousCatalog.Profiles.Values
+            .Where(profile => catalog.UnitData.ContainsKey((folder, profile.Source)) && !catalog.UnitData.ContainsKey((folder, profile.Id)))
+            .Select(profile => (profile.Id, Metadata: SimpleObjectParameters.LoadSimpleParameters(profile.Id, folder, 0)))
+            .ToArray();
+        if (variants.Length == 0) return;
+        if (nextId + variants.Length > ClassInfoUtils.BitCapacity)
+            throw new InvalidOperationException("The unit catalog has no room for Amphibs variants.");
+
+        // The encyclopedia can still be enumerating the original dictionaries.
+        var unitData = new Dictionary<(string, string), (int, SimpleObjectParameters)>(catalog.UnitData);
+        var unitIds = new Dictionary<int, SimpleObjectParameters>(catalog.UnitIdMap);
+        foreach (var (id, metadata) in variants)
+        {
+            unitData.Add((folder, id), (nextId, metadata));
+            unitIds.Add(nextId++, metadata);
+        }
+        AccessTools.PropertySetter(typeof(UnitMetadataProvider), nameof(UnitMetadataProvider.UnitData)).Invoke(catalog, [unitData]);
+        AccessTools.PropertySetter(typeof(UnitMetadataProvider), nameof(UnitMetadataProvider.UnitIdMap)).Invoke(catalog, [unitIds]);
+    }
+
     [HarmonyPrefix, HarmonyPatch(typeof(Utils), nameof(Utils.openIniFile), [typeof(string), typeof(string), typeof(bool), typeof(bool)])]
     private static void ResolveUnitFile(string rootPath, ref string name)
     {

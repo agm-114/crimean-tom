@@ -14,6 +14,7 @@ public class Plugin : IAnchorChainMod
         try
         {
             harmony.PatchAll(typeof(Plugin).Assembly);
+            AmphibiousVariants.RegisterLoadedVariants();
             if (AmphibiousCatalog.ShowTuningPanel)
             {
                 var host = new GameObject("Amphibs tuning");
