@@ -13,6 +13,8 @@
   <Project Path="src/DeckTweaks/DeckTweaks.csproj" />
   <Project Path="src/BoatOps/BoatOps.csproj" />
   <Project Path="src/UNREP/UNREP.csproj" />
+  <Project Path="src/Observer/Observer.csproj" />
+  <Project Path="src/OODA/OODA.csproj" />
   <Project Path="src/Amphibs/Amphibs.csproj" />
   <Project Path="src/Airdrop/Airdrop.csproj" />
   <Project Path="src/Deckpark/Deckpark.csproj" />
