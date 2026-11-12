@@ -11,7 +11,9 @@ public class Plugin : IAnchorChainMod
     {
         string directory = Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!;
         if (!File.Exists(Path.Combine(directory, "enabled.txt"))) return;
-        new Harmony("crimean-tom.game-bridge").CreateClassProcessor(typeof(PlayerBriefing)).Patch();
+        Harmony harmony = new("crimean-tom.game-bridge");
+        harmony.CreateClassProcessor(typeof(PlayerBriefing)).Patch();
+        harmony.CreateClassProcessor(typeof(PlayerCombat)).Patch();
         GameObject host = new("Sea Power Game Bridge");
         UnityEngine.Object.DontDestroyOnLoad(host);
         host.AddComponent<GameBridge>();

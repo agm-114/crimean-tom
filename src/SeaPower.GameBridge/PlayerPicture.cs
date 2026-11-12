@@ -27,6 +27,13 @@ internal static class PlayerPicture
         && unit.IsControllable && unit.AcceptsOrdersFromPlayer;
 
     internal static string Id(ObjectBase unit) => $"{(unit is Vessel ? "ship" : "unit")}-{unit.GetInstanceID()}";
+    internal static string Id(Vehicle track) => $"track-{track.Id}";
+    internal static bool IsLive(Vehicle track) => track.BaseObject && !track.BaseObject.IsDestroyed && track.HasLiveTrack && track.IsVisible();
+    internal static bool IsVisual(Vehicle track) => IsLive(track) && track.IsObservedByVisual;
+    internal static string ContactLabel(Vehicle track) => track.HasReportedIdentity ? track.BaseObject.DisplayNameShort
+        : track.Class?.Value ?? (track.Identified.Value ? track.BaseObject.ClassNameShort : Id(track));
+    internal static Vehicle? LiveContact(Taskforce side, string id) => side.PlottingTable?.Vehicles
+        .FirstOrDefault(track => Id(track) == id && IsLive(track));
 
     internal static JObject Read(Taskforce side, Vessel[] ships)
     {
@@ -34,10 +41,12 @@ internal static class PlayerPicture
         JArray contacts = new(tracks.Where(track => track.BaseObject && track.IsVisible() && track.UnitTaskforce.Value != side)
             .Take(100).Select(track => new JObject
             {
-                ["id"] = $"track-{track.Id}", ["posture"] = track.CurrentRelationship().ToString(),
+                ["id"] = Id(track), ["posture"] = track.CurrentRelationship().ToString(),
                 ["identified"] = track.Identified.Value, ["live"] = track.HasLiveTrack,
                 ["dormant"] = track.IsDormant.Value, ["sensor"] = track.Type.Value.ToString(),
                 ["category"] = track.GetMapType().ToString(), ["observedClass"] = track.Class?.Value,
+                ["displayLabel"] = ContactLabel(track), ["visuallyObserved"] = IsVisual(track),
+                ["visualHeadingDegrees"] = IsVisual(track) ? Math.Round(track.BaseObject.Heading.Value, 1) : null,
                 ["estimatedPosition"] = track.PositionEstimate is { } estimate ? Point(estimate.Item1) : null
             }));
         return new JObject
@@ -45,6 +54,7 @@ internal static class PlayerPicture
             ["scope"] = "player", ["taskforce"] = side._nameInMissionFile,
             ["missionClock"] = Clock(),
             ["rulesOfEngagement"] = side._roe.ToString(), ["objectiveUpdates"] = Objectives(), ["contacts"] = contacts,
+            ["observedGunfire"] = PlayerCombat.Snapshot(),
             ["ownedUnits"] = new JArray(ships.Select(Describe)),
             ["ownedOtherUnits"] = new JArray(Units(side).Where(unit => unit is not Vessel).Select(unit => new JObject
             {
