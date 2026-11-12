@@ -17,11 +17,11 @@ internal class ToolbarToggle : IDisposable
 
     private ToolbarToggle(ToggleButton button) => toggle = button;
 
-    internal static ToolbarToggle? Attach(ToggleButton anchor, string name, string label, string tooltip)
+    internal static ToolbarToggle? Attach(ToggleButton anchor, string name, object content, string tooltip)
     {
         var button = new ToggleButton
         {
-            Name = name, Content = label, ToolTip = tooltip, Style = anchor.Style,
+            Name = name, Content = content, ToolTip = tooltip, Style = anchor.Style,
             Width = 32, Height = 32, VerticalAlignment = VerticalAlignment.Bottom, Visibility = Visibility.Collapsed,
         };
         var attachment = new ToolbarToggle(button);
