@@ -12,6 +12,8 @@ internal record GameRequest(string Action)
     public int Depth { get; init; } = 8;
     public int Index { get; init; } = -1;
     public string Text { get; init; } = "";
+    public string Setting { get; init; } = "";
+    public string SettingValue { get; init; } = "";
     public bool Confirm { get; init; }
     public double? Latitude { get; init; }
     public double? Longitude { get; init; }

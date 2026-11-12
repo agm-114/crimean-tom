@@ -8,6 +8,7 @@
     <Reference Include="com.rlabrecque.steamworks.net" HintPath="$(GameManaged)\com.rlabrecque.steamworks.net.dll" Private="false" />
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
+    <Reference Include="CommunityToolkit.Mvvm" HintPath="$(GameManaged)\CommunityToolkit.Mvvm.dll" Private="false" />
     <Reference Include="UniRx" HintPath="$(GameManaged)\UniRx.dll" Private="false" />
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
     <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
@@ -17,6 +18,7 @@
     <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(GameManaged)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
     <Reference Include="UnityEngine.ImageConversionModule" HintPath="$(GameManaged)\UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+    <Compile Include="../CrimeanTom.SeaPower/IsExternalInit.cs" Link="IsExternalInit.cs" />
   </ItemGroup>
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found." />
