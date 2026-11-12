@@ -41,10 +41,10 @@ internal class SupplyConsumption(Vessel ship)
         double speed = command?.GetDemandedSpeedInKnots(ship) ?? 0;
         if (!double.IsFinite(speed) || speed == 0) return 0;
         // Engine orders matter even before the hull reaches the requested speed.
-        if (command is TelegraphSpeed telegraph)
+        if (command is { Kind: SpeedKind.Telegraph })
         {
-            if (telegraph.telegraph is -1 or 4) return 1;
-            if (telegraph.telegraph == 5) return 2;
+            if (command.Telegraph is -1 or 4) return 1;
+            if (command.Telegraph == 5) return 2;
         }
         var speeds = ship.VP._telegraphVelocities;
         double reverse = Math.Abs(speeds is { Length: > 0 } ? speeds[0] : ship.MaxBackwardSpeedInKnots);
