@@ -88,6 +88,7 @@ seapower-cli collapse --snapshot TOKEN --id 25
 seapower-cli ui-gallery --confirm
 seapower-cli wait-for --text "Flight Deck" --timeout 30
 seapower-cli wait-sim --seconds 60 --timeout 120
+seapower-cli advance-sim --minutes 1 --speed 10
 ```
 
 With no arguments, the CLI runs `inspect`. `speed 10` is an alias for `set-speed --speed 10`.
@@ -350,6 +351,13 @@ seapower-cli encyclopedia --unit usn_cvn_nimitz --variant 0 --confirm --timeout 
 ```
 
 `load-scenario` submits one native Play request from the main or Scenarios menu.
+Pass an absolute path or a path relative to the current directory. For example,
+from this repository's root:
+
+```powershell
+seapower-cli load-scenario --scenario docs/deck-tweaks/scenarios/carrier-rearm.ini --confirm
+```
+
 From the main menu it opens Scenarios first, so generated setup dialogs have
 their native window host ready.
 It validates the file and its `[Mission]` section. It returns `load-requested`,
@@ -612,8 +620,17 @@ The CLI implements both waits by sending ordinary reads every half second:
   plus the final time state. Polling can overshoot, especially at high speed.
 
 `wait-sim` defaults to 60 simulation seconds and twice that duration as its
-wall-clock timeout, bounded to 30 seconds through 24 hours. `wait-for` defaults
-to ten wall-clock seconds. Launch defaults to sixty, or 120 with `--scenario`;
+wall-clock timeout, bounded to 30 seconds through 24 hours.
+
+`advance-sim --minutes N` runs the active mission for N simulation minutes at
+10× and pauses automatically. Use `--speed` to choose another supported speed
+and `--timeout` to override the wall-clock limit. The default limit is twice
+the expected wall-clock duration, bounded to 30 seconds through 24 hours.
+The reply reports requested and actual seconds. Polling can add a small
+overshoot before the game pauses.
+
+`wait-for` defaults to ten wall-clock seconds. Launch defaults to sixty, or 120
+with `--scenario`;
 other commands default to twelve. Override these with `--timeout`, especially at speeds below 1x.
 The encyclopedia command defaults to 120 seconds. Paused games consume the timeout.
 Mission changes, a backwards clock, game restarts or connection errors stop the

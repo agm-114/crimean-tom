@@ -46,6 +46,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli set-text --snapshot TOKEN --id ID --text TEXT
         seapower-cli wait-for --text TEXT [--timeout SECONDS]
         seapower-cli wait-sim [--seconds 60] [--timeout SECONDS]
+        seapower-cli advance-sim --minutes N [--speed 10] [--timeout SECONDS]
         seapower-cli pause|resume
         seapower-cli speed 10
         seapower-cli set-speed --speed 10
@@ -62,6 +63,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         Success means load-requested, not tactical readiness; generated launchers can open their setup menu.
         Launch timeout/cancellation does not close the game. Check game-status before retrying.
         load-scenario works in an already running game, from the main or Scenarios menu.
+        advance-sim runs at the requested time compression and pauses after N simulation minutes.
         cancel-scenario abandons a loaded standalone mission without saving. It refuses campaigns and editor sessions.
         menu without PAGE lists pages and the current window. Pages:
           main, scenarios, campaigns, instant-action, editor, encyclopedia,
@@ -138,6 +140,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "wait-for" => ["--text"],
             "query" => ["--input"],
             "wait-sim" => ["--seconds"],
+            "advance-sim" => ["--minutes", "--speed"],
             "set-speed" => ["--speed"],
             _ => throw new ArgumentException($"Unknown command '{action}'. Use --help."),
         };
@@ -183,7 +186,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         query.Validate();
         if (action == "query" && !query.Active) throw new ArgumentException("query requires --query or a Dynamic LINQ option.");
         string? input = action == "query" ? Required("--input") : null;
-        int seconds = Number("--seconds", 60, 1, 86400);
+        bool advance = action == "advance-sim";
+        if (advance) Required("--minutes");
+        int seconds = advance ? 60 * Number("--minutes", 0, 1, 1440) : Number("--seconds", 60, 1, 86400);
         string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
         if (action == "load-scenario" && scenario == null) Required("--scenario");
         bool workshop = action is "workshop-update" or "workshop-create";
@@ -208,7 +213,6 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
-        int defaultTimeout = action switch { "workshop-update" or "workshop-create" => 600, "wait-sim" => Math.Clamp(seconds * 2, 30, 86400), "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120, "launch" => scenario == null ? 60 : 120, _ => 12 };
         if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia" or "double-click"
             || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
@@ -225,13 +229,22 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "workshop-status" => options.GetValueOrDefault("--operation") ?? "",
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
-        float speed = 1;
+        float speed = advance ? 10 : 1;
         float controlValue = 0;
         if (action == "set-value" && (!float.TryParse(Required("--value"), NumberStyles.Float, CultureInfo.InvariantCulture, out controlValue)
             || !float.IsFinite(controlValue))) throw new ArgumentException("Value must be finite.");
-        if (action == "set-speed" && (!float.TryParse(Required("--speed"), NumberStyles.Float, CultureInfo.InvariantCulture, out speed)
+        if ((action == "set-speed" || advance && options.ContainsKey("--speed"))
+            && (!float.TryParse(Required("--speed"), NumberStyles.Float, CultureInfo.InvariantCulture, out speed)
             || !new float[] { 0.1f, 0.2f, 0.5f, 1, 2, 3, 5, 10, 20, 30, 50, 100 }.Contains(speed)))
             throw new ArgumentException("Speed must be a native step between 0.1 and 100.");
+        int defaultTimeout = action switch
+        {
+            "workshop-update" or "workshop-create" => 600,
+            "wait-sim" => Math.Clamp(seconds * 2, 30, 86400),
+            "advance-sim" => Math.Clamp((int)Math.Ceiling(2 * seconds / (double)speed), 30, 86400),
+            "wait-for" => 10, "encyclopedia" or "unity-explorer" => 120,
+            "launch" => scenario == null ? 60 : 120, _ => 12,
+        };
         return new(new(action)
         {
             Snapshot = snapshot, Id = Number("--id", 0, 1, int.MaxValue),
