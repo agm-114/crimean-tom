@@ -21,8 +21,13 @@ internal class WorkshopControls : IDisposable
             throw new InvalidOperationException("Sea Power must be running with Steam signed in and the updated bridge enabled.");
         var manifest = new WorkshopManifest(command.ModDirectory, command.Action == "workshop-create");
         var files = manifest.ContentFiles();
+        FileInfo[] previews = command.PreviewDirectory.Length == 0 ? [] : new DirectoryInfo(command.PreviewDirectory)
+            .EnumerateFiles().Where(file => file.Extension.ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif")
+            .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        if (command.PreviewDirectory.Length > 0 && previews.Length == 0)
+            throw new ArgumentException("--preview-dir must contain at least one PNG, JPEG, or GIF image.");
         current?.Dispose();
-        current = new Upload(manifest, files, command);
+        current = new Upload(manifest, files, previews, command);
         current.Start();
         return current.Status();
     }
@@ -30,7 +35,7 @@ internal class WorkshopControls : IDisposable
     internal void Tick() => current?.Tick();
     public void Dispose() => current?.Dispose();
 
-    private class Upload(WorkshopManifest manifest, FileInfo[] files, GameCommand command) : IDisposable
+    private class Upload(WorkshopManifest manifest, FileInfo[] files, FileInfo[] previews, GameCommand command) : IDisposable
     {
         internal string Id { get; } = Guid.NewGuid().ToString("N");
         internal bool Busy => state is "checking" or "creating" or "adding-dependencies" or "uploading";
@@ -51,6 +56,7 @@ internal class WorkshopControls : IDisposable
         private CallResult<CreateItemResult_t>? createCall;
         private readonly List<CallResult<AddUGCDependencyResult_t>> dependencyCalls = [];
         private int dependenciesRemaining;
+        private readonly Dictionary<string, uint> currentPreviews = new(StringComparer.OrdinalIgnoreCase);
 
         internal void Start()
         {
@@ -62,6 +68,7 @@ internal class WorkshopControls : IDisposable
                 SteamUGC.SetAllowCachedResponse(query, 0);
                 Require(SteamUGC.SetLanguage(query, "english"), "query language");
                 Require(SteamUGC.SetReturnLongDescription(query, true), "description query");
+                if (previews.Length > 0) Require(SteamUGC.SetReturnAdditionalPreviews(query, true), "gallery query");
                 queryCall = CallResult<SteamUGCQueryCompleted_t>.Create(Queried);
                 var call = SteamUGC.SendQueryUGCRequest(query);
                 if (call == SteamAPICall_t.Invalid) throw new InvalidOperationException("Steam could not start the Workshop lookup.");
@@ -148,11 +155,23 @@ internal class WorkshopControls : IDisposable
                 if (item.m_eFileType != EWorkshopFileType.k_EWorkshopFileTypeFirst || item.m_bBanned)
                     throw new InvalidOperationException("URL does not identify an updateable Sea Power Workshop item.");
                 manifest.ValidateTarget(item.m_nPublishedFileId.m_PublishedFileId, item.m_nConsumerAppID.m_AppId, remoteTitle);
+                if (previews.Length > 0) ReadPreviews();
                 if (!command.Confirm) { state = "preview"; return; }
                 Submit();
             }
             catch (Exception error) { Fail(error.Message); }
             finally { ReleaseQuery(); }
+        }
+
+        private void ReadPreviews()
+        {
+            uint count = SteamUGC.GetQueryUGCNumAdditionalPreviews(query, 0);
+            for (uint index = 0; index < count; index++)
+            {
+                Require(SteamUGC.GetQueryUGCAdditionalPreview(query, 0, index, out _, 2048, out string name, 1024, out EItemPreviewType type),
+                    $"gallery image {index}");
+                if (type == EItemPreviewType.k_EItemPreviewType_Image) currentPreviews.TryAdd(name, index);
+            }
         }
 
         private void Submit()
@@ -173,6 +192,10 @@ internal class WorkshopControls : IDisposable
             Require(SteamUGC.SetItemDescription(update, manifest.Description), "description");
             Require(SteamUGC.SetItemContent(update, manifest.Directory), "content folder");
             if (File.Exists(preview)) Require(SteamUGC.SetItemPreview(update, preview), "thumbnail");
+            foreach (FileInfo file in previews)
+                Require(currentPreviews.TryGetValue(file.Name, out uint index)
+                    ? SteamUGC.UpdateItemPreviewFile(update, index, file.FullName)
+                    : SteamUGC.AddItemPreviewFile(update, file.FullName, EItemPreviewType.k_EItemPreviewType_Image), file.Name);
             var ini = Utils.openIniFile(Path.Combine(manifest.Directory, "_info.ini"), logErrors: false, useCaching: false);
             if (ini == null) throw new InvalidOperationException("Cannot read mod compatibility metadata.");
             var compatibility = ModCompatibility.FromIni(ini);
@@ -213,6 +236,7 @@ internal class WorkshopControls : IDisposable
                 url = manifest.Url, publishedFileId = manifest.ItemId == 0 ? null : manifest.ItemId.ToString(), appId = WorkshopManifest.AppId,
                 title = manifest.Name, description = manifest.Description,
                 currentTitle = remoteTitle, currentDescription = remoteDescription,
+                previewImages = previews.Select(file => file.Name).ToArray(), currentPreviewImages = currentPreviews.Keys.ToArray(),
                 ownerSteamId = owner == 0 ? null : owner.ToString(),
                 modDirectory = manifest.Directory, fileCount = files.Length, bytes,
                 changeLog = command.ChangeLog, progress, bytesProcessed = processed, bytesTotal = total, failure,

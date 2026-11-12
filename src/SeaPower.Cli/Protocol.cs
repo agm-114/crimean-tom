@@ -14,6 +14,7 @@ internal record GameRequest(string Action)
     public string Text { get; init; } = "";
     public bool Confirm { get; init; }
     public string ModDirectory { get; init; } = "";
+    public string PreviewDirectory { get; init; } = "";
     public string ChangeLog { get; init; } = "";
     public string Visibility { get; init; } = "";
     public ulong[] Dependencies { get; init; } = [];

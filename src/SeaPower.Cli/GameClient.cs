@@ -48,6 +48,7 @@ internal class GameClient
         requiredCapability = command.Request.Action switch
         {
             "workshop-create" or "double-click" => command.Request.Action,
+            "workshop-update" when command.Request.PreviewDirectory.Length > 0 => "workshop-preview-images",
             "workshop-update" or "workshop-status" => "workshop-update", _ => null,
         };
         if (command.Request.Action is "workshop-update" or "workshop-create") return await UploadWorkshopAsync(command.Request, cancellation);

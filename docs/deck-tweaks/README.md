@@ -141,6 +141,31 @@ cancellation and tactical saves. `StoreReservation` accounts for weapons held
 aboard; `PreparationSave` handles pending-task save data. UI code reads preparation
 state without owning its timers.
 
+## Workshop screenshots
+
+1. Deploy the Deck Tweaks build being published. Enable AnchorChain, Deck Tweaks,
+   and the Game Bridge. Use Casual flight deck timings to match the original captures.
+2. Start the game with `seapower-cli launch --confirm --require-pattern 'Deck Tweaks'`.
+   From the main menu, load the [carrier rearm scenario](scenarios/carrier-rearm.ini)
+   with `seapower-cli load-scenario --scenario <absolute-path> --confirm`.
+3. Select Nimitz and open **Unit Status → Flight Deck**. Set **F-14A**, **VF-41
+   Black Aces**, **2** assigned aircraft, and **Air To Air Long Range**. Click
+   **Ready** to prepare the batch on deck.
+4. Advance about three simulation minutes at 10× speed, then pause when Flight
+   Operations shows `2x Loading AIM-54A (Phoenix)`. If the timings have changed,
+   use that row state to pick the frame.
+5. With the tooltip closed, run `seapower-cli screenshot`. Crop to the complete
+   Unit Status window, including its title bar, utilisation bars, and all Flight
+   Operations columns. Save as `deck-tweaks-flight-deck.png`.
+6. Hover over the F-14A batch's **State** cell. Wait for the tooltip to show both
+   aircraft, then run `seapower-cli screenshot` again. Crop to the tooltip and save
+   as `deck-tweaks-rearm-tooltip.png`.
+
+Put the two PNGs in a dedicated folder outside the packaged mod directory. Run
+`seapower-cli workshop-update --mod-dir <package> --preview-dir <screenshots>` to
+review the upload. Add `--confirm` to submit it. Keep the filenames when
+regenerating the screenshots so the CLI replaces the existing gallery entries.
+
 ## Build
 
 Source: [src/DeckTweaks](../../src/DeckTweaks). See the
