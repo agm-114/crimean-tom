@@ -8,9 +8,13 @@
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
     <Reference Include="Assets" HintPath="$(GameManaged)\Assets.dll" Private="false" />
+    <Reference Include="CommunityToolkit.Mvvm" HintPath="$(GameManaged)\CommunityToolkit.Mvvm.dll" Private="false" />
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
+    <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
     <Reference Include="UniRx" HintPath="$(GameManaged)\UniRx.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(GameManaged)\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="Unity.Entities" HintPath="$(GameManaged)\Unity.Entities.dll" Private="false" />
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Compile Include="$(CampaignScenarios)/ChartPosition.cs;$(CampaignScenarios)/CivilianAirTraffic.cs;
                       $(CampaignScenarios)/CivilianTraffic*.cs;
@@ -19,6 +23,11 @@
                       ../CrimeanTom.SeaPower/EnumerableExtensions.cs;../CrimeanTom.SeaPower/IsExternalInit.cs"
              Link="Scenario generation/%(Filename)%(Extension)" />
     <Scenarios Include="missions\*.ini" />
+    <Compile Include="../SeaPower.GameBridge/PlayerPicture.cs;../SeaPower.GameBridge/PlayerBriefing.cs;../SeaPower.GameBridge/PlayerOrders.cs;../SeaPower.GameBridge/PlayerTime.cs;
+                      ../SeaPower.GameBridge/PlayerDoctrine.cs;../SeaPower.GameBridge/PlayerChart.cs;../SeaPower.GameBridge/PlayerCombat.cs"
+             Link="Player view/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../docs/ooda/prompts/*.md" Exclude="../../docs/ooda/prompts/README.md"
+                      LogicalName="OODA.Prompts.%(Filename)%(Extension)" />
   </ItemGroup>
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
@@ -28,4 +37,5 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
   </Target>
+  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
 </Project>

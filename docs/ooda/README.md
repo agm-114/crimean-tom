@@ -1,5 +1,19 @@
 # OODA
 
+See the [standalone scenario AI plan](scenario-ai-plan.md), [decision prompts](prompts/README.md), and [problem solving guide](decision-guide.md) for the player-side controller.
+
+OODA starts in **AI control** when a scenario loads with a controllable player side. Open **OODA Decisions** from the bottom-right HUD toolbar. **Observe** asks the signed-in Codex CLI to plan and suggest orders. **Take control** cancels pending decisions and returns control to you. **Let AI manage time** gives OODA up to four seconds of pause for the opening plan. Later decisions run while the simulation advances. OODA accelerates clear transit within the game's configured limit and slows down as live threats approach.
+
+**Mission Command** shows the briefing, player observations, plan, and received mission popups and radio messages. New messages trigger a replan using the running message history. Ship tabs and the native **Unit Status → OODA** tab show assignments, native orders, and decision results. **Preview urgent decision** on a ship tab sends a synthetic last-salvo choice to Codex and records its answer. The preview issues no weapons orders. The OpenAI Decisions client is available for a later provider change. This build uses the local Codex subscription for every decision.
+
+OODA can set temporary time-compression rules for radar acquisition, track changes, own-unit status or damage, and observed missile hits. Rules can apply to every matching event or target a specific unit or track. The Decision Log shows what triggered an interrupt. Use `seapower-cli ooda-status --json` to inspect the rules, active interrupts, and recent events.
+
+**AI control** can apply eligible surface waypoints and native Standing Orders at force, formation, and unit scope. Its map annotations show objectives, reference points, and search areas alongside the game's route display. Use **Chart waypoint** to supply a destination in decimal degrees. OODA checks the direct leg before applying it.
+
+Surface defense takes priority when an attack is reported or gunfire is observed. OODA matches reports against the player picture and can order a ship to engage. Possible rules-of-engagement violations appear in the Decision Log with the reason and go straight back to the planner for review.
+
+With the Game Bridge enabled, run `seapower-cli player-view --json` for the player-scoped snapshot and map annotations, and `seapower-cli ooda-status --json` for the plan, message history, and trace. The CLI and OODA share the native waypoint and Standing Orders actions. See the [CLI documentation](../seapower-cli/README.md).
+
 Enable AnchorChain, OODA, and Observer. Open **OODA Reinforcement Drill** in the Scenarios menu, or load it from the repository root.
 
 ```powershell
