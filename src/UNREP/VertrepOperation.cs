@@ -11,12 +11,12 @@ internal class VertrepTransfer(VertrepReceiver receiver, SupplyStock stock) : IN
     internal SupplyStock Stock { get; } = stock;
     internal double Delivered { get; set; }
     public bool Enabled { get; set; } = true;
-    internal bool Cancelled => !Plan.Queued || !Enabled;
+    internal bool Cancelled => !Plan.Queued || !Enabled || !Stock.Enabled || !Plan.Supplies.Contains(this);
     internal double Cargo => Operation.Helicopters.Where(helo => helo.Transfer == this).Sum(helo => helo.Cargo);
     internal double Available => !SupplyTransfers.Available(Target) ? 0
         : Math.Min(SupplyPolicy.Available(Operation.Source, Stock), Space);
     private double Space => Math.Max(0, SupplyInventory.Transferable(Target, Stock.Key).Sum(item => item.Free)
-        - Operation.Transfers.Where(plan => plan.Target == Target && plan.Stock.Key == Stock.Key).Sum(plan => plan.Cargo));
+        - VertrepOperation.IncomingCargo(Target, Stock.Key));
     internal string Blocked => !SupplyTransfers.Available(Target) || Target._taskforce != Operation.Source._taskforce ? "Receiver unavailable"
         : !VertrepLanding.HasDeck(Target) ? "No helicopter landing deck"
         : !Operation.Source.SupplyAllowed.Value || !Target.SupplyAllowed.Value ? "Supply disabled"
@@ -42,7 +42,7 @@ internal class VertrepReceiver(VertrepOperation operation, Vessel target)
     internal List<VertrepTransfer> Supplies { get; } = [];
     internal bool Queued { get; private set; }
     internal bool HasRun { get; private set; }
-    internal double Cargo => Supplies.Sum(plan => plan.Cargo);
+    internal double Cargo => Operation.Helicopters.Where(helo => helo.Transfer?.Plan == this).Sum(helo => helo.Cargo);
     internal bool InUse => Queued || Cargo > 0;
     internal string Status => !Queued ? Cargo > 0 ? "Returning cargo" : HasRun ? "Cancelled" : "Ready"
         : Cargo > 0 ? "In progress"
@@ -50,6 +50,7 @@ internal class VertrepReceiver(VertrepOperation operation, Vessel target)
         : Supplies.FirstOrDefault(plan => plan.Enabled)?.Blocked is { Length: > 0 } reason ? reason : "All supplies disabled";
     internal void SyncSupplies()
     {
+        Supplies.RemoveAll(plan => !plan.Stock.Enabled);
         var keys = SupplyInventory.Read(Target).Where(stock => stock.CanChange).Select(stock => stock.Key).ToHashSet();
         foreach (var stock in SupplyInventory.Stacked(Operation.Source)
             .Where(stock => stock.Key.StartsWith("unrep/", StringComparison.Ordinal) && keys.Contains(stock.Key)))
@@ -125,7 +126,7 @@ internal class VertrepOperation(Vessel source)
             || Operations.Any(op => op != this && (op.Source == target && Uses(target)
                 || op.Receivers.Any(plan => plan.InUse && (plan.Target == Source || plan.Target == target)))))
             return "Ship busy with another operation";
-        return receiver.Supplies.Any(plan => plan.Enabled) ? "" : "Enable a supply";
+        return receiver.Supplies.Any(plan => plan.Enabled && plan.Stock.Enabled) ? "" : "Enable a supply";
     }
     internal string Queue(VertrepReceiver receiver)
     {

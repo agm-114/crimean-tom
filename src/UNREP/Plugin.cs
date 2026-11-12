@@ -9,8 +9,10 @@ public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        SupplySettings.Load();
-        new Harmony("crimean-tom.unrep").PatchAll(typeof(Plugin).Assembly);
+        var harmony = new Harmony("crimean-tom.unrep");
+        SupplySettings.Load(harmony);
+        harmony.PatchAll(typeof(Plugin).Assembly);
+        AviationFuel.Activate();
         var host = new GameObject("UNREP");
         UnityEngine.Object.DontDestroyOnLoad(host);
         host.AddComponent<SuppliesController>();

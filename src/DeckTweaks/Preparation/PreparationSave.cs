@@ -48,7 +48,8 @@ internal static class PreparationSave
                 batch.Load(saved[Tag.Length..], target);
                 // Native inventory was already saved with these reservations deducted.
                 StoreReservation reservation = StoreReservation.Excess(batch, target);
-                TaskPreparation.Attach(task, batch, reservation);
+                TaskPreparation preparation = TaskPreparation.Attach(task, batch, reservation);
+                if (record[0] == nameof(AbortPreparation)) preparation.BeginAbort(task);
             }
             catch (Exception exception)
             {

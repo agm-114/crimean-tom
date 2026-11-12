@@ -10,11 +10,11 @@ internal class SupplyConsumption(Vessel ship)
 {
     private static readonly ConditionalWeakTable<Vessel, SupplyConsumption> Ships = new();
     private readonly List<SupplyBin> bins = SupplyInventory.Additional(ship);
-    private readonly double fuelFull = SupplySettings.HourlyRate(ship, "FuelFull");
-    private readonly double foodUse = SupplySettings.HourlyRate(ship, "FoodUse");
-    private readonly double waterProduction = SupplySettings.HourlyRate(ship, "WaterProduction");
-    private readonly double partsUse = SupplySettings.HourlyRate(ship, "SparePartsUse");
-    private readonly double partsPerTeam = SupplySettings.HourlyRate(ship, "SparePartsPerDCTeam");
+    private readonly double fuelStandard = SupplyTuning.Value(ship, "FuelStandard");
+    private readonly double foodUse = SupplyTuning.Value(ship, "FoodUse");
+    private readonly double waterProduction = SupplyTuning.Value(ship, "WaterProduction");
+    private readonly double partsUse = SupplyTuning.Value(ship, "SparePartsUse");
+    private readonly double partsPerTeam = SupplyTuning.Value(ship, "SparePartsPerDCTeam");
     private int repairTeams;
 
     internal static SupplyConsumption For(Vessel ship) => Ships.GetValue(ship, unit => new(unit));
@@ -23,42 +23,16 @@ internal class SupplyConsumption(Vessel ship)
 
     internal double Rate(SupplyBin bin)
     {
-        if (!Operating(ship)) return 0;
+        if (!bin.Enabled || !Operating(ship)) return 0;
         double rate = bin.Key switch
         {
-            "Fuel" => -fuelFull * FuelLoad(),
+            "Fuel" => -fuelStandard * FuelTelegraph.Load(ship),
             "Food" => -foodUse,
             "Water" => waterProduction,
             "SpareParts" => -partsUse - repairTeams * partsPerTeam,
             _ => 0
         };
         return rate < 0 && bin.Amount <= 0 || rate > 0 && bin.Amount >= bin.Capacity ? 0 : rate;
-    }
-
-    private double FuelLoad()
-    {
-        var command = ship.SpeedCommand.Value;
-        double speed = command?.GetDemandedSpeedInKnots(ship) ?? 0;
-        if (!double.IsFinite(speed) || speed == 0) return 0;
-        // Engine orders matter even before the hull reaches the requested speed.
-        if (command is { Kind: SpeedKind.Telegraph })
-        {
-            if (command.Telegraph is -1 or 4) return 1;
-            if (command.Telegraph == 5) return 2;
-        }
-        var speeds = ship.VP._telegraphVelocities;
-        double reverse = Math.Abs(speeds is { Length: > 0 } ? speeds[0] : ship.MaxBackwardSpeedInKnots);
-        double flank = speeds is { Length: > 6 } ? speeds[6] : ship.MaxForwardSpeedInKnots;
-        double full = speeds is { Length: > 5 } ? speeds[5] : flank * 0.8;
-        return FuelLoad(speed, reverse, full, flank);
-    }
-
-    internal static double FuelLoad(double speed, double reverse, double full, double flank)
-    {
-        if (speed < 0) return reverse > 0 ? Math.Clamp(-speed / reverse, 0, 1) : 0;
-        if (full <= 0) return 0;
-        if (speed <= full || flank <= full) return Math.Clamp(speed / full, 0, 1);
-        return 1 + Math.Clamp((speed - full) / (flank - full), 0, 1);
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(Vessel), nameof(Vessel.OnFixedUpdate))]

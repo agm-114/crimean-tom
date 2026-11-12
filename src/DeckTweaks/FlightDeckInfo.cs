@@ -24,6 +24,12 @@ internal static class FlightDeckInfo
     private static void FormatState(FlightDeckTask __instance, ref string __result)
     {
         int count = __instance is PendingLaunchTask task ? task.LaunchCount : 1;
+        if (__instance is PendingLaunchTask aborting && aborting._stateMachine?.CurrentState is AbortPreparation
+            && TaskPreparation.Find(aborting) is { } abort)
+        {
+            __result = abort.Label(aborting, "Awaiting crew to unload");
+            return;
+        }
         string state = __instance._stateMachine?.CurrentState switch
         {
             HandleAwaitDeckSpaceTask => "Awaiting Deck Space",

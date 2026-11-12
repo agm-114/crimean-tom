@@ -13,7 +13,7 @@ internal class SuppliesView
     internal SuppliesView(Vessel ship)
     {
         var policy = SupplyPolicy.For(ship);
-        var stocks = SupplyInventory.Stacked(ship);
+        var stocks = SupplyInventory.Stacked(ship, includeDisabled: true);
         string structure = SupplyInventory.Structure(ship), category = "All", search = "";
         var table = Table("SupplyInventory", TextColumn("Category", nameof(SupplyStock.Category), 145),
             TextColumn("Item", nameof(SupplyStock.Name), 170), TextColumn("Location", nameof(SupplyStock.Location), 190),
@@ -77,7 +77,7 @@ internal class SuppliesView
         refresh = () =>
         {
             string updated = SupplyInventory.Structure(ship);
-            if (structure != updated) { structure = updated; stocks = SupplyInventory.Stacked(ship); }
+            if (structure != updated) { structure = updated; stocks = SupplyInventory.Stacked(ship, includeDisabled: true); }
             foreach (var stock in stocks) stock.Refresh();
             Filter();
             apply.IsEnabled = table.SelectedItem is SupplyStock { CanChange: true };

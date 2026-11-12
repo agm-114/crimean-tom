@@ -1,6 +1,7 @@
 using AnchorChain;
 using HarmonyLib;
 using UnityEngine;
+using DeckTweaks.Preparation;
 
 namespace DeckTweaks;
 
@@ -9,7 +10,10 @@ public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        new Harmony("crimean-tom.deck-tweaks").PatchAll(typeof(Plugin).Assembly);
+        var harmony = new Harmony("crimean-tom.deck-tweaks");
+        DeckSettings.Register(harmony);
+        DeckSettings.Settings.Changed += PreparationCatalog.ClearWeaponRates;
+        harmony.PatchAll(typeof(Plugin).Assembly);
         Debug.Log("[Deck Tweaks] Loaded loadout selection and stateful aircraft preparation.");
     }
 }

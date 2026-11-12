@@ -12,13 +12,17 @@
     <Reference Include="UniRx" HintPath="$(GameManaged)\UniRx.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameManaged)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+    <UnitExtensions Include="unit_extensions\*.ini" />
+    <None Update="@(UnitExtensions)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../SeaPower.SharedSettings/SeaPower.SharedSettings.props" />
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\supplies.ini" DestinationFolder="$(PluginDeployDirectory)" Condition="!Exists('$(PluginDeployDirectory)\supplies.ini')" />
+    <Copy SourceFiles="@(UnitExtensions)" DestinationFiles="@(UnitExtensions->'$(PluginDeployDirectory)\%(Identity)')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)YamlDotNet.dll" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\supplies.yml" DestinationFolder="$(PluginDeployDirectory)" Condition="!Exists('$(PluginDeployDirectory)\supplies.yml')" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />

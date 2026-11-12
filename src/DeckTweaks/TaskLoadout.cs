@@ -11,6 +11,7 @@ public class TaskLoadout : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanChange => !task._isCancelled && task.LaunchCount > 0
         && task._flightDeck._baseObject.AcceptsOrdersFromPlayer
+        && !task._flightDeck.LaunchesDisabled && !task._flightDeck.DisabledByMission
         && task._flightDeck.FlightDeckTasks.Contains(task)
         && task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask or HandleAwaitGroundCrewTask
             or HandleReadyUpTask or HandleAwaitSpawnTask;
@@ -100,15 +101,27 @@ public class TaskLoadout : INotifyPropertyChanged
         Squadron squadron = task.VehicleType.Squadrons[task._squadronIndex];
         string callsign = squadron.Callsigns[task._callsignIndex];
         int index = deck.FlightDeckTasks.IndexOf(task);
+        int count = task.LaunchCount;
+        bool allowLaunch = task.launchAllowed;
+        Loadout original = SelectedLoadout;
+        PreparationLoadout? originalTarget = preparation?.Batch.Aircraft[0].Target;
+        List<GroundCargoManifestEntry> cargo = [.. task._ltp._groundCargo];
         // Abort refunds the old weapons and aircraft; creation reserves the new loadout normally.
         HangarPreparation.ChangingLoadout = true;
         try
         {
             deck.abortLaunchTask(task._uid);
-            task._ltp._launchCount = task.LaunchCount;
+            task._ltp._launchCount = count;
             task._ltp._skipReadyUp = false;
+            task._ltp._groundCargo = cargo;
             PendingLaunchTask replacement = deck.createLaunchTask(task.VehicleType, loadout, squadron, callsign,
                 task._ltp, allowLaunch: false, readyUpTime: loadout._readyUpDuration);
+            if (replacement == null)
+            {
+                replacement = deck.createLaunchTask(task.VehicleType, original, squadron, callsign,
+                    task._ltp, allowLaunch, readyUpTime: original._readyUpDuration);
+                target = originalTarget;
+            }
             if (replacement == null)
             {
                 HangarPreparation.ChangingLoadout = false;

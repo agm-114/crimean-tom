@@ -9,6 +9,10 @@ internal class SupplyBin(string key, string name, double capacity, double amount
     internal string Key { get; } = key;
     internal string Name { get; } = name;
     internal double Capacity { get; } = capacity;
+    internal bool IsFuelCargo => Key == "CargoFuel";
+    internal bool IsAviationFuel => Key == "AviationFuel";
+    internal string StockKey => IsAviationFuel ? "aviation-fuel" : Key == "Fuel" || IsFuelCargo ? "fuel" : "unrep/" + Key;
+    internal bool Enabled => SupplyTuning.ReserveEnabled(Key);
     private double storedAmount = Math.Clamp(amount, 0, capacity);
     internal double Amount { get => storedAmount; set => storedAmount = Math.Clamp(value, 0, Capacity); }
     internal void Change(double delta) => Amount += delta;
@@ -40,18 +44,30 @@ internal static class SupplyInventory
             ("Fuel", "Fuel reserve"), ("Food", "Food"),
             ("Water", "Fresh water"), ("SpareParts", "Spare parts"),
         })
-            bins.Add(new(key, name, SupplySettings.Amount(unit, key + "Capacity"), SupplySettings.Amount(unit, key)));
+            bins.Add(new(key, name, SupplyTuning.Value(unit, key + "Capacity"), SupplyTuning.Value(unit, key)));
+        double cargoFuel = SupplyTuning.CargoFuelCapacity(unit);
+        if (cargoFuel > 0 && !unit._obp._supplySystems.Any(system => system.FuelCargoCapacity > 0))
+            bins.Add(new("CargoFuel", "Replenishment fuel", cargoFuel, cargoFuel));
+        double aviationFuel = SupplyTuning.AviationFuelCapacity(unit);
+        if (aviationFuel > 0) bins.Add(new("AviationFuel", "Aviation fuel", aviationFuel, SupplyTuning.Value(unit, "AviationFuel")));
         return bins;
     });
 
-    internal static List<SupplyStock> Read(Vessel ship)
+    internal static List<SupplyStock> Read(Vessel ship, bool includeDisabled = false)
     {
         List<SupplyStock> stocks = [];
         foreach (var bin in Additional(ship))
-            stocks.Add(new(bin.Key == "Fuel" ? "fuel" : "unrep/" + bin.Key,
-                bin.Key == "Fuel" ? "Fuel" : "Provisions and spares", bin.Name, "UNREP inventory", "kg",
+        {
+            if (!includeDisabled && !bin.Enabled) continue;
+            stocks.Add(new(bin.StockKey, bin.StockKey is "fuel" or "aviation-fuel" ? "Fuel" : "Provisions and spares",
+                bin.Name, bin.IsFuelCargo ? "UNREP cargo tanks" : "UNREP inventory", "kg",
                 () => bin.Amount, () => bin.Capacity, bin.Change, showWhenEmpty: true)
-            { RatePerHour = () => SupplyConsumption.For(ship).Rate(bin) });
+            {
+                IsFuelCargo = bin.IsFuelCargo,
+                RatePerHour = bin.IsFuelCargo || bin.IsAviationFuel ? null : () => SupplyConsumption.For(ship).Rate(bin),
+                IsEnabled = () => bin.Enabled
+            });
+        }
 
         foreach (var magazine in ship._obp._magazineSystems.Concat(ship._obp._campaignMagazineSystems).Distinct())
         foreach (var ammo in magazine._ammunitionList.Distinct())
@@ -98,7 +114,7 @@ internal static class SupplyInventory
             stocks.Add(new("fuel", "Fuel", "Replenishment fuel", location, "kg",
                 () => system.FuelCargoCurrent, () => system.FuelCargoCapacity,
                 system._useLoadoutFuelAsCargo ? null : delta => system._currentFuel += (float)delta,
-                () => !system.Inoperable.Value, showWhenEmpty: system.FuelCargoCapacity > 0));
+                () => !system.Inoperable.Value, showWhenEmpty: system.FuelCargoCapacity > 0) { IsFuelCargo = true });
             stocks.Add(new("ammo-points", "Replenishment cargo", "Common ammunition", location, "points",
                 () => system._currentAmmo, () => system._ammoCapacity, delta => system._currentAmmo += (float)delta,
                 () => !system.Inoperable.Value));
@@ -114,7 +130,7 @@ internal static class SupplyInventory
     internal static IEnumerable<SupplyStock> Transferable(Vessel ship, string key) =>
         Read(ship).Where(stock => stock.Key == key && stock.Transferable);
 
-    internal static List<SupplyStock> Stacked(Vessel ship) => Read(ship)
+    internal static List<SupplyStock> Stacked(Vessel ship, bool includeDisabled = false) => Read(ship, includeDisabled)
         .GroupBy(stock => new { stock.Key, stock.Category, stock.Name, stock.Unit, stock.CanChange })
         .Select(group =>
         {

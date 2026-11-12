@@ -162,7 +162,7 @@ internal class HangarPreparation
             return;
         }
         StoreReservation reservation = __state.Excess;
-        if (__result._ltp._skipReadyUp || !DM_TestTools._allowAircraftReadyUpTime)
+        if (TaskPreparation.CompleteImmediately(__result))
         {
             __state.Batch.Complete();
             reservation.Replace(__instance, new(), refresh: false);
