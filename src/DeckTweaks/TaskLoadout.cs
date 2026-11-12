@@ -17,9 +17,9 @@ public class TaskLoadout : INotifyPropertyChanged
     public Loadout[] Loadouts { get; }
     private static int CurrentYear => Singleton<SeaPower.Environment>.InstanceExists()
         ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
-    public string PreparationStatus => TaskPreparation.Find(task) is { } preparation
+    internal IEnumerable<PreparationLine> PreparationStatus => TaskPreparation.Find(task) is { } preparation
         ? preparation.Describe(task)
-        : "Native preparation. Detailed fuel and stores are not tracked for this task.";
+        : [new("Native preparation. Detailed fuel and stores are not tracked for this task.")];
     public Loadout SelectedLoadout
     {
         get => task.VehicleType.Loadouts[task._loadoutIndex];
@@ -57,21 +57,23 @@ public class TaskLoadout : INotifyPropertyChanged
         };
     }
 
-    internal string Preview(Loadout loadout)
+    internal IEnumerable<PreparationLine> Preview(Loadout loadout)
     {
         if (loadout == SelectedLoadout) return PreparationStatus;
-        if (!CanChange) return "This task can no longer change loadout.";
+        if (!CanChange) return [new("This task can no longer change loadout.")];
         if (TaskPreparation.Find(task) is not { } preparation)
-            return "Swap estimate unavailable: this task uses native preparation.";
+            return [new("Swap estimate unavailable: this task uses native preparation.")];
         try
         {
             PreparationLoadout target = PreparationCatalog.Loadout(task.VehicleType, loadout);
-            string stock = CanAfford(loadout, preparation, target) ? "" : "Insufficient ammunition stock.\n";
-            return $"Switch to {loadout.DisplayName}\n{stock}{preparation.DescribeSwap(task, target)}";
+            List<PreparationLine> lines = [new($"Switch to {loadout.DisplayName}")];
+            if (!CanAfford(loadout, preparation, target)) lines.Add(new("Insufficient ammunition stock."));
+            lines.AddRange(preparation.DescribeSwap(task, target));
+            return lines;
         }
         catch (Exception)
         {
-            return "Swap estimate unavailable for this loadout.";
+            return [new("Swap estimate unavailable for this loadout.")];
         }
     }
 

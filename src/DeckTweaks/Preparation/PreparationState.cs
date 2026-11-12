@@ -18,6 +18,13 @@ internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequi
     internal double FuelCapacity { get; } = fuelCapacity;
 }
 
+internal readonly struct PreparationLine(string text, string? perUnit = null, string? completion = null)
+{
+    internal string Text { get; } = text;
+    internal string? PerUnit { get; } = perUnit;
+    internal string? Completion { get; } = completion;
+}
+
 // Pure preparation state. No game objects, inventory mutations, timers or launch commands.
 internal class AircraftPreparation
 {
@@ -34,7 +41,7 @@ internal class AircraftPreparation
             : $"{operation.Activity} {weaponName(operation.Reference)}";
     }
 
-    internal string Describe(double workSpeed, bool working, string waiting, Func<string, string> weaponName)
+    internal IEnumerable<PreparationLine> Describe(double workSpeed, bool working, string waiting, Func<string, string> weaponName)
     {
         Dictionary<string, double> completion = new(StringComparer.OrdinalIgnoreCase);
         double elapsed = 0;
@@ -45,40 +52,40 @@ internal class AircraftPreparation
         }
         double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
         double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
-        List<string> lines = [Ready ? "Ready" : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)",
-            $"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%"];
+        yield return new(Ready ? "Ready" : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)");
+        yield return new($"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%");
         if (Fuel < 1)
         {
-            double rate = Target.FuelCapacity / Target.RefuelSeconds * workSpeed;
-            string service = double.IsPositiveInfinity(workSpeed) ? "instant"
-                : $"{rate:0.00} kg/s, {Duration((1 - Fuel) * Target.RefuelSeconds / workSpeed)} of refueling left";
-            lines.Add(working ? $"Refueling: {service}" : $"Refueling: 0 kg/s. When assigned: {service}");
+            if (double.IsPositiveInfinity(workSpeed))
+                yield return new("Refueling", completion: "Refueled instantly");
+            else
+            {
+                double rate = Target.FuelCapacity / Target.RefuelSeconds * workSpeed;
+                string service = working ? $"{rate:0.00} kg/s" : $"0 kg/s ({rate:0.00} kg/s when assigned)";
+                yield return new($"Refueling: {service}", completion: $"Refueled in {Duration((1 - Fuel) * Target.RefuelSeconds / workSpeed)}");
+            }
         }
-        lines.Add($"Target stores loaded: {(total > 0 ? Math.Floor(loaded / total * 100) : 100):0}%");
-        int deviations = 0;
+        yield return new($"Target stores loaded: {(total > 0 ? Math.Floor(loaded / total * 100) : 100):0}%");
+        bool storesMatch = true;
         foreach (StoreRequirement store in Target.Stores.OrderBy(store => store.Priority).ThenBy(store => store.Reference, StringComparer.Ordinal))
         {
             double mounted = Mounted.GetValueOrDefault(store.Reference);
-            double missing = store.Amount - mounted;
-            if (missing <= 0) continue;
-            deviations++;
-            lines.Add($"{weaponName(store.Reference)}: {Quantity(mounted)}/{Quantity(store.Amount)}"
-                + $" · {PerUnit(store.MountSeconds / workSpeed)} · loaded in {Duration(completion[store.Reference])}");
+            if (mounted >= store.Amount) continue;
+            storesMatch = false;
+            yield return new($"{weaponName(store.Reference)}: {Math.Floor(mounted):0}/{store.Amount:0}",
+                PerUnit(store.MountSeconds / workSpeed), $"Loaded in {Duration(completion[store.Reference])}");
         }
         foreach (var mounted in Mounted.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             double wanted = Target.Stores.FirstOrDefault(store => store.Reference.Equals(mounted.Key, StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
-            double excess = mounted.Value - wanted;
-            if (excess <= 0) continue;
-            deviations++;
-            lines.Add($"{weaponName(mounted.Key)}: remove {Quantity(excess)} {(wanted > 0 ? "excess" : "incompatible")}"
-                + $" · {PerUnit(knownStores[mounted.Key].RemoveSeconds / workSpeed)} · off in {Duration(completion[mounted.Key])}");
+            if (mounted.Value <= wanted) continue;
+            storesMatch = false;
+            yield return new($"{weaponName(mounted.Key)}: {Math.Ceiling(mounted.Value):0}/{wanted:0}",
+                PerUnit(knownStores[mounted.Key].RemoveSeconds / workSpeed), $"Off in {Duration(completion[mounted.Key])}");
         }
-        if (deviations == 0) lines.Add("Weapons match selected loadout.");
-        return string.Join("\n", lines);
+        if (storesMatch) yield return new("Weapons match selected loadout.");
     }
 
-    private static string Quantity(double value) => value > 0 && value < 0.01 ? "<0.01" : $"{Math.Floor(value * 100) / 100:0.##}";
     private static string PerUnit(double seconds) => $"{(seconds is > 0 and < 1 ? $"{seconds:0.##}s" : Duration(seconds))}/u";
     internal static string Duration(double seconds) => !double.IsFinite(seconds) ? "unknown"
         : seconds > 59 ? $"{Math.Floor(Math.Ceiling(seconds) / 60):0}m{Math.Ceiling(seconds) % 60:00}s" : $"{Math.Ceiling(seconds):0}s";

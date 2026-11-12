@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using DeckTweaks.Preparation;
 using HarmonyLib;
 using Noesis;
 using SeaPower;
@@ -94,7 +96,7 @@ internal static class LoadoutColumn
     {
         if (!Equals(sender, args.Source)) return;
         if (sender is not ComboBoxItem item || OptionPicker(item) == null) return;
-        item.ToolTip ??= CreateToolTip(new TextBlock { TextWrapping = TextWrapping.Wrap });
+        item.ToolTip ??= CreateToolTip();
         ConfigureToolTip(item);
         ToolTipService.SetPlacement(item, PlacementMode.Right);
         item.ToolTipOpening -= OnOptionToolTipOpening;
@@ -112,8 +114,7 @@ internal static class LoadoutColumn
             args.Handled = true;
             return;
         }
-        if (item.ToolTip is ToolTip { Content: ScrollViewer { Content: TextBlock status } })
-            status.Text = row.Preview(loadout);
+        if (item.ToolTip is ToolTip tooltip) SetToolTipLines(tooltip, row.Preview(loadout));
     }
 
     private static void OnContextChanged(object sender, DependencyPropertyChangedEventArgs args) => Bind((ComboBox)sender);
@@ -139,17 +140,57 @@ internal static class LoadoutColumn
         element.ToolTip = null;
         if (row == null) return;
         BoundRows.Add(element, row);
-        TextBlock status = new() { TextWrapping = TextWrapping.Wrap };
-        status.SetBinding(TextBlock.TextProperty, new Binding(nameof(TaskLoadout.PreparationStatus)) { Source = row });
-        element.ToolTip = CreateToolTip(status);
+        ToolTip tooltip = CreateToolTip();
+        void Refresh(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(TaskLoadout.PreparationStatus)) SetToolTipLines(tooltip, row.PreparationStatus);
+        }
+        tooltip.Opened += (_, _) =>
+        {
+            SetToolTipLines(tooltip, row.PreparationStatus);
+            row.PropertyChanged += Refresh;
+        };
+        tooltip.Closed += (_, _) => row.PropertyChanged -= Refresh;
+        element.ToolTip = tooltip;
         ConfigureToolTip(element);
     }
 
-    private static ToolTip CreateToolTip(TextBlock status) => new()
+    private static ToolTip CreateToolTip()
     {
-        Content = new ScrollViewer { Content = status, MaxHeight = 480, MaxWidth = 460,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-    };
+        Grid grid = new();
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        return new() { Content = new ScrollViewer { Content = grid, MaxHeight = 480, MaxWidth = 460,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
+    }
+
+    private static void SetToolTipLines(ToolTip tooltip, IEnumerable<PreparationLine> lines)
+    {
+        if (tooltip.Content is not ScrollViewer { Content: Grid grid }) return;
+        grid.Children.Clear();
+        grid.RowDefinitions.Clear();
+        foreach (PreparationLine line in lines)
+        {
+            int row = grid.RowDefinitions.Count;
+            grid.RowDefinitions.Add(new() { Height = line.Text.Length == 0 ? new GridLength(8) : GridLength.Auto });
+            TextBlock text = new() { Text = line.Text, TextWrapping = TextWrapping.Wrap };
+            Grid.SetRow(text, row);
+            if (line.PerUnit == null && line.Completion == null) Grid.SetColumnSpan(text, 3);
+            grid.Children.Add(text);
+            AddTimeCell(grid, row, 1, line.PerUnit);
+            AddTimeCell(grid, row, 2, line.Completion);
+        }
+    }
+
+    private static void AddTimeCell(Grid grid, int row, int column, string? value)
+    {
+        if (value == null) return;
+        TextBlock time = new() { Text = value, TextAlignment = TextAlignment.Right, Margin = new Thickness(12, 0, 0, 0) };
+        Grid.SetRow(time, row);
+        Grid.SetColumn(time, column);
+        grid.Children.Add(time);
+    }
 
     private static void ConfigureToolTip(FrameworkElement element)
     {

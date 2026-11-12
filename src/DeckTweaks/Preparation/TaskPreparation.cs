@@ -71,25 +71,36 @@ internal class TaskPreparation(PreparationBatch batch)
             .Select(group => $"{group.Count()}x {group.Key}"));
     }
 
-    internal string Describe(PendingLaunchTask task)
+    internal IEnumerable<PreparationLine> Describe(PendingLaunchTask task)
     {
         int crews = task._stateMachine.CurrentState is HandleReadyUpTask ? Math.Max(0, task.AssignedGroundCrew) : 0;
         string waiting = task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask ? "Awaiting deck space" : "Awaiting crew";
-        double speed = WorkSpeed(task);
-        return string.Join("\n\n", Batch.Aircraft.Select((aircraft, index) =>
-            $"Aircraft {index + 1}\n{aircraft.Describe(speed, !aircraft.Ready && crews-- > 0, waiting, PreparationCatalog.WeaponName)}"));
+        return DescribeAircraft(Batch, WorkSpeed(task), crews, waiting);
     }
 
-    internal string DescribeSwap(PendingLaunchTask task, PreparationLoadout target)
+    internal IEnumerable<PreparationLine> DescribeSwap(PendingLaunchTask task, PreparationLoadout target)
     {
         PreparationBatch preview = Batch.Preview(target);
         int crews = Math.Max(1, task.AssignedGroundCrew);
         double speed = WorkSpeed(task);
-        return $"Batch ready in {AircraftPreparation.Duration(preview.EstimatedSeconds(crews) / speed)} with {crews} crew."
-            + "\nExcludes waiting for crew and deck space."
-            + "\nKeeps current fuel and stores; includes unloading incompatible weapons.\n\n"
-            + string.Join("\n\n", preview.Aircraft.Select((aircraft, index) =>
-                $"Aircraft {index + 1}\n{aircraft.Describe(speed, false, "After swap", PreparationCatalog.WeaponName)}"));
+        yield return new($"Batch with {crews} crew", completion: $"Ready in {AircraftPreparation.Duration(preview.EstimatedSeconds(crews) / speed)}");
+        yield return new("Excludes waiting for crew and deck space.");
+        yield return new("Keeps current fuel and stores; includes unloading incompatible weapons.");
+        yield return new("");
+        foreach (PreparationLine line in DescribeAircraft(preview, speed, 0, "After swap")) yield return line;
+    }
+
+    private static IEnumerable<PreparationLine> DescribeAircraft(PreparationBatch batch, double speed, int crews, string waiting)
+    {
+        for (int index = 0; index < batch.Aircraft.Count; index++)
+        {
+            if (index > 0) yield return new("");
+            yield return new($"Aircraft {index + 1}");
+            AircraftPreparation aircraft = batch.Aircraft[index];
+            bool working = !aircraft.Ready && crews-- > 0;
+            foreach (PreparationLine line in aircraft.Describe(speed, working, waiting, PreparationCatalog.WeaponName))
+                yield return line;
+        }
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(PendingLaunchTask), MethodType.Constructor,
