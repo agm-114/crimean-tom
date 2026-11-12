@@ -1,6 +1,6 @@
 # Boat Ops
 
-Independent AnchorChain mod for Sea Power `0.8.5-261008`.
+Independent AnchorChain mod for Sea Power `0.9.0-261111`.
 Published as [[CT] Boat Ops](https://steamcommunity.com/sharedfiles/filedetails/?id=3817610390).
 Select a player-controlled Tarawa and open Boat Ops beside Flight Deck in
 Unit Status. The tab shows embarked craft, staging capacity and
