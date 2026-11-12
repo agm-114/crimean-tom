@@ -53,13 +53,12 @@ internal static class AmphibiousVariants
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(LandUnitLoader), nameof(LandUnitLoader.loadLandUnitFromInternalResources))]
-    private static void RestoreIdentity(LandUnitParameters __result, AmphibiousProfile? __state)
+    private static void RestoreIdentity(LandUnitParameters lp, AmphibiousProfile? __state)
     {
-        if (__state == null || __result?._rootGameObject == null) return;
-        __result._objectIniName = __state.Id;
-        var unit = __result._rootGameObject.GetComponent<LandUnit>();
+        if (__state == null || lp._baseObject is not LandUnit unit) return;
+        lp._objectIniName = __state.Id;
         unit._performAutoFlatten = false;
         unit._maskVegetation = false;
-        unit.gameObject.AddComponent<AmphibiousWake>().Initialize(unit, __state, __result);
+        unit.gameObject.AddComponent<AmphibiousWake>().Initialize(unit, __state, lp);
     }
 }

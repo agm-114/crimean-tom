@@ -1,6 +1,6 @@
 # Amphibs
 
-Independent AnchorChain mod for Sea Power `0.8.5-261008`.
+Independent AnchorChain mod for Sea Power `0.9.0-261111`.
 `src/Amphibs/amphibious-variants.ini` registers seven amphibious variants without
 replacing their stock ground units. They reuse the source models, equipment and
 national variants.
