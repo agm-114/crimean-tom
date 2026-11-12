@@ -59,6 +59,16 @@ internal static partial class NativeUi
         Background = new SolidColorBrush(Color.FromRgb(36, 38, 41)),
     };
 
+    internal static FrameworkElement EventRow(string timestamp, string title, string detail)
+    {
+        TextBlock headline = Text(title);
+        headline.FontWeight = FontWeights.SemiBold;
+        Border row = Card(Stack(Text(timestamp), headline, Text(detail)));
+        row.Padding = new Thickness(8, 5);
+        row.Margin = new Thickness(0, 0, 0, 3);
+        return row;
+    }
+
     internal static Expander Section(string title, FrameworkElement content, bool expanded = true) => new()
     {
         Header = title, Content = content, IsExpanded = expanded,
