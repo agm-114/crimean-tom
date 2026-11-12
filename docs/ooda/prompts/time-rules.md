@@ -1,4 +1,6 @@
-Use `timeRules` to set standing time-compression orders for future events. Use `null` to keep the current custom rules, or return the full replacement list. An empty list returns the next event to the built-in rules. Use null when `timeInterrupts.allowedSpeeds` is empty.
+Set `timePolicy.cruiseSpeed` to the highest speed in `timeInterrupts.allowedSpeeds` that can run the current plan, with a brief `cruiseReason`. Use null for both fields when the current cruise speed still fits or time control is unavailable. Favor fast cruise with short, specific interrupts. Raise cruise again when a reduced pace is no longer needed.
+
+Use `timePolicy.rules` to replace the current custom rules for this mission. Return the full list of rules to keep, `[]` to restore the built-in rules, or null to leave the current rules in place. A matching custom rule replaces the built-in response to that event, including when the interrupt is already active. To cancel a built-in slowdown for a specific contact, set its matching rule to the cruise speed. Use null when `timeInterrupts.allowedSpeeds` is empty.
 
 Each rule takes an `event`, optional `subjectId`, optional `category`, optional `posture`, an allowed `speed`, and `holdSeconds` from 2 to 60 wall-clock seconds. Omitted filters must be null.
 
@@ -8,4 +10,6 @@ Each rule takes an `event`, optional `subjectId`, optional `category`, optional 
 - `UnitStatusChanged` covers own unit orders, weapons posture, disablement, and loss of control. `UnitDamaged` covers increases in reported damage. `MissileHit` covers observed missile collisions with a target.
 - For a general rule, leave `subjectId` null. Use the exact category or posture from the player picture or recent event when filtering. For a specific rule, use a supplied track or owned unit ID. On `MissileHit`, the subject can be the target or the known missile track.
 
-A specific rule wins over general rules for the same event. The slowest active interrupt sets the pace while interrupts overlap. Time resumes its normal pace after they expire. Radio traffic and nearby missiles or torpedoes can limit the speed further. Prefer short holds for new developments and allow time to advance once the response is in progress.
+A specific rule wins over general rules for the same event. The slowest active interrupt sets the pace while interrupts overlap. Time resumes its normal pace after they expire. Radio traffic and nearby missiles or torpedoes can limit the speed further. Radar acquisitions are logged without a default slowdown. Prefer short holds for specific threats or meaningful changes. Avoid slowing for routine radar reacquisitions or minor track updates, and return to cruise once the response is in progress.
+
+If `recentSpeedChanges` or the current mission reveals a general problem with the built-in defaults, put one concrete change in `timePolicy.defaultSuggestion` for the developer log. Name the event or cruise behavior, the proposed multiplier and hold time where applicable, and the observed reason. Keep scenario-specific changes in `rules`. Return null when there is no new suggestion.

@@ -11,6 +11,7 @@ internal class TimeObservations
 
     private record Contact(string Label, string Category, string Posture, bool Identified, bool Visual, bool Radar, bool Nearby);
     private record Unit(string Label, string Category, string Orders, ObjectBase.WeaponStatus Weapons, bool Disabled, int Damage);
+    private readonly HashSet<string> nearbyContacts = [];
     private Dictionary<string, Contact>? contacts;
     private Dictionary<string, Unit>? units;
 
@@ -28,9 +29,9 @@ internal class TimeObservations
                 Contact? prior = contacts?.GetValueOrDefault(id);
                 MapVisualType category = track.GetMapType();
                 RelationsState posture = track.CurrentRelationship();
-                bool nearby = false;
-                if (posture == RelationsState.Hostile && category is not (MapVisualType.Missile or MapVisualType.Torpedo)
-                    && track.PositionEstimate is { } estimate)
+                bool canBeNearby = posture == RelationsState.Hostile && category is not (MapVisualType.Missile or MapVisualType.Torpedo);
+                bool nearby = canBeNearby && nearbyContacts.Contains(id);
+                if (canBeNearby && track.PositionEstimate is { } estimate)
                 {
                     ownPositions ??= ownUnits.Select(unit => unit.getGeoPosition()).ToArray();
                     double range = category switch
@@ -39,29 +40,31 @@ internal class TimeObservations
                         MapVisualType.Submarine => 10,
                         _ => 20
                     };
-                    if (prior?.Nearby == true) range *= 1.25;
+                    if (nearby) range *= 1.25;
                     nearby = ownPositions.Any(position => GeoPosition.HaversineDistanceNmi(position, estimate.Item1) <= range);
                 }
                 nextContacts[id] = new(PlayerPicture.ContactLabel(track), category.ToString(), posture.ToString(),
                     track.Identified.Value, track.IsObservedByVisual, prior?.Radar == true || (track.DetectingSensors & Radar) != 0, nearby);
             }
         }
-        if (contacts != null)
+        foreach (var (id, contact) in nextContacts)
         {
-            foreach (var (id, contact) in nextContacts)
-            {
-                bool known = contacts.TryGetValue(id, out Contact? prior);
-                if (!known) yield return ContactEvent(TimeEventKind.TrackAppeared, id, contact, "Live track appeared");
-                if (contact.Radar && prior?.Radar != true)
-                    yield return ContactEvent(TimeEventKind.RadarContact, id, contact, "Acquired by radar");
-                if (contact.Nearby && prior?.Nearby != true)
-                    yield return ContactEvent(TimeEventKind.HostileNearby, id, contact, "Hostile contact entered nearby range");
-                if (prior != null && contact with { Radar = prior.Radar, Nearby = prior.Nearby } != prior)
-                    yield return ContactEvent(TimeEventKind.TrackChanged, id, contact, ContactChange(prior, contact));
-            }
+            // A lost fix doesn't establish that a contact left nearby range.
+            bool enteredRange = contact.Nearby && nearbyContacts.Add(id);
+            if (!contact.Nearby) nearbyContacts.Remove(id);
+            if (contacts == null) continue;
+            Contact? prior = contacts.GetValueOrDefault(id);
+            if (prior == null) yield return ContactEvent(TimeEventKind.TrackAppeared, id, contact, "Live track appeared");
+            if (contact.Radar && prior?.Radar != true)
+                yield return ContactEvent(TimeEventKind.RadarContact, id, contact, "Acquired by radar");
+            if (enteredRange)
+                yield return ContactEvent(TimeEventKind.HostileNearby, id, contact, "Hostile contact entered nearby range");
+            if (prior != null && contact with { Radar = prior.Radar, Nearby = prior.Nearby } != prior)
+                yield return ContactEvent(TimeEventKind.TrackChanged, id, contact, ContactChange(prior, contact)) with { PreviousPosture = prior.Posture };
+        }
+        if (contacts != null)
             foreach (var (id, prior) in contacts)
                 if (!nextContacts.ContainsKey(id)) yield return ContactEvent(TimeEventKind.TrackLost, id, prior, "Live track lost");
-        }
         contacts = nextContacts;
 
         Dictionary<string, Unit> nextUnits = ownUnits.ToDictionary(PlayerPicture.Id, unit =>
@@ -105,6 +108,7 @@ internal class TimeObservations
 
     internal void Reset()
     {
+        nearbyContacts.Clear();
         contacts = null;
         units = null;
     }

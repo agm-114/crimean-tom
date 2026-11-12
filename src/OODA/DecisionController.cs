@@ -43,6 +43,8 @@ internal class DecisionController
     private bool airDefensePending;
     private double raidWarningAt = double.NegativeInfinity;
     private readonly HashSet<(string Id, bool Nearby)> raidTracks = [];
+    private readonly HashSet<string> loggedTimeSuggestions = new(StringComparer.OrdinalIgnoreCase);
+    private string? lastTimeSuggestion;
     private string? statusMessage;
 
     internal DecisionController(IDecisionProvider? urgentProvider = null) => this.urgentProvider = urgentProvider ?? codex;
@@ -167,6 +169,8 @@ internal class DecisionController
         airDefensePending = false;
         raidWarningAt = double.NegativeInfinity;
         raidTracks.Clear();
+        loggedTimeSuggestions.Clear();
+        lastTimeSuggestion = null;
         events.Clear();
         Revision++;
     }
@@ -350,7 +354,8 @@ internal class DecisionController
         ["plan"] = plan?.DeepClone(), ["lastInput"] = LastInput?.DeepClone(), ["missionMessages"] = MissionCommunications.Snapshot(),
         ["planMarks"] = PlanMarks(),
         ["time"] = new JObject { ["managed"] = ManagingClock, ["status"] = ClockStatus,
-            ["source"] = ClockExplanation.Source, ["reason"] = ClockExplanation.Reason, ["interrupts"] = interrupts.Describe() },
+            ["source"] = ClockExplanation.Source, ["reason"] = ClockExplanation.Reason, ["cruiseSpeed"] = clock.CruiseSpeed,
+            ["cruiseReason"] = clock.CruiseReason, ["interrupts"] = interrupts.Describe() },
         ["lastUrgentInput"] = LastUrgentInput?.DeepClone(), ["urgentShipId"] = UrgentShip,
         ["events"] = new JArray(events.Select(item => new JObject { ["time"] = item.Time, ["stage"] = item.Stage,
             ["status"] = item.Status, ["detail"] = item.Detail, ["shipId"] = item.ShipId, ["shipName"] = item.ShipName,
@@ -365,9 +370,22 @@ internal class DecisionController
     {
         view["plan"] = plan?.DeepClone();
         view["missionMessages"] = MissionCommunications.Snapshot();
-        view["timeInterrupts"] = interrupts.Describe();
-        view["timeInterrupts"]!["allowedSpeeds"] = new JArray(ManagingClock
-            ? DecisionClock.Speeds.Where(speed => speed <= PlayerTime.Maximum) : Enumerable.Empty<int>());
+        if (role is DecisionRole.Operational or DecisionRole.RoutineTactical)
+        {
+            JObject time = interrupts.Describe();
+            time["allowedSpeeds"] = new JArray(ManagingClock
+                ? DecisionClock.Speeds.Where(speed => speed <= PlayerTime.Maximum) : Enumerable.Empty<int>());
+            time["defaultCruiseSpeed"] = DecisionClock.DefaultCruiseSpeed;
+            time["cruiseSpeed"] = clock.CruiseSpeed;
+            time["cruiseReason"] = clock.CruiseReason;
+            time["currentSource"] = ClockExplanation.Source;
+            time["currentReason"] = ClockExplanation.Reason;
+            time["lastDefaultSuggestion"] = lastTimeSuggestion;
+            time["recentSpeedChanges"] = new JArray(events.Where(item => item.Stage == "Time control").Reverse().Take(8)
+                .Select(item => new JObject { ["time"] = item.Time, ["change"] = item.Status, ["reason"] = item.Detail,
+                    ["subject"] = item.ShipName }));
+            view["timeInterrupts"] = time;
+        }
         if (role is DecisionRole.SurfaceDefense or DecisionRole.AirDefense && PlayerPicture.Side is { } defensiveSide)
             SurfaceDefense.Describe(defensiveSide, view);
         if (role != DecisionRole.SurfaceDefense && PlayerPicture.Side is { } side)
@@ -441,7 +459,7 @@ internal class DecisionController
             }
             string objective = Short((string?)result["objective"], 800);
             if (objective.Length == 0 || result["assignments"] is not JArray assignments) throw new InvalidDataException("Codex returned an incomplete mission plan.");
-            ApplyTimeRules(result["timeRules"]);
+            ApplyTimePolicy(result["timePolicy"]);
             JArray valid = new();
             HashSet<string> seen = new();
             foreach (JObject assignment in assignments.OfType<JObject>())
@@ -477,7 +495,7 @@ internal class DecisionController
         }
 
         if (result["orders"] is not JArray orders) throw new InvalidDataException("Codex returned no tactical orders.");
-        ApplyTimeRules(result["timeRules"]);
+        ApplyTimePolicy(result["timePolicy"]);
         HashSet<string> handled = new();
         foreach (JObject order in orders.OfType<JObject>())
         {
@@ -506,10 +524,26 @@ internal class DecisionController
             Add("Time control", $"Set {GameTime.TimeCompression:0.##}×", Short((string?)result["timeReason"]));
     }
 
-    private void ApplyTimeRules(JToken? proposed)
+    private void ApplyTimePolicy(JToken? proposed)
     {
-        if (!ManagingClock || proposed is not JArray entries
+        if (proposed is not JObject policy) return;
+        string suggestion = Short((string?)policy["defaultSuggestion"], 900).Trim();
+        if (suggestion.Length > 0 && loggedTimeSuggestions.Add(suggestion))
+        {
+            lastTimeSuggestion = suggestion;
+            UnityEngine.Debug.Log($"[OODA] Time defaults suggestion | {mission} | {suggestion}");
+        }
+        if (!ManagingClock
             || LastInput?["timeInterrupts"]?["allowedSpeeds"] is not JArray offered || offered.Count == 0) return;
+        HashSet<int> speeds = offered.Values<int>().ToHashSet();
+        string reason = Short((string?)policy["cruiseReason"]).Trim();
+        if ((int?)policy["cruiseSpeed"] is { } speed && speeds.Contains(speed) && reason.Length > 0 && clock.SetCruise(speed, reason))
+            Add("Time control", $"Cruise set to {speed}×", reason);
+        if (policy["rules"] is JArray entries) ApplyTimeRules(entries, speeds);
+    }
+
+    private void ApplyTimeRules(JArray entries, HashSet<int> speeds)
+    {
         HashSet<string> subjects = new(StringComparer.Ordinal);
         foreach (string field in new[] { "contacts", "ownedUnits", "ownedOtherUnits" })
             if (LastInput?[field] is JArray units)
@@ -531,12 +565,12 @@ internal class DecisionController
             string? subject = (string?)item["subjectId"];
             if (subject != null && !subjects.Contains(subject)) continue;
             if ((string?)item["event"] is not { } name || !Enum.TryParse(name, out TimeEventKind kind) || kind.ToString() != name
-                || (int?)item["speed"] is not { } speed || !offered.Values<int>().Contains(speed)
+                || (int?)item["speed"] is not { } speed || !speeds.Contains(speed)
                 || (int?)item["holdSeconds"] is not { } hold || hold is < 2 or > 60) continue;
             next.Add(new(kind, subject, (string?)item["category"], (string?)item["posture"], speed, hold));
         }
         TimeRule[] rules = next.Distinct().ToArray();
-        if ((entries.Count == 0 || rules.Length > 0) && interrupts.Replace(rules))
+        if ((entries.Count == 0 || rules.Length > 0) && interrupts.Replace(rules, UnityEngine.Time.realtimeSinceStartupAsDouble))
             Add("Time control", "Interrupt rules updated", $"{rules.Length} custom rules");
     }
 
