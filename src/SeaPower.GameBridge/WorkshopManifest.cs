@@ -110,12 +110,10 @@ internal class WorkshopManifest
         return id;
     }
 
-    internal void ValidateTarget(ulong itemId, uint appId, ulong owner, ulong account, string title)
+    internal void ValidateTarget(ulong itemId, uint appId, string title)
     {
         if (itemId != ItemId || appId != AppId)
             throw new InvalidOperationException("URL does not identify the expected Sea Power Workshop item.");
-        if (owner == 0 || owner != account)
-            throw new InvalidOperationException("Workshop item belongs to a different Steam account.");
         // Accept the desired name too, so a successful rename does not break subsequent updates.
         if (!string.Equals(title.Trim(), Title.Trim(), StringComparison.Ordinal)
             && !string.Equals(title.Trim(), Name.Trim(), StringComparison.Ordinal))
