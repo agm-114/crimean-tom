@@ -38,6 +38,9 @@ internal class UiControls
         if (command.Action == "ui-gallery") { snapshot = ""; return UiGallery.Open(command); }
         if (command.Action == "inspect") return Inspect();
         if (command.Action == "units") return UnitSnapshot.Read();
+        if (command.Action == "player-view") return PlayerControls.PlayerView(command.Text);
+        if (command.Action == "player-waypoint") { snapshot = ""; return PlayerControls.Waypoint(command); }
+        if (command.Action == "ooda-status") return PlayerControls.Decisions();
         if (command.Action is "pause" or "resume" or "set-speed")
         {
             snapshot = "";

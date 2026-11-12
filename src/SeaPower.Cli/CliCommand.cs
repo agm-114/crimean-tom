@@ -20,6 +20,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli details --snapshot TOKEN --id ID [--depth 8]
         seapower-cli update
         seapower-cli units
+        seapower-cli player-view [--ship SHIP_ID]
+        seapower-cli player-waypoint --ship SHIP_ID --latitude LAT --longitude LON --confirm
+        seapower-cli ooda-status
         seapower-cli units-update
         seapower-cli query --input FILE --query JSONPATH
         seapower-cli query --input FILE --where EXPRESSION [--order-by EXPRESSION] [--select EXPRESSION]
@@ -117,7 +120,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         if (action == "speed") action = "set-speed";
         string[] actionOptions = action switch
         {
-            "inspect" or "update" or "units" or "units-update" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
+            "inspect" or "update" or "units" or "units-update" or "ooda-status" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
+            "player-view" => ["--ship"],
+            "player-waypoint" => ["--ship", "--latitude", "--longitude", "--confirm"],
             "game-status" => ["--game-dir", "--log-file"],
             "workshop-update" => ["--mod-dir", "--preview-dir", "--changelog", "--confirm"],
             "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
@@ -213,7 +218,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
-        if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia" or "double-click"
+        if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia" or "double-click" or "player-waypoint"
             || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
             throw new ArgumentException($"{action} requires --confirm.");
@@ -227,6 +232,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "set-text" or "wait-for" => Required("--text", action == "set-text"),
             "unity-explorer" => operation,
             "workshop-status" => options.GetValueOrDefault("--operation") ?? "",
+            "player-waypoint" => Required("--ship"),
+            "player-view" => options.ContainsKey("--ship") ? Required("--ship") : "",
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
         float speed = advance ? 10 : 1;
@@ -253,6 +260,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
             ModDirectory = modDirectory, ChangeLog = changeLog, Visibility = visibility, Dependencies = dependencies, Tags = tags,
             PreviewDirectory = previewDirectory,
+            Latitude = action == "player-waypoint" ? Coordinate("--latitude", 90) : null,
+            Longitude = action == "player-waypoint" ? Coordinate("--longitude", 180) : null,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,
@@ -262,6 +271,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
 
         string Required(string key, bool allowEmpty = false) => options.TryGetValue(key, out string? value) && (allowEmpty || !string.IsNullOrWhiteSpace(value))
             ? value : throw new ArgumentException($"{action} requires {key}.");
+
+        double Coordinate(string key, double max) => double.TryParse(Required(key), NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+            && double.IsFinite(value) && Math.Abs(value) <= max ? value : throw new ArgumentException($"{key} must be between {-max} and {max}.");
 
         int Number(string key, int fallback, int minimum, int maximum)
         {
