@@ -12,6 +12,7 @@ internal class SurfaceDefense
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private HashSet<(string Attacker, string Victim)> gunfire = [];
     private HashSet<string> reportContacts = [];
+    private readonly HashSet<string> reviewedGunFailures = [];
     private double lastRequested;
     internal bool Pending { get; set; }
     internal bool ActiveGunfire { get; private set; }
@@ -51,12 +52,15 @@ internal class SurfaceDefense
         lastRequested = GameTime.missionElapsedTime;
     }
 
+    internal void ReviewGunFailure(string targetId) => Pending |= reviewedGunFailures.Add(targetId);
+
     internal void Reset()
     {
         Pending = ActiveGunfire = false;
         lastRequested = 0;
         gunfire.Clear();
         reportContacts.Clear();
+        reviewedGunFailures.Clear();
     }
 
     internal static void Describe(Taskforce side, JObject view)
