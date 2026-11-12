@@ -63,7 +63,10 @@ internal static partial class NativeUi
     {
         TextBlock headline = Text(title);
         headline.FontWeight = FontWeights.SemiBold;
-        Border row = Card(Stack(Text(timestamp), headline, Text(detail)));
+        StackPanel content = Stack(Text(timestamp));
+        if (!string.IsNullOrWhiteSpace(title)) content.Children.Add(headline);
+        if (!string.IsNullOrWhiteSpace(detail)) content.Children.Add(Text(detail));
+        Border row = Card(content);
         row.Padding = new Thickness(8, 5);
         row.Margin = new Thickness(0, 0, 0, 3);
         return row;

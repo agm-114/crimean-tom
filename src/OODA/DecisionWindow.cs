@@ -204,8 +204,10 @@ public class DecisionWindow : MonoBehaviour
         StackPanel messages = Stack();
         foreach (MissionCommunications.Message message in MissionCommunications.Messages.Reverse())
         {
-            string title = string.Join(" · ", new[] { message.From, message.Title }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            messages.Children.Add(EventRow($"{Elapsed(message.Time)}  ·  {message.Kind}", title, message.Body));
+            string title = string.Join(" · ", new[] { message.Title, message.From }.Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+            string detail = string.Equals(message.Body, title, StringComparison.OrdinalIgnoreCase) ? "" : message.Body;
+            messages.Children.Add(EventRow($"{Elapsed(message.Time)} · {message.Kind}", title, detail));
         }
         if (messages.Children.Count == 0) messages.Children.Add(Text("No mission messages received"));
         return messages;
@@ -302,7 +304,7 @@ public class DecisionWindow : MonoBehaviour
 
     private FrameworkElement ContactsPage()
     {
-        StackPanel list = Stack(Text("Player contacts in the last decision request"));
+        StackPanel list = Stack();
         if (controller.LastInput?["contacts"] is not JArray { Count: > 0 } contacts)
         {
             list.Children.Add(Text("No plotted contacts in the last request"));
@@ -310,18 +312,38 @@ public class DecisionWindow : MonoBehaviour
         }
         foreach (JObject contact in contacts.OfType<JObject>())
         {
-            string classification = (string?)contact["observedClass"] ?? "Class unknown";
-            string tracking = (bool?)contact["live"] == true ? "Live track" : "No current fix";
-            if ((bool?)contact["visuallyObserved"] == true) tracking = "Visually observed";
+            string id = (string?)contact["id"] ?? "";
+            string track = id.StartsWith("track-", StringComparison.Ordinal) ? $"Track {id[6..]}" : id;
+            string? label = (string?)contact["displayLabel"];
+            string title = string.IsNullOrWhiteSpace(label) || label == id ? track : ReadableContactLabel(label);
+            string category = (string?)contact["category"] == "Air" ? "aircraft" : ((string?)contact["category"] ?? "contact").ToLowerInvariant();
+            List<string> summary = [$"{contact["posture"]} {category}"];
+            if (title != track) summary.Add(track);
+            string? source = (bool?)contact["visuallyObserved"] == true ? "Visual" : (string?)contact["sensor"] switch
+            {
+                "SearchRadar" => "Search radar",
+                "FCR" => "Fire-control radar",
+                "ARS" => "Active radar seeker",
+                "ActiveSonar" => "Active sonar",
+                "PassiveSonar" => "Passive sonar",
+                "TVSeeker" => "TV seeker",
+                "ActiveIntercept" => "Active intercept",
+                "Unknown" or "Self" or null => null,
+                string sensor => sensor
+            };
+            if (source != null) summary.Add(source);
+            if ((bool?)contact["live"] != true) summary.Add(contact["estimatedPosition"] is JObject ? "Last known position" : "No current fix");
             string[] victims = Rows(controller.LastInput?["observedGunfire"])
-                .Where(fire => (string?)fire["attackerId"] == (string?)contact["id"])
+                .Where(fire => (string?)fire["attackerId"] == id)
                 .Select(fire => (string?)fire["victim"] ?? "unknown ship").Distinct().ToArray();
-            string activity = victims.Length > 0 ? $"\nGunfire observed toward {string.Join(", ", victims)}" : "";
-            list.Children.Add(EventRow($"{contact["id"]} · {contact["sensor"]}",
-                $"{contact["displayLabel"]} · {contact["posture"]} · {contact["category"]}", $"{classification} · {tracking}{activity}"));
+            string activity = victims.Length > 0 ? $"Seen firing toward {string.Join(", ", victims)}" : "";
+            list.Children.Add(EventRow(string.Join(" · ", summary), title, activity));
         }
         return list;
     }
+
+    private static string ReadableContactLabel(string label) => label.Contains('_')
+        ? CultureInfo.InvariantCulture.TextInfo.ToTitleCase(label.Replace('_', ' ')) : label;
 
     private static string ShipState(Vessel ship) => $"{ship._velocityInKnots:0.#} kn · {ship._weaponStatus}\n{ship.CurrentOrderText.Value}\n" +
         $"{ship.GetNumberOfWaypoints()} waypoints{(ship.FollowingFormation && !ship.IsFormationLeader ? " · follows formation leader" : "")}";
