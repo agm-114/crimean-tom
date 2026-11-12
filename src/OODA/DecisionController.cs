@@ -72,7 +72,7 @@ internal class DecisionController
         {
             foreach (TimeEvent item in timeObservations.Poll(side))
                 if (interrupts.Observe(item, now, ManagingClock) is { } rule)
-                    Add("Time control", $"Interrupt · {rule.Speed}× for {rule.HoldSeconds}s", $"{item.Label} · {item.Detail}",
+                    Add("Time control", $"Interrupt · {rule.Speed}× for {rule.HoldSeconds}s", item.Detail,
                         item.SubjectId, item.Label);
         }
         else PlayerCombat.TakeMissileImpacts();

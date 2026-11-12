@@ -33,7 +33,7 @@ internal class TimeInterrupts
     [
         new(TimeEventKind.RadarContact, null, null, null, 5, 5),
         new(TimeEventKind.TrackChanged, null, null, "Hostile", 5, 6),
-        new(TimeEventKind.UnitDamaged, null, null, null, 1, 10),
+        new(TimeEventKind.UnitDamaged, null, null, null, 3, 8),
         new(TimeEventKind.MissileHit, null, null, null, 1, 12)
     ];
     private TimeRule[] rules = [];
@@ -63,10 +63,7 @@ internal class TimeInterrupts
         TimeRule? rule = rules.Where(rule => rule.Matches(item))
             .OrderBy(rule => rule.SubjectId == null).ThenBy(rule => rule.Speed).ThenByDescending(rule => rule.HoldSeconds)
             .FirstOrDefault() ?? Defaults.FirstOrDefault(rule => rule.Matches(item));
-        if (rule == null) return null;
-        bool alreadyActive = active.ContainsKey(rule);
-        active[rule] = now + rule.HoldSeconds;
-        return alreadyActive ? null : rule;
+        return rule != null && active.TryAdd(rule, now + rule.HoldSeconds) ? rule : null;
     }
 
     internal JObject Describe() => new()

@@ -10,17 +10,21 @@ internal class DecisionClock
     private const int OpeningSpeed = 5;
     private const int CruiseSpeed = 10;
     private const int MaximumSpeed = 20;
+    private const int AttackReactionSeconds = 8;
     private static readonly int[] NativeSpeeds = [1, 2, 3, OpeningSpeed, CruiseSpeed, MaximumSpeed];
     private bool openingPauseUsed;
     private long openingPauseUntil;
     private int? requestedSpeed;
     private long requestedSpeedUntil;
+    private long? attackStartedAt;
     private float? lastManagedSpeed;
+    private string? paceReason;
 
     internal static IReadOnlyList<int> Speeds => NativeSpeeds;
     internal bool Enabled { get; set; } = true;
     internal string Status => openingPauseUntil != 0 && GameTime.IsPaused() ? "Time paused for opening plan"
-        : GameTime.IsPaused() ? "Time paused" : $"Time {GameTime.TimeCompression:0.##}×";
+        : GameTime.IsPaused() ? "Time paused" : $"Time {GameTime.TimeCompression:0.##}×"
+            + (paceReason == null ? "" : $" · {paceReason}");
 
     internal static IEnumerable<int> Options(Taskforce side)
     {
@@ -48,12 +52,14 @@ internal class DecisionClock
         if (!manage || openingPauseUntil != 0 && Stopwatch.GetTimestamp() >= openingPauseUntil) Resume();
         if (GameTime.IsPaused() || PlayerTime.Blocked) return;
         YieldPause();
-        if (manage) SetSpeed(assessingAttack ? 1 : Target(side!, hasPlan, interruptSpeed));
-        else if (lastManagedSpeed is { } prior)
+        if (manage) SetSpeed(Target(side!, hasPlan, assessingAttack, interruptSpeed));
+        else
         {
-            if (prior > 1 && GameTime.TimeCompression == prior) SetSpeed(1);
+            if (lastManagedSpeed is > 1 and { } prior && GameTime.TimeCompression == prior) SetSpeed(1);
             lastManagedSpeed = null;
             requestedSpeed = null;
+            attackStartedAt = null;
+            paceReason = null;
         }
     }
 
@@ -62,15 +68,26 @@ internal class DecisionClock
         if (!Enabled || GameTime.IsPaused() || PlayerTime.Blocked) return false;
         // Let automatic pacing recover as soon as a temporary contact limit clears.
         requestedSpeed = speed == offeredMaximum && offeredMaximum < CruiseSpeed ? null : speed;
-        requestedSpeedUntil = Stopwatch.GetTimestamp() + 30 * Stopwatch.Frequency;
-        return SetSpeed(assessingAttack ? 1 : Target(side, hasPlan: true, interruptSpeed));
+        requestedSpeedUntil = Stopwatch.GetTimestamp() + (speed == 1 ? AttackReactionSeconds : 30) * Stopwatch.Frequency;
+        return SetSpeed(Target(side, hasPlan: true, assessingAttack, interruptSpeed));
     }
 
-    private int Target(Taskforce side, bool hasPlan, int? interruptSpeed)
+    private int Target(Taskforce side, bool hasPlan, bool assessingAttack, int? interruptSpeed)
     {
+        long now = Stopwatch.GetTimestamp();
         int cruise = hasPlan ? CruiseSpeed : OpeningSpeed;
-        int desired = Stopwatch.GetTimestamp() < requestedSpeedUntil ? requestedSpeed ?? cruise : cruise;
-        return Math.Min(interruptSpeed ?? desired, ContactLimit(side));
+        int desired = now < requestedSpeedUntil ? requestedSpeed ?? cruise : cruise;
+        attackStartedAt = assessingAttack ? attackStartedAt ?? now : null;
+        int attackLimit = attackStartedAt is not { } start ? MaximumSpeed
+            : now - start < AttackReactionSeconds * Stopwatch.Frequency ? 1 : OpeningSpeed;
+        int contactLimit = ContactLimit(side);
+        int speed = Math.Min(interruptSpeed ?? desired, Math.Min(attackLimit, contactLimit));
+        paceReason = speed == contactLimit && contactLimit == 1
+            ? GameTime.RadioSequenceForcesNormalTime ? "radio traffic" : "weapon nearby"
+            : speed == attackLimit && assessingAttack ? "surface defense"
+            : speed == interruptSpeed ? "active interrupt"
+            : speed == contactLimit && contactLimit < MaximumSpeed ? "hostile contact nearby" : null;
+        return speed;
     }
 
     private bool SetSpeed(int speed)
@@ -89,14 +106,14 @@ internal class DecisionClock
         GeoPosition[]? ownPositions = null;
         foreach (Vehicle track in tracks)
         {
-            if (!track.BaseObject || track.UnitTaskforce.Value == side || !track.HasLiveTrack || !track.IsVisible()) continue;
+            if (!PlayerPicture.IsLive(track) || track.BaseObject._taskforce == side) continue;
             MapVisualType kind = track.GetMapType();
             bool weapon = kind is MapVisualType.Missile or MapVisualType.Torpedo;
-            if (!weapon && track.CurrentRelationship() != RelationsState.Hostile) continue;
+            RelationsState posture = track.CurrentRelationship();
+            if (weapon ? posture == RelationsState.Friendly : posture != RelationsState.Hostile) continue;
             if (track.PositionEstimate is not { } estimate)
             {
-                if (weapon) return 1;
-                limit = OpeningSpeed;
+                limit = Math.Min(limit, weapon ? OpeningSpeed : CruiseSpeed);
                 continue;
             }
 
@@ -110,8 +127,12 @@ internal class DecisionClock
                 _ => (20, 45)
             };
             double distance = ownPositions.Min(position => GeoPosition.HaversineDistanceNmi(position, estimate.Item1));
-            if (distance <= close) return 1;
-            if (distance <= caution) limit = OpeningSpeed;
+            if (distance <= close)
+            {
+                if (weapon) return 1;
+                limit = Math.Min(limit, OpeningSpeed);
+            }
+            else if (distance <= caution) limit = Math.Min(limit, weapon ? OpeningSpeed : CruiseSpeed);
         }
         return limit;
     }
@@ -121,6 +142,8 @@ internal class DecisionClock
         openingPauseUsed = false;
         openingPauseUntil = requestedSpeedUntil = 0;
         requestedSpeed = null;
+        attackStartedAt = null;
         lastManagedSpeed = null;
+        paceReason = null;
     }
 }

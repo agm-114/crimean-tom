@@ -21,9 +21,11 @@ internal class TimeObservations
             foreach (Vehicle track in vehicles)
             {
                 if (!PlayerPicture.IsLive(track) || track.BaseObject._taskforce == side) continue;
-                nextContacts[PlayerPicture.Id(track)] = new(PlayerPicture.ContactLabel(track), track.GetMapType().ToString(),
+                string id = PlayerPicture.Id(track);
+                bool hadRadar = contacts?.TryGetValue(id, out Contact? prior) == true && prior.Radar;
+                nextContacts[id] = new(PlayerPicture.ContactLabel(track), track.GetMapType().ToString(),
                     track.CurrentRelationship().ToString(), track.Identified.Value, track.IsObservedByVisual,
-                    (track.DetectingSensors & Radar) != 0);
+                    hadRadar || (track.DetectingSensors & Radar) != 0);
             }
         }
         if (contacts != null)
@@ -35,8 +37,7 @@ internal class TimeObservations
                 if (contact.Radar && prior?.Radar != true)
                     yield return ContactEvent(TimeEventKind.RadarContact, id, contact, "Acquired by radar");
                 if (prior != null && contact with { Radar = prior.Radar } != prior)
-                    yield return ContactEvent(TimeEventKind.TrackChanged, id, contact,
-                        $"{prior.Label} ({prior.Posture}) → {contact.Label} ({contact.Posture}); identified {contact.Identified}, visual {contact.Visual}");
+                    yield return ContactEvent(TimeEventKind.TrackChanged, id, contact, ContactChange(prior, contact));
             }
             foreach (var (id, prior) in contacts)
                 if (!nextContacts.ContainsKey(id)) yield return ContactEvent(TimeEventKind.TrackLost, id, prior, "Live track lost");
@@ -70,6 +71,17 @@ internal class TimeObservations
 
     private static TimeEvent ContactEvent(TimeEventKind kind, string id, Contact contact, string detail) =>
         new(kind, id, contact.Label, contact.Category, contact.Posture, detail);
+
+    private static string ContactChange(Contact prior, Contact current)
+    {
+        List<string> changes = [];
+        if (prior.Posture != current.Posture) changes.Add($"Posture changed to {current.Posture.ToLowerInvariant()}");
+        if (prior.Category != current.Category) changes.Add($"Now tracked as {current.Category.ToLowerInvariant()}");
+        if (prior.Identified != current.Identified) changes.Add(current.Identified ? "Identified" : "Identification lost");
+        if (prior.Visual != current.Visual) changes.Add(current.Visual ? "Visual contact" : "Visual contact lost");
+        if (changes.Count == 0) changes.Add("Contact label updated");
+        return string.Join(" · ", changes);
+    }
 
     internal void Reset()
     {
