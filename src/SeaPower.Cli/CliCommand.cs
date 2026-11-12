@@ -28,7 +28,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli presets
         seapower-cli status [--format yaml|json]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
-        seapower-cli workshop-update --mod-dir PATH [--changelog TEXT] [--confirm] [--timeout 600]
+        seapower-cli workshop-update --mod-dir PATH [--preview-dir PATH] [--changelog TEXT] [--confirm] [--timeout 600]
         seapower-cli workshop-create --mod-dir PATH --visibility public|friends-only|private|unlisted [--dependencies IDS] [--tags TAGS] [--confirm]
         seapower-cli workshop-status [--operation TOKEN]
         seapower-cli unity-explorer [status|install|enable|disable] [--confirm] [--game-dir PATH]
@@ -96,7 +96,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         install downloads pinned 4.9.0, verifies SHA-256 and installs disabled. It never overwrites an existing installation.
         workshop-update previews an existing item by [Workshop] Url in _info.ini or mod.info.
         --confirm syncs Language_en Name/Description from _info.ini plus content, thumbnail and compatibility metadata.
-        It verifies the app, owner and title. Workshop/Title can pin the old title for an intentional rename.
+        It verifies the app and title. Steam authorizes the update. Workshop/Title can pin the old title for an intentional rename.
+        --preview-dir adds gallery images and replaces images with matching filenames.
         It never creates an item or changes tags, visibility or dependencies.
         workshop-create previews a new listing; --confirm creates it and uploads the package.
         It requires explicit visibility and refuses existing URLs or pending creations.
@@ -116,7 +117,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             "inspect" or "update" or "units" or "units-update" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
             "game-status" => ["--game-dir", "--log-file"],
-            "workshop-update" => ["--mod-dir", "--changelog", "--confirm"],
+            "workshop-update" => ["--mod-dir", "--preview-dir", "--changelog", "--confirm"],
             "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
             "workshop-status" => ["--operation"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
@@ -187,6 +188,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         if (action == "load-scenario" && scenario == null) Required("--scenario");
         bool workshop = action is "workshop-update" or "workshop-create";
         string modDirectory = workshop ? Path.GetFullPath(Required("--mod-dir")) : "";
+        string previewDirectory = options.ContainsKey("--preview-dir") ? Path.GetFullPath(Required("--preview-dir")) : "";
         if (workshop) new SeaPower.Workshop.WorkshopManifest(modDirectory, action == "workshop-create").ContentFiles();
         string visibility = action == "workshop-create" ? Required("--visibility").ToLowerInvariant() : "";
         if (action == "workshop-create" && visibility is not ("public" or "friends-only" or "private" or "unlisted"))
@@ -237,6 +239,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
             ModDirectory = modDirectory, ChangeLog = changeLog, Visibility = visibility, Dependencies = dependencies, Tags = tags,
+            PreviewDirectory = previewDirectory,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)
         {
             GameDirectory = options.ContainsKey("--game-dir") ? Required("--game-dir") : null,

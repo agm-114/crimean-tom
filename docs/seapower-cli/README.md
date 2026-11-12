@@ -191,6 +191,12 @@ are rejected. It rechecks local identity and the signed-in account before
 submitting. Steam determines whether that account can update the item. Correct
 the package metadata if the URL or title does not match.
 
+Use `--preview-dir <path>` to upload PNG, JPEG, or GIF gallery images. Keep that
+directory outside the mod package. The preview lists local and current gallery
+filenames. On submission, matching filenames replace existing images and new
+filenames append images in alphabetical order. The main thumbnail uses
+`thumbnail.jpg` in the package.
+
 The upload replaces the item's content with the entire packaged directory,
 updates `thumbnail.jpg` if present and at most 1,000,000 bytes, and sends native
 compatibility metadata from `_info.ini` when present. It synchronizes the English
