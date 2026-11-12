@@ -11,11 +11,17 @@ namespace OODA;
 [HarmonyPatch]
 internal static class MissionCommunications
 {
-    internal record Message(double Time, string Kind, string Title, string Body, string? From = null);
+    internal record Message(double Time, string Kind, string Title, string Body, string? From = null)
+    {
+        internal bool WarnsOfAirRaid => RaidWarning.IsMatch($"{Title}\n{Body}");
+    }
     internal record Popup(Modal Window, MainGameView Host, string Title, string Button, bool PausedRunningGame);
 
     private static readonly List<Message> Received = [];
     private static readonly List<Popup> Pending = [];
+    private static readonly Regex RaidWarning = new(
+        @"\b(?:raid warning|(?:air raid|strike|hostile aircraft|bombers?).{0,80}\b(?:inbound|incoming|approaching))\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex Formatting = new(@"\[/?(?:b|i|u|s|size|color|font)(?:=[^\]\r\n]*)?\]|</?(?:b|i|u|s|size|color|font)(?:=[^>\r\n]*)?>",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     internal static IReadOnlyList<Message> Messages => Received;

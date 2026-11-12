@@ -1,5 +1,6 @@
 using SeaPower;
 using SeaPower.GameBridge;
+using SeapowerUI;
 
 namespace OODA;
 
@@ -8,7 +9,7 @@ internal class TimeObservations
     private const SensorSystem.SensorTypeSet Radar = SensorSystem.SensorTypeSet.SearchRadar
         | SensorSystem.SensorTypeSet.FCR | SensorSystem.SensorTypeSet.ARS;
 
-    private record Contact(string Label, string Category, string Posture, bool Identified, bool Visual, bool Radar);
+    private record Contact(string Label, string Category, string Posture, bool Identified, bool Visual, bool Radar, bool Nearby);
     private record Unit(string Label, string Category, string Orders, ObjectBase.WeaponStatus Weapons, bool Disabled, int Damage);
     private Dictionary<string, Contact>? contacts;
     private Dictionary<string, Unit>? units;
@@ -16,16 +17,33 @@ internal class TimeObservations
     internal IEnumerable<TimeEvent> Poll(Taskforce side)
     {
         Dictionary<string, Contact> nextContacts = [];
+        ObjectBase[] ownUnits = PlayerPicture.Units(side);
+        GeoPosition[]? ownPositions = null;
         if (side.PlottingTable?.Vehicles is { } vehicles)
         {
             foreach (Vehicle track in vehicles)
             {
                 if (!PlayerPicture.IsLive(track) || track.BaseObject._taskforce == side) continue;
                 string id = PlayerPicture.Id(track);
-                bool hadRadar = contacts?.TryGetValue(id, out Contact? prior) == true && prior.Radar;
-                nextContacts[id] = new(PlayerPicture.ContactLabel(track), track.GetMapType().ToString(),
-                    track.CurrentRelationship().ToString(), track.Identified.Value, track.IsObservedByVisual,
-                    hadRadar || (track.DetectingSensors & Radar) != 0);
+                Contact? prior = contacts?.GetValueOrDefault(id);
+                MapVisualType category = track.GetMapType();
+                RelationsState posture = track.CurrentRelationship();
+                bool nearby = false;
+                if (posture == RelationsState.Hostile && category is not (MapVisualType.Missile or MapVisualType.Torpedo)
+                    && track.PositionEstimate is { } estimate)
+                {
+                    ownPositions ??= ownUnits.Select(unit => unit.getGeoPosition()).ToArray();
+                    double range = category switch
+                    {
+                        MapVisualType.Air or MapVisualType.Helicopter => 35,
+                        MapVisualType.Submarine => 10,
+                        _ => 20
+                    };
+                    if (prior?.Nearby == true) range *= 1.25;
+                    nearby = ownPositions.Any(position => GeoPosition.HaversineDistanceNmi(position, estimate.Item1) <= range);
+                }
+                nextContacts[id] = new(PlayerPicture.ContactLabel(track), category.ToString(), posture.ToString(),
+                    track.Identified.Value, track.IsObservedByVisual, prior?.Radar == true || (track.DetectingSensors & Radar) != 0, nearby);
             }
         }
         if (contacts != null)
@@ -36,7 +54,9 @@ internal class TimeObservations
                 if (!known) yield return ContactEvent(TimeEventKind.TrackAppeared, id, contact, "Live track appeared");
                 if (contact.Radar && prior?.Radar != true)
                     yield return ContactEvent(TimeEventKind.RadarContact, id, contact, "Acquired by radar");
-                if (prior != null && contact with { Radar = prior.Radar } != prior)
+                if (contact.Nearby && prior?.Nearby != true)
+                    yield return ContactEvent(TimeEventKind.HostileNearby, id, contact, "Hostile contact entered nearby range");
+                if (prior != null && contact with { Radar = prior.Radar, Nearby = prior.Nearby } != prior)
                     yield return ContactEvent(TimeEventKind.TrackChanged, id, contact, ContactChange(prior, contact));
             }
             foreach (var (id, prior) in contacts)
@@ -44,7 +64,7 @@ internal class TimeObservations
         }
         contacts = nextContacts;
 
-        Dictionary<string, Unit> nextUnits = PlayerPicture.Units(side).ToDictionary(PlayerPicture.Id, unit =>
+        Dictionary<string, Unit> nextUnits = ownUnits.ToDictionary(PlayerPicture.Id, unit =>
             new Unit(unit.DisplayNameShort, unit._type.ToString(), unit.CurrentOrderText.Value, unit._weaponStatus,
                 unit.Disabled, (int)unit._totalDamagePoints));
         if (units != null)
