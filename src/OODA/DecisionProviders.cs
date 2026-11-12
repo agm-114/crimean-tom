@@ -122,6 +122,7 @@ internal static class DecisionSchema
             ("timeReason", Text(nullable: true)), ("timeRules", TimeRules())),
         DecisionRole.SurfaceDefense => Object(("action", Choice("Engage", "Hold")), ("shipId", Text(nullable: true)),
             ("targetId", Text(nullable: true)), ("victimId", Text(nullable: true)),
+            ("weapons", Choice("Guns", "BestAvailable", "None")),
             ("evidence", Choice("ObservedGunfire", "AttackReport", "None")),
             ("messageIndex", new JObject { ["type"] = new JArray("integer", "null") }), ("reason", Text()),
             ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())),
