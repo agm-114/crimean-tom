@@ -50,7 +50,7 @@ internal class GameClient
             "workshop-create" or "double-click" => command.Request.Action,
             "workshop-update" when command.Request.PreviewDirectory.Length > 0 => "workshop-preview-images",
             "workshop-update" or "workshop-status" => "workshop-update",
-            "player-view" or "player-waypoint" or "ooda-status" => command.Request.Action, _ => null,
+            "player-view" or "player-waypoint" or "player-standing-orders" or "ooda-status" => command.Request.Action, _ => null,
         };
         if (command.Request.Action is "workshop-update" or "workshop-create") return await UploadWorkshopAsync(command.Request, cancellation);
         if (command.Request.Action == "load-scenario") return await SubmitScenarioAsync(command.Request, cancellation);

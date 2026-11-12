@@ -22,6 +22,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli units
         seapower-cli player-view [--ship SHIP_ID]
         seapower-cli player-waypoint --ship SHIP_ID --latitude LAT --longitude LON --confirm
+        seapower-cli player-standing-orders [--target TARGET_ID] [--setting SETTING_ID --value VALUE --confirm]
         seapower-cli ooda-status
         seapower-cli units-update
         seapower-cli query --input FILE --query JSONPATH
@@ -123,6 +124,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "inspect" or "update" or "units" or "units-update" or "ooda-status" or "status" or "screenshot" or "pause" or "resume" or "presets" => [],
             "player-view" => ["--ship"],
             "player-waypoint" => ["--ship", "--latitude", "--longitude", "--confirm"],
+            "player-standing-orders" => ["--target", "--setting", "--value", "--confirm"],
             "game-status" => ["--game-dir", "--log-file"],
             "workshop-update" => ["--mod-dir", "--preview-dir", "--changelog", "--confirm"],
             "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
@@ -222,6 +224,11 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             || action == "unity-explorer" && operation != "status"
             || action == "menu" && page is "encyclopedia" or "continue" or "manual" or "exit") && !options.ContainsKey("--confirm"))
             throw new ArgumentException($"{action} requires --confirm.");
+        bool changeStandingOrder = action == "player-standing-orders" && options.ContainsKey("--setting");
+        if (changeStandingOrder && !options.ContainsKey("--confirm"))
+            throw new ArgumentException("Changing a standing order requires --confirm.");
+        if (action == "player-standing-orders" && !changeStandingOrder && options.ContainsKey("--value"))
+            throw new ArgumentException("--value requires --setting.");
         string? pattern = options.ContainsKey("--require-pattern") ? Required("--require-pattern") : null;
         if (pattern?.Length > 4096) throw new ArgumentException("--require-pattern must not exceed 4096 characters.");
         bool controlAction = action is "click" or "double-click" or "select" or "expand" or "collapse" or "open" or "set-text" or "set-value" or "details";
@@ -234,6 +241,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "workshop-status" => options.GetValueOrDefault("--operation") ?? "",
             "player-waypoint" => Required("--ship"),
             "player-view" => options.ContainsKey("--ship") ? Required("--ship") : "",
+            "player-standing-orders" => changeStandingOrder || options.ContainsKey("--target") ? Required("--target") : "",
             "load-scenario" => scenario!, "menu" => page, "encyclopedia" => Required("--unit"), _ => "",
         };
         float speed = advance ? 10 : 1;
@@ -258,6 +266,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Depth = Number("--depth", 8, 0, 32),
             Index = action == "encyclopedia" ? Number("--variant", 0, 0, int.MaxValue) : Number("--index", -1, 0, int.MaxValue),
             Text = text, Confirm = options.ContainsKey("--confirm"), Speed = speed, Value = controlValue,
+            Setting = changeStandingOrder ? Required("--setting") : "",
+            SettingValue = changeStandingOrder ? Required("--value") : "",
             ModDirectory = modDirectory, ChangeLog = changeLog, Visibility = visibility, Dependencies = dependencies, Tags = tags,
             PreviewDirectory = previewDirectory,
             Latitude = action == "player-waypoint" ? Coordinate("--latitude", 90) : null,

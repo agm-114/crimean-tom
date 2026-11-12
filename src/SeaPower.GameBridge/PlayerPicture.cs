@@ -18,13 +18,15 @@ internal static class PlayerPicture
         }
     }
 
-    internal static Vessel[] Ships(Taskforce side) => Singleton<ObjectsManager>.Instance._listOfAllUnits.OfType<Vessel>()
-        .Where(ship => CanCommand(ship, side)).OrderBy(ship => ship.getName()).ToArray();
+    internal static ObjectBase[] Units(Taskforce side) => Singleton<ObjectsManager>.Instance._listOfAllUnits
+        .Where(unit => unit is not WeaponBase && CanCommand(unit, side)).OrderBy(unit => unit.GetInstanceID()).ToArray();
 
-    internal static bool CanCommand(Vessel ship, Taskforce side) => ship && ship._taskforce == side && !ship.IsDestroyed
-        && ship.IsControllable && ship.AcceptsOrdersFromPlayer;
+    internal static Vessel[] Ships(Taskforce side) => Units(side).OfType<Vessel>().OrderBy(ship => ship.getName()).ToArray();
 
-    internal static string Id(Vessel ship) => $"ship-{ship.GetInstanceID()}";
+    internal static bool CanCommand(ObjectBase unit, Taskforce side) => unit && unit._taskforce == side && !unit.IsDestroyed
+        && unit.IsControllable && unit.AcceptsOrdersFromPlayer;
+
+    internal static string Id(ObjectBase unit) => $"{(unit is Vessel ? "ship" : "unit")}-{unit.GetInstanceID()}";
 
     internal static JObject Read(Taskforce side, Vessel[] ships)
     {
@@ -44,6 +46,11 @@ internal static class PlayerPicture
             ["missionClock"] = Clock(),
             ["rulesOfEngagement"] = side._roe.ToString(), ["objectiveUpdates"] = Objectives(), ["contacts"] = contacts,
             ["ownedUnits"] = new JArray(ships.Select(Describe)),
+            ["ownedOtherUnits"] = new JArray(Units(side).Where(unit => unit is not Vessel).Select(unit => new JObject
+            {
+                ["id"] = Id(unit), ["name"] = unit.DisplayNameShort, ["type"] = unit._type.ToString(),
+                ["position"] = Point(unit.getGeoPosition()), ["order"] = unit.CurrentOrderText.Value
+            })),
             ["ownedGroups"] = new JArray(ships.Where(CanNavigate).Select(ship => new JObject { ["id"] = Id(ship), ["name"] = ship.getName() }))
         };
     }

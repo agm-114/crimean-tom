@@ -59,6 +59,8 @@ seapower-cli units-update
 seapower-cli player-view --json
 seapower-cli player-view --ship SHIP_ID --json
 seapower-cli player-waypoint --ship SHIP_ID --latitude LAT --longitude LON --confirm
+seapower-cli player-standing-orders --json
+seapower-cli player-standing-orders --target TARGET_ID --setting SETTING_ID --value VALUE --confirm
 seapower-cli ooda-status --json
 seapower-cli status
 seapower-cli game-status
@@ -94,6 +96,8 @@ seapower-cli wait-for --text "Flight Deck" --timeout 30
 seapower-cli wait-sim --seconds 60 --timeout 120
 seapower-cli advance-sim --minutes 1 --speed 10
 ```
+
+`player-standing-orders` lists the player's force, formation, and unit settings, including their effective values and allowed choices. Read the target and setting IDs before changing a value. Use `inherit` to clear an override where the setting supports inheritance.
 
 With no arguments, the CLI runs `inspect`. `speed 10` is an alias for `set-speed --speed 10`.
 Use `--help` for syntax. All command results default to YAML. Use `--format json`
