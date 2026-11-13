@@ -17,6 +17,65 @@ internal static class PlayerOrders
 
     internal static bool Blocked => GameTime.IsPaused() || PlayerTime.Blocked;
 
+    internal static float? MaximumProfileSpeed(ObjectBase unit) => unit switch
+    {
+        Vessel ship => ship.MaxForwardSpeedInKnots,
+        Submarine sub => sub.IsSubmerged.Value ? sub.MaxForwardSpeedSubmergedInKnots : sub.MaxForwardSpeedInKnots,
+        Aircraft air => air.MaxForwardSpeedInKnots,
+        Helicopter helo => helo._maxSpeedSeaLevel,
+        _ => null
+    };
+
+    internal static float? MaximumProfileAltitude(ObjectBase unit) => unit switch
+    {
+        Aircraft air => air.Ap._ceiling * 220.47266f,
+        Helicopter helo => helo._hp._ceiling * 220.47266f,
+        _ => null
+    };
+
+    internal static string SetMovementProfile(Taskforce side, ObjectBase unit, float? speedKnots, float? altitudeFeet,
+        int? depthPreset, string emissions)
+    {
+        if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(unit, side)) return "Rejected · unit control unavailable";
+        if (unit.IsFormationWingman || unit is (Vessel or Submarine) && unit.FollowingFormation && !unit.IsFormationLeader)
+            return "Rejected · set the movement profile on the formation leader";
+        if (unit is Aircraft or Helicopter && (!PlayerFlightDeck.IsAirborne(unit) || unit.CurrentOrder.Value?.OrderType == Order.Type.ReturnToBase))
+            return "Rejected · aircraft is grounded or recovering";
+        if (speedKnots is float speed && (!float.IsFinite(speed) || MaximumProfileSpeed(unit) is not float max || speed > max
+            || speed < (unit is Aircraft ? 100 : 0))) return "Rejected · speed is outside the offered native range";
+        if (altitudeFeet is float feet && (!float.IsFinite(feet) || feet < 100 || MaximumProfileAltitude(unit) is not float ceiling || feet > ceiling))
+            return "Rejected · altitude is outside the offered native range";
+        if (depthPreset is int preset && (unit is not Submarine || preset is < 0 or > 6)) return "Rejected · invalid submarine depth preset";
+        if (emissions is not ("Keep" or "RadarOn" or "RadarOff" or "Active" or "Passive")) return "Rejected · unsupported emissions profile";
+        if (emissions is "RadarOn" or "RadarOff" && !unit.HasAirSearchRadar() && !unit.HasSurfaceSearchRadar())
+            return "Rejected · unit has no available search radar";
+        if (emissions is "Active" or "Passive" && !unit.HasAirSearchRadar() && !unit.HasSurfaceSearchRadar() && !unit.HasActiveSonar())
+            return "Rejected · unit has no available active search sensors";
+        if (speedKnots == null && altitudeFeet == null && depthPreset == null && emissions == "Keep") return "Kept · no profile changes requested";
+
+        if (speedKnots.HasValue) unit.SetSpeedCommand(SpeedRequest.Knots(speedKnots.Value));
+        if (altitudeFeet.HasValue)
+        {
+            unit.DesiredAltitude.Value = altitudeFeet.Value / 220.47266f;
+            unit.UpdateWaypointsAltitudes();
+            unit.UpdateAlignmentAltitudes();
+            unit.setPlayerHeightControl(commandOverride: false);
+        }
+        if (depthPreset.HasValue && unit is Submarine sub)
+        {
+            sub.setPresetDepth(depthPreset.Value, updateAltForWaypoints: true);
+            sub.setPlayerHeightControl(commandOverride: false);
+        }
+        switch (emissions)
+        {
+            case "RadarOn": unit.EnableAllRadars(); break;
+            case "RadarOff": unit.DisableAllRadars(); break;
+            case "Active": unit.EnableAllActiveSensors(); break;
+            case "Passive": unit.DisableAllActiveSensors(); break;
+        }
+        return "Profile applied · native commands set";
+    }
+
     internal static (WaypointDisposition Disposition, string Detail) ReplaceWaypoint(Vessel ship, Taskforce side, GeoPosition point)
     {
         if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || !PlayerPicture.CanNavigate(ship))
@@ -105,6 +164,13 @@ internal static class PlayerOrders
         for (int setting = Math.Min(3, speeds.Length - 1); setting >= 1; setting--)
             if (speeds[setting] <= limit) return setting;
         return 0;
+    }
+
+    internal static double SubmarineStagingSpeed(Submarine sub)
+    {
+        int setting = QuietSubmarineTelegraph(sub);
+        double commanded = sub.SpeedCommand.Value?.CommandSpeedInKnots ?? sub._velocityInKnots;
+        return Math.Max(commanded, setting > 0 ? sub.SP._telegraphVelocities[setting] : 0);
     }
 
     internal static bool CanStageSubmarine(Submarine sub, Taskforce side) => PlayerPicture.CanCommand(sub, side)
@@ -201,12 +267,13 @@ internal static class PlayerOrders
             ["order"] = sub.CurrentOrderText.Value, ["weaponsPosture"] = sub._weaponStatus.ToString(),
             ["route"] = SubmarineRoute(sub),
             ["torpedoStandoffNm"] = standoff > 0 ? Math.Round(standoff, 1) : null,
-            ["stagingContacts"] = new JArray(candidates.Select(item => new JObject
+            ["stagingContacts"] = new JArray(candidates.Select(item =>
             {
-                ["targetId"] = PlayerPicture.Id(item.Track), ["rangeNm"] = Math.Round(item.Range, 1),
-                ["distanceToStandoffNm"] = Math.Round(Math.Max(0, item.Range - standoff), 1),
-                ["minutesToStandoffAtQuietSpeed"] = quietSpeed > 0.5
-                    ? Math.Round(Math.Max(0, item.Range - standoff) * 60 / quietSpeed) : null
+                PlayerPicture.SurfaceMotion? motion = PlayerPicture.ObservedSurfaceMotion(item.Track);
+                var intercept = PlayerPicture.Intercept(origin, item.Track.PositionEstimate!.Value.Item1, motion, SubmarineStagingSpeed(sub), standoff, 1);
+                return new JObject { ["targetId"] = PlayerPicture.Id(item.Track), ["rangeNm"] = Math.Round(item.Range, 1),
+                    ["surfaceMotion"] = motion?.Read(), ["minutesToStandoff"] = intercept.HasValue ? Math.Round(intercept.Value.Hours * 60) : null,
+                    ["predictedTargetAtIntercept"] = intercept.HasValue ? PlayerPicture.Point(intercept.Value.Target) : null };
             })),
             ["torpedoTargets"] = new JArray(SubmarineTorpedoTargets(side, sub)
                 .Select(track => new JObject { ["targetId"] = PlayerPicture.Id(track), ["label"] = PlayerPicture.ContactLabel(track),
@@ -383,6 +450,32 @@ internal static class PlayerOrders
         if (mount._isReloading) return "mount reloading";
         if (mount._vwp._blockedByFlightDeck && mount._baseObject._performingAirOps) return "mount blocked by flight operations";
         return WeaponSelector.isWeaponSystemUsable(mount, ammo, target) ? null : "native weapon or fire-control check failed";
+    }
+
+    internal static IEnumerable<(AmmunitionParameters Ammo, double Min, double Max, string? Blocker)> EngagementWeapons(
+        ObjectBase unit, ObjectBase target, double plottedRange)
+    {
+        if (unit._ai == null) yield break;
+        foreach (Ammunition.Type type in new[] { Ammunition.Type.Projectile, Ammunition.Type.Missile, Ammunition.Type.Torpedo })
+        foreach (Ammunition ammo in unit._ai.AmmunitionForTarget(target, type))
+        {
+            AmmunitionParameters data = ammo._ap;
+            if (unit is Submarine && type == Ammunition.Type.Projectile || unit.getAmmunitionAmountByName(data._ammunitionFileName) <= 0) continue;
+            double scale = Utils.heightInMeterToUnity(1852);
+            double min = data._launchRangesInUnity.x / scale, max = unit.GetMaxRangeForAmmo(ammo, target) / scale;
+            string? blocker = null;
+            if (plottedRange >= min && plottedRange <= max)
+            {
+                List<WeaponSystem>? mounts = unit.GetWeaponSystemsForAmmunition(data._ammunitionFileName, copyList: false);
+                if (mounts is not { Count: > 0 }) blocker = "No compatible mount";
+                else
+                {
+                    string?[] checks = mounts.Select(mount => GunMountCheck(mount, ammo, target, target.transform.position)).ToArray();
+                    if (!checks.Contains(null)) blocker = string.Join(", ", checks.Distinct());
+                }
+            }
+            yield return (data, min, max, blocker);
+        }
     }
 
     internal static bool EngageAir(Vessel ship, Taskforce side, Vehicle contact)

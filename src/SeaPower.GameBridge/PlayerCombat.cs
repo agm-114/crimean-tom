@@ -112,6 +112,9 @@ internal static class PlayerCombat
     internal static double? LastOwnFireAt(string targetId) => OwnFireByWeapon.Values.Where(item => item.TargetId == targetId)
         .Select(item => (double?)item.LastFired).Max();
 
+    internal static int OwnShotCount(string unitId, string targetId, string? weapon = null) => OwnFireByWeapon.Values
+        .Where(item => item.UnitId == unitId && item.TargetId == targetId && (weapon == null || item.Weapon == weapon)).Sum(item => item.Shots);
+
     private static void RecordOwnFire(Taskforce side, ObjectBase source, ObjectBase target, string weapon, bool missile)
     {
         if (target.GetMapVehicle(side) is not { } track || !track.IsVisible()) return;

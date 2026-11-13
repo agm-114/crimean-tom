@@ -6,7 +6,7 @@ namespace OODA;
 
 internal enum DecisionRole { Operational, RoutineTactical, SurfaceDefense, AirDefense, UrgentTactical }
 
-internal record DecisionPrompt(string Instructions, JObject Input)
+internal record DecisionPrompt(string StableInstructions, string RoleInstructions, JObject Input)
 {
     private const string ResourcePrefix = "OODA.Prompts.";
     private static readonly string Shared = Read("shared");
@@ -14,6 +14,7 @@ internal record DecisionPrompt(string Instructions, JObject Input)
     private static readonly string Operational = Read("operational");
     private static readonly string Routine = Read("routine-tactical");
     private static readonly string TimeRules = Read("time-rules");
+    private static readonly string Orders = Read("orders");
     private static readonly string Helicopters = Read("helicopter-screen");
     private static readonly string FlightOperations = Read("flight-operations");
     private static readonly string MaritimeStrike = Read("maritime-strike");
@@ -27,7 +28,9 @@ internal record DecisionPrompt(string Instructions, JObject Input)
         "rulesOfEngagement", "standingOrders", "missionMessages", "availableTimeCompressions", "attackReports", "observedGunfire", "ownWeaponFire",
         "ownMissileTargetsInFlight", "nearbySurfaceThreats", "helicopterDecks", "helicopterScreenAnchors", "airDecks", "airborne", "airTargets", "airWeaponFire",
         "airDefenseAssessment", "airDefenseRouteWarnings", "heldTransportRouteWarnings", "capStations", "maritimeShips", "submarines", "coastalThreats", "strafingOptions", "groundAttackOptions",
-        "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts", "conditionalAttacks", "identificationRequests"
+        "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts", "conditionalAttacks", "identificationRequests",
+        "engagementOptions", "orderStatuses", "conditionalOrders", "movementProfiles", "sortieCycleEstimates", "airWeaponProfiles", "sensorOptions",
+        "sensorSweeps", "catalogEmitterProfiles"
     ];
 
     // Call on the game thread with the snapshot from the player-view reader.
@@ -42,20 +45,30 @@ internal record DecisionPrompt(string Instructions, JObject Input)
         JObject input = new();
         foreach (string field in ContextFields)
             if (playerView.TryGetValue(field, out JToken? value)) input[field] = value.DeepClone();
+        string stable = role is DecisionRole.Operational or DecisionRole.RoutineTactical ? string.Join("\n\n", Shared, Guide, Orders, TimeRules) : Shared;
         string instructions = role switch
         {
-            DecisionRole.Operational => string.Join("\n\n", Shared, Guide, Operational, Helicopters, FlightOperations, MaritimeStrike, TimeRules),
-            DecisionRole.RoutineTactical => string.Join("\n\n", Shared, Guide, Routine, Helicopters, FlightOperations, MaritimeStrike, TimeRules),
-            DecisionRole.SurfaceDefense => string.Join("\n\n", Shared, Defense),
-            DecisionRole.AirDefense => string.Join("\n\n", Shared, AirDefense),
-            DecisionRole.UrgentTactical => string.Join("\n\n", Shared, Urgent),
+            DecisionRole.Operational => string.Join("\n\n", Operational, Helicopters, FlightOperations, MaritimeStrike),
+            DecisionRole.RoutineTactical => string.Join("\n\n", Routine, Helicopters, FlightOperations, MaritimeStrike),
+            DecisionRole.SurfaceDefense => Defense,
+            DecisionRole.AirDefense => AirDefense,
+            DecisionRole.UrgentTactical => Urgent,
             _ => throw new ArgumentOutOfRangeException(nameof(role))
         };
         if (role != DecisionRole.UrgentTactical) input["briefing"] = briefing;
-        return new(instructions, input);
+        return new(stable, instructions, input);
     }
 
-    internal string ToCodexInput() => $"{Instructions}\n\nCurrent player-view data (JSON):\n{Input.ToString(Formatting.None)}";
+    internal string Instructions => $"{StableInstructions}\n\n{RoleInstructions}";
+
+    internal string ToCodexInput(DecisionRole role)
+    {
+        JObject snapshot = PromptSnapshot.Compact(Input, role);
+        string? briefing = (string?)snapshot["briefing"];
+        snapshot.Remove("briefing");
+        string briefingText = briefing is { Length: > 0 } ? $"\n\nOpening mission briefing:\n{briefing}" : "";
+        return $"{RoleInstructions}{briefingText}\n\nCurrent player-view data (JSON). Omitted fields are unavailable or empty. Identified civilian traffic may be summarized by category.\n{snapshot.ToString(Formatting.None)}";
+    }
 
     private static string Read(string name)
     {

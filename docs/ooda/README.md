@@ -8,7 +8,11 @@ OODA starts in **AI control** when a scenario loads with a controllable player s
 
 OODA can adjust its cruise speed and time-compression rules during a mission. Rules can apply to every matching event or target a specific unit or track. Radar reacquisition is recorded without slowing cruise by default. **Time Control** shows the current pace and the rule, AI decision, or game condition behind it. Use `seapower-cli ooda-status --json` to inspect the cruise speed, rules, and recent events. OODA writes proposals for changing the built-in rules to `Player.log` under `[OODA] Time defaults suggestion`.
 
-Each completed Codex decision with reported usage adds an `[OODA] Codex usage` line to `Player.log` with the decision role, model, and input, cached input, output, reasoning output, and total tokens.
+Each completed Codex decision with reported usage adds an `[OODA] Codex usage` line to `Player.log` with the decision role, model, input, cached input, output, reasoning output, and total tokens, plus the size of OODA's submitted text in bytes.
+
+OODA can request new automation, tools, or analysis when it encounters a gap. Requests appear in `Player.log` under `[OODA] Capability request` with the mission, observed problem, and requested behavior.
+
+The model input groups routine identified civilian traffic by category. Protected contacts, contacts named in mission communications, and contacts tied to weapons or orders retain their details. The decision window and bridge status retain the detailed player picture. Weapon selection can use catalog profiles, estimated direct-hit effects on ground and naval units, and Encyclopedia radar and sonar estimates. The planner can also order a short radar, ESM, or periscope sweep.
 
 **AI control** can apply eligible surface waypoints and native Standing Orders at force, formation, and unit scope. Its map annotations show objectives, reference points, and search areas alongside the game's route display. Use **Chart waypoint** to supply a destination in decimal degrees. OODA checks the direct leg before applying it.
 
@@ -19,6 +23,8 @@ An inbound raid warning prompts OODA to ready the escorts' air defenses. When ma
 OODA plans CAP, reconnaissance, suppression, strike, transport, and recovery using the player-visible briefing, current flights, and deck readiness. It can authorize a held batch or queue a suitable fit, then give airborne flights native orders. The **Air Operations** tab shows deck preparation, airborne flights, and order results. Actual weapon launches appear in `Player.log`.
 
 Transport planning includes the flight's estimated fuel margin for the delivery and recovery route. OODA can clear a pursuit, split an aircraft into a separate flight, or join compatible aircraft to an airborne leader.
+
+The planner receives ranked engagement options for nearby hostile tracks. Surface intercepts lead contacts using visual motion or successive plotted fixes when available. The planner can preview routes, compare shooters, and estimate a sortie cycle from deck preparation through outbound and return transit. It can order Deck Tweaks to refit a held batch, set native movement and sensor commands, and arm one-shot orders to resume a held transport route, launch CAP relief, or turn back a screen when a track drops. **Order progress** in the Decision Log and Unit Status shows native acceptance, movement, launch or weapon release, and blockers. The same records appear in `seapower-cli ooda-status --json`. See the [order and tool prompts](prompts/orders.md) for the supported arguments.
 
 When an airborne flight's route crosses the estimated range of a live, identified hostile ship or ground air defense, OODA warns in **Air Operations** and the **Decision Log** and requests a fresh plan. The warning gives the distance to the crossing. When OODA manages time, the default interrupt briefly caps speed at 2×. Native attacks use the direct line to the plotted target as an approach estimate.
 

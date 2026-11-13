@@ -17,18 +17,31 @@ internal static class NavigationOrders
         GeoPosition origin = sub.getGeoPosition();
         double distance = GeoPosition.HaversineDistanceNmi(origin, fix);
         if (distance <= standoff + 0.25) return "Kept · already near torpedo range";
+        double speed = PlayerOrders.SubmarineStagingSpeed(sub);
+        PlayerPicture.SurfaceMotion? motion = PlayerPicture.ObservedSurfaceMotion(contact);
+        if (PlayerPicture.Intercept(origin, fix, motion, speed, standoff * 0.95, horizonHours: 1) is not { } intercept)
+            return motion == null ? "Rejected · torpedo standoff is beyond a one-hour transit at the available speed"
+                : "Rejected · the plotted course does not give a torpedo intercept within one hour at the available speed";
         var route = sub.GetAllWaypointsGeoPositions(getRelative: false);
-        if (route.Count > 0 && GeoPosition.HaversineDistanceNmi(route[^1].wpGP, fix) <= standoff + 0.75)
-            return "Kept · current route reaches torpedo range";
+        if (route.Count > 0)
+        {
+            double hours = GeoPosition.HaversineDistanceNmi(origin, route[^1].wpGP) / speed;
+            GeoPosition atArrival = motion?.Project(fix, hours) ?? fix;
+            if (hours <= 1 && GeoPosition.HaversineDistanceNmi(route[^1].wpGP, atArrival) <= standoff)
+                return "Kept · current route reaches the projected torpedo envelope";
+        }
 
         ChartPosition start = new(origin._latitude, origin._longitude);
-        ChartPosition target = new(fix._latitude, origin._longitude + Math.IEEERemainder(fix._longitude - origin._longitude, 360));
-        ChartPosition end = start.Towards(target, 1 - standoff / distance);
+        GeoPosition projected = intercept.Target;
+        double projectedRange = GeoPosition.HaversineDistanceNmi(origin, projected);
+        ChartPosition target = new(projected._latitude, projected._longitude);
+        ChartPosition end = RoutePreview.Between(start, target, Math.Max(0, 1 - standoff * 0.95 / projectedRange));
         float depthMeters = Math.Max(20, (float)(-origin._height / Utils.heightInMeterToUnity(1)) + 10);
         if (end.Longitude is < -180 or > 180 || start.DistanceTo(end) > 150 || !ScenarioTerrain.IsNavigable(start, end, depthMeters))
             return "Rejected · direct staging leg crosses shallow water or exceeds chart limits";
         GeoPosition point = new() { _latitude = end.Latitude, _longitude = end.Longitude, _height = origin._height };
-        string detail = $"{distance - standoff:0.#} nm to a {standoff:0.#} nm standoff from {PlayerPicture.ContactLabel(contact)}";
+        string basis = motion == null ? "last plotted position, course unknown" : $"{motion.Course:0}° at {motion.Speed:0.#} kn from {motion.Source}";
+        string detail = $"{intercept.Hours * 60:0.#} min to {standoff:0.#} nm torpedo standoff from {PlayerPicture.ContactLabel(contact)} · {basis}";
         if (observe) return $"Suggested submarine staging · {detail}";
         var result = PlayerOrders.ReplaceSubmarineWaypoint(sub, side, point);
         return $"{result.Disposition} · {(result.Disposition == WaypointDisposition.Applied ? detail : result.Detail)}";
@@ -119,7 +132,16 @@ internal static class NavigationOrders
         ChartPosition shore = new(position._latitude, position._longitude);
         double distance = start.DistanceTo(shore);
         if (distance <= range) return standoffNm.HasValue ? "Kept · already within support standoff" : "Kept · already in nominal shore gun range";
-        ChartPosition firingPoint = start.Towards(shore, 1 - (standoffNm.HasValue ? range : 0.85 * range) / distance);
+        double desiredRange = standoffNm.HasValue ? range : 0.85 * range;
+        if (contact.BaseObject is Vessel && PlayerPicture.ObservedSurfaceMotion(contact) is { } motion)
+        {
+            double speed = ship.SpeedCommand.Value?.CommandSpeedInKnots ?? ship._velocityInKnots;
+            if (PlayerPicture.Intercept(origin, position, motion, speed, desiredRange, horizonHours: 2) is not { } intercept)
+                return "Rejected · no projected support standoff within two hours at current speed";
+            shore = new(intercept.Target._latitude, intercept.Target._longitude);
+            distance = GeoPosition.HaversineDistanceNmi(origin, intercept.Target);
+        }
+        ChartPosition firingPoint = RoutePreview.Between(start, shore, Math.Max(0, 1 - desiredRange / distance));
         if (defense.ApproachBlocker(side, start, firingPoint) is { } blocker)
             return $"Rejected · approach crosses the threat envelope of {blocker}";
         string positionType = standoffNm.HasValue ? "Support position" : "Gun position";

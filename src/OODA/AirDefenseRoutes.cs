@@ -57,6 +57,21 @@ internal class AirDefenseRoutes
         Crossings(PlayerFlightDeck.HeldTransportRoutes(side).Where(flight => flight.Id == id), side, assessment)
             .Any(warning => !warning.Suppressed);
 
+    internal RouteHazard[] Hazards(Taskforce side, AirDefenseAssessment assessment) => Defenses(side, assessment)
+        .Where(defense => !defense.Suppressed)
+        .Select(defense => new RouteHazard(defense.Center, defense.Range, $"{defense.Name} air-defense envelope")).ToArray();
+
+    internal bool CanWithdraw(Taskforce side, AirDefenseAssessment assessment, GeoPosition origin, GeoPosition[] route)
+    {
+        ChartPosition[] points = [Chart(origin), .. route.Select(Chart)];
+        return Defenses(side, assessment).Where(defense => !defense.Suppressed).All(defense =>
+        {
+            if (FirstEntry(defense.Center, defense.Range, points) is not { } entry) return true;
+            if (entry.Distance > 0 || !MovingAway(points[0], points[1], defense)) return false;
+            return FirstEntry(defense.Center, defense.Range, points[1..]) == null;
+        });
+    }
+
     internal bool GroundAttackPathClear(Taskforce side, AirDefenseAssessment assessment, GeoPosition origin, GeoPosition fix, double releaseNm)
     {
         double range = GeoPosition.HaversineDistanceNmi(origin, fix);
@@ -91,7 +106,11 @@ internal class AirDefenseRoutes
         if (FirstEntry(defense.Center, defense.Range + 0.5, [end, Chart(hold)]) != null) return false;
         if (FirstEntry(defense.Center, defense.Range, [start]) == null)
             return FirstEntry(defense.Center, defense.Range, [start, end]) == null;
-        // A flight already exposed may depart if the first leg takes it away from the threat.
+        return MovingAway(start, end, defense);
+    }
+
+    private static bool MovingAway(ChartPosition start, ChartPosition end, Defense defense)
+    {
         double x = LongitudeDelta(start, defense.Center) * Math.Cos(defense.Center.Latitude * Math.PI / 180);
         double dx = LongitudeDelta(end, start) * Math.Cos(defense.Center.Latitude * Math.PI / 180);
         return x * dx + (start.Latitude - defense.Center.Latitude) * (end.Latitude - start.Latitude) >= 0;
@@ -147,10 +166,8 @@ internal class AirDefenseRoutes
     {
         if (points.Length == 0) return null;
         double longitudeScale = 60 * Math.Cos(center.Latitude * Math.PI / 180);
-        double radiusSquared = radius * radius;
-        double firstX = LongitudeDelta(points[0], center) * longitudeScale;
-        double firstY = (points[0].Latitude - center.Latitude) * 60;
-        if (firstX * firstX + firstY * firstY <= radiusSquared) return (0, points[0]);
+        RouteHazard hazard = new(center, radius, "");
+        if (Exposure(points[0], points[0], hazard) != null) return (0, points[0]);
         double traveled = 0;
         for (int i = 1; i < points.Length; i++)
         {
@@ -159,26 +176,29 @@ internal class AirDefenseRoutes
             double longitudeDelta = LongitudeDelta(end, start);
             double dx = longitudeDelta * longitudeScale;
             double dy = (end.Latitude - start.Latitude) * 60;
-            double x = LongitudeDelta(start, center) * longitudeScale;
-            double y = (start.Latitude - center.Latitude) * 60;
-            double lengthSquared = dx * dx + dy * dy;
-            if (lengthSquared <= 0) continue;
-            double projection = x * dx + y * dy;
-            double discriminant = projection * projection - lengthSquared * (x * x + y * y - radiusSquared);
-            double length = Math.Sqrt(lengthSquared);
-            if (discriminant >= 0)
-            {
-                double fraction = (-projection - Math.Sqrt(discriminant)) / lengthSquared;
-                if (fraction is >= 0 and <= 1)
-                    return (traveled + fraction * length, new(start.Latitude + (end.Latitude - start.Latitude) * fraction,
-                        Math.IEEERemainder(start.Longitude + longitudeDelta * fraction, 360)));
-            }
+            double length = Math.Sqrt(dx * dx + dy * dy);
+            if (Exposure(start, end, hazard) is { } overlap)
+                return (traveled + overlap.Enter * length, RoutePreview.Between(start, end, overlap.Enter));
             traveled += length;
         }
         return null;
     }
 
     private static double LongitudeDelta(ChartPosition end, ChartPosition start) => Math.IEEERemainder(end.Longitude - start.Longitude, 360);
+
+    internal static (double Enter, double Exit)? Exposure(ChartPosition start, ChartPosition end, RouteHazard hazard)
+    {
+        double scale = 60 * Math.Cos(hazard.Center.Latitude * Math.PI / 180);
+        double x = LongitudeDelta(start, hazard.Center) * scale, y = (start.Latitude - hazard.Center.Latitude) * 60;
+        double dx = LongitudeDelta(end, start) * scale, dy = (end.Latitude - start.Latitude) * 60;
+        double length = dx * dx + dy * dy, distance = x * x + y * y - hazard.RadiusNm * hazard.RadiusNm;
+        if (length <= 0) return distance <= 0 ? (0, 1) : null;
+        double projection = x * dx + y * dy, discriminant = projection * projection - length * distance;
+        if (discriminant < 0) return null;
+        double root = Math.Sqrt(discriminant);
+        double enter = Math.Max(0, (-projection - root) / length), exit = Math.Min(1, (-projection + root) / length);
+        return enter <= exit ? (enter, exit) : null;
+    }
 
     internal JArray Read() => new(active.Values.OrderBy(warning => warning.EntryDistanceNm).Select(warning => warning.Describe()));
 
