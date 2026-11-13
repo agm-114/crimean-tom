@@ -111,7 +111,9 @@ internal partial class DecisionController
             else if (tool == "get_engagement_options" && targetId != null && input["contacts"]?.Any(track => (string?)track["id"] == targetId) == true)
             {
                 Vehicle? track = side.PlottingTable?.Vehicles.FirstOrDefault(item => PlayerPicture.Id(item) == targetId);
-                result = track == null ? Error("Track is no longer plotted") : EngagementOptions.Read(side, units, track, 10);
+                ObjectBase[] shooters = unitId == null ? units : units.Where(unit => PlayerPicture.Id(unit) == unitId).ToArray();
+                result = track == null ? Error("Track is no longer plotted")
+                    : shooters.Length == 0 ? Error("Shooter is no longer commandable") : EngagementOptions.Read(side, shooters, track, 10);
             }
             else if (tool == "get_order_status" && orderId != null && orderStatuses.TryGetValue(orderId, out OrderStatus order))
                 result = order.Read();

@@ -16,6 +16,13 @@ internal partial class DecisionController
         internal string Reason = "Awaiting order";
         internal string? TargetId;
         internal string? Weapon;
+        internal string? AttackPhase;
+        internal string? ReleaseBlocker;
+        internal double? MissingAttackSince;
+        internal double? AttackPassSince;
+        internal double? SameGateSince;
+        internal double? LastAttackClosure;
+        internal bool ReportedStall;
         internal int Shots;
         internal GeoPosition? Destination;
         internal double Closest = double.PositiveInfinity;
@@ -33,7 +40,8 @@ internal partial class DecisionController
         }
 
         internal JObject Read() => new() { ["orderId"] = Id, ["unitId"] = UnitId, ["action"] = Action, ["targetId"] = TargetId,
-            ["weapon"] = Weapon, ["state"] = State, ["reason"] = Reason, ["ageSinceProgressSeconds"] = Math.Round(Math.Max(0, GameTime.missionElapsedTime - LastProgress), 1) };
+            ["weapon"] = Weapon, ["state"] = State, ["reason"] = Reason, ["attackPhase"] = AttackPhase,
+            ["releaseBlocker"] = ReleaseBlocker, ["ageSinceProgressSeconds"] = Math.Round(Math.Max(0, GameTime.missionElapsedTime - LastProgress), 1) };
     }
 
     private readonly Dictionary<string, OrderStatus> orderStatuses = [];
@@ -129,7 +137,13 @@ internal partial class DecisionController
             if (order.Action == "Engage" && !order.Retryable && order.TargetId is { } targetId)
             {
                 int shots = PlayerCombat.OwnShotCount(order.UnitId, targetId, order.Weapon);
-                if (shots > order.Shots) order.Set("completed", $"Weapon release observed ({shots - order.Shots} fired) · effect unconfirmed");
+                if (shots > order.Shots)
+                {
+                    order.ReleaseBlocker = null;
+                    if (unit is Aircraft or Helicopter) order.AttackPhase = "Released";
+                    order.Set("completed", $"Weapon release observed ({shots - order.Shots} fired) · effect unconfirmed");
+                }
+                else if (unit is Aircraft or Helicopter) PollAirAttack(order, unit, PlayerPicture.LiveContact(side, targetId), now);
                 else if (now - order.LastProgress >= 5 && PlayerPicture.LiveContact(side, targetId) == null)
                     order.Set("blocked", "Track lost before an observed release");
                 else if (now - order.LastProgress >= 10 && PlayerPicture.LiveContact(side, targetId) is { } live
@@ -138,6 +152,62 @@ internal partial class DecisionController
             }
             if (order.State != previousState) Revision++;
         }
+    }
+
+    private void PollAirAttack(OrderStatus order, ObjectBase unit, Vehicle? track, double now)
+    {
+        var attack = track == null ? null : PlayerFlightDeck.ReadAttackProgress(unit, track.BaseObject, order.Weapon);
+        if (attack is not { Active: true })
+        {
+            order.MissingAttackSince ??= now;
+            if (now - order.MissingAttackSince < 10) return;
+            string ended = track == null ? "Track lost before an observed release" : "Native attack ended without releasing a weapon";
+            if (order.ReleaseBlocker != null) ended += $" · Last gate: {order.ReleaseBlocker}";
+            order.AttackPhase = "Ended";
+            order.Set("blocked", ended);
+            ReportAirAttack(order, unit, "No release", order.Reason);
+            return;
+        }
+
+        order.MissingAttackSince = null;
+        if (attack.ReleasePass) order.AttackPassSince ??= now;
+        bool changed = order.AttackPhase != attack.Phase || order.ReleaseBlocker != attack.Blocker;
+        if (changed)
+        {
+            order.SameGateSince = now;
+            order.AttackPhase = attack.Phase;
+            order.ReleaseBlocker = attack.Blocker;
+            order.Set("executing", attack.Blocker == null ? attack.Phase : $"{attack.Phase} · {attack.Blocker}");
+            Revision++;
+        }
+
+        double? range = track?.PositionEstimate?.Item1 is { } fix ? GeoPosition.HaversineDistanceNmi(unit.getGeoPosition(), fix) : null;
+        if (range is double distance && order.Closest - distance >= 0.2)
+        {
+            order.Closest = distance;
+            order.LastAttackClosure = now;
+            order.LastProgress = now;
+        }
+
+        bool repeatedGate = attack.ReleasePass && attack.Blocker != null && now - order.SameGateSince >= 12;
+        bool passEnded = !attack.ReleasePass && order.AttackPassSince.HasValue && attack.Phase != "Evading";
+        bool unreleasedPass = attack.ReleasePass && now - order.AttackPassSince >= 45;
+        bool stalledIngress = !attack.ReleasePass && attack.NominalRangeNm is > 0 && range <= attack.NominalRangeNm
+            && attack.Blocker != null && now - Math.Max(order.LastAttackClosure ?? now, order.SameGateSince ?? now) >= 35;
+        if (order.ReportedStall || !(repeatedGate || passEnded || unreleasedPass || stalledIngress)) return;
+        order.ReportedStall = true;
+        string detail = repeatedGate ? order.Reason : passEnded ? $"Attack pass ended without a release · {order.Reason}"
+            : stalledIngress ? $"Ingress stopped closing inside nominal range · {order.Reason}"
+            : $"No release observed after 45 seconds on the attack pass · {order.Reason}";
+        ReportAirAttack(order, unit, "Release stalled", detail);
+    }
+
+    private void ReportAirAttack(OrderStatus order, ObjectBase unit, string result, string detail)
+    {
+        Add("Attack progress", result, order.Weapon == null ? detail : $"{order.Weapon} · {detail}", order.UnitId,
+            unit.DisplayNameShort, targetId: order.TargetId);
+        nextTactical = 0;
+        previousSituation = null;
     }
 
     private static void PollRoute(OrderStatus order, ObjectBase unit, GeoPosition destination)

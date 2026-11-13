@@ -62,6 +62,7 @@ internal static class PromptSnapshot
                 if (shooter["weapons"] is not JArray weapons || weapons.First is not JObject first) continue;
                 foreach (string shared in new[] { "rangeNm", "weaponPosture", "committed" })
                 {
+                    if (weapons.OfType<JObject>().Any(weapon => !JToken.DeepEquals(weapon[shared], first[shared]))) continue;
                     shooter[shared] = first[shared];
                     foreach (JObject weapon in weapons.OfType<JObject>()) weapon.Remove(shared);
                 }

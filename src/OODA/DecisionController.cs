@@ -124,6 +124,15 @@ internal partial class DecisionController
             SampleSurfaceMotion(side);
             PollAirDefenseRoutes(side, now);
             foreach (TimeEvent item in timeObservations.Poll(side)) ObserveTimeEvent(item, now);
+            foreach (PlayerCombat.StrikeEffect effect in PlayerCombat.TakeStrikeEffects())
+            {
+                string detail = $"{effect.Weapon} hit {effect.Target}";
+                if (effect.RadarChanges.Length > 0) detail += $" · {string.Join(", ", effect.RadarChanges.Select(change => change.Detail))}";
+                Add("Strike assessment", effect.Bomb ? "Bomb impact" : "Radar damage observed", detail,
+                    effect.UnitId, effect.Unit, targetId: effect.TargetId);
+                nextTactical = 0;
+                previousSituation = null;
+            }
             bool assessingAttack = AssessingAttack;
             if (assessingAttack)
             {
@@ -142,7 +151,11 @@ internal partial class DecisionController
             else timedAttacker = null;
             wasAssessingAttack = assessingAttack;
         }
-        else PlayerCombat.TakeMissileImpacts();
+        else
+        {
+            PlayerCombat.TakeMissileImpacts();
+            PlayerCombat.TakeStrikeEffects();
+        }
         clock.Tick(side, Mode == ControlMode.AiControl, plan != null, interrupts.Current, DecisionPace);
     }
 
@@ -645,7 +658,8 @@ internal partial class DecisionController
         view["availableTools"] = tools;
         view["lastOrderResults"] = new JArray(events.Where(item => item.ShipId != null
                 && item.Stage is "Tactical" or "Surface defense" or "Air defense" or "Flight Deck" or "Air operations"
-                    or "Maritime strike" or "Shore bombardment" or "Approach" or "Conditional attack" or "Contact identification")
+                    or "Maritime strike" or "Shore bombardment" or "Approach" or "Conditional attack" or "Contact identification"
+                    or "Attack progress" or "Strike assessment")
             .Reverse().Take(12).Select(item => new JObject
             {
                 ["groupId"] = item.ShipId, ["shipName"] = item.ShipName, ["targetId"] = item.TargetId,
@@ -879,6 +893,8 @@ internal partial class DecisionController
     {
         string detail = result.TargetId == null ? $"{result.Role} · Patrol assigned at launch" : $"{result.Role} · Attack assigned at launch";
         Add("Air operations", result.Status, detail, result.UnitId, result.Name, targetId: result.TargetId);
+        if (result.TargetId is { } targetId)
+            TrackFire(result.UnitId, targetId, AirOrderWeapon(result.Status), result.Status, "", AttackAccepted(result.Status));
         RecordFlightAssignment(result.UnitId, result.Role, result.TargetId, result.Status);
         if (!result.Status.StartsWith("Rejected", StringComparison.Ordinal)) return;
         nextTactical = 0;
@@ -1497,7 +1513,7 @@ internal partial class DecisionController
         view["airborne"]!.Select(flight => $"{flight["id"]}:{flight["leaderId"]}:{flight["order"]}:{flight["routeLoops"]}:{(int?)flight["fuelPercent"] / 10}:{flight["armedRoles"]}:{flight["engagedContacts"]}")
             .Concat(view["airWeaponFire"]!.Select(shot => $"{shot["unitId"]}:{shot["targetId"]}:{shot["weapon"]}:{shot["shots"]}"))
             .Concat(view["airTargets"]!.Select(track => $"{track["id"]}:{track["esm"]}"))
-            .Concat(view["airDefenseAssessment"]!.Select(site => $"{site["targetId"]}:{site["assessment"]}:{site["missileInbound"]}"))
+            .Concat(view["airDefenseAssessment"]!.Select(site => $"{site["targetId"]}:{site["assessment"]}:{site["liveFix"]}:{site["fixSource"]}:{site["missileInbound"]}"))
             .Concat(view["airborne"]!.Where(flight => flight["transportWindow"] is JObject).Select(flight =>
                 $"{flight["id"]}:transport:{(double?)flight["transportWindow"]!["minutesOfHoldRemaining"] < 15}:{(double?)flight["transportWindow"]!["spareRangeNm"] <= 0}"))
             .Concat(view["heldTransportRouteWarnings"]!.Select(warning => $"{warning["unitId"]}:{warning["targetId"]}:{warning["assessment"]}"))

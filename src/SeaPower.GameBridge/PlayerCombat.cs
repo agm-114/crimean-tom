@@ -10,6 +10,14 @@ internal static class PlayerCombat
     internal const double EvidenceLifetime = 180;
     internal record Gunfire(string AttackerId, string VictimId, string Victim, bool FriendlyVictim, double LastSeen);
     internal record MissileImpact(string TargetId, string Target, string Category, string Posture, string? MissileId, string Detail);
+    internal record RadarDamage(string Component, string State, bool GuidesMissiles, string Weapon, double Time)
+    {
+        internal string Detail => $"{Component}{(GuidesMissiles ? " (missile guidance)" : "")} {State}";
+    }
+    internal record StrikeEffect(string UnitId, string Unit, string TargetId, string Target, string Weapon, bool Bomb,
+        RadarDamage[] RadarChanges);
+    private record RadarStatus(SensorSystemRadar Radar, float Integrity, bool Inoperable, bool GuidesMissiles);
+    private record StrikeObservation(WeaponBase Weapon, Vehicle Track, RadarStatus[] Radars);
     private record OwnFire(string UnitId, bool Aircraft, string TargetId, string Weapon, int Shots, double LastFired);
 
     private static readonly Dictionary<(string Attacker, string Victim), Gunfire> GunfireByPair = [];
@@ -17,6 +25,61 @@ internal static class PlayerCombat
     private static readonly Dictionary<WeaponBase, ObjectBase> OwnGuidedWeaponTargets = [];
     private static readonly Queue<MissileImpact> MissileImpacts = new();
     private static readonly Queue<string> OwnLaunchReports = new();
+    private static readonly Queue<StrikeEffect> StrikeEffects = new();
+    private static readonly Dictionary<(string Target, string Component), RadarDamage> ObservedRadarDamage = [];
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Blastzone), "OnHitUnit")]
+    private static void BeforeStrikeDamage(ObjectBase hitObject, WeaponBase ____weapon, HashSet<ObjectBase> ____checkedObjects,
+        out StrikeObservation? __state)
+    {
+        __state = null;
+        if (____weapon is not (Missile or Bomb) || ____checkedObjects.Contains(hitObject)
+            || PlayerPicture.Side is not { } side || ____weapon._taskforce != side
+            || hitObject.GetMapVehicle(side) is not { } track || !PlayerPicture.IsVisual(track)) return;
+        RadarStatus[] radars = [];
+        if (hitObject is LandUnit && hitObject._obp is { } parameters)
+        {
+            HashSet<SensorSystem> guidance = new(parameters._weaponSystems.Where(system => system._weaponType == WeaponSystem.WeaponType.Missile)
+                .SelectMany(system => system._vwp._associatedSensors));
+            radars = parameters._sensorSystems.OfType<SensorSystemRadar>()
+                .Select(radar => new RadarStatus(radar, radar.CurrentIntegrity, radar.Inoperable.Value, guidance.Contains(radar))).ToArray();
+        }
+        if (radars.Length > 0 || ____weapon is Bomb) __state = new(____weapon, track, radars);
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Blastzone), "OnHitUnit")]
+    private static void AfterStrikeDamage(StrikeObservation? __state)
+    {
+        if (__state is not { } hit || hit.Weapon._warheadMalfunction || hit.Weapon._launchPlatform is not { } unit || !unit) return;
+        string weapon = hit.Weapon._ap._displayedName;
+        double now = GameTime.missionElapsedTime;
+        RadarDamage[] changes = hit.Radars.Where(before => before.Radar.CurrentIntegrity < before.Integrity
+            || !before.Inoperable && before.Radar.Inoperable.Value).Select(before =>
+        {
+            SensorSystemRadar radar = before.Radar;
+            string name = radar.DisplayName.Value ?? radar._systemName;
+            string effect = radar.IsDestroyed ? "destroyed" : radar.Inoperable.Value ? "inoperable" : "damaged";
+            return new RadarDamage(name, effect, before.GuidesMissiles, weapon, now);
+        }).ToArray();
+        if (changes.Length == 0 && hit.Weapon is not Bomb) return;
+        string targetId = PlayerPicture.Id(hit.Track);
+        if (StrikeEffects.Count == 32) StrikeEffects.Dequeue();
+        StrikeEffects.Enqueue(new(PlayerPicture.Id(unit), unit.DisplayNameShort, targetId, PlayerPicture.ContactLabel(hit.Track),
+            weapon, hit.Weapon is Bomb, changes));
+        foreach (RadarDamage damage in changes) ObservedRadarDamage[(targetId, damage.Component)] = damage;
+    }
+
+    internal static StrikeEffect[] TakeStrikeEffects()
+    {
+        StrikeEffect[] effects = StrikeEffects.ToArray();
+        StrikeEffects.Clear();
+        return effects;
+    }
+
+    internal static IEnumerable<RadarDamage> RadarDamageAt(string targetId) => ObservedRadarDamage
+        .Where(entry => entry.Key.Target == targetId).Select(entry => entry.Value);
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(WeaponBase), nameof(WeaponBase.Destruction))]
@@ -142,6 +205,8 @@ internal static class PlayerCombat
         OwnGuidedWeaponTargets.Clear();
         OwnLaunchReports.Clear();
         MissileImpacts.Clear();
+        StrikeEffects.Clear();
+        ObservedRadarDamage.Clear();
     }
 
     internal static IEnumerable<Gunfire> Recent()
