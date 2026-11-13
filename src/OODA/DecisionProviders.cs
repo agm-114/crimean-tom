@@ -114,17 +114,16 @@ internal static class DecisionSchema
         DecisionRole.Operational => Object(("objective", Text()), ("assignments", Array(Order("task", "Transit", "Screen", "Hold"))),
             ("inspectGroupId", Text(nullable: true)), ("mapMarks", Array(Object(
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
-                ("radiusNm", Number(nullable: true))))), ("timePolicy", TimePolicy())),
+                ("radiusNm", Number(nullable: true))))), ("helicopterOrders", HelicopterOrders()), ("timePolicy", TimePolicy())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
             ("standingOrderChanges", StandingOrders()),
             ("timeCompression", TimeSpeed(nullable: true)),
-            ("timeReason", Text(nullable: true)), ("timePolicy", TimePolicy())),
-        DecisionRole.SurfaceDefense => Object(("action", Choice("Engage", "Hold")), ("shipId", Text(nullable: true)),
-            ("targetId", Text(nullable: true)), ("victimId", Text(nullable: true)),
-            ("weapons", Choice("Guns", "BestAvailable", "None")),
-            ("evidence", Choice("ObservedGunfire", "AttackReport", "None")),
+            ("timeReason", Text(nullable: true)), ("helicopterOrders", HelicopterOrders()), ("timePolicy", TimePolicy())),
+        DecisionRole.SurfaceDefense => Object(("engagements", Array(Object(("shipId", Text()), ("targetId", Text()),
+            ("victimId", Text()), ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))),
+            ("evidence", Choice("ObservedGunfire", "AttackReport", "HostileThreat")),
             ("messageIndex", new JObject { ["type"] = new JArray("integer", "null") }), ("reason", Text()),
-            ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())),
+            ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())))), ("reason", Text())),
         DecisionRole.AirDefense => Object(("standingOrderChanges", StandingOrders()), ("targetIds", Array(Text())), ("reason", Text())),
         _ => Object(("optionId", Text()), ("reason", Text()))
     };
@@ -135,6 +134,8 @@ internal static class DecisionSchema
     private static JObject Array(JObject items) => new() { ["type"] = "array", ["items"] = items };
     private static JObject StandingOrders() =>
         Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())));
+    private static JObject HelicopterOrders() => Array(Object(("shipId", Text()), ("anchorId", Text(nullable: true)),
+        ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
     private static JObject TimeSpeed(bool nullable = false) => new()
     {
         ["type"] = nullable ? new JArray("integer", "null") : new JValue("integer"),

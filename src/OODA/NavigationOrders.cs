@@ -8,10 +8,33 @@ internal record ChartDestination(string Id, string Label, GeoPosition Position, 
 
 internal static class NavigationOrders
 {
-    internal static ChartDestination[] Destinations(Vessel[] ships, ChartDestination? chartPoint) => ships.Where(PlayerPicture.CanNavigate)
-        .SelectMany(ship => ship.GetAllWaypointsGeoPositions(getRelative: false).Take(1)
-            .Select(waypoint => new ChartDestination($"route-{PlayerPicture.Id(ship)}", $"{ship.getName()} · current waypoint", waypoint.wpGP, PlayerPicture.Id(ship))))
-        .Concat(chartPoint is null ? Array.Empty<ChartDestination>() : [chartPoint]).ToArray();
+    internal static ChartDestination[] Destinations(Taskforce side, Vessel[] ships, ChartDestination? chartPoint)
+    {
+        Vehicle[] protectedContacts = SurfaceDefense.ProtectedContacts(side).Take(6).ToArray();
+        return ships.Where(PlayerPicture.CanNavigate).SelectMany(ship => ShipDestinations(ship, protectedContacts))
+            .Concat(chartPoint is null ? [] : [chartPoint]).ToArray();
+    }
+
+    private static IEnumerable<ChartDestination> ShipDestinations(Vessel ship, Vehicle[] protectedContacts)
+    {
+        string shipId = PlayerPicture.Id(ship);
+        foreach (var waypoint in ship.GetAllWaypointsGeoPositions(getRelative: false).Take(1))
+            yield return new($"route-{shipId}", $"{ship.getName()} · current waypoint", waypoint.wpGP, shipId);
+
+        GeoPosition origin = ship.getGeoPosition();
+        ChartPosition start = new(origin._latitude, origin._longitude);
+        foreach (Vehicle contact in protectedContacts)
+        {
+            if (contact.PositionEstimate?.Item1 is not { } estimate) continue;
+            double distance = GeoPosition.HaversineDistanceNmi(origin, estimate);
+            if (distance is < 3 or > 40) continue;
+            ChartPosition shipPosition = new(estimate._latitude, estimate._longitude);
+            ChartPosition screen = start.Towards(shipPosition, 1 - 2 / distance);
+            if (ScenarioTerrain.IsNavigable(start, screen, depth: 12))
+                yield return new($"screen-{shipId}-{PlayerPicture.Id(contact)}", $"Screen {PlayerPicture.ContactLabel(contact)}",
+                    new GeoPosition { _latitude = screen.Latitude, _longitude = screen.Longitude }, shipId);
+        }
+    }
 
     internal static string SetWaypoint(Vessel ship, Taskforce side, ChartDestination destination)
     {

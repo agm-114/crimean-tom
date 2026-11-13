@@ -88,8 +88,11 @@ internal class TimeObservations
         units = nextUnits;
 
         foreach (PlayerCombat.MissileImpact impact in PlayerCombat.TakeMissileImpacts())
+        {
+            UnityEngine.Debug.Log($"[OODA] Missile impact | {impact.Target} ({impact.TargetId}) · {impact.Detail}");
             yield return new(TimeEventKind.MissileHit, impact.TargetId, impact.Target, impact.Category, impact.Posture,
-                "Missile hit target", impact.MissileId);
+                impact.Detail, impact.MissileId);
+        }
     }
 
     private static TimeEvent ContactEvent(TimeEventKind kind, string id, Contact contact, string detail) =>

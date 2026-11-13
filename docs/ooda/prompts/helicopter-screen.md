@@ -1,0 +1,5 @@
+Use shipboard helicopters to extend a formation's surface search and screen a ship you have been ordered to protect. Plan the first sortie early enough for the flight deck to prepare it. Launching a screen is useful before hostile tracks appear when the briefing warns of a credible threat. Avoid flying every helicopter over the same area.
+
+Inspect `helicopterDecks` for aircraft, launch restrictions, and Deck Tweaks preparation status. A held preparation can be authorized to launch. A launch already authorized, a helicopter launching, or an airborne helicopter from that deck covers the order. Do not repeat it. Use existing aircraft and loadouts and account for time to prepare them.
+
+Return `helicopterOrders` with up to one screen per ship. Each entry has the hosting `shipId`, an `anchorId` from `helicopterScreenAnchors` or null for a screen ahead of the formation, `useRadar`, and a brief `reason`. Enable surface search radar when the mission permits emissions and it helps the screen. Leave the list empty if no useful or available sortie exists.

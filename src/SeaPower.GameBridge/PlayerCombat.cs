@@ -9,10 +9,14 @@ internal static class PlayerCombat
 {
     internal const double EvidenceLifetime = 180;
     internal record Gunfire(string AttackerId, string VictimId, string Victim, bool FriendlyVictim, double LastSeen);
-    internal record MissileImpact(string TargetId, string Target, string Category, string Posture, string? MissileId);
+    internal record MissileImpact(string TargetId, string Target, string Category, string Posture, string? MissileId, string Detail);
+    private record OwnFire(string ShipId, string TargetId, string Weapon, int Shots, double LastFired);
 
     private static readonly Dictionary<(string Attacker, string Victim), Gunfire> GunfireByPair = [];
+    private static readonly Dictionary<(string Ship, string Target, string Weapon), OwnFire> OwnFireByWeapon = [];
+    private static readonly Dictionary<Missile, ObjectBase> OwnMissileTargets = [];
     private static readonly Queue<MissileImpact> MissileImpacts = new();
+    private static readonly Queue<string> OwnLaunchReports = new();
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(WeaponBase), nameof(WeaponBase.Destruction))]
@@ -22,15 +26,19 @@ internal static class PlayerCombat
         Vehicle? weapon = __instance.GetMapVehicle(side);
         Vehicle? target = targetObject.GetMapVehicle(side);
         bool owned = targetObject._taskforce == side;
-        if (!owned && (target == null || !PlayerPicture.IsVisual(target)
-            || __instance._taskforce != side && (weapon == null || !PlayerPicture.IsVisual(weapon)))) return;
+        bool ownWeapon = __instance._taskforce == side;
+        bool friendly = owned || target?.CurrentRelationship() == RelationsState.Friendly;
+        if (!owned && (target == null || !PlayerPicture.IsVisual(target) && !(ownWeapon && friendly && PlayerPicture.IsLive(target))
+            || !ownWeapon && (weapon == null || !PlayerPicture.IsVisual(weapon)))) return;
+        string detail = ownWeapon && __instance._launchPlatform is { } shooter && shooter
+            ? $"{shooter.DisplayNameShort}’s {__instance._ap._displayedName} hit {(friendly ? "a friendly target" : "the target")}" : "Missile hit target";
 
         if (MissileImpacts.Count == 32) MissileImpacts.Dequeue();
         MissileImpacts.Enqueue(new(owned ? PlayerPicture.Id(targetObject) : PlayerPicture.Id(target!),
             owned ? targetObject.DisplayNameShort : PlayerPicture.ContactLabel(target!),
             target?.GetMapType().ToString() ?? targetObject._type.ToString(),
             owned ? "Own" : target!.CurrentRelationship().ToString(),
-            weapon != null && PlayerPicture.IsLive(weapon) ? PlayerPicture.Id(weapon) : null));
+            weapon != null && PlayerPicture.IsLive(weapon) ? PlayerPicture.Id(weapon) : null, detail));
     }
 
     internal static MissileImpact[] TakeMissileImpacts()
@@ -46,12 +54,18 @@ internal static class PlayerCombat
     private static void ObserveGunfire(Projectile __instance)
     {
         if (__instance._ws is not WeaponSystemGun || __instance._launchPlatform is not Vessel source || !source
-            || __instance._targetObject is not Vessel target || !target || PlayerPicture.Side is not { } side
-            || source._taskforce == side || source.GetMapVehicle(side) is not { } attacker || !PlayerPicture.IsVisual(attacker)) return;
+            || __instance._targetObject is not Vessel target || !target || PlayerPicture.Side is not { } side) return;
+        if (source._taskforce == side)
+        {
+            RecordOwnFire(side, source, target, __instance._pp._displayedName, missile: false);
+            return;
+        }
+        if (source.GetMapVehicle(side) is not { } attacker || !PlayerPicture.IsVisual(attacker)) return;
 
         Vehicle? victim = target.GetMapVehicle(side);
         bool owned = target._taskforce == side;
-        if (!owned && (victim == null || !PlayerPicture.IsVisual(victim))) return;
+        if (!owned && (victim == null || !PlayerPicture.IsLive(victim)
+            || victim.CurrentRelationship() != RelationsState.Friendly && !PlayerPicture.IsVisual(victim))) return;
 
         string attackerId = PlayerPicture.Id(attacker);
         string victimId = owned ? PlayerPicture.Id(target) : PlayerPicture.Id(victim!);
@@ -60,11 +74,51 @@ internal static class PlayerCombat
         GunfireByPair[(attackerId, victimId)] = new(attackerId, victimId, victimName, friendly, GameTime.missionElapsedTime);
     }
 
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(WeaponBase), nameof(WeaponBase.CommonLaunchSettings))]
+    private static void ObserveMissileLaunch(WeaponBase __instance, ObjectBase targetObject, bool isSubmunition)
+    {
+        if (__instance is not Missile missile) return;
+        OwnMissileTargets.Remove(missile);
+        if (isSubmunition || missile._launchPlatform is not Vessel source || !source || !targetObject
+            || PlayerPicture.Side is not { } side || source._taskforce != side) return;
+        OwnMissileTargets[missile] = targetObject;
+        RecordOwnFire(side, source, targetObject, missile._ap._displayedName, missile: true);
+    }
+
+    internal static IEnumerable<ObjectBase> MissileTargetsInFlight()
+    {
+        foreach (Missile missile in OwnMissileTargets.Keys.Where(missile => !missile || missile.IsDestroyed
+            || !missile.gameObject.activeInHierarchy).ToArray()) OwnMissileTargets.Remove(missile);
+        return OwnMissileTargets.Values.Where(target => target && !target.IsDestroyed).Distinct();
+    }
+
+    private static void RecordOwnFire(Taskforce side, Vessel source, ObjectBase target, string weapon, bool missile)
+    {
+        if (target.GetMapVehicle(side) is not { } track || !track.IsVisible()) return;
+        string shipId = PlayerPicture.Id(source);
+        string targetId = PlayerPicture.Id(track);
+        double now = GameTime.missionElapsedTime;
+        var key = (shipId, targetId, weapon);
+        OwnFire? previous = OwnFireByWeapon.GetValueOrDefault(key);
+        OwnFireByWeapon[key] = new(shipId, targetId, weapon, (previous?.Shots ?? 0) + 1, now);
+        if (missile || previous == null || now - previous.LastFired >= 30)
+        {
+            if (OwnLaunchReports.Count == 32) OwnLaunchReports.Dequeue();
+            OwnLaunchReports.Enqueue($"{source.DisplayNameShort} fired {weapon} at {PlayerPicture.ContactLabel(track)} ({targetId}) · T+{now:0}s");
+        }
+    }
+
+    internal static bool TryTakeLaunchReport(out string report) => OwnLaunchReports.TryDequeue(out report!);
+
     [HarmonyPrefix]
     [HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoUnload))]
     private static void Clear()
     {
         GunfireByPair.Clear();
+        OwnFireByWeapon.Clear();
+        OwnMissileTargets.Clear();
+        OwnLaunchReports.Clear();
         MissileImpacts.Clear();
     }
 
@@ -81,4 +135,8 @@ internal static class PlayerCombat
         ["attackerId"] = item.AttackerId, ["victimId"] = item.VictimId, ["victim"] = item.Victim,
         ["friendlyVictim"] = item.FriendlyVictim, ["lastSeenSeconds"] = item.LastSeen
     }));
+
+    internal static JArray OwnFireSnapshot() => new(OwnFireByWeapon.Values.OrderByDescending(item => item.LastFired).Take(24)
+        .Select(item => new JObject { ["shipId"] = item.ShipId, ["targetId"] = item.TargetId, ["weapon"] = item.Weapon,
+            ["shots"] = item.Shots, ["lastFiredSeconds"] = item.LastFired }));
 }

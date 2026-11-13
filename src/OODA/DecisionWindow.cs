@@ -30,6 +30,8 @@ public class DecisionWindow : MonoBehaviour
     private TextBlock? paceReason;
     private Button? replanButton;
     private Button? takeControl;
+    private Button? observeButton;
+    private Button? aiControlButton;
     private float nextRefresh;
     private double nextTimeTick;
     private int revision = -1;
@@ -106,10 +108,11 @@ public class DecisionWindow : MonoBehaviour
         chartStatus = Text(controller.ChartPoint);
         replanButton = Button("Replan", controller.PlanNow);
         takeControl = Button("Take control", () => controller.SetMode(ControlMode.Manual));
+        observeButton = Button("Observe", () => controller.SetMode(ControlMode.Observe));
+        aiControlButton = Button("AI control", () => controller.SetMode(ControlMode.AiControl), primary: true);
         DockPanel layout = new() { Margin = new Thickness(10) };
         StackPanel header = Stack(Text(controller.Provider), status, clockStatus, Wrap(
-            Button("Observe", () => controller.SetMode(ControlMode.Observe)),
-            Button("AI control", () => controller.SetMode(ControlMode.AiControl), primary: true), takeControl, replanButton,
+            observeButton, aiControlButton, takeControl, replanButton,
             Check("Let AI manage time", controller.ManageTime, controller.SetTimeManagement)),
             Section("Chart waypoint", ChartEditor(), expanded: false));
         DockPanel.SetDock(header, Dock.Top);
@@ -145,9 +148,13 @@ public class DecisionWindow : MonoBehaviour
 
     private void Refresh(Vessel[] ships)
     {
-        status!.Text = controller.Status;
+        const string observeStatus = "Observing · orders are suggestions";
+        status!.Text = controller.Mode == ControlMode.Observe && controller.Status != observeStatus
+            ? $"{observeStatus}\n{controller.Status}" : controller.Status;
         clockStatus!.Text = controller.ClockStatus;
         takeControl!.IsEnabled = controller.Mode != ControlMode.Manual;
+        observeButton!.IsEnabled = controller.Mode != ControlMode.Observe;
+        aiControlButton!.IsEnabled = controller.Mode != ControlMode.AiControl;
         replanButton!.IsEnabled = controller.Mode != ControlMode.Manual;
         string membership = string.Join("|", ships.Select(PlayerPicture.Id));
         if (revision == controller.Revision && tabMembership == membership)
@@ -401,6 +408,7 @@ public class DecisionWindow : MonoBehaviour
         window = null;
         tabs = null;
         paceSource = paceReason = null;
+        observeButton = aiControlButton = null;
         shipStates.Clear();
         if (launcher != null) launcher.Button.IsChecked = false;
     }

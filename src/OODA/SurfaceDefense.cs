@@ -7,43 +7,73 @@ namespace OODA;
 
 internal class SurfaceDefense
 {
+    private const double CloseThreatRangeNm = 8;
     private static readonly Regex AttackLanguage = new(
-        @"\b(?:under (?:attack|fire)|taking fire|opened fire|fired (?:on|at|upon)|fir(?:e|ing) (?:on|at|upon|from)|fire (?:was |is )?reported from|attacking|being attacked|shooting (?:at|on))\b",
+        @"\b(?:under (?:attack|fire)|taking fire|opened fire|fired (?:on|at|upon)|fir(?:e|ing) (?:on|at|upon|from)|fire (?:was |is )?reported from|(?:is|are) attacking|being attacked|shooting (?:at|on))\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex ProtectionLanguage = new(@"\b(?:assist(?:ance)?|escort|protect|defend)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private record CloseThreat(string TargetId, string VictimId, double RangeNm)
+    {
+        internal bool Immediate => RangeNm <= 4;
+    }
     private HashSet<(string Attacker, string Victim)> gunfire = [];
+    private HashSet<string> liveAttackers = [];
+    private readonly HashSet<(string Target, string Victim, bool Immediate)> closeThreats = [];
     private HashSet<string> reportContacts = [];
+    private readonly Dictionary<string, double> nextReportReview = [];
     private readonly HashSet<string> reviewedGunFailures = [];
     private double lastRequested;
     internal bool Pending { get; set; }
     internal bool ActiveGunfire { get; private set; }
+    internal bool HasNearbyThreat { get; private set; }
+    internal PlayerCombat.Gunfire[] NewFriendlyAttacks { get; private set; } = [];
 
-    internal void Poll(Taskforce side)
+    internal void Poll(Taskforce side, bool canReview)
     {
+        while (PlayerCombat.TryTakeLaunchReport(out string launch)) UnityEngine.Debug.Log($"[OODA] Weapon fired | {launch}");
         bool hasReport = Reports().Any();
         PlayerCombat.Gunfire[] recent = PlayerCombat.Recent().Where(item => item.FriendlyVictim || hasReport).ToArray();
         double now = GameTime.missionElapsedTime;
         ActiveGunfire = recent.Any(item => now - item.LastSeen <= 12);
+        NewFriendlyAttacks = recent.Where(item => item.FriendlyVictim && now - item.LastSeen <= 12
+            && !gunfire.Contains((item.AttackerId, item.VictimId))).ToArray();
         HashSet<(string, string)> observed = recent.Select(item => (item.AttackerId, item.VictimId)).ToHashSet();
         if (observed.Except(gunfire).Any()) Pending = true;
-        if (ActiveGunfire && now - lastRequested >= 30)
-        {
-            HashSet<ObjectBase> engaged = PlayerPicture.Ships(side).SelectMany(ship => ship._currentEngageTasks)
-                .Select(task => task._targetObject).ToHashSet();
-            if (recent.Any(item => item.LastSeen > lastRequested && now - item.LastSeen <= 12
-                && PlayerPicture.LiveContact(side, item.AttackerId) is { } attacker && !engaged.Contains(attacker.BaseObject)))
-                Pending = true;
-        }
+        HashSet<string> currentAttackers = recent.Where(item => now - item.LastSeen <= 45
+            && PlayerPicture.LiveContact(side, item.AttackerId) != null).Select(item => item.AttackerId).ToHashSet();
+        if (currentAttackers.Except(liveAttackers).Any()) Pending = true;
+        if (canReview && now - lastRequested >= 30 && recent.Any(item => item.LastSeen > lastRequested
+            && now - item.LastSeen <= 12 && currentAttackers.Contains(item.AttackerId))) Pending = true;
+        liveAttackers = currentAttackers;
         gunfire = observed;
 
         HashSet<string> contacts = hasReport && side.PlottingTable?.Vehicles is { } tracks
             ? tracks.Where(IsReportCandidate).Select(PlayerPicture.Id).ToHashSet() : [];
-        if (contacts.Except(reportContacts).Any()) Pending = true;
+        double wallTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+        if (canReview)
+            foreach (string id in contacts.Intersect(reportContacts))
+            {
+                if (nextReportReview.GetValueOrDefault(id) > wallTime) continue;
+                nextReportReview[id] = wallTime + 15;
+                Pending = true;
+            }
         reportContacts = contacts;
+
+        HasNearbyThreat = false;
+        foreach (CloseThreat threat in NearbyThreats(side))
+        {
+            HasNearbyThreat = true;
+            if (threat.Immediate) closeThreats.Add((threat.TargetId, threat.VictimId, false));
+            Pending |= closeThreats.Add((threat.TargetId, threat.VictimId, threat.Immediate));
+        }
     }
 
-    internal void OnMessages()
+    internal void OnMessages(IEnumerable<MissionCommunications.Message> updates)
     {
-        if (PlayerCombat.Recent().Any(item => item.FriendlyVictim) || Reports().Any()) Pending = true;
+        if (!updates.Any(message => AttackLanguage.IsMatch(message.Body))) return;
+        nextReportReview.Clear();
+        Pending = true;
     }
 
     internal void MarkRequested()
@@ -56,15 +86,27 @@ internal class SurfaceDefense
 
     internal void Reset()
     {
-        Pending = ActiveGunfire = false;
+        Pending = ActiveGunfire = HasNearbyThreat = false;
+        NewFriendlyAttacks = [];
         lastRequested = 0;
         gunfire.Clear();
+        liveAttackers.Clear();
+        closeThreats.Clear();
         reportContacts.Clear();
+        nextReportReview.Clear();
         reviewedGunFailures.Clear();
     }
 
     internal static void Describe(Taskforce side, JObject view)
     {
+        view["ownWeaponFire"] = PlayerCombat.OwnFireSnapshot();
+        view["ownMissileTargetsInFlight"] = new JArray(PlayerCombat.MissileTargetsInFlight()
+            .Select(target => target.GetMapVehicle(side)).OfType<Vehicle>().Where(track => track.IsVisible()).Select(PlayerPicture.Id));
+        view["nearbySurfaceThreats"] = new JArray(NearbyThreats(side).Select(threat => new JObject
+        {
+            ["targetId"] = threat.TargetId, ["victimId"] = threat.VictimId, ["rangeNm"] = Math.Round(threat.RangeNm, 1),
+            ["immediate"] = threat.Immediate
+        }));
         view["attackReports"] = new JArray(Reports().Select(report => new JObject
         {
             ["messageIndex"] = report.Index, ["elapsedSeconds"] = report.Message.Time,
@@ -73,7 +115,42 @@ internal class SurfaceDefense
         view["protectedUnits"] = new JArray(OwnVessels(side).Where(ship => !PlayerPicture.CanCommand(ship, side)).Select(ship => new JObject
         {
             ["id"] = PlayerPicture.Id(ship), ["name"] = ship.DisplayNameShort, ["position"] = PlayerPicture.Point(ship.getGeoPosition())
-        }));
+        }).Concat(ProtectedContacts(side).Select(track => new JObject
+        {
+            ["id"] = PlayerPicture.Id(track), ["name"] = PlayerPicture.ContactLabel(track),
+            ["position"] = PlayerPicture.Point(track.PositionEstimate!.Value.Item1)
+        })));
+    }
+
+    internal static IEnumerable<Vehicle> ProtectedContacts(Taskforce side)
+    {
+        if (side.PlottingTable?.Vehicles is not { } tracks) yield break;
+        string[] messages = MissionCommunications.Messages.Select(message => $"{message.Title}\n{message.From}\n{message.Body}")
+            .Where(text => ProtectionLanguage.IsMatch(text) || AttackLanguage.IsMatch(text)).ToArray();
+        if (messages.Length == 0) yield break;
+        foreach (Vehicle track in tracks)
+        {
+            if (!PlayerPicture.IsLive(track) || track.BaseObject is not Vessel || track.BaseObject._taskforce == side
+                || track.CurrentRelationship() != RelationsState.Friendly || track.PositionEstimate?.Item1 == null || !track.HasReportedIdentity) continue;
+            string label = PlayerPicture.ContactLabel(track);
+            if (messages.Any(text => text.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0)) yield return track;
+        }
+    }
+
+    private static IEnumerable<CloseThreat> NearbyThreats(Taskforce side)
+    {
+        if (side.PlottingTable?.Vehicles is not { } tracks) yield break;
+        foreach (Vehicle victim in ProtectedContacts(side))
+        {
+            GeoPosition position = victim.PositionEstimate!.Value.Item1;
+            foreach (Vehicle track in tracks)
+            {
+                if (!PlayerPicture.IsLive(track) || track.BaseObject is not Vessel || track.CurrentRelationship() != RelationsState.Hostile
+                    || track.PositionEstimate?.Item1 is not { } estimate) continue;
+                double range = GeoPosition.HaversineDistanceNmi(position, estimate);
+                if (range <= CloseThreatRangeNm) yield return new(PlayerPicture.Id(track), PlayerPicture.Id(victim), range);
+            }
+        }
     }
 
     internal static string? ReviewEvidence(JObject decision, Taskforce side, Vehicle target)
@@ -87,6 +164,9 @@ internal class SurfaceDefense
                 ? null : "Recent visual gunfire does not corroborate this attacker and victim.",
             "AttackReport" => MatchesReport(side, target, victimId, (int?)decision["messageIndex"])
                 ? null : "The attack report does not uniquely corroborate this live contact near the named victim.",
+            "HostileThreat" => NearbyThreats(side).Any(threat => threat.TargetId == targetId && threat.VictimId == victimId)
+                ? "The contact is hostile and close to the protected ship. Its fire has not been confirmed."
+                : "The current picture does not corroborate this hostile contact near the protected ship.",
             _ => "The order did not cite observed gunfire or a specific attack report."
         };
     }

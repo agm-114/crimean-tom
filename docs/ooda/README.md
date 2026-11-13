@@ -10,7 +10,7 @@ OODA can adjust its cruise speed and time-compression rules during a mission. Ru
 
 **AI control** can apply eligible surface waypoints and native Standing Orders at force, formation, and unit scope. Its map annotations show objectives, reference points, and search areas alongside the game's route display. Use **Chart waypoint** to supply a destination in decimal degrees. OODA checks the direct leg before applying it.
 
-Surface defense takes priority when an attack is reported or gunfire is observed. OODA matches reports against the player picture and gives engagement orders to each eligible ship in the chosen formation. Possible rules-of-engagement violations appear in the Decision Log with the reason and go straight back to the planner for review.
+Surface defense takes priority when an attack is reported or gunfire is observed. OODA matches reports against the player picture and assigns fire orders per ship. It checks effective gun range and mount readiness, and reserves a surface target while a friendly missile is queued or airborne. `Player.log` records actual launches separately from queued orders. Possible rules-of-engagement violations appear in the Decision Log with the reason and go straight back to the planner for review.
 
 An inbound raid warning prompts OODA to ready the escorts' air defenses. When matching hostile aircraft are tracked, OODA can order an intercept.
 
