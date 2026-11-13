@@ -173,6 +173,8 @@ public class DecisionWindow : MonoBehaviour
         AddTab("mission", "Mission Command", MissionPage());
         AddTab("trace", "Decision log", Stack(Timeline(controller.Events, showShipNames: true)));
         AddTab("time", "Time Control", TimeControlPage());
+        if (controller.LastAirInput?["airDecks"]?.Any() == true || controller.LastAirInput?["airborne"]?.Any() == true)
+            AddTab("air", "Air Operations", AirOperationsPage());
         AddTab("contacts", "Contact picture", ContactsPage());
         foreach (Vessel ship in ships)
         {
@@ -202,6 +204,31 @@ public class DecisionWindow : MonoBehaviour
         var (source, reason) = controller.ClockExplanation;
         paceSource.Text = $"{controller.ClockStatus} · {source}";
         paceReason.Text = reason;
+    }
+
+    private FrameworkElement AirOperationsPage()
+    {
+        JObject? air = controller.LastAirInput;
+        StackPanel flights = Stack();
+        foreach (JObject flight in Rows(air?["airborne"]))
+        {
+            string details = string.Join(" · ", new[] { (string?)flight["loadout"], (string?)flight["order"],
+                (int?)flight["fuelPercent"] is { } fuel ? $"{fuel}% fuel" : null }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            flights.Children.Add(Field((string?)flight["name"] ?? "Aircraft", details));
+        }
+        if (flights.Children.Count == 0) flights.Children.Add(Text("No aircraft airborne"));
+        StackPanel decks = Stack();
+        foreach (JObject deck in Rows(air?["airDecks"]))
+        {
+            StackPanel tasks = Stack();
+            foreach (JObject task in Rows(deck["deckTasks"]))
+                tasks.Children.Add(Field($"{task["type"]} {task["loadout"]}", $"{task["state"]} {task["preparation"]}".Trim()));
+            if (tasks.Children.Count == 0) tasks.Children.Add(Text("No deck tasks"));
+            decks.Children.Add(Section((string?)deck["shipName"] ?? "Flight deck", tasks));
+        }
+        if (decks.Children.Count == 0) decks.Children.Add(Text("No flight decks"));
+        return Stack(Section("Airborne", flights), Section("Deck preparation", decks),
+            Section("Orders", Timeline(controller.Events.Where(item => item.Stage == "Air operations"), showShipNames: true)));
     }
 
     private FrameworkElement MissionPage()

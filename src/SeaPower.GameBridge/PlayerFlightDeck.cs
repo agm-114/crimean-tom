@@ -1,13 +1,22 @@
+using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using SeaPower;
 
 namespace SeaPower.GameBridge;
 
-internal static class PlayerFlightDeck
+internal static partial class PlayerFlightDeck
 {
+    private record ScreenFit(VehicleTypeOnBoard Aircraft, Loadout Loadout, PendingLaunchTask? Held)
+    {
+        internal string Id => $"{Aircraft._fileName}:{Loadout.Name}";
+    }
+    private static readonly Lazy<Func<PendingLaunchTask, Loadout, PendingLaunchTask?>?> ChangePreparedLoadout = new(() =>
+        AccessTools.TypeByName("DeckTweaks.TaskLoadout")?.GetMethod("ChangePreparedLoadout")
+            ?.CreateDelegate(typeof(Func<PendingLaunchTask, Loadout, PendingLaunchTask?>)) as Func<PendingLaunchTask, Loadout, PendingLaunchTask?>);
+
     internal static JArray Helicopters(Taskforce side, Vessel[] ships)
     {
-        Helicopter[] flights = PlayerPicture.Units(side).OfType<Helicopter>().Where(unit => unit._isInFlight).ToArray();
+        Helicopter[] flights = ScreenFlights(side).ToArray();
         JArray result = [];
         foreach (Vessel ship in ships)
         {
@@ -23,10 +32,12 @@ internal static class PlayerFlightDeck
                 {
                     ["type"] = unit.DisplayName, ["count"] = unit.Numbers
                 })),
+                ["screenFits"] = new JArray(ScreenFits(deck, tasks).GroupBy(fit => fit.Id).Select(group => DescribeFit(group.First()))),
                 ["deckTasks"] = new JArray(tasks.Select(task => new JObject
                 {
                     ["type"] = task.AircraftType, ["state"] = task.FlightDeckTaskLabel, ["preparation"] = task.Info,
-                    ["launchAuthorized"] = task is PendingLaunchTask pending ? pending.launchAllowed : null
+                    ["launchAuthorized"] = task is PendingLaunchTask pending ? pending.launchAllowed : null,
+                    ["loadout"] = task is PendingLaunchTask preparing ? preparing.VehicleType.Loadouts[preparing._loadoutIndex].DisplayName : null
                 })),
                 ["airborne"] = new JArray(airborne.Select(unit => new JObject
                 {
@@ -37,50 +48,80 @@ internal static class PlayerFlightDeck
         return result;
     }
 
-    internal static string QueueHelicopterScreen(Vessel ship, Taskforce side, GeoPosition[] route, bool useRadar)
+    internal static string QueueHelicopterScreen(Vessel ship, Taskforce side, string fitId, GeoPosition[] route, bool useRadar)
     {
         if (PlayerOrders.Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side)
             || ship._obp?._flightDeck is not { } deck || LaunchesBlocked(deck)) return "Rejected · deck launches unavailable";
-        if (PlayerPicture.Units(side).OfType<Helicopter>().Any(unit => unit._isInFlight && unit.getHomeBase() == ship))
-            return "Kept · a helicopter from this ship is airborne";
+        if (ScreenFlights(side).Any(unit => unit.getHomeBase() == ship))
+            return "Kept · a screening helicopter from this ship is airborne";
 
         FlightDeckTask[] tasks = HelicopterTasks(deck);
         if (tasks.Any(task => task is LaunchTask || task is PendingLaunchTask { launchAllowed: true }))
             return "Kept · a helicopter launch is already queued";
-        PendingLaunchTask? held = tasks.OfType<PendingLaunchTask>().FirstOrDefault(task => task.LaunchCount == 1
-            && task._ltp._missionType == FlightDeckTask.MissionType.None && task._ltp._waypoints.Count == 0
-            && !task.FlightDeckTaskLabel.Contains("Aborting", StringComparison.OrdinalIgnoreCase));
-        if (held != null)
+        ScreenFit? fit = ScreenFits(deck, tasks).FirstOrDefault(option => option.Id == fitId);
+        if (fit == null) return "Rejected · selected helicopter fit is no longer available";
+        if (fit.Held is { } held)
         {
+            if (fit.Loadout != held.VehicleType.Loadouts[held._loadoutIndex])
+            {
+                PendingLaunchTask? replacement = ChangePreparedLoadout.Value?.Invoke(held, fit.Loadout);
+                if (replacement == null) return $"Rejected · could not prepare {fit.Loadout.DisplayName} on the held helicopter";
+                held = replacement;
+            }
             held._ltp._waypoints.AddRange(route);
-            WatchLaunch(held, ship, useRadar);
-            held.ToggleLaunchAllowedFunc(null);
-            return $"Launch authorized · {held.AircraftType} · {held.FlightDeckTaskLabel} · {held.Info}";
+            WatchLaunch(held, ship, fit.Loadout, useRadar);
+            if (!held.launchAllowed) held.ToggleLaunchAllowedFunc(null);
+            return $"Launch authorized · {held.AircraftType} · {fit.Loadout.DisplayName} · {held.FlightDeckTaskLabel}";
         }
 
-        foreach (VehicleTypeOnBoard aircraft in deck._vehiclesOnBoard.Where(unit => IsHelicopter(unit) && unit.Numbers > 0))
-        {
-            Squadron? squadron = aircraft.Squadrons.FirstOrDefault(unit => unit.Numbers > 0 && unit.Callsigns.Count > 0);
-            Loadout? loadout = aircraft.Loadouts.OrderBy(unit => unit.Name.StartsWith("ASW", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .FirstOrDefault(unit => deck.CanLaunchVehicle(unit, 1));
-            if (squadron == null || loadout == null) continue;
-            LaunchTaskParameters parameters = new() { _waypoints = route.ToList() };
-            PendingLaunchTask? task = deck.createLaunchTask(aircraft, loadout, squadron, squadron.Callsigns[0], parameters);
-            if (task == null) continue;
-            WatchLaunch(task, ship, useRadar);
-            return $"Screen queued · {aircraft.DisplayName} · {loadout.DisplayName} · {task.FlightDeckTaskLabel}";
-        }
-        return "Rejected · no available helicopter and loadout";
+        Squadron? squadron = fit.Aircraft.Squadrons.FirstOrDefault(unit => unit.Numbers > 0 && unit.Callsigns.Count > 0);
+        if (squadron == null) return "Rejected · no available squadron";
+        LaunchTaskParameters parameters = new() { _waypoints = route.ToList() };
+        PendingLaunchTask? task = deck.createLaunchTask(fit.Aircraft, fit.Loadout, squadron, squadron.Callsigns[0], parameters);
+        if (task == null) return $"Rejected · deck could not queue {fit.Loadout.DisplayName}";
+        WatchLaunch(task, ship, fit.Loadout, useRadar);
+        return $"Screen queued · {fit.Aircraft.DisplayName} · {fit.Loadout.DisplayName} · {task.FlightDeckTaskLabel}";
     }
+
+    private static IEnumerable<ScreenFit> ScreenFits(FlightDeck deck, FlightDeckTask[] tasks)
+    {
+        int year = Singleton<SeaPower.Environment>.InstanceExists() ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
+        foreach (PendingLaunchTask held in tasks.OfType<PendingLaunchTask>())
+        {
+            if (held.launchAllowed || held.LaunchCount != 1 || held._ltp._missionType != FlightDeckTask.MissionType.None
+                || held._ltp._waypoints.Count > 0 || held.FlightDeckTaskLabel.Contains("Aborting", StringComparison.OrdinalIgnoreCase)) continue;
+            Loadout current = held.VehicleType.Loadouts[held._loadoutIndex];
+            foreach (Loadout fit in held.VehicleType.Loadouts)
+                if (!IsTransportFit(fit.Name) && (fit == current || fit.ServiceEntryYear <= year && ChangePreparedLoadout.Value != null))
+                    yield return new(held.VehicleType, fit, held);
+        }
+        foreach (VehicleTypeOnBoard aircraft in deck._vehiclesOnBoard.Where(unit => IsHelicopter(unit) && unit.Numbers > 0))
+            foreach (Loadout fit in aircraft.Loadouts)
+                if (!IsTransportFit(fit.Name) && fit.ServiceEntryYear <= year && deck.CanLaunchVehicle(fit, 1)) yield return new(aircraft, fit, null);
+    }
+
+    private static JObject DescribeFit(ScreenFit fit) => new()
+    {
+        ["id"] = fit.Id, ["aircraft"] = fit.Aircraft.DisplayName, ["loadout"] = fit.Loadout.DisplayName,
+        ["antiShip"] = fit.Loadout._loadoutCapabilities._hasAShM || fit.Loadout.Name.IndexOf("AntiShip", StringComparison.OrdinalIgnoreCase) >= 0,
+        ["antiSubmarine"] = fit.Loadout._loadoutCapabilities._hasASWTorpedoes || fit.Loadout.Name.StartsWith("ASW", StringComparison.OrdinalIgnoreCase),
+        ["stores"] = new JArray(fit.Loadout.AmmunitionAmounts.Where(ammo => ammo.Value > 0).Select(ammo => $"{ammo.Value}× {ammo.Key}")),
+        ["preparing"] = fit.Held != null,
+        ["requiresLoadoutChange"] = fit.Held is { } held && held.VehicleType.Loadouts[held._loadoutIndex] != fit.Loadout
+    };
 
     private static bool IsHelicopter(VehicleTypeOnBoard? unit) => unit?._objectType == ObjectBase.ObjectType.Helicopter;
     private static bool LaunchesBlocked(FlightDeck deck) => deck.LaunchesDisabled || deck.DisabledByMission;
+    private static IEnumerable<Helicopter> ScreenFlights(Taskforce side) => FlightUnits(side).OfType<Helicopter>()
+        .Where(unit => !IsTransportFit(unit._obp._loadoutVariant));
     private static FlightDeckTask[] HelicopterTasks(FlightDeck deck) => deck.FlightDeckTasks.Concat(deck._flightDeckTasksToAdd)
-        .Where(task => !task._isCancelled && IsHelicopter(task.VehicleType)).Distinct().ToArray();
+        .Where(task => !task._isCancelled && IsHelicopter(task.VehicleType)
+            && (task._ltp?._loadoutIndex is not int index || index < 0 || index >= task.VehicleType.Loadouts.Count
+                || !IsTransportFit(task.VehicleType.Loadouts[index].Name))).Distinct().ToArray();
 
-    private static void WatchLaunch(PendingLaunchTask task, Vessel ship, bool useRadar) => task.Launched += (_, unit) =>
+    private static void WatchLaunch(PendingLaunchTask task, Vessel ship, Loadout fit, bool useRadar) => task.Launched += (_, unit) =>
     {
         if (useRadar) unit.EnableSurfaceSearchRadars();
-        UnityEngine.Debug.Log($"[Player flight deck] {ship.DisplayNameShort} launched {unit.DisplayNameShort} for a helicopter screen");
+        UnityEngine.Debug.Log($"[Player flight deck] {ship.DisplayNameShort} launched {unit.DisplayNameShort} for a helicopter screen · {fit.DisplayName}");
     };
 }

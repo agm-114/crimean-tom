@@ -15,6 +15,8 @@ internal record DecisionPrompt(string Instructions, JObject Input)
     private static readonly string Routine = Read("routine-tactical");
     private static readonly string TimeRules = Read("time-rules");
     private static readonly string Helicopters = Read("helicopter-screen");
+    private static readonly string FlightOperations = Read("flight-operations");
+    private static readonly string MaritimeStrike = Read("maritime-strike");
     private static readonly string Defense = Read("surface-defense");
     private static readonly string AirDefense = Read("air-defense");
     private static readonly string Urgent = Read("urgent-tactical");
@@ -23,8 +25,8 @@ internal record DecisionPrompt(string Instructions, JObject Input)
         "scope", "missionClock", "taskforce", "objectiveUpdates", "ownedGroups", "ownedUnits", "ownedOtherUnits", "protectedUnits",
         "contacts", "currentOrders", "plan", "lastOrderResults", "destinations", "allowedTasks", "allowedActions",
         "rulesOfEngagement", "standingOrders", "missionMessages", "availableTimeCompressions", "attackReports", "observedGunfire", "ownWeaponFire",
-        "ownMissileTargetsInFlight", "nearbySurfaceThreats", "helicopterDecks", "helicopterScreenAnchors",
-        "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts"
+        "ownMissileTargetsInFlight", "nearbySurfaceThreats", "helicopterDecks", "helicopterScreenAnchors", "airDecks", "airborne", "airTargets", "airWeaponFire",
+        "maritimeShips", "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts"
     ];
 
     // Call on the game thread with the snapshot from the player-view reader.
@@ -41,8 +43,8 @@ internal record DecisionPrompt(string Instructions, JObject Input)
             if (playerView.TryGetValue(field, out JToken? value)) input[field] = value.DeepClone();
         string instructions = role switch
         {
-            DecisionRole.Operational => string.Join("\n\n", Shared, Guide, Operational, Helicopters, TimeRules),
-            DecisionRole.RoutineTactical => string.Join("\n\n", Shared, Guide, Routine, Helicopters, TimeRules),
+            DecisionRole.Operational => string.Join("\n\n", Shared, Guide, Operational, Helicopters, FlightOperations, MaritimeStrike, TimeRules),
+            DecisionRole.RoutineTactical => string.Join("\n\n", Shared, Guide, Routine, Helicopters, FlightOperations, MaritimeStrike, TimeRules),
             DecisionRole.SurfaceDefense => string.Join("\n\n", Shared, Defense),
             DecisionRole.AirDefense => string.Join("\n\n", Shared, AirDefense),
             DecisionRole.UrgentTactical => string.Join("\n\n", Shared, Urgent),
