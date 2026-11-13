@@ -6,6 +6,7 @@ namespace SeaPower.GameBridge;
 internal static class PlayerTime
 {
     private static readonly float[] Speeds = [0.1f, 0.2f, 0.5f, 1, 2, 3, 5, 10, 20, 30, 50, 100];
+    internal static IReadOnlyList<int> WholeSpeeds { get; } = Speeds.Where(speed => speed >= 1).Select(speed => (int)speed).ToArray();
 
     internal static bool Available => Singleton<GameMain>.InstanceExists() && Singleton<GameMain>.Instance._initialized
         && Singleton<InputHandler>.InstanceExists() && Singleton<MissionManager>.InstanceExists();

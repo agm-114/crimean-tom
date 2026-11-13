@@ -24,7 +24,7 @@
              Link="Scenario generation/%(Filename)%(Extension)" />
     <Scenarios Include="missions\*.ini" />
     <Compile Include="../SeaPower.GameBridge/PlayerPicture.cs;../SeaPower.GameBridge/PlayerBriefing.cs;../SeaPower.GameBridge/PlayerOrders.cs;../SeaPower.GameBridge/PlayerTime.cs;
-                      ../SeaPower.GameBridge/PlayerDoctrine.cs;../SeaPower.GameBridge/PlayerChart.cs;../SeaPower.GameBridge/PlayerCombat.cs"
+                      ../SeaPower.GameBridge/PlayerDoctrine.cs;../SeaPower.GameBridge/PlayerChart.cs;../SeaPower.GameBridge/PlayerCombat.cs;../SeaPower.GameBridge/PlayerFlightDeck.cs"
              Link="Player view/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../docs/ooda/prompts/*.md" Exclude="../../docs/ooda/prompts/README.md"
                       LogicalName="OODA.Prompts.%(Filename)%(Extension)" />

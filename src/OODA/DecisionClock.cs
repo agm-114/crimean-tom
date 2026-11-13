@@ -9,7 +9,6 @@ internal class DecisionClock
 {
     private const int OpeningSpeed = 5;
     internal const int DefaultCruiseSpeed = 20;
-    private static readonly int[] NativeSpeeds = [1, 2, 3, 5, 10, 20];
     private bool openingPauseUsed;
     private long openingPauseUntil;
     private int? requestedSpeed;
@@ -19,7 +18,7 @@ internal class DecisionClock
     private string paceSource = "Cruise";
     private string paceReason = "Following the current plan.";
 
-    internal static IReadOnlyList<int> Speeds => NativeSpeeds;
+    internal static IReadOnlyList<int> Speeds => PlayerTime.WholeSpeeds;
     internal bool Enabled { get; set; } = true;
     internal int CruiseSpeed { get; private set; } = DefaultCruiseSpeed;
     internal string? CruiseReason { get; private set; }
@@ -40,8 +39,8 @@ internal class DecisionClock
 
     internal static IEnumerable<int> Options(Taskforce side)
     {
-        float limit = Math.Min(PlayerTime.Maximum, NormalTimeReason(side) == null ? NativeSpeeds[^1] : 1);
-        return NativeSpeeds.Where(speed => speed <= limit);
+        float limit = NormalTimeReason(side) == null ? PlayerTime.Maximum : 1;
+        return Speeds.Where(speed => speed <= limit);
     }
 
     internal void PauseForOpeningPlan()
@@ -58,13 +57,14 @@ internal class DecisionClock
 
     internal void YieldPause() => openingPauseUntil = 0;
 
-    internal void Tick(Taskforce? side, bool controlling, bool hasPlan = false, ActiveTimeInterrupt? interrupt = null)
+    internal void Tick(Taskforce? side, bool controlling, bool hasPlan = false, ActiveTimeInterrupt? interrupt = null,
+        (int Speed, string Source, string Reason)? decisionPace = null)
     {
         bool manage = controlling && Enabled && side != null;
         if (!manage || openingPauseUntil != 0 && Stopwatch.GetTimestamp() >= openingPauseUntil) Resume();
         if (GameTime.IsPaused() || PlayerTime.Blocked) return;
         YieldPause();
-        if (manage) SetSpeed(Target(side!, hasPlan, interrupt));
+        if (manage) SetSpeed(Target(side!, hasPlan, interrupt, decisionPace));
         else
         {
             if (lastManagedSpeed is > 1 and { } prior && GameTime.TimeCompression == prior) SetSpeed(1);
@@ -77,7 +77,7 @@ internal class DecisionClock
     internal bool Apply(int speed, int offeredMaximum, string reason, Taskforce side, ActiveTimeInterrupt? interrupt)
     {
         if (!Enabled || GameTime.IsPaused() || PlayerTime.Blocked) return false;
-        requestedSpeed = speed == offeredMaximum && offeredMaximum < NativeSpeeds[^1] ? null : speed;
+        requestedSpeed = offeredMaximum == 1 ? null : speed;
         requestedReason = reason;
         requestedSpeedUntil = Stopwatch.GetTimestamp() + (speed <= OpeningSpeed ? 8 : 30) * Stopwatch.Frequency;
         return SetSpeed(Target(side, hasPlan: true, interrupt));
@@ -91,7 +91,8 @@ internal class DecisionClock
         return true;
     }
 
-    private int Target(Taskforce side, bool hasPlan, ActiveTimeInterrupt? interrupt)
+    private int Target(Taskforce side, bool hasPlan, ActiveTimeInterrupt? interrupt,
+        (int Speed, string Source, string Reason)? decisionPace = null)
     {
         if (NormalTimeReason(side) is { } limitReason)
         {
@@ -100,6 +101,11 @@ internal class DecisionClock
         }
         int? temporary = Stopwatch.GetTimestamp() < requestedSpeedUntil ? requestedSpeed : null;
         int target = temporary ?? (hasPlan ? CruiseSpeed : OpeningSpeed);
+        if (decisionPace is { } pace && pace.Speed < target && (interrupt == null || pace.Speed < interrupt.Rule.Speed))
+        {
+            (paceSource, paceReason) = (pace.Source, pace.Reason);
+            return pace.Speed;
+        }
         if (interrupt != null && interrupt.Rule.Speed < target)
         {
             paceSource = interrupt.Custom ? "AI time rule" : "Default time rule";
