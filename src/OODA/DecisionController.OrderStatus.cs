@@ -22,6 +22,7 @@ internal partial class DecisionController
         internal double? AttackPassSince;
         internal double? SameGateSince;
         internal double? LastAttackClosure;
+        internal double? PreviousAttackRange;
         internal bool ReportedStall;
         internal int Shots;
         internal GeoPosition? Destination;
@@ -96,6 +97,8 @@ internal partial class DecisionController
     private void TrackFire(string id, string targetId, string? weapon, string outcome, string detail, bool accepted)
     {
         if (Mode != ControlMode.AiControl) return;
+        if (accepted && conditionalAttacks.Remove((id, targetId), out ConditionalAttack pending))
+            FinishConditionalAttack(pending, "superseded", "Attack already ordered directly");
         OrderStatus? status = orderStatuses.Values.FirstOrDefault(order => order.Action == "Engage" && order.UnitId == id
             && order.TargetId == targetId && (order.Weapon == weapon || weapon == null) && order.Active && !order.Retryable);
         if (status != null && !accepted) return;
@@ -140,7 +143,11 @@ internal partial class DecisionController
                 if (shots > order.Shots)
                 {
                     order.ReleaseBlocker = null;
-                    if (unit is Aircraft or Helicopter) order.AttackPhase = "Released";
+                    if (unit is Aircraft or Helicopter)
+                    {
+                        order.AttackPhase = "Released";
+                        if (PlayerPicture.LiveContact(side, targetId)?.BaseObject is LandUnit) nextTactical = 0;
+                    }
                     order.Set("completed", $"Weapon release observed ({shots - order.Shots} fired) · effect unconfirmed");
                 }
                 else if (unit is Aircraft or Helicopter) PollAirAttack(order, unit, PlayerPicture.LiveContact(side, targetId), now);
@@ -170,7 +177,8 @@ internal partial class DecisionController
         }
 
         order.MissingAttackSince = null;
-        if (attack.ReleasePass) order.AttackPassSince ??= now;
+        double? priorPass = order.AttackPassSince;
+        order.AttackPassSince = attack.ReleasePass ? priorPass ?? now : null;
         bool changed = order.AttackPhase != attack.Phase || order.ReleaseBlocker != attack.Blocker;
         if (changed)
         {
@@ -182,16 +190,21 @@ internal partial class DecisionController
         }
 
         double? range = track?.PositionEstimate?.Item1 is { } fix ? GeoPosition.HaversineDistanceNmi(unit.getGeoPosition(), fix) : null;
-        if (range is double distance && order.Closest - distance >= 0.2)
+        if (range is double distance && (order.PreviousAttackRange == null || Math.Abs(order.PreviousAttackRange.Value - distance) >= 0.2))
         {
-            order.Closest = distance;
-            order.LastAttackClosure = now;
-            order.LastProgress = now;
+            if (order.PreviousAttackRange == null || order.PreviousAttackRange > distance)
+            {
+                order.LastAttackClosure = now;
+                order.LastProgress = now;
+            }
+            order.PreviousAttackRange = distance;
         }
 
-        bool repeatedGate = attack.ReleasePass && attack.Blocker != null && now - order.SameGateSince >= 12;
-        bool passEnded = !attack.ReleasePass && order.AttackPassSince.HasValue && attack.Phase != "Evading";
-        bool unreleasedPass = attack.ReleasePass && now - order.AttackPassSince >= 45;
+        bool rangeGate = attack.Blocker == "Outside native release range";
+        bool closing = now - order.LastAttackClosure < 15;
+        bool repeatedGate = attack.ReleasePass && attack.Blocker != null && (!rangeGate || !closing) && now - order.SameGateSince >= 12;
+        bool passEnded = !attack.ReleasePass && priorPass.HasValue && attack.Phase != "Evading";
+        bool unreleasedPass = attack.ReleasePass && (!rangeGate || !closing) && now - order.AttackPassSince >= 45;
         bool stalledIngress = !attack.ReleasePass && attack.NominalRangeNm is > 0 && range <= attack.NominalRangeNm
             && attack.Blocker != null && now - Math.Max(order.LastAttackClosure ?? now, order.SameGateSince ?? now) >= 35;
         if (order.ReportedStall || !(repeatedGate || passEnded || unreleasedPass || stalledIngress)) return;

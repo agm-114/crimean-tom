@@ -42,6 +42,7 @@ internal partial class DecisionController
     private readonly Dictionary<(string Sub, string Target), double> nextTorpedoAttempt = [];
     private readonly Dictionary<string, double> nextHelicopterEscape = [];
     private double nextTactical;
+    private double? tacticalReviewAt;
     private double nextTorpedoCheck;
     private double nextGroundOpportunity;
     private double nextOperational;
@@ -242,6 +243,13 @@ internal partial class DecisionController
         if (interrupts.Observe(item, now, ManagingClock) is { } rule)
             Add("Time control", $"Interrupt · {rule.Speed}× for {rule.HoldSeconds}s", item.Detail, item.SubjectId, item.Label);
         if (item.Kind == TimeEventKind.MissileHit && (defense.ActiveGunfire || defense.HasNearbyThreat)) defense.Pending = true;
+        if (tacticalReviewAt.HasValue && (item.Kind == TimeEventKind.UnitDamaged
+            || item.Kind == TimeEventKind.MissileHit && item.Posture == "Own"
+            || item.Posture == "Hostile" && item.Kind is (TimeEventKind.HostileNearby or TimeEventKind.TrackAppeared)))
+        {
+            nextTactical = 0;
+            previousSituation = null;
+        }
         if (item.Posture == "Hostile" && item.Category is "Surface" or "Radar" or "SAM"
             && (item.Kind is TimeEventKind.TrackAppeared or TimeEventKind.HostileNearby
                 || item.Kind == TimeEventKind.TrackChanged && item.PreviousPosture != item.Posture))
@@ -274,6 +282,7 @@ internal partial class DecisionController
         Cancel(ref regular);
         Cancel(ref urgent);
         Mode = mode;
+        tacticalReviewAt = null;
         if (mode == ControlMode.Manual) codex.Reset();
         deferredFire.Clear();
         sensorSweeps.CancelAll();
@@ -335,6 +344,7 @@ internal partial class DecisionController
         nextTorpedoAttempt.Clear();
         nextHelicopterEscape.Clear();
         nextTactical = nextOperational = urgentPreviews = 0;
+        tacticalReviewAt = null;
         nextTorpedoCheck = 0;
         nextGroundOpportunity = 0;
         nextConditionalAttackCheck = nextHailCheck = 0;
@@ -416,9 +426,9 @@ internal partial class DecisionController
             {
                 PlayerFlightDeck.UpdateAirborneOrders(side, ReportDepartureOrder);
                 HailSurfaceContacts(side);
-                foreach (PlayerFlightDeck.AirDepartureResult flight in PlayerFlightDeck.RecoverSpentCap(side))
+                foreach (PlayerFlightDeck.AirDepartureResult flight in PlayerFlightDeck.RecoverCapAtLimit(side))
                 {
-                    Add("Air operations", flight.Status, "CAP · No air-to-air missiles remaining. Recover to rearm.", flight.UnitId, flight.Name);
+                    Add("Air operations", flight.Status, "CAP recovery", flight.UnitId, flight.Name);
                     flightAssignments.Remove(flight.UnitId);
                     nextTactical = 0;
                     previousSituation = null;
@@ -462,27 +472,34 @@ internal partial class DecisionController
         }
 
         double now = GameTime.missionElapsedTime;
-        if (!replan && now < nextTactical) return;
+        bool reviewDue = now >= tacticalReviewAt;
+        if (!replan && !reviewDue && now < nextTactical) return;
         if (replan && now < nextOperational) return;
         Vessel[] ships = PlayerPicture.Ships(side);
-        JObject view = PlayerPicture.Read(side, ships);
-        string currentObjectives = view["objectiveUpdates"]!.ToString(Formatting.None);
+        string currentObjectives = PlayerPicture.Objectives().ToString(Formatting.None);
         if (objectiveState != null && objectiveState != currentObjectives) replan = true;
         objectiveState = currentObjectives;
         if (replan && now < nextOperational) return;
         if (!replan && plan == null) return;
+        if (!replan && !reviewDue && tacticalReviewAt.HasValue && nextTactical != 0)
+        {
+            nextTactical = now + 60;
+            return;
+        }
 
+        JObject view = PlayerPicture.Read(side, ships);
         ReadAirPicture(view, side);
         string situation = Signature(view);
         nextTactical = now + 60;
         double wallTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-        if (!replan && situation == previousSituation)
+        if (!replan && !reviewDue && situation == previousSituation)
         {
             if (!ManagingClock || wallTime < nextQuietReview) return;
             float gameLimit = PlayerTime.Maximum;
             if (!DecisionClock.Speeds.Any(speed => speed > clock.CruiseSpeed && speed <= gameLimit)) return;
         }
         nextQuietReview = wallTime + 30;
+        tacticalReviewAt = null;
         previousSituation = situation;
         DecisionRole role = replan ? DecisionRole.Operational : DecisionRole.RoutineTactical;
         replan = false;
@@ -555,6 +572,7 @@ internal partial class DecisionController
         ["sensorSweeps"] = sensorSweeps.Read(),
         ["identificationRequests"] = ReadIdentificationRequests(),
         ["time"] = new JObject { ["managed"] = ManagingClock, ["status"] = ClockStatus,
+            ["reviewAtMissionSeconds"] = tacticalReviewAt,
             ["source"] = ClockExplanation.Source, ["reason"] = ClockExplanation.Reason, ["cruiseSpeed"] = clock.CruiseSpeed,
             ["cruiseReason"] = clock.CruiseReason, ["interrupts"] = interrupts.Describe() },
         ["lastUrgentInput"] = LastUrgentInput?.DeepClone(), ["urgentShipId"] = UrgentShip,
@@ -863,14 +881,15 @@ internal partial class DecisionController
         double now = GameTime.missionElapsedTime;
         if (now < nextGroundOpportunity) return;
         nextGroundOpportunity = now + 5;
+        HashSet<string> scheduled = new(conditionalAttacks.Values.Where(order => order.NotBefore.HasValue).Select(order => order.UnitId));
         HashSet<ObjectBase> tasked = [];
         HashSet<string> targeted = [];
         foreach (var option in PlayerFlightDeck.GroundOpportunities(side))
         {
             string targetId = PlayerPicture.Id(option.Track);
-            if (tasked.Contains(option.Unit) || targeted.Contains(targetId) || option.Track.PositionEstimate?.Item1 is not { } fix
-                || !airDefenseRoutes.GroundAttackPathClear(side, airDefenseAssessment, option.Unit.getGeoPosition(), fix, option.ReleaseNm)) continue;
             string id = PlayerPicture.Id(option.Unit);
+            if (scheduled.Contains(id) || tasked.Contains(option.Unit) || targeted.Contains(targetId) || option.Track.PositionEstimate?.Item1 is not { } fix
+                || !airDefenseRoutes.GroundAttackPathClear(side, airDefenseAssessment, option.Unit.getGeoPosition(), fix, option.ReleaseNm)) continue;
             string status;
             try { status = PlayerFlightDeck.TaskAirborne(side, id, option.Role, [], useRadar: false, targetId); }
             catch (Exception error)
@@ -1159,6 +1178,9 @@ internal partial class DecisionController
     private void ApplyTimePolicy(JToken? proposed)
     {
         if (proposed is not JObject policy) return;
+        double now = GameTime.missionElapsedTime;
+        if ((double?)policy["reviewAtMissionSeconds"] is double review && double.IsFinite(review))
+            tacticalReviewAt = Math.Clamp(review, now + 15, now + 900);
         string suggestion = Short((string?)policy["defaultSuggestion"], 900).Trim();
         if (suggestion.Length > 0 && loggedTimeSuggestions.Add(suggestion))
         {
@@ -1510,7 +1532,7 @@ internal partial class DecisionController
     private static string Signature(JObject view) => string.Join("|", view["ownedUnits"]!.Concat(view["ownedOtherUnits"]!).Select(unit =>
         $"{unit["id"]}:{unit["order"]}:{unit["route"]}:{unit["weaponsPosture"]}")) + "|" + string.Join("|", view["contacts"]!.Select(track =>
         $"{track["id"]}:{track["posture"]}:{track["identified"]}:{track["live"]}")) + "|" + string.Join("|",
-        view["airborne"]!.Select(flight => $"{flight["id"]}:{flight["leaderId"]}:{flight["order"]}:{flight["routeLoops"]}:{(int?)flight["fuelPercent"] / 10}:{flight["armedRoles"]}:{flight["engagedContacts"]}")
+        view["airborne"]!.Select(flight => $"{flight["id"]}:{flight["leaderId"]}:{flight["order"]}:{flight["routeLoops"]}:{(bool?)flight["recovering"] != true && (double?)flight["recoveryMarginNm"] <= 0}:{flight["armedRoles"]}:{flight["engagedContacts"]}")
             .Concat(view["airWeaponFire"]!.Select(shot => $"{shot["unitId"]}:{shot["targetId"]}:{shot["weapon"]}:{shot["shots"]}"))
             .Concat(view["airTargets"]!.Select(track => $"{track["id"]}:{track["esm"]}"))
             .Concat(view["airDefenseAssessment"]!.Select(site => $"{site["targetId"]}:{site["assessment"]}:{site["liveFix"]}:{site["fixSource"]}:{site["missileInbound"]}"))

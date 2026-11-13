@@ -7,7 +7,7 @@ namespace OODA;
 internal partial class DecisionController
 {
     private record ConditionalOrder(OrderStatus Status, string Condition, string? ConditionId, string? FitId, int Count, int MinimumCoverage,
-        GeoPosition[] Route, string OriginalRoute, double ExpiresAt, string Reason);
+        double LeadSeconds, GeoPosition[] Route, string OriginalRoute, double ExpiresAt, string Reason);
     private readonly Dictionary<string, ConditionalOrder> conditionalOrders = [];
     private double nextConditionalOrderCheck;
 
@@ -16,6 +16,7 @@ internal partial class DecisionController
         ["orderId"] = order.Status.Id, ["unitId"] = order.Status.UnitId, ["order"] = order.Status.Action,
         ["condition"] = order.Condition, ["conditionId"] = order.ConditionId, ["fitId"] = order.FitId,
         ["minimumCoverage"] = order.Condition == "CapCoverageBelow" ? order.MinimumCoverage : null,
+        ["leadSeconds"] = order.Condition == "CapCoverageBelow" ? order.LeadSeconds : null,
         ["expiresAt"] = order.ExpiresAt, ["reason"] = order.Reason, ["status"] = order.Status.Read()
     }));
 
@@ -42,11 +43,13 @@ internal partial class DecisionController
                 || (double?)item["expiresInSeconds"] is not double expiry || !double.IsFinite(expiry) || expiry <= 0) continue;
             string? conditionId = (string?)item["conditionId"], fitId = (string?)item["fitId"];
             int count = (int?)item["count"] ?? 1, minimum = (int?)item["minimumCoverage"] ?? 0;
+            double lead = (double?)item["leadSeconds"] ?? 0;
             GeoPosition[] route = [];
             bool valid = (condition, action) switch
             {
                 ("AirRouteClear", "ResumeTransport") => unit is Helicopter && SavedTransportRoute(side, unitId) is { Length: > 1 },
                 ("CapCoverageBelow", "LaunchRelief") => conditionId != null && fitId != null && minimum is >= 1 and <= 8 && count is >= 1 and <= 4
+                    && double.IsFinite(lead) && lead is >= 0 and <= 3600
                     && PlayerFlightDeck.FindCapStation(side, conditionId) != null
                     && input["airDecks"]?.Any(deck => (string?)deck["shipId"] == unitId && deck["fits"]?.Any(fit => (string?)fit["id"] == fitId
                         && fit["roles"]?.Values<string>().Contains("CAP") == true) == true) == true,
@@ -63,7 +66,7 @@ internal partial class DecisionController
                 OrderStatus status = NewOrder(unitId, action, id);
                 status.Retryable = valid;
                 status.Set(valid ? "waiting" : "blocked", valid ? $"Waiting for {condition}" : "Condition or native order is unavailable in the current player picture");
-                if (valid) conditionalOrders[id] = new(status, condition, conditionId, fitId, count, minimum, route,
+                if (valid) conditionalOrders[id] = new(status, condition, conditionId, fitId, count, minimum, lead, route,
                     ConditionalRouteSignature(side, unit, condition), GameTime.missionElapsedTime + Math.Min(expiry, 1800), reason);
             }
             Add("Conditional order", valid ? Mode == ControlMode.AiControl ? "Armed" : "Suggested" : "Rejected",
@@ -108,11 +111,11 @@ internal partial class DecisionController
                     case "CapCoverageBelow":
                         if (PlayerFlightDeck.FindCapStation(side, order.ConditionId!) is not { } zone)
                             End("superseded", "CAP station no longer exists");
-                        else if (PlayerFlightDeck.CapCoverage(side, zone) < order.MinimumCoverage)
+                        else if (PlayerFlightDeck.CapCoverage(side, zone, order.LeadSeconds) < order.MinimumCoverage)
                         {
-                            if (PlayerFlightDeck.HasQueuedCap(side, order.ConditionId!))
+                            if (PlayerFlightDeck.HasQueuedCap(side, order.ConditionId!) || PlayerFlightDeck.CapInbound(side, zone) >= order.Count)
                             {
-                                End("superseded", "Relief is already queued for this station");
+                                End("superseded", "Relief is already queued or inbound for this station");
                                 break;
                             }
                             string outcome = PlayerFlightDeck.QueueAirMission(unit, side, order.FitId!, "CAP", order.Count, [], useRadar: false,
@@ -124,7 +127,7 @@ internal partial class DecisionController
                                 End("executing", outcome);
                             }
                         }
-                        else status.Set("waiting", "CAP meets the armed aircraft coverage threshold");
+                        else status.Set("waiting", "CAP meets the armed aircraft coverage threshold through the relief lead time");
                         break;
                     case "ContactLost":
                         if (ConditionalRouteSignature(side, unit, order.Condition) != order.OriginalRoute || unit.CurrentOrder.Value?.OrderType == Order.Type.ReturnToBase)

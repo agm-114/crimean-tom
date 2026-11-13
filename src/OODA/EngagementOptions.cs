@@ -39,7 +39,8 @@ internal static class EngagementOptions
             double range = GeoPosition.HaversineDistanceNmi(unit.getGeoPosition(), fix);
             string unitId = PlayerPicture.Id(unit);
             bool committed = unit._currentEngageTasks.Any(task => task._targetObject == target) || unit._ai?._objectToDestroy == target;
-            bool busy = !committed && unit._currentEngageTasks.Any(task => task._targetObject && task._targetObject != target);
+            bool busy = !committed && (unit._currentEngageTasks.Any(task => task._targetObject && task._targetObject != target)
+                || air && PlayerFlightDeck.HasOtherAirAttack(unit, target));
             string? unitBlocker = unit.CurrentOrder.Value?.OrderType == Order.Type.ReturnToBase ? "Recovering"
                 : busy ? "Working a different target" : null;
             var weapons = air ? PlayerFlightDeck.AttackWeapons(side, unit, track).Select(item => (item.Role, Ammo: item.Weapon,
@@ -51,7 +52,8 @@ internal static class EngagementOptions
                 double? release = null;
                 double? nominalRangeEta = null;
                 var attack = air ? PlayerFlightDeck.ReadAttackProgress(unit, target, ammo._displayedName) : null;
-                string? blocker = unitBlocker ?? nativeBlocker;
+                ObjectBase? authority = air && nativeBlocker == null ? PlayerFlightDeck.AttackAuthority(unit, target, role) : null;
+                string? blocker = unitBlocker ?? nativeBlocker ?? (authority != null ? "Order the flight leader or split this wingman first" : null);
                 string readiness = attack is { Active: true } ? attack.Phase : "Blocked";
                 if (blocker == null && range >= min && range <= max)
                 {
@@ -82,6 +84,8 @@ internal static class EngagementOptions
                     ["secondsToNominalRange"] = air && nominalRangeEta.HasValue ? Math.Round(nominalRangeEta.Value) : null,
                     ["minimumHeightAboveAimpointFeet"] = air && ammo._type == Ammunition.Type.Bomb ? PlayerFlightDeck.MinimumReleaseHeightFeet(ammo) : null,
                     ["nativeReleaseGate"] = attack?.Blocker, ["rank"] = rank,
+                    ["commandUnitId"] = authority == null ? null : PlayerPicture.Id(authority),
+                    ["requiresSplitForIndependentAttack"] = authority != null ? true : null,
                     ["committed"] = committed || attack is { Active: true }, ["shotsObserved"] = PlayerCombat.OwnShotCount(unitId, id, ammo._displayedName),
                     ["weaponPosture"] = unit._weaponStatus.ToString()
                 };

@@ -92,6 +92,8 @@ internal static partial class PlayerFlightDeck
             ["holding"] = held != null, ["heldRoute"] = held == null ? null : new JArray(held.Points.Select(AirPoint)),
             ["position"] = PlayerPicture.Point(position), ["altitudeFeet"] = Math.Round(position._height / UnityPerFoot),
             ["fuelPercent"] = unit._obp._maxFuel > 0 ? Math.Round(100 * unit._obp._currentFuelMass / unit._obp._maxFuel) : null,
+            ["recovering"] = unit.CurrentOrder.Value?.OrderType == Order.Type.ReturnToBase,
+            ["recoveryMarginNm"] = hasFriendlyBase ? Math.Round(RecoveryMargin(unit, home!), 1) : null,
             ["rangeNm"] = Math.Round(unit.RangeInKm.Value / 1.852, 1),
             ["transportWindow"] = IsTransportFit(fit) && !unit.IsFormationWingman
                 && unit.CurrentOrder.Value?.OrderType != Order.Type.ReturnToBase
@@ -314,6 +316,15 @@ internal static partial class PlayerFlightDeck
     private static bool HasAirEngagement(ObjectBase unit) => unit._currentEngageTasks.Count > 0
         || unit._alignmentTasks.Any(task => !task._isGuidingWeapon) || unit._ai?._objectToDestroy != null;
 
+    internal static ObjectBase? AttackAuthority(ObjectBase unit, ObjectBase target, string role) => unit.IsFormationWingman
+        && unit.Formation?.LeaderStation?.UnitObject is { } leader && leader
+        && StockedAirWeapons(leader).Any(ammo => MatchesAirWeapon(ammo, role) && leader.DoesAmmoMatchTarget(ammo._ammunitionFileName, target))
+        ? leader : null;
+
+    internal static bool HasOtherAirAttack(ObjectBase unit, ObjectBase target) =>
+        unit._alignmentTasks.Any(task => !task._isGuidingWeapon && task._targetObject && task._targetObject != target)
+        || unit._ai?._objectToDestroy is { } ordered && ordered && ordered != target;
+
     internal static string QueueAirMission(ObjectBase host, Taskforce side, string fitId, string role, int count,
         GeoPosition[] route, bool useRadar, string? targetId = null, bool prepare = false,
         Action<PendingLaunchTask>? trackTask = null, Action? launched = null, string? capStationId = null, string? refitBatchId = null)
@@ -486,20 +497,25 @@ internal static partial class PlayerFlightDeck
         }
     }
 
-    internal static IEnumerable<AirDepartureResult> RecoverSpentCap(Taskforce side)
+    internal static IEnumerable<AirDepartureResult> RecoverCapAtLimit(Taskforce side)
     {
         foreach (ObjectBase unit in FlightUnits(side))
         {
             ObjectBase? leader = unit.Formation?.LeaderStation?.UnitObject;
             PatrolZone? cap = unit._patrolZone ?? leader?._patrolZone;
             if (cap?._zoneType != PatrolZone.ZoneType.CAP || unit.CurrentOrder.Value?.OrderType == Order.Type.ReturnToBase
-                || unit.HasGuidingAlignment() || unit._ai?.HasMissilesNeedingGuidance() == true
-                || StockedAirWeapons(unit).Any(ammo => MatchesAirWeapon(ammo, "CAP"))) continue;
+                || unit.HasGuidingAlignment() || unit._ai?.HasMissilesNeedingGuidance() == true) continue;
+            bool lowFuel = unit.getHomeBase() is { } home && home && home._taskforce == side && RecoveryMargin(unit, home) <= 0;
+            if (!lowFuel && StockedAirWeapons(unit).Any(ammo => MatchesAirWeapon(ammo, "CAP"))) continue;
             string status = RecoverFlight(unit, individual: true);
             if (status.StartsWith("Recovery ordered", StringComparison.Ordinal))
-                yield return new(PlayerPicture.Id(unit), unit.DisplayNameShort, "CAP", null, status);
+                yield return new(PlayerPicture.Id(unit), unit.DisplayNameShort, "CAP", null,
+                    $"{status} · {(lowFuel ? "At recovery fuel reserve" : "No air-to-air missiles remaining")}");
         }
     }
+
+    private static double RecoveryMargin(ObjectBase unit, ObjectBase home) => unit.RangeInKm.Value / 1.852
+        - (GeoPosition.HaversineDistanceNmi(unit.getGeoPosition(), home.getGeoPosition()) * 1.25 + 12);
 
     private static string RecoverFlight(ObjectBase unit, bool individual)
     {
@@ -534,9 +550,8 @@ internal static partial class PlayerFlightDeck
         if (unit._userRoot == null) return "Rejected · native attack control unavailable";
         if (unit.IsFormationWingman && unit.Formation is { } formation)
         {
-            ObjectBase? leader = formation.LeaderStation?.UnitObject;
-            if (leader && StockedAirWeapons(leader!).Any(weapon => MatchesAirWeapon(weapon, role)
-                && leader!.DoesAmmoMatchTarget(weapon._ammunitionFileName, target))) return "Rejected · flight leader can make this attack";
+            if (AttackAuthority(unit, target, role) is { } leader)
+                return $"Rejected · order {leader.DisplayNameShort} or split this wingman before assigning an independent attack";
             formation.DetachUnit(unit);
         }
         if (useRadar) unit.EnableAllRadars();
@@ -730,21 +745,36 @@ internal static partial class PlayerFlightDeck
         {
             ["id"] = zone._zoneID, ["name"] = zone._zoneName,
             ["center"] = PlayerPicture.Point(zone.CenterPosition), ["armedOnStation"] = CapCoverage(side, zone),
+            ["armedInbound"] = CapInbound(side, zone),
+            ["reliefQueued"] = HasQueuedCap(side, zone._zoneID),
+            ["secondsToFirstRecoveryReserve"] = CapFlights(side, zone).Where(unit => OnStation(unit, zone))
+                .Select(unit => SecondsToRecoveryReserve(unit, side)).Min(),
             ["route"] = new JArray(Enumerable.Range(0, zone._relativeWaypoints.Count).Select(index => AirPoint(zone.GetWaypoint(index))))
         }));
 
     internal static PatrolZone? FindCapStation(Taskforce side, string id) => side._patrolZones
         .FirstOrDefault(zone => zone._zoneType == PatrolZone.ZoneType.CAP && zone._zoneID == id);
 
-    internal static int CapCoverage(Taskforce side, PatrolZone zone) => FlightUnits(side).Count(unit =>
+    private static IEnumerable<ObjectBase> CapFlights(Taskforce side, PatrolZone zone) => FlightUnits(side).Where(unit =>
         (unit._patrolZone == zone || unit.Formation?.LeaderStation?.UnitObject?._patrolZone == zone)
         && unit.CurrentOrder.Value?.OrderType != Order.Type.ReturnToBase
-        && zone.Contains(UnwrapLongitude(unit.getGeoPosition(), zone.CenterPosition._longitude))
         && StockedAirWeapons(unit).Any(ammo => MatchesAirWeapon(ammo, "CAP")));
 
+    private static bool OnStation(ObjectBase unit, PatrolZone zone) =>
+        zone.Contains(UnwrapLongitude(unit.getGeoPosition(), zone.CenterPosition._longitude));
+
+    private static double? SecondsToRecoveryReserve(ObjectBase unit, Taskforce side) =>
+        unit.getHomeBase() is { } home && home && home._taskforce == side && unit._velocityInKnots > 30
+            ? Math.Round(Math.Max(0, RecoveryMargin(unit, home)) * 3600 / unit._velocityInKnots) : null;
+
+    internal static int CapCoverage(Taskforce side, PatrolZone zone, double leadSeconds = 0) => CapFlights(side, zone).Count(unit =>
+        OnStation(unit, zone) && (leadSeconds <= 0 || !(SecondsToRecoveryReserve(unit, side) <= leadSeconds)));
+
+    internal static int CapInbound(Taskforce side, PatrolZone zone) => CapFlights(side, zone).Count(unit => !OnStation(unit, zone));
+
     internal static bool HasQueuedCap(Taskforce side, string stationId) => PlayerPicture.Units(side).Any(unit =>
-        unit._obp?._flightDeck is { } deck && AirTasks(deck).OfType<PendingLaunchTask>()
-            .Any(task => task.launchAllowed && task._ltp?._patrolZoneID == stationId && task.LaunchCount > 0));
+        unit._obp?._flightDeck is { } deck && AirTasks(deck).Any(task => task._ltp?._patrolZoneID == stationId
+            && (task is LaunchTask || task is PendingLaunchTask { launchAllowed: true, LaunchCount: > 0 })));
 
     private static IEnumerable<AirFit> AirFits(FlightDeck deck, FlightDeckTask[] tasks)
     {
