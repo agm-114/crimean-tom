@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Newtonsoft.Json.Linq;
 using SeaPower;
 using UnityEngine;
 
@@ -44,13 +45,27 @@ internal static class PlayerOrders
             && Math.Abs(route[0].wpGP._longitude - point._longitude) < 0.0004;
     }
 
+    internal static JArray SurfaceStrikeOptions(IEnumerable<Vessel> ships) => new(ships.Select(ship => new JObject
+    {
+        ["shipId"] = PlayerPicture.Id(ship),
+        ["missiles"] = new JArray(ship.AmmunitionNameToAmmunitionDictionary.Values.Select(ammo => ammo._ap)
+            .Where(ammo => ammo is { _type: Ammunition.Type.Missile } && (ammo._targetType == Ammunition.Target.ASuW
+                || ammo._secondaryTargetType == Ammunition.Target.ASuW))
+            .Select(ammo => new { Ammo = ammo, Count = ship.getAmmunitionAmountByName(ammo._ammunitionFileName) })
+            .Where(item => item.Count > 0).Select(item => new JObject
+            {
+                ["name"] = item.Ammo._displayedName, ["count"] = item.Count,
+                ["maxRangeNm"] = Math.Round(item.Ammo._maxLaunchRangeInMiles, 1)
+            }))
+    }));
+
     internal static SurfaceOrderResult EngageSurface(Vessel ship, Taskforce side, Vehicle contact, SurfaceWeapon weapon)
     {
         if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null)
             return new("Rejected", "Ship is unavailable for defensive fire");
         if (!PlayerPicture.IsLive(contact) || contact.BaseObject is not Vessel target || target == ship)
             return new("Rejected", "Target is no longer an eligible surface contact");
-        SurfaceOrderResult gun = QueueSurfaceGun(ship, contact, target);
+        SurfaceOrderResult gun = QueueGun(ship, contact, target);
         if (weapon == SurfaceWeapon.Guns || weapon == SurfaceWeapon.BestAvailable && gun.Status != "Guns unavailable") return gun;
         SurfaceOrderResult missile = QueueSurfaceMissile(ship, side, target);
         string status = missile.Status == "Missile order queued" && gun.Status == "Gun order queued" ? "Missile and gun orders queued"
@@ -58,7 +73,27 @@ internal static class PlayerOrders
         return new(status, $"{missile.Status}: {missile.Detail} · {gun.Status}: {gun.Detail}");
     }
 
-    private static SurfaceOrderResult QueueSurfaceGun(Vessel ship, Vehicle contact, Vessel target)
+    internal static SurfaceOrderResult EngageLand(Vessel ship, Taskforce side, Vehicle contact, SurfaceWeapon weapon)
+    {
+        if (Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(ship, side) || ship._ai == null)
+            return new("Rejected", "Ship is unavailable for shore bombardment");
+        if (!PlayerPicture.IsLive(contact) || contact.BaseObject is not LandUnit target)
+            return new("Rejected", "Target is no longer an eligible shore contact");
+        if (weapon != SurfaceWeapon.Missiles)
+        {
+            SurfaceOrderResult gun = QueueGun(ship, contact, target);
+            if (weapon == SurfaceWeapon.Guns || gun.Status != "Guns unavailable") return gun;
+        }
+        if (PlayerCombat.MissileTargetsInFlight().Contains(target))
+            return new("Missile held", "A friendly missile is already airborne against this target");
+        return QueueAttack(ship, target, Ammunition.Type.Missile, 1, "Land-attack missile queued", "Land-attack missiles unavailable");
+    }
+
+    internal static double ShoreGunRangeNm(Vessel ship, LandUnit target) => ship._ai == null ? 0
+        : ship._ai.AmmunitionForTarget(target, Ammunition.Type.Projectile)
+            .Select(ammo => ship.GetMaxRangeForAmmo(ammo, target) / Utils.heightInMeterToUnity(1852)).DefaultIfEmpty().Max();
+
+    private static SurfaceOrderResult QueueGun(Vessel ship, Vehicle contact, ObjectBase target)
     {
         string existing = QueuedWeapons(ship, target, Ammunition.Type.Projectile);
         if (existing.Length > 0) return new("Already engaging", existing);
@@ -112,7 +147,7 @@ internal static class PlayerOrders
         return new("Missiles unavailable", "Friendly vessel within 4 nm of the target and no effective ship-guided missile available");
     }
 
-    private static SurfaceOrderResult QueueAttack(Vessel ship, Vessel target, Ammunition.Type type, int salvo, string queued, string unavailable)
+    private static SurfaceOrderResult QueueAttack(Vessel ship, ObjectBase target, Ammunition.Type type, int salvo, string queued, string unavailable)
     {
         string weapons = QueuedWeapons(ship, target, type);
         if (weapons.Length > 0) return new("Already engaging", weapons);
@@ -125,7 +160,7 @@ internal static class PlayerOrders
         .Where(task => task._targetObject == target && (type == null || task._ammunition?._ap?._type == type))
         .Select(task => $"{task._shotsToFire}× {task._ammunition?._ap?._displayedName ?? task._ammoId}"));
 
-    private static string? GunBlockers(Vessel ship, Vessel target)
+    private static string? GunBlockers(Vessel ship, ObjectBase target)
     {
         List<Ammunition> candidates = ship._ai.AmmunitionForTarget(target, Ammunition.Type.Projectile);
         if (candidates.Count == 0) return "No stocked gun ammunition matched the target";
@@ -149,7 +184,7 @@ internal static class PlayerOrders
         return string.Join(", ", blockers);
     }
 
-    private static string? GunMountCheck(WeaponSystem mount, Ammunition ammo, Vessel target, Vector3 position)
+    private static string? GunMountCheck(WeaponSystem mount, Ammunition ammo, ObjectBase target, Vector3 position)
     {
         if (mount is WeaponSystemCIWS { _isOffensive: false }) return "mount is defensive only";
         if (mount.Inoperable.Value || mount._isOffline) return "mount offline or inoperable";

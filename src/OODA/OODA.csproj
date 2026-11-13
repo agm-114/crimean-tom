@@ -10,6 +10,7 @@
     <Reference Include="Assets" HintPath="$(GameManaged)\Assets.dll" Private="false" />
     <Reference Include="CommunityToolkit.Mvvm" HintPath="$(GameManaged)\CommunityToolkit.Mvvm.dll" Private="false" />
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
+    <Reference Include="ParadoxNotion" HintPath="$(GameManaged)\ParadoxNotion.dll" Private="false" />
     <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
     <Reference Include="UniRx" HintPath="$(GameManaged)\UniRx.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
@@ -24,7 +25,8 @@
              Link="Scenario generation/%(Filename)%(Extension)" />
     <Scenarios Include="missions\*.ini" />
     <Compile Include="../SeaPower.GameBridge/PlayerPicture.cs;../SeaPower.GameBridge/PlayerBriefing.cs;../SeaPower.GameBridge/PlayerOrders.cs;../SeaPower.GameBridge/PlayerTime.cs;
-                      ../SeaPower.GameBridge/PlayerDoctrine.cs;../SeaPower.GameBridge/PlayerChart.cs;../SeaPower.GameBridge/PlayerCombat.cs;../SeaPower.GameBridge/PlayerFlightDeck.cs"
+                      ../SeaPower.GameBridge/PlayerDoctrine.cs;../SeaPower.GameBridge/PlayerChart.cs;../SeaPower.GameBridge/PlayerCombat.cs;../SeaPower.GameBridge/PlayerFlightDeck.cs;
+                      ../SeaPower.GameBridge/PlayerFlightDeck.AirOperations.cs"
              Link="Player view/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../docs/ooda/prompts/*.md" Exclude="../../docs/ooda/prompts/README.md"
                       LogicalName="OODA.Prompts.%(Filename)%(Extension)" />

@@ -36,7 +36,7 @@ internal static class NavigationOrders
         }
     }
 
-    internal static string SetWaypoint(Vessel ship, Taskforce side, ChartDestination destination)
+    internal static string SetWaypoint(Vessel ship, Taskforce side, ChartDestination destination, bool observe = false)
     {
         if (!PlayerPicture.CanCommand(ship, side) || !PlayerPicture.CanNavigate(ship)) return "Rejected · ship is no longer commandable";
         if (destination.GroupId != null && destination.GroupId != PlayerPicture.Id(ship)) return "Rejected · waypoint belongs to another group";
@@ -49,8 +49,26 @@ internal static class NavigationOrders
         ChartPosition end = new(to._latitude, to._longitude);
         if (start.DistanceTo(end) > 150 || !ScenarioTerrain.IsNavigable(start, end, depth: 12))
             return "Rejected · direct waypoint leg is too long or crosses shallow water";
+        if (observe) return $"Suggested waypoint · {destination.Label}";
 
         var result = PlayerOrders.ReplaceWaypoint(ship, side, to);
         return $"{result.Disposition} · {result.Detail}";
+    }
+
+    internal static string CoastalApproach(Vessel ship, Taskforce side, Vehicle contact, bool observe)
+    {
+        if (!PlayerPicture.CanNavigate(ship) || contact.BaseObject is not LandUnit target
+            || contact.PositionEstimate?.Item1 is not { } position) return "Rejected · no independent ship or live shore position";
+        double range = PlayerOrders.ShoreGunRangeNm(ship, target);
+        if (!double.IsFinite(range) || range <= 0) return "Rejected · no stocked shore-capable gun";
+        GeoPosition origin = ship.getGeoPosition();
+        ChartPosition start = new(origin._latitude, origin._longitude);
+        ChartPosition shore = new(position._latitude, position._longitude);
+        double distance = start.DistanceTo(shore);
+        if (distance <= range) return "Kept · already in nominal shore gun range";
+        ChartPosition firingPoint = start.Towards(shore, 1 - 0.85 * range / distance);
+        ChartDestination destination = new("coastal-approach", $"Gun position for {PlayerPicture.ContactLabel(contact)}",
+            new GeoPosition { _latitude = firingPoint.Latitude, _longitude = firingPoint.Longitude }, PlayerPicture.Id(ship));
+        return SetWaypoint(ship, side, destination, observe);
     }
 }

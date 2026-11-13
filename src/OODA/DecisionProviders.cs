@@ -56,6 +56,7 @@ internal class CodexDecisions : IDecisionProvider
             process.StandardInput.Close();
             await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
             process.WaitForExit();
+            LogUsage(role, await stdout.ConfigureAwait(false));
             cancellation.ThrowIfCancellationRequested();
             if (process.ExitCode != 0 || !File.Exists(output))
                 throw new InvalidOperationException($"Codex returned no decision (exit {process.ExitCode}). Check Codex sign-in and model access.");
@@ -66,6 +67,23 @@ internal class CodexDecisions : IDecisionProvider
             try { File.Delete(schema); File.Delete(output); Directory.Delete(directory); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static void LogUsage(DecisionRole role, string events)
+    {
+        using StringReader reader = new(events);
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.IndexOf("\"turn.completed\"", StringComparison.Ordinal) < 0) continue;
+            JObject item;
+            try { item = JObject.Parse(line); }
+            catch (JsonException) { continue; }
+            if ((string?)item["type"] != "turn.completed" || item["usage"] is not JObject usage) continue;
+            long? Count(string name) => usage[name] is JValue { Type: JTokenType.Integer } count ? count.Value<long>() : null;
+            if (Count("input_tokens") is not { } input || Count("output_tokens") is not { } output) continue;
+            UnityEngine.Debug.Log($"[OODA] Codex usage | {role} | model={Model} input={input} cached_input={Count("cached_input_tokens")?.ToString() ?? "unknown"} "
+                + $"output={output} reasoning_output={Count("reasoning_output_tokens")?.ToString() ?? "unknown"} total={input + output}");
         }
     }
 }
@@ -114,11 +132,13 @@ internal static class DecisionSchema
         DecisionRole.Operational => Object(("objective", Text()), ("assignments", Array(Order("task", "Transit", "Screen", "Hold"))),
             ("inspectGroupId", Text(nullable: true)), ("mapMarks", Array(Object(
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
-                ("radiusNm", Number(nullable: true))))), ("helicopterOrders", HelicopterOrders()), ("timePolicy", TimePolicy())),
+                ("radiusNm", Number(nullable: true))))), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
+            ("maritimeOrders", MaritimeOrders()), ("coastalApproaches", CoastalApproaches()), ("timePolicy", TimePolicy())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
             ("standingOrderChanges", StandingOrders()),
             ("timeCompression", TimeSpeed(nullable: true)),
-            ("timeReason", Text(nullable: true)), ("helicopterOrders", HelicopterOrders()), ("timePolicy", TimePolicy())),
+            ("timeReason", Text(nullable: true)), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
+            ("maritimeOrders", MaritimeOrders()), ("coastalApproaches", CoastalApproaches()), ("timePolicy", TimePolicy())),
         DecisionRole.SurfaceDefense => Object(("engagements", Array(Object(("shipId", Text()), ("targetId", Text()),
             ("victimId", Text()), ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))),
             ("evidence", Choice("ObservedGunfire", "AttackReport", "HostileThreat")),
@@ -134,8 +154,17 @@ internal static class DecisionSchema
     private static JObject Array(JObject items) => new() { ["type"] = "array", ["items"] = items };
     private static JObject StandingOrders() =>
         Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())));
-    private static JObject HelicopterOrders() => Array(Object(("shipId", Text()), ("anchorId", Text(nullable: true)),
+    private static JObject HelicopterOrders() => Array(Object(("shipId", Text()), ("fitId", Text()), ("anchorId", Text(nullable: true)),
         ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
+    private static JObject AirOrders() => Array(Object(("action", Choice("Launch", "Task")), ("unitId", Text()),
+        ("role", Choice("CAP", "SEAD", "Recon", "Strike", "AntiShip", "Transport", "Hold", "Recover")), ("fitId", Text(nullable: true)),
+        ("count", new JObject { ["type"] = new JArray("integer", "null") }), ("targetId", Text(nullable: true)),
+        ("route", Array(Object(("latitude", Number()), ("longitude", Number()), ("altitudeFeet", Number())))),
+        ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
+    private static JObject MaritimeOrders() => Array(Object(("action", Choice("EngageShip", "Bombard")), ("shipId", Text()), ("targetId", Text()),
+        ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("reason", Text()),
+        ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())));
+    private static JObject CoastalApproaches() => Array(Object(("shipId", Text()), ("targetId", Text()), ("reason", Text())));
     private static JObject TimeSpeed(bool nullable = false) => new()
     {
         ["type"] = nullable ? new JArray("integer", "null") : new JValue("integer"),

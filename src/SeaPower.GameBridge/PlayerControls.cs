@@ -12,6 +12,9 @@ internal static class PlayerControls
         if (shipId.Length > 0) return new { available = true, scope = "player", unit = PlayerPicture.Inspect(FindShip(side, shipId)) };
         JObject view = PlayerPicture.Read(side, PlayerPicture.Ships(side));
         view["available"] = true;
+        view["airDecks"] = PlayerFlightDeck.AirOperations(side);
+        view["airborne"] = PlayerFlightDeck.Airborne(side);
+        view["airTargets"] = PlayerFlightDeck.AirTargets(side);
         if (PlayerBriefing.Read() is string briefing) view["briefing"] = briefing;
         if (Call("ReadPlanMarks") is JArray marks) view["planMarks"] = marks;
         return view;
