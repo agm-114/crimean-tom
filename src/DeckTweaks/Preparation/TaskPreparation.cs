@@ -151,14 +151,24 @@ internal class TaskPreparation(PreparationBatch batch)
 
     private static IEnumerable<PreparationLine> DescribeAircraft(PreparationBatch batch, double speed, int crews, string waiting)
     {
+        List<(List<int> Numbers, PreparationLine[] Lines)> groups = [];
         for (int index = 0; index < batch.Aircraft.Count; index++)
         {
-            if (index > 0) yield return new("");
-            yield return new($"Aircraft {index + 1}");
             AircraftPreparation aircraft = batch.Aircraft[index];
             bool working = !aircraft.Ready && crews-- > 0;
-            foreach (PreparationLine line in aircraft.Describe(speed, working, waiting, PreparationCatalog.WeaponName))
-                yield return line;
+            PreparationLine[] lines = [.. aircraft.Describe(speed, working, waiting, PreparationCatalog.WeaponName)];
+            var group = groups.Find(group => group.Lines.SequenceEqual(lines));
+            if (group.Numbers == null) groups.Add(([index + 1], lines));
+            else group.Numbers.Add(index + 1);
+        }
+        for (int index = 0; index < groups.Count; index++)
+        {
+            if (index > 0) yield return new("");
+            var (numbers, lines) = groups[index];
+            string heading = numbers.Count == 1 ? numbers[0].ToString()
+                : $"{string.Join(", ", numbers.Take(numbers.Count - 1))} & {numbers[^1]}";
+            yield return new($"Aircraft {heading}");
+            foreach (PreparationLine line in lines) yield return line;
         }
     }
 

@@ -24,10 +24,15 @@ internal class PreparationLoadout(double refuelSeconds, IReadOnlyList<StoreRequi
 }
 
 internal readonly struct PreparationLine(string text, string? perUnit = null, string? completion = null)
+    : IEquatable<PreparationLine>
 {
     internal string Text { get; } = text;
     internal string? PerUnit { get; } = perUnit;
     internal string? Completion { get; } = completion;
+
+    public bool Equals(PreparationLine other) => Text == other.Text && PerUnit == other.PerUnit && Completion == other.Completion;
+    public override bool Equals(object? obj) => obj is PreparationLine other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(Text, PerUnit, Completion);
 }
 
 // Pure preparation state. No game objects, inventory mutations, timers or launch commands.
