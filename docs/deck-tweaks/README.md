@@ -46,7 +46,10 @@ If the tank runs dry, affected aircraft wait and resume as stock arrives. This
 also applies to instant preparation. Recovery, abort and loadout changes keep
 fuel already aboard. Deck Tweaks works independently when UNREP is absent.
 
-Hover over a row's State cell or closed Loadout dropdown for each aircraft's fuel in kg and percentage,
+Select the caret beside the batch ETA in Info to show per-aircraft details across
+the Loadout and Info cells, below the loadout dropdown. Select it again to restore
+the ETA. Hover over the ETA, State cell or closed Loadout dropdown for the same
+details. They show each aircraft's fuel in kg and percentage,
 effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
 excess and incompatible weapons show quantities and remaining work time per type.
 Each type also shows its completion estimate including earlier refueling,

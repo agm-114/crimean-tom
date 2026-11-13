@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using SeaPower;
 using DeckTweaks.Preparation;
+using UnityEngine;
 
 namespace DeckTweaks;
 
@@ -8,6 +9,7 @@ public class TaskLoadout : INotifyPropertyChanged
 {
     private readonly PendingLaunchTask task;
     private double nextStatusUpdate;
+    private float nextStatusRefreshTime;
     public event PropertyChangedEventHandler? PropertyChanged;
     public bool CanChange => !task._isCancelled && task.LaunchCount > 0
         && task._flightDeck._baseObject.AcceptsOrdersFromPlayer
@@ -16,6 +18,7 @@ public class TaskLoadout : INotifyPropertyChanged
         && task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask or HandleAwaitGroundCrewTask
             or HandleReadyUpTask or HandleAwaitSpawnTask;
     public Loadout[] Loadouts { get; }
+    internal bool TimingExpanded { get; set; }
     private static int CurrentYear => Singleton<SeaPower.Environment>.InstanceExists()
         ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
     internal IEnumerable<PreparationLine> PreparationStatus => TaskPreparation.Find(task) is { } preparation
@@ -48,7 +51,10 @@ public class TaskLoadout : INotifyPropertyChanged
         task.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName != nameof(FlightDeckTask.FlightDeckTaskLabel) || GameTime.simulationTime < nextStatusUpdate) return;
+            float now = Time.realtimeSinceStartup;
+            if (now < nextStatusRefreshTime) return;
             nextStatusUpdate = GameTime.simulationTime + 1;
+            nextStatusRefreshTime = now + 0.25f;
             PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
         };
     }
