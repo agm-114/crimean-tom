@@ -64,7 +64,11 @@ public class DecisionWindow : MonoBehaviour
 
     private void Update()
     {
-        try { controller.ApplyReadyDecision(); }
+        try
+        {
+            controller.ApplyReadyDecision();
+            controller.TickSensorSweeps();
+        }
         catch (Exception error)
         {
             controller.SetMode(ControlMode.Manual);
@@ -217,7 +221,7 @@ public class DecisionWindow : MonoBehaviour
         shipStates.Clear();
         airDefenseRouteSummary = null;
         AddTab("mission", "Mission Command", MissionPage());
-        AddTab("trace", "Decision log", Stack(Timeline(controller.Events, showShipNames: true)));
+        AddTab("trace", "Decision log", Stack(Section("Order progress", OrderProgress(), expanded: false), Timeline(controller.Events, showShipNames: true)));
         AddTab("time", "Time Control", TimeControlPage());
         if (controller.LastAirInput?["airDecks"]?.Any() == true || controller.LastAirInput?["airborne"]?.Any() == true
             || controller.AirDefenseRouteWarnings().HasValues)
@@ -351,6 +355,7 @@ public class DecisionWindow : MonoBehaviour
             string id = PlayerPicture.Id(unit);
             FrameworkElement content = unit is Vessel ship ? ShipPage(ship, unitState) : Stack(
                 Section(unit.DisplayNameShort, unitState),
+                Section("Order progress", OrderProgress(id), expanded: false),
                 Section("Standing Orders observed", StandingOrders(id), expanded: false),
                 Section("Decision history", Timeline(controller.Events.Where(item => item.ShipId == id))));
             unitPage.Content = Scroll(content);
@@ -383,9 +388,22 @@ public class DecisionWindow : MonoBehaviour
         return Stack(Section("Assignment", Card(Text(leader == null ? assignment : $"Follows {leader.getName()}\n{assignment}"))),
             Section("Current state", current),
             Section("Navigation", route, expanded: false),
+            Section("Order progress", OrderProgress(id), expanded: false),
             Section("Standing Orders observed", StandingOrders(id), expanded: false),
             Section("Decision history", Timeline(controller.Events.Where(item => item.ShipId == id || item.ShipId == commandId))),
             Section("Urgent decisions", urgency, expanded: false));
+    }
+
+    private FrameworkElement OrderProgress(string? unitId = null)
+    {
+        StackPanel progress = Stack();
+        foreach (JObject order in Rows(controller.ReadOrderStatuses(20, unitId)))
+        {
+            string label = $"{order["orderId"]} · {order["action"]} · {order["state"]}";
+            progress.Children.Add(Field(label, $"{order["reason"]} · {order["ageSinceProgressSeconds"]} sim s since progress"));
+        }
+        if (progress.Children.Count == 0) progress.Children.Add(Text("No tracked orders"));
+        return progress;
     }
 
     private FrameworkElement StandingOrders(string id)

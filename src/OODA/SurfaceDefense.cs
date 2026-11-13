@@ -186,6 +186,14 @@ internal class SurfaceDefense
             return !allowWithdrawal || distance < threat.DistanceTo(start) - 0.01 || threat.DistanceTo(end) <= radius;
         }) is { } blocker ? PlayerPicture.ContactLabel(blocker) : null;
 
+    internal RouteHazard[] Hazards(Taskforce side) => HostileSurfaceTracks(side).Select(track =>
+    {
+        GeoPosition fix = track.PositionEstimate!.Value.Item1;
+        double? range = WeaponRange(track);
+        return new RouteHazard(new(fix._latitude, fix._longitude), range ?? WatchRangeNm,
+            $"{PlayerPicture.ContactLabel(track)} {(range.HasValue ? "surface-weapon envelope" : "unidentified weapon-range caution area")}");
+    }).ToArray();
+
     internal string? HelicopterRouteBlocker(Taskforce side, GeoPosition origin, GeoPosition[] route, bool repeat)
     {
         if (route.Length == 0) return null;

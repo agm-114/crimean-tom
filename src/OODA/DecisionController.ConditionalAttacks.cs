@@ -6,7 +6,7 @@ namespace OODA;
 
 internal partial class DecisionController
 {
-    private record ConditionalAttack(string UnitId, string TargetId, string Attack, SurfaceWeapon Weapon, double ExpiresAt, string Reason);
+    private record ConditionalAttack(string UnitId, string TargetId, string Attack, SurfaceWeapon Weapon, double ExpiresAt, string Reason, OrderStatus Status);
     private readonly Dictionary<(string Unit, string Target), ConditionalAttack> conditionalAttacks = [];
     private readonly Dictionary<string, string> hailedTracks = [];
     private double nextHailCheck;
@@ -41,7 +41,7 @@ internal partial class DecisionController
     private JArray ReadConditionalAttacks() => new(conditionalAttacks.Values.Select(order => new JObject
     {
         ["unitId"] = order.UnitId, ["targetId"] = order.TargetId, ["attack"] = order.Attack, ["weapons"] = order.Weapon.ToString(),
-        ["expiresAt"] = order.ExpiresAt, ["reason"] = order.Reason
+        ["expiresAt"] = order.ExpiresAt, ["reason"] = order.Reason, ["orderId"] = order.Status.Id
     }));
 
     private void ApplyConditionalAttacks(JToken? orders, Taskforce side)
@@ -55,7 +55,11 @@ internal partial class DecisionController
             var key = (id, targetId);
             if ((string?)item["action"] == "Cancel")
             {
-                if (conditionalAttacks.Remove(key)) Add("Conditional attack", "Canceled", reason, id, targetId: targetId);
+                if (conditionalAttacks.Remove(key, out ConditionalAttack canceled))
+                {
+                    FinishConditionalAttack(canceled, "superseded", "Canceled by planner");
+                    Add("Conditional attack", "Canceled", reason, id, targetId: targetId);
+                }
                 continue;
             }
             if ((string?)item["action"] != "Arm" || !owned.TryGetValue(id, out ObjectBase? unit)
@@ -73,7 +77,13 @@ internal partial class DecisionController
             };
             if (!eligible || conditionalAttacks.ContainsKey(key) || conditionalAttacks.Count >= 16) continue;
             if (Mode == ControlMode.AiControl)
-                conditionalAttacks[key] = new(id, targetId, attack, weapon, GameTime.missionElapsedTime + Math.Min(duration, 1800), reason);
+            {
+                OrderStatus status = NewOrder(id, "Engage");
+                status.TargetId = targetId;
+                status.Retryable = true;
+                status.Set("waiting", "Waiting for a live hostile fix");
+                conditionalAttacks[key] = new(id, targetId, attack, weapon, GameTime.missionElapsedTime + Math.Min(duration, 1800), reason, status);
+            }
             Add("Conditional attack", Mode == ControlMode.AiControl ? "Armed" : "Suggested", $"{attack} when the track is live · {reason}",
                 id, unit.DisplayNameShort, targetId: targetId);
         }
@@ -90,6 +100,7 @@ internal partial class DecisionController
             if (now >= order.ExpiresAt || !owned.TryGetValue(order.UnitId, out ObjectBase? unit))
             {
                 conditionalAttacks.Remove(key);
+                FinishConditionalAttack(order, "blocked", now >= order.ExpiresAt ? "Expired before execution" : "Unit is no longer commandable");
                 Add("Conditional attack", "Expired", order.Reason, order.UnitId, targetId: order.TargetId);
                 continue;
             }
@@ -97,6 +108,7 @@ internal partial class DecisionController
             if (track.CurrentRelationship() is RelationsState.Friendly or RelationsState.Neutral)
             {
                 conditionalAttacks.Remove(key);
+                FinishConditionalAttack(order, "superseded", "Contact is now friendly or neutral");
                 Add("Conditional attack", "Canceled", "Contact is now friendly or neutral", order.UnitId, unit.DisplayNameShort,
                     targetId: order.TargetId);
                 continue;
@@ -113,6 +125,7 @@ internal partial class DecisionController
             if (!compatibleTarget)
             {
                 conditionalAttacks.Remove(key);
+                FinishConditionalAttack(order, "blocked", "Contact type cannot take the planned attack");
                 Add("Conditional attack", "Canceled", "Contact type cannot take the planned attack", order.UnitId, unit.DisplayNameShort,
                     targetId: order.TargetId);
                 continue;
@@ -130,16 +143,29 @@ internal partial class DecisionController
             catch (Exception error)
             {
                 conditionalAttacks.Remove(key);
+                FinishConditionalAttack(order, "blocked", error.Message);
                 Add("Conditional attack", "Failed", error.Message, order.UnitId, unit.DisplayNameShort, targetId: order.TargetId);
                 continue;
             }
-            if (!status.Contains("queued", StringComparison.OrdinalIgnoreCase) && !status.StartsWith("Attack ordered", StringComparison.Ordinal)
-                && !status.StartsWith("Already engaging", StringComparison.Ordinal) && !status.StartsWith("Kept · attack already assigned", StringComparison.Ordinal)) continue;
+            if (!AttackAccepted(status))
+            {
+                order.Status.Set("blocked", status);
+                continue;
+            }
             conditionalAttacks.Remove(key);
+            order.Status.Weapon = AirOrderWeapon(status);
+            order.Status.Shots = PlayerCombat.OwnShotCount(order.UnitId, order.TargetId, order.Status.Weapon);
+            FinishConditionalAttack(order, "executing", status);
             Add("Conditional attack", status, $"{PlayerPicture.ContactLabel(track)} · {order.Reason}", order.UnitId, unit.DisplayNameShort,
                 targetId: order.TargetId);
             RecordFlightAssignment(order.UnitId, order.Attack, order.TargetId, status);
             nextTactical = 0;
         }
+    }
+
+    private static void FinishConditionalAttack(ConditionalAttack order, string state, string reason)
+    {
+        order.Status.Retryable = false;
+        order.Status.Set(state, reason);
     }
 }

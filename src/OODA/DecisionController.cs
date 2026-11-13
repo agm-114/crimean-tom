@@ -14,7 +14,7 @@ internal record DecisionEvent(double Time, string Stage, string Status, string D
 internal partial class DecisionController
 {
     private record Request(DecisionRole Role, Task<JObject> Task, CancellationTokenSource Cancellation,
-        Stopwatch Clock, ChartDestination[] Destinations, Dictionary<string, string> Routes, string? ShipId);
+        Stopwatch Clock, ChartDestination[] Destinations, Dictionary<string, string> Routes, string? ShipId, bool ToolFollowUp = false);
     private record DeferredFire(JObject Order, string TargetId, double WallDeadline, double MissionDeadline);
 
     private readonly IDecisionProvider codex = new CodexDecisions();
@@ -113,11 +113,14 @@ internal partial class DecisionController
         {
             RetrySurfaceOrders(side);
             RunConditionalAttacks(side);
+            RunConditionalOrders(side);
             UseGroundOpportunities(side);
         }
+        if (Mode != ControlMode.Manual) PollOrderStatuses(side);
         interrupts.Expire(now);
         if (Mode != ControlMode.Manual)
         {
+            SampleSurfaceMotion(side);
             PollAirDefenseRoutes(side, now);
             foreach (TimeEvent item in timeObservations.Poll(side)) ObserveTimeEvent(item, now);
             bool assessingAttack = AssessingAttack;
@@ -257,7 +260,10 @@ internal partial class DecisionController
         Cancel(ref urgent);
         Mode = mode;
         deferredFire.Clear();
+        sensorSweeps.CancelAll();
+        foreach (ConditionalAttack order in conditionalAttacks.Values) FinishConditionalAttack(order, "superseded", "AI control ended");
         conditionalAttacks.Clear();
+        CancelConditionalOrders();
         wasAssessingAttack = false;
         timedAttacker = null;
         if (mode != ControlMode.AiControl)
@@ -283,6 +289,7 @@ internal partial class DecisionController
     {
         Cancel(ref regular);
         Cancel(ref urgent);
+        sensorSweeps.CancelAll();
         mission = null;
         Mode = ControlMode.Manual;
         CameraUnitId = null;
@@ -294,6 +301,10 @@ internal partial class DecisionController
         defense.Reset();
         deferredFire.Clear();
         conditionalAttacks.Clear();
+        conditionalOrders.Clear();
+        orderStatuses.Clear();
+        nextOrderId = 0;
+        nextOrderStatusCheck = nextConditionalOrderCheck = nextSurfaceSample = 0;
         chart.Clear();
         flightOrderChart.Clear();
         flightMapOrders = [];
@@ -321,6 +332,7 @@ internal partial class DecisionController
         raidWarningAt = double.NegativeInfinity;
         raidTracks.Clear();
         loggedTimeSuggestions.Clear();
+        loggedCapabilityRequests.Clear();
         lastTimeSuggestion = null;
         events.Clear();
         Revision++;
@@ -516,6 +528,8 @@ internal partial class DecisionController
         ["planMarks"] = PlanMarks(), ["flightMapOrders"] = FlightMapOrders(), ["airDefenseAssessment"] = airDefenseAssessment.Read(),
         ["airDefenseRouteWarnings"] = AirDefenseRouteWarnings(),
         ["conditionalAttacks"] = ReadConditionalAttacks(),
+        ["conditionalOrders"] = ReadConditionalOrders(), ["orderStatuses"] = ReadOrderStatuses(40),
+        ["sensorSweeps"] = sensorSweeps.Read(),
         ["identificationRequests"] = ReadIdentificationRequests(),
         ["time"] = new JObject { ["managed"] = ManagingClock, ["status"] = ClockStatus,
             ["source"] = ClockExplanation.Source, ["reason"] = ClockExplanation.Reason, ["cruiseSpeed"] = clock.CruiseSpeed,
@@ -530,7 +544,7 @@ internal partial class DecisionController
         .FirstOrDefault(item => (string?)item["groupId"] == shipId) is { } assignment
             ? $"{(string?)assignment["task"]} · {(string?)assignment["reason"]}" : "No independent assignment";
 
-    private void Start(DecisionRole role, JObject view, Vessel[] ships, ChartDestination[] destinations)
+    private void Start(DecisionRole role, JObject view, Vessel[] ships, ChartDestination[] destinations, bool toolFollowUp = false)
     {
         view["plan"] = plan?.DeepClone();
         view["missionMessages"] = MissionCommunications.Snapshot();
@@ -539,6 +553,7 @@ internal partial class DecisionController
             if (PlayerPicture.Side is { } planningSide)
             {
                 if (view["airDecks"] == null) ReadAirPicture(view, planningSide);
+                ReadOrderTools(view, planningSide);
                 view["maritimeShips"] = PlayerOrders.SurfaceStrikeOptions(PlayerPicture.Units(planningSide).Where(unit => unit is Vessel or Submarine));
                 view["helicopterDecks"] = PlayerFlightDeck.Helicopters(planningSide, ships);
                 view["helicopterScreenAnchors"] = new JArray(SurfaceDefense.ProtectedContacts(planningSide).Select(track => new JObject
@@ -562,7 +577,11 @@ internal partial class DecisionController
             view["timeInterrupts"] = time;
         }
         if (PlayerPicture.Side is { } defensiveSide)
+        {
             defense.Describe(defensiveSide, view);
+            if (role is DecisionRole.SurfaceDefense or DecisionRole.AirDefense)
+                view["engagementOptions"] = NearbyEngagementOptions(defensiveSide, PlayerPicture.Units(defensiveSide), 4, airOnly: role == DecisionRole.AirDefense);
+        }
         if (role != DecisionRole.SurfaceDefense && PlayerPicture.Side is { } side)
         {
             view["standingOrders"] = PlayerDoctrine.Read(side);
@@ -577,7 +596,7 @@ internal partial class DecisionController
             ["groupId"] = destination.GroupId
         }));
         JArray tools = new();
-        if (role == DecisionRole.Operational && !lookupUsed) tools.Add(new JObject
+        if (role == DecisionRole.Operational && !lookupUsed && !toolFollowUp) tools.Add(new JObject
         {
             ["name"] = "get_owned_unit", ["requestField"] = "inspectGroupId", ["description"] = "Set inspectGroupId to an owned group ID for its heading and extended route, or null to submit the plan."
         });
@@ -591,6 +610,19 @@ internal partial class DecisionController
             Offer("launch_helicopter_screen", "helicopterOrders", "Launch an escort helicopter to screen a defended contact or the formation.");
             Offer("set_time_policy", "timePolicy", "Set cruise speed and time interrupts.");
             Offer("attack_when_track_live", "conditionalAttacks", "Arm or cancel a one-shot attack on a plotted target when it has a live hostile fix.");
+            Offer("set_movement_profile", "movementProfiles", "Set supported native speed, altitude, depth, or active sensor posture.");
+            Offer("arm_conditional_order", "conditionalOrders", "Arm or cancel a one-shot movement or relief order on a player-visible condition.");
+            Offer("request_capability", "capabilityRequests", "Log a concrete request for a new automation, native tool, or analysis function for the developers.");
+            Offer("sweep_sensor", "sensorSweeps", "Take one bounded radar scan, passive ESM listen, or visual periscope look.");
+            if (!toolFollowUp)
+            {
+                Offer("preview_route", "decisionQueries", "Estimate travel time, unsafe leg, exposure and arrival endurance.");
+                Offer("preview_sortie_cycle", "decisionQueries", "Estimate a fit's time to station and full sortie cycle from a carrier or airbase.");
+                Offer("get_engagement_options", "decisionQueries", "Compare compatible weapons, release estimates, and blockers for a plotted contact.");
+                Offer("get_order_status", "decisionQueries", "Check progress and the latest native result for an order ID.");
+                Offer("estimate_damage", "decisionQueries", "Estimate direct hits needed against a known ground or naval class.");
+                Offer("estimate_detection", "decisionQueries", "Estimate radar or sonar range using Sea Power Encyclopedia models.");
+            }
             view["conditionalAttacks"] = ReadConditionalAttacks();
             view["identificationRequests"] = ReadIdentificationRequests();
         }
@@ -618,7 +650,7 @@ internal partial class DecisionController
         CancellationTokenSource cancellation = new(TimeSpan.FromSeconds(60));
         regular = new(role, codex.Decide(role, prompt, cancellation.Token), cancellation, Stopwatch.StartNew(), destinations,
             ships.Cast<ObjectBase>().Concat(role is DecisionRole.Operational or DecisionRole.RoutineTactical && PlayerPicture.Side is { } routeSide
-                ? PlayerPicture.Units(routeSide).OfType<Submarine>() : []).ToDictionary(PlayerPicture.Id, RouteSignature), null);
+                ? PlayerPicture.Units(routeSide).OfType<Submarine>() : []).ToDictionary(PlayerPicture.Id, RouteSignature), null, toolFollowUp);
         int ownUnits = ships.Length + (view["ownedOtherUnits"]?.Count() ?? 0);
         Add(Stage(role), "Requested", $"{ownUnits} player units · {view["contacts"]?.Count() ?? 0} plotted contacts");
 
@@ -650,17 +682,27 @@ internal partial class DecisionController
         }
         Vessel[] ships = PlayerPicture.Ships(side);
         Dictionary<string, Vessel> groups = ships.Where(PlayerPicture.CanNavigate).ToDictionary(PlayerPicture.Id);
-        if (work.Role == DecisionRole.Operational)
+        LogCapabilityRequests(work.Role, result["capabilityRequests"]);
+        if (!work.ToolFollowUp && LastInput is { } input)
         {
-            if (!lookupUsed && (string?)result["inspectGroupId"] is { } requested && groups.TryGetValue(requested, out Vessel ship))
+            JArray toolResults = ReadToolResults(result["decisionQueries"], side, input);
+            if (work.Role == DecisionRole.Operational && !lookupUsed && (string?)result["inspectGroupId"] is { } requested
+                && groups.TryGetValue(requested, out Vessel inspected))
             {
                 lookupUsed = true;
-                JObject view = PlayerPicture.Read(side, ships);
-                view["toolResults"] = new JObject { ["tool"] = "get_owned_unit", ["unit"] = PlayerPicture.Inspect(ship) };
-                Add("Mission Command", "Tool result", $"Read player-visible details for {ship.getName()}", requested);
-                Start(work.Role, view, ships, NavigationOrders.Destinations(side, ships, chartPoint));
+                toolResults.Add(new JObject { ["tool"] = "get_owned_unit", ["unit"] = PlayerPicture.Inspect(inspected) });
+            }
+            if (toolResults.Count > 0)
+            {
+                JObject refreshed = PlayerPicture.Read(side, ships);
+                refreshed["toolResults"] = toolResults;
+                Add(Stage(work.Role), "Tool results", $"Read {toolResults.Count} player-view results");
+                Start(work.Role, refreshed, ships, NavigationOrders.Destinations(side, ships, chartPoint), toolFollowUp: true);
                 return;
             }
+        }
+        if (work.Role == DecisionRole.Operational)
+        {
             string objective = Short((string?)result["objective"], 800);
             if (objective.Length == 0 || result["assignments"] is not JArray assignments) throw new InvalidDataException("Codex returned an incomplete mission plan.");
             ApplyTimePolicy(result["timePolicy"]);
@@ -691,6 +733,9 @@ internal partial class DecisionController
             ApplyHelicopterOrders(result["helicopterOrders"], side, ships);
             ApplyMaritimeOrders(work, result, side, ships);
             ApplyConditionalAttacks(result["conditionalAttacks"], side);
+            ApplyMovementProfiles(result["movementProfiles"], side);
+            ApplyConditionalOrders(result["conditionalOrders"], side);
+            ApplySensorSweeps(result["sensorSweeps"], side);
             if (Mode == ControlMode.AiControl)
             {
                 try
@@ -735,6 +780,9 @@ internal partial class DecisionController
         ApplyHelicopterOrders(result["helicopterOrders"], side, ships);
         ApplyMaritimeOrders(work, result, side, ships);
         ApplyConditionalAttacks(result["conditionalAttacks"], side);
+        ApplyMovementProfiles(result["movementProfiles"], side);
+        ApplyConditionalOrders(result["conditionalOrders"], side);
+        ApplySensorSweeps(result["sensorSweeps"], side);
         Add("Tactical", $"Reply received · {work.Clock.Elapsed.TotalSeconds:0.0}s", $"{handled.Count} group decisions");
         if (Mode == ControlMode.AiControl && !replan && (int?)result["timeCompression"] is { } speed
             && LastInput?["availableTimeCompressions"] is JArray offered && offered.Values<int>().Contains(speed)
@@ -776,6 +824,7 @@ internal partial class DecisionController
                 if (nextTorpedoAttempt.GetValueOrDefault((id, targetId)) > now || PlayerCombat.TorpedoInbound(track.BaseObject)) continue;
                 nextTorpedoAttempt[(id, targetId)] = now + 30;
                 SurfaceOrderResult outcome = EngageMaritimeTarget(sub, side, track, SurfaceWeapon.BestAvailable, preferTorpedoes: false);
+                TrackFire(id, targetId, null, outcome.Status, outcome.Detail, AttackAccepted(outcome.Status));
                 Add("Maritime strike", outcome.Status, $"{PlayerPicture.ContactLabel(track)} · Live torpedo opportunity · {outcome.Detail}",
                     id, sub.DisplayNameShort, targetId: targetId);
                 if (!outcome.Status.Contains("queued", StringComparison.Ordinal)) continue;
@@ -806,6 +855,7 @@ internal partial class DecisionController
                 continue;
             }
             if (!IsAppliedUnitOrder("Air operations", status)) continue;
+            TrackFire(id, targetId, AirOrderWeapon(status), status, "", accepted: true);
             tasked.Add(option.Unit);
             targeted.Add(targetId);
             Add("Air operations", status, $"Nearby exposed {PlayerPicture.ContactLabel(option.Track)} · live opportunity",
@@ -838,19 +888,40 @@ internal partial class DecisionController
             string? id = (string?)order["unitId"];
             if (id == null || !units.TryGetValue(id, out ObjectBase unit) || (string?)order["role"] is not { } role) continue;
             string? targetId = (string?)order["targetId"];
+            string? action = (string?)order["action"];
             string reason = Short((string?)order["reason"]);
+            PendingLaunchTask? deckTask = null;
+            OrderStatus? deckStatus = null;
             string outcome;
             try
             {
-                outcome = ApplyAirOrder(order, unit, id, role, targetId);
+                outcome = ApplyAirOrder(order, unit, id, role, targetId, task => deckTask = task,
+                    () => { if (deckStatus != null) deckStatus.Launches++; });
             }
             catch (Exception error) { outcome = $"Failed · {error.Message}"; }
+            if (Mode == ControlMode.AiControl)
+            {
+                if (action is "Launch" or "Prepare")
+                {
+                    if (deckTask == null || !orderStatuses.Values.Any(status => status.Active && status.DeckTask == deckTask && status.Action == action))
+                    {
+                        deckStatus = NewOrder(id, action);
+                        deckStatus.DeckTask = deckTask;
+                        deckStatus.LaunchCount = action == "Launch" ? (int?)order["count"] ?? 1 : 0;
+                        deckStatus.Set(OrderRejected(outcome) ? "blocked" : deckTask != null ? "executing" : "completed", outcome);
+                    }
+                }
+                else if (action == "Task" && targetId != null) TrackFire(id, targetId, AirOrderWeapon(outcome), outcome, "", AttackAccepted(outcome));
+                else if (action == "Task" && role is "Transport" or "Hold" or "Disengage" or "Recon" or "ASW")
+                    TrackRoute(unit, role, outcome);
+            }
             Add("Air operations", outcome, $"{role} · {reason}", id, unit.DisplayNameShort, targetId: targetId);
             if ((string?)order["action"] == "Task") RecordFlightAssignment(id, role, targetId, outcome);
             if (outcome.StartsWith("Joined", StringComparison.Ordinal)) flightAssignments.Remove(id);
         }
 
-        string ApplyAirOrder(JObject order, ObjectBase unit, string id, string role, string? targetId)
+        string ApplyAirOrder(JObject order, ObjectBase unit, string id, string role, string? targetId,
+            Action<PendingLaunchTask> trackTask, Action onLaunched)
         {
             if (!TryReadAirRoute(order["route"], out GeoPosition[] route)) return "Rejected · invalid air route";
             string? action = (string?)order["action"];
@@ -874,12 +945,16 @@ internal partial class DecisionController
                 JToken? fit = deck?["fits"]?.FirstOrDefault(candidate => (string?)candidate["id"] == fitId);
                 if (fit?["roles"]?.Values<string>().Contains(role) != true)
                     return "Rejected · fit was not offered for this role";
+                string? refitBatchId = (string?)order["refitBatchId"];
+                if (refitBatchId != null && fit?["refitBatches"]?.Any(batch => (string?)batch["id"] == refitBatchId
+                    && (int?)batch["count"] == count) != true) return "Rejected · refit batch was not offered for this fit and count";
                 if (!launched.Add((id, fitId))) return "Kept · fit already ordered this decision";
                 bool prepare = action == "Prepare";
                 if (!prepare && fit?["helicopter"]?.Value<bool>() == true
                     && defense.HelicopterRouteBlocker(side, unit.getGeoPosition(), route, repeat: role is "Recon" or "ASW" or "AntiShip" or "Strike") is { } launchBlocker)
                     return $"Rejected · helicopter route enters {launchBlocker}";
-                return Mode == ControlMode.AiControl ? PlayerFlightDeck.QueueAirMission(unit, side, fitId, role, count, route, useRadar, targetId, prepare)
+                return Mode == ControlMode.AiControl ? PlayerFlightDeck.QueueAirMission(unit, side, fitId, role, count, route, useRadar, targetId, prepare,
+                        trackTask: trackTask, launched: onLaunched, refitBatchId: refitBatchId)
                     : $"{(prepare ? "Preparation" : "Launch")} suggested · {count}× {fitId}";
             }
             if (action != "Task" || !WasAirborne(id))
@@ -961,6 +1036,7 @@ internal partial class DecisionController
                 else outcome = "Rejected · no live hostile position";
             }
             catch (Exception error) { outcome = $"Rejected · {Short(error.InnerException?.Message ?? error.Message)}"; }
+            if (!outcome.StartsWith("Kept · already near", StringComparison.Ordinal)) TrackRoute(unit, "Approach", outcome);
             Add("Approach", outcome, Short((string?)order["reason"]), id, unit.DisplayNameShort, targetId: targetId);
         }
 
@@ -976,6 +1052,7 @@ internal partial class DecisionController
                 else outcome = NavigationOrders.SetSurfaceRoute(ship, side, points, defense, Mode == ControlMode.Observe);
             }
             catch (Exception error) { outcome = $"Rejected · {Short(error.InnerException?.Message ?? error.Message)}"; }
+            TrackRoute(unit, "Surface route", outcome);
             Add("Approach", outcome, Short((string?)order["reason"]), id, ship.getName());
         }
     }
@@ -1204,6 +1281,7 @@ internal partial class DecisionController
         catch (Exception error) { outcome = new("Rejected", Short(error.Message)); }
         string detail = outcome.Detail.Length > 0 ? $"{targetName} · {outcome.Detail} · {reason}" : $"{targetName} · {reason}";
         Add(stage, outcome.Status, detail, shipId, ship.getName(), warning, targetId);
+        if (targetId != null) TrackFire(shipId, targetId, null, outcome.Status, outcome.Detail, AttackAccepted(outcome.Status));
         if (maritimeAction == null && outcome.Status == "Guns unavailable" && targetId != null) defense.ReviewGunFailure(targetId);
         if (warning != null)
         {
@@ -1309,6 +1387,7 @@ internal partial class DecisionController
             else
             {
                 assigned.Add(responder);
+                TrackFire(PlayerPicture.Id(responder), id, null, "Intercept queued", "", accepted: true);
                 Add("Air defense", Mode == ControlMode.Observe ? "Intercept suggested" : "Intercept queued",
                     $"{target} · {reason}", PlayerPicture.Id(responder), responder.getName());
             }
@@ -1356,7 +1435,12 @@ internal partial class DecisionController
             return "Rejected · destination is outside the assignment";
         if (!work.Routes.TryGetValue(id, out string route) || route != RouteSignature(ship)) return "Rejected · existing orders changed while Codex was deciding";
         if (Mode == ControlMode.Observe) return $"Suggested waypoint · {destination.Label}";
-        try { return NavigationOrders.SetWaypoint(ship, side, destination); }
+        try
+        {
+            string outcome = NavigationOrders.SetWaypoint(ship, side, destination);
+            TrackRoute(ship, "Waypoint", outcome);
+            return outcome;
+        }
         catch (Exception error) { return "Rejected · " + Short(error.InnerException?.Message ?? error.Message); }
     }
 

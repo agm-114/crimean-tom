@@ -34,12 +34,14 @@ internal class CodexDecisions : IDecisionProvider
             ProcessStartInfo start = new()
             {
                 FileName = File.Exists(installed) ? installed : "codex",
-                Arguments = $"--disable apps --disable plugins --disable shell_tool --disable shell_snapshot -c mcp_servers={{}} " +
-                    $"-c \"web_search=\\\"disabled\\\"\" --ask-for-approval never exec --ignore-user-config --sandbox read-only " +
-                    $"--ephemeral --skip-git-repo-check --model {Model} --json --output-schema schema.json --output-last-message decision.json -",
                 WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
             };
+            string[] arguments = ["--disable", "apps", "--disable", "plugins", "--disable", "shell_tool", "--disable", "shell_snapshot",
+                "-c", "mcp_servers={}", "-c", "web_search=\"disabled\"", "-c", $"developer_instructions={JsonConvert.ToString(prompt.StableInstructions)}",
+                "--ask-for-approval", "never", "exec", "--ignore-user-config", "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check",
+                "--model", Model, "--json", "--output-schema", "schema.json", "--output-last-message", "decision.json", "-"];
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
             foreach (string key in new[] { "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_BASE_URL" })
                 start.Environment.Remove(key);
 
@@ -52,11 +54,12 @@ internal class CodexDecisions : IDecisionProvider
             });
             Task<string> stdout = process.StandardOutput.ReadToEndAsync();
             Task<string> stderr = process.StandardError.ReadToEndAsync();
-            await process.StandardInput.WriteAsync(prompt.ToCodexInput()).ConfigureAwait(false);
+            string input = prompt.ToCodexInput(role);
+            await process.StandardInput.WriteAsync(input).ConfigureAwait(false);
             process.StandardInput.Close();
             await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
             process.WaitForExit();
-            LogUsage(role, await stdout.ConfigureAwait(false));
+            LogUsage(role, await stdout.ConfigureAwait(false), Encoding.UTF8.GetByteCount(prompt.StableInstructions) + Encoding.UTF8.GetByteCount(input));
             cancellation.ThrowIfCancellationRequested();
             if (process.ExitCode != 0 || !File.Exists(output))
                 throw new InvalidOperationException($"Codex returned no decision (exit {process.ExitCode}). Check Codex sign-in and model access.");
@@ -70,7 +73,7 @@ internal class CodexDecisions : IDecisionProvider
         }
     }
 
-    private static void LogUsage(DecisionRole role, string events)
+    private static void LogUsage(DecisionRole role, string events, int payloadBytes)
     {
         using StringReader reader = new(events);
         while (reader.ReadLine() is { } line)
@@ -83,7 +86,7 @@ internal class CodexDecisions : IDecisionProvider
             long? Count(string name) => usage[name] is JValue { Type: JTokenType.Integer } count ? count.Value<long>() : null;
             if (Count("input_tokens") is not { } input || Count("output_tokens") is not { } output) continue;
             UnityEngine.Debug.Log($"[OODA] Codex usage | {role} | model={Model} input={input} cached_input={Count("cached_input_tokens")?.ToString() ?? "unknown"} "
-                + $"output={output} reasoning_output={Count("reasoning_output_tokens")?.ToString() ?? "unknown"} total={input + output}");
+                + $"output={output} reasoning_output={Count("reasoning_output_tokens")?.ToString() ?? "unknown"} total={input + output} payload_bytes={payloadBytes}");
         }
     }
 }
@@ -134,13 +137,17 @@ internal static class DecisionSchema
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
                 ("radiusNm", Number(nullable: true))))), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
             ("maritimeOrders", MaritimeOrders()), ("approaches", Approaches()), ("surfaceRoutes", SurfaceRoutes()),
-            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy())),
+            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy()), ("decisionQueries", DecisionQueries()),
+            ("movementProfiles", MovementProfiles()), ("conditionalOrders", ConditionalOrders()), ("capabilityRequests", CapabilityRequests()),
+            ("sensorSweeps", SensorSweeps())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
             ("standingOrderChanges", StandingOrders()),
             ("timeCompression", TimeSpeed(nullable: true)),
             ("timeReason", Text(nullable: true)), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
             ("maritimeOrders", MaritimeOrders()), ("approaches", Approaches()), ("surfaceRoutes", SurfaceRoutes()),
-            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy())),
+            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy()), ("decisionQueries", DecisionQueries()),
+            ("movementProfiles", MovementProfiles()), ("conditionalOrders", ConditionalOrders()), ("capabilityRequests", CapabilityRequests()),
+            ("sensorSweeps", SensorSweeps())),
         DecisionRole.SurfaceDefense => Object(("engagements", Array(Object(("shipId", Text()), ("targetId", Text()),
             ("victimId", Text()), ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))),
             ("evidence", Choice("ObservedGunfire", "AttackReport", "HostileThreat")),
@@ -160,7 +167,7 @@ internal static class DecisionSchema
         ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
     private static JObject AirOrders() => Array(Object(("action", Choice("Prepare", "Launch", "Task", "Split", "Join")), ("unitId", Text()),
         ("role", Choice("CAP", "SEAD", "Recon", "ASW", "Strike", "Strafe", "AntiShip", "Transport", "Hold", "Disengage", "Recover", "Formation")), ("fitId", Text(nullable: true)),
-        ("count", new JObject { ["type"] = new JArray("integer", "null") }), ("targetId", Text(nullable: true)),
+        ("count", IntegerOrNull()), ("targetId", Text(nullable: true)), ("refitBatchId", Text(nullable: true)),
         ("route", Array(Object(("latitude", Number()), ("longitude", Number()), ("altitudeFeet", Number())))),
         ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
     private static JObject MaritimeOrders() => Array(Object(("action", Choice("EngageShip", "Bombard")), ("shipId", Text()), ("targetId", Text()),
@@ -173,6 +180,28 @@ internal static class DecisionSchema
     private static JObject ConditionalAttacks() => Array(Object(("action", Choice("Arm", "Cancel")),
         ("unitId", Text()), ("targetId", Text()), ("attack", Choice("CAP", "SEAD", "Strike", "Strafe", "AntiShip", "EngageShip", "Bombard")),
         ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("expiresInSeconds", Number()), ("reason", Text())));
+    private static JObject ToolRoute() => Array(Object(("latitude", Number()), ("longitude", Number()), ("altitudeFeet", Number(nullable: true))));
+    private static JObject DecisionQueries() => Array(Object(("tool", Choice("preview_route", "get_engagement_options", "get_order_status", "preview_sortie_cycle", "estimate_damage", "estimate_detection")),
+        ("unitId", Text(nullable: true)), ("targetId", Text(nullable: true)), ("orderId", Text(nullable: true)), ("fitId", Text(nullable: true)),
+        ("onStationSeconds", Number(nullable: true)), ("waypoints", ToolRoute()),
+        ("damage", OptionalObject(("weaponId", Text()), ("directHits", IntegerOrNull()))),
+        ("detection", OptionalObject(("sensorId", Text(nullable: true)), ("targetKind", Text()), ("targetHeightMeters", Number(nullable: true)),
+            ("rcsSquareMeters", Number(nullable: true)), ("observerHeightMeters", Number(nullable: true)), ("observerSpeedKnots", Number(nullable: true))))));
+    private static JObject OptionalObject(params (string Name, JObject Schema)[] fields) =>
+        new() { ["anyOf"] = new JArray(Object(fields), new JObject { ["type"] = "null" }) };
+    private static JObject SensorSweeps() => Array(Object(("unitId", Text()), ("kind", Choice("Radar", "Periscope", "ESM")),
+        ("sensorId", Text(nullable: true)), ("seconds", Number(nullable: true)), ("reason", Text())));
+    private static JObject MovementProfiles() => Array(Object(("unitId", Text()), ("speedKnots", Number(nullable: true)),
+        ("altitudeFeet", Number(nullable: true)), ("depthPreset", IntegerOrNull()),
+        ("emissions", Choice("Keep", "RadarOn", "RadarOff", "Active", "Passive")), ("reason", Text())));
+    private static JObject ConditionalOrders() => Array(Object(("action", Choice("Arm", "Cancel")), ("orderId", Text()),
+        ("unitId", Text(nullable: true)), ("condition", Choice("AirRouteClear", "CapCoverageBelow", "ContactLost")),
+        ("order", Choice("ResumeTransport", "LaunchRelief", "SetSurfaceRoute", "DisengageFlight")),
+        ("conditionId", Text(nullable: true)), ("minimumCoverage", IntegerOrNull()), ("fitId", Text(nullable: true)),
+        ("count", IntegerOrNull()), ("waypoints", ToolRoute()), ("expiresInSeconds", Number()), ("reason", Text())));
+    private static JObject IntegerOrNull() => new() { ["type"] = new JArray("integer", "null") };
+    private static JObject CapabilityRequests() => Array(Object(("kind", Choice("Automation", "Tool", "Analysis")),
+        ("title", Text()), ("problem", Text()), ("requestedBehavior", Text())));
     private static JObject TimeSpeed(bool nullable = false) => new()
     {
         ["type"] = nullable ? new JArray("integer", "null") : new JValue("integer"),

@@ -2,13 +2,14 @@ using Newtonsoft.Json.Linq;
 using SeaPower;
 using SeapowerUI;
 using System.Runtime.CompilerServices;
+using System.Globalization;
 using UnityEngine;
 
 namespace SeaPower.GameBridge;
 
 internal static partial class PlayerFlightDeck
 {
-    private record AirFit(VehicleTypeOnBoard Aircraft, Loadout Loadout, int Available, PendingLaunchTask[] Held)
+    private record AirFit(VehicleTypeOnBoard Aircraft, Loadout Loadout, int Available, PendingLaunchTask[] Held, PendingLaunchTask[] Refits)
     {
         internal string Id => $"{Aircraft._fileName}:{Loadout.Name}";
         internal string[] Roles => AirRoles(Aircraft._objectType, Loadout.Name, Loadout._loadoutCapabilities,
@@ -43,6 +44,12 @@ internal static partial class PlayerFlightDeck
                     ["roles"] = new JArray(fit.Roles), ["availableCount"] = fit.Available,
                     ["preparingCount"] = fit.Held.Sum(held => held.LaunchCount),
                     ["heldBatches"] = new JArray(fit.Held.Select(held => held.LaunchCount)),
+                    ["nominalPreparationSeconds"] = Math.Round(fit.Loadout._readyUpDuration),
+                    ["nominalCooldownSeconds"] = fit.Loadout._coolDownTime >= 0 ? Math.Round(fit.Loadout._coolDownTime) : null,
+                    ["planningCruiseKnots"] = PlanningCruiseKnots(fit),
+                    ["readyCount"] = fit.Held.Where(task => task._stateMachine.CurrentState is HandleAwaitSpawnTask).Sum(task => task.LaunchCount),
+                    ["refitBatches"] = new JArray(fit.Refits.Select(task => new JObject { ["id"] = task._uid.ToString(),
+                        ["fromLoadout"] = CurrentFit(task).DisplayName, ["count"] = task.LaunchCount, ["state"] = task.FlightDeckTaskLabel })),
                     ["stores"] = new JArray(fit.Loadout.AmmunitionAmounts.Where(ammo => ammo.Value > 0).Select(ammo => $"{ammo.Value}× {ammo.Key}"))
                 })),
                 ["deckTasks"] = new JArray(tasks.Select(task => new JObject
@@ -144,7 +151,7 @@ internal static partial class PlayerFlightDeck
         .Select(track => new JObject
         {
             ["id"] = PlayerPicture.Id(track), ["label"] = PlayerPicture.ContactLabel(track), ["esm"] = PlayerPicture.ObservesEmission(track),
-            ["category"] = track.GetMapType().ToString(),
+            ["category"] = track.GetMapType().ToString(), ["groundTarget"] = track.BaseObject is LandUnit,
             ["position"] = PlayerPicture.Point(track.PositionEstimate!.Value.Item1)
         }));
 
@@ -308,7 +315,8 @@ internal static partial class PlayerFlightDeck
         || unit._alignmentTasks.Count > 0 || unit._ai?._objectToDestroy != null;
 
     internal static string QueueAirMission(ObjectBase host, Taskforce side, string fitId, string role, int count,
-        GeoPosition[] route, bool useRadar, string? targetId = null, bool prepare = false)
+        GeoPosition[] route, bool useRadar, string? targetId = null, bool prepare = false,
+        Action<PendingLaunchTask>? trackTask = null, Action? launched = null, string? capStationId = null, string? refitBatchId = null)
     {
         if (PlayerOrders.Blocked || PlayerPicture.Side != side || !PlayerPicture.CanCommand(host, side)
             || host._obp?._flightDeck is not { } deck || LaunchesBlocked(deck)) return "Rejected · deck launches unavailable";
@@ -333,11 +341,26 @@ internal static partial class PlayerFlightDeck
             "ASW" => FlightDeckTask.MissionType.SearchAndDestroyASW,
             _ => FlightDeckTask.MissionType.None
         };
-        if (tasks.Any(task => task.VehicleType == fit.Aircraft && task._ltp?._missionType == mission
-            && task is PendingLaunchTask { launchAllowed: true } pending && CurrentFit(pending) == fit.Loadout))
+        if (tasks.OfType<PendingLaunchTask>().FirstOrDefault(task => task.VehicleType == fit.Aircraft && task._ltp?._missionType == mission
+            && task.launchAllowed && CurrentFit(task) == fit.Loadout && (capStationId == null || task._ltp._patrolZoneID == capStationId)) is { } queued)
+        {
+            Watch(queued);
             return $"Kept · {role} launch already queued for {fit.Loadout.DisplayName}";
+        }
 
         PendingLaunchTask? held = fit.Held.FirstOrDefault(task => task.LaunchCount == count);
+        if (refitBatchId != null)
+        {
+            PendingLaunchTask? original = fit.Refits.FirstOrDefault(task => task._uid.ToString() == refitBatchId && task.LaunchCount == count);
+            if (original == null) return "Rejected · selected held batch is no longer eligible for a refit";
+            held = ChangePreparedLoadout.Value?.Invoke(original, fit.Loadout);
+            if (held == null) return $"Rejected · Deck Tweaks could not refit the held batch to {fit.Loadout.DisplayName}";
+            if (prepare)
+            {
+                trackTask?.Invoke(held);
+                return $"Preparation queued · refit {count}× {fit.Aircraft.DisplayName} to {fit.Loadout.DisplayName} · {held.FlightDeckTaskLabel}";
+            }
+        }
         if (prepare && fit.Held.Sum(task => task.LaunchCount) >= count)
             return $"Kept · {count}× {fit.Loadout.DisplayName} already preparing or held";
         Squadron? squadron = held == null ? fit.Aircraft.Squadrons.FirstOrDefault(unit => unit.Numbers >= count && unit.Callsigns.Count > 0) : null;
@@ -347,24 +370,34 @@ internal static partial class PlayerFlightDeck
         {
             LaunchTaskParameters ready = new() { _launchCount = count };
             PendingLaunchTask? preparing = deck.createLaunchTask(fit.Aircraft, fit.Loadout, squadron!, squadron!.Callsigns[0], ready, allowLaunch: false);
+            if (preparing != null) trackTask?.Invoke(preparing);
             return preparing == null ? "Rejected · deck could not prepare the flight"
                 : $"Preparation queued · {count}× {fit.Aircraft.DisplayName} · {fit.Loadout.DisplayName} · {preparing.FlightDeckTaskLabel}";
         }
         route = SetDefaultAltitude(route, fit.Aircraft._objectType);
         bool patrol = targetId == null && RepeatsAirRoute(role);
-        PatrolZone? zone = role == "CAP" && route.Length > 0 ? CapZone(side, route) : null;
+        PatrolZone? zone = capStationId != null ? FindCapStation(side, capStationId)
+            : role == "CAP" && route.Length > 0 ? CapZone(side, route) : null;
+        if (capStationId != null && zone == null) return "Rejected · CAP station is no longer available";
         LaunchTaskParameters parameters = held?._ltp ?? new() { _launchCount = count };
         parameters._missionType = mission;
         parameters._patrolZoneID = zone?._zoneID ?? "";
         parameters._waypoints = zone == null ? route.ToList() : [];
         PendingLaunchTask? task = held ?? deck.createLaunchTask(fit.Aircraft, fit.Loadout, squadron!, squadron!.Callsigns[0], parameters);
         if (task == null) return $"Rejected · deck could not queue {fit.Loadout.DisplayName}";
+        Watch(task);
         task.Launched += (_, unit) =>
         {
             if (unit && (useRadar || targetId != null || patrol)) Departures[unit] = new(role, useRadar, targetId, patrol, route);
         };
         if (held != null) held.ToggleLaunchAllowedFunc(null);
         return $"{(held == null ? "Launch queued" : "Launch authorized")} · {count}× {fit.Aircraft.DisplayName} · {fit.Loadout.DisplayName} · {role} · {task.FlightDeckTaskLabel}";
+
+        void Watch(PendingLaunchTask pending)
+        {
+            trackTask?.Invoke(pending);
+            if (launched != null) pending.Launched += (_, unit) => { if (unit) launched(); };
+        }
     }
 
     internal static string TaskAirborne(Taskforce side, string unitId, string role, GeoPosition[] route,
@@ -513,6 +546,19 @@ internal static partial class PlayerFlightDeck
     private static IEnumerable<AmmunitionParameters> StockedAirWeapons(ObjectBase unit) =>
         unit.AmmunitionNameToAmmunitionDictionary.Values.Select(ammo => ammo._ap).OfType<AmmunitionParameters>()
             .Where(ammo => unit.getAmmunitionAmountByName(ammo._ammunitionFileName) > 0);
+
+    internal static bool IsAirborne(ObjectBase unit) => InFlight(unit);
+
+    internal static IEnumerable<(string Role, AmmunitionParameters Weapon)> AttackWeapons(Taskforce side, ObjectBase unit, Vehicle contact)
+    {
+        string targetId = PlayerPicture.Id(contact);
+        foreach (string role in new[] { "CAP", "SEAD", "Strike", "Strafe", "AntiShip" })
+        {
+            if (AirTarget(side, targetId, role) == null || role != "Strafe" && !AirRoles(unit).Contains(role)) continue;
+            foreach (AmmunitionParameters ammo in StockedAirWeapons(unit).Where(ammo => MatchesAirWeapon(ammo, role)
+                && unit.DoesAmmoMatchTarget(ammo._ammunitionFileName, contact.BaseObject))) yield return (role, ammo);
+        }
+    }
 
     private static bool MatchesAirWeapon(AmmunitionParameters ammo, string role) => role switch
     {
@@ -674,9 +720,22 @@ internal static partial class PlayerFlightDeck
         .Select(zone => new JObject
         {
             ["id"] = zone._zoneID, ["name"] = zone._zoneName,
-            ["center"] = PlayerPicture.Point(zone.CenterPosition),
+            ["center"] = PlayerPicture.Point(zone.CenterPosition), ["armedOnStation"] = CapCoverage(side, zone),
             ["route"] = new JArray(Enumerable.Range(0, zone._relativeWaypoints.Count).Select(index => AirPoint(zone.GetWaypoint(index))))
         }));
+
+    internal static PatrolZone? FindCapStation(Taskforce side, string id) => side._patrolZones
+        .FirstOrDefault(zone => zone._zoneType == PatrolZone.ZoneType.CAP && zone._zoneID == id);
+
+    internal static int CapCoverage(Taskforce side, PatrolZone zone) => FlightUnits(side).Count(unit =>
+        (unit._patrolZone == zone || unit.Formation?.LeaderStation?.UnitObject?._patrolZone == zone)
+        && unit.CurrentOrder.Value?.OrderType != Order.Type.ReturnToBase
+        && zone.Contains(UnwrapLongitude(unit.getGeoPosition(), zone.CenterPosition._longitude))
+        && StockedAirWeapons(unit).Any(ammo => MatchesAirWeapon(ammo, "CAP")));
+
+    internal static bool HasQueuedCap(Taskforce side, string stationId) => PlayerPicture.Units(side).Any(unit =>
+        unit._obp?._flightDeck is { } deck && AirTasks(deck).OfType<PendingLaunchTask>()
+            .Any(task => task.launchAllowed && task._ltp?._patrolZoneID == stationId && task.LaunchCount > 0));
 
     private static IEnumerable<AirFit> AirFits(FlightDeck deck, FlightDeckTask[] tasks)
     {
@@ -690,10 +749,28 @@ internal static partial class PlayerFlightDeck
                 int available = aircraft.Numbers > 0 && loadout.ServiceEntryYear <= year && deck.CanLaunchVehicle(loadout, 1)
                     ? Math.Min(aircraft.Numbers, aircraft.Squadrons.Where(squadron => squadron.Callsigns.Count > 0).Select(squadron => squadron.Numbers).DefaultIfEmpty().Max()) : 0;
                 PendingLaunchTask[] matching = held.Where(task => task.VehicleType == aircraft && CurrentFit(task) == loadout).ToArray();
-                if (available <= 0 && matching.Length == 0) continue;
-                AirFit fit = new(aircraft, loadout, available, matching);
+                PendingLaunchTask[] refits = ChangePreparedLoadout.Value != null && loadout.ServiceEntryYear <= year
+                    ? held.Where(task => task.VehicleType == aircraft && CurrentFit(task) != loadout && task._stateMachine.CurrentState is
+                        HandleAwaitDeckSpaceTask or HandleAwaitGroundCrewTask or HandleReadyUpTask or HandleAwaitSpawnTask).ToArray() : [];
+                if (available <= 0 && matching.Length == 0 && refits.Length == 0) continue;
+                AirFit fit = new(aircraft, loadout, available, matching, refits);
                 if (fit.Roles.Length > 0) yield return fit;
             }
+    }
+
+    private static double? PlanningCruiseKnots(AirFit fit)
+    {
+        bool helicopter = fit.Aircraft._objectType == ObjectBase.ObjectType.Helicopter;
+        string section = helicopter ? "Physics" : "Performance";
+        if (fit.Loadout.OwnerIni is not { } ini) return null;
+        if (!helicopter)
+        {
+            string cruise = ini.readValue(section, "SpeedAndRange_Cruise", "", performLogging: false).Split(',')[0];
+            if (double.TryParse(cruise, NumberStyles.Float, CultureInfo.InvariantCulture, out double speed) && speed > 0 && double.IsFinite(speed))
+                return Math.Round(speed < 3 ? speed * 575 : speed);
+        }
+        float max = ini.readValue(section, "MaxSpeedAtSeaLevel", 0f, performLogging: false);
+        return max > 0 && float.IsFinite(max) ? Math.Round(max * (helicopter ? 0.75 : 0.65)) : null;
     }
 
     private static IEnumerable<string> AirRoles(ObjectBase unit) => AirRoles(unit._type, unit._obp._loadoutVariant,
