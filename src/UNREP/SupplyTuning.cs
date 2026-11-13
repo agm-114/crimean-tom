@@ -11,6 +11,8 @@ internal static class SupplyTuning
 {
     private const string UnitSection = "UNREP";
     private const string ReservesSection = "Reserves";
+    private const string PropulsionSection = "Propulsion";
+    private const string StopWhenOutOfFuelKey = "StopWhenOutOfFuel";
     private const string EstimatesSection = "ShipEstimates";
     private const string EstimatesEnabled = "Enabled";
     private const double MaxQuantity = 1e9;
@@ -45,6 +47,8 @@ internal static class SupplyTuning
         var defaults = new SettingsValues();
         foreach (var (key, _) in OptionalReserves)
             defaults.Set(ReservesSection, key, ini.readValue(ReservesSection, key, true) ? 1 : 0);
+        defaults.Set(PropulsionSection, StopWhenOutOfFuelKey,
+            ini.readValue(PropulsionSection, StopWhenOutOfFuelKey, true) ? 1 : 0);
         defaults.Set(EstimatesSection, EstimatesEnabled, ini.readValue(EstimatesSection, EstimatesEnabled, true) ? 1 : 0);
         foreach (var (prefix, formula) in Formulas)
         {
@@ -104,6 +108,10 @@ internal static class SupplyTuning
             * multiplier, 0, MaxQuantity);
 
     internal static bool ReserveEnabled(string key) => ReserveEnabled(settings.Current, key);
+    internal static bool StopWhenOutOfFuel => CutsPropulsion(settings.Current);
+
+    private static bool CutsPropulsion(SettingsValues values) => values.Get(PropulsionSection, StopWhenOutOfFuelKey,
+        settings.Defaults.Get(PropulsionSection, StopWhenOutOfFuelKey, 1)) != 0;
 
     private static bool UsesEstimates(SettingsValues values) =>
         values.Get(EstimatesSection, EstimatesEnabled, settings.Defaults.Get(EstimatesSection, EstimatesEnabled, 1)) != 0;
@@ -116,6 +124,8 @@ internal static class SupplyTuning
         panel.Children.Add(Section("Optional reserves", Stack(OptionalReserves.Select(reserve =>
             draft.Editor(Check(reserve.Label, ReserveEnabled(draft.Values, reserve.Key),
                 enabled => draft.Set(ReservesSection, reserve.Key, enabled ? 1 : 0)))).ToArray())));
+        panel.Children.Add(draft.Editor(Check("Stop propulsion when out of fuel", CutsPropulsion(draft.Values),
+            enabled => draft.Set(PropulsionSection, StopWhenOutOfFuelKey, enabled ? 1 : 0))));
         FuelTelegraph.Build(panel, draft);
         panel.Children.Add(draft.Editor(Check("Estimate reserves by ship type", UsesEstimates(draft.Values),
             enabled => draft.Set(EstimatesSection, EstimatesEnabled, enabled ? 1 : 0))));

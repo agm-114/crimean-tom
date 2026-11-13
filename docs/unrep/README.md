@@ -60,8 +60,7 @@ Locations format internal names such as `WeaponMagazineMK45_1` as
 - Fuel reserve, food, fresh water and spare parts use UNREP-owned inventories.
   These are configurable gameplay quantities, not historical manifests.
   Fuel, food and parts are consumed; fresh water is produced up to capacity.
-  Empty stores do not stop propulsion or damage control. Aircraft refuelling
-  draws from a separate aviation fuel inventory when enabled.
+  Aircraft refuelling draws from a separate aviation fuel inventory when enabled.
 
 Use / production shows signed kg/hour for these reserves. Negative rates consume
 stock; positive rates produce it. Rates update with engine orders and actual DC
@@ -77,6 +76,13 @@ fuel. Optional reserves are enabled by default. Disabling one removes it from
 inventory and transfer plans and stops its use or production.
 Existing stock and minimums are preserved for re-enabling it.
 An airborne load of a disabled reserve returns to its supplier.
+
+When the propulsion fuel reserve reaches zero, the ship loses thrust and coasts
+to a stop. It keeps its speed order and can resume propulsion once fuel reaches
+its reserve. In **Gameplay → UNREP**, uncheck **Use mod defaults** and turn off
+**Stop propulsion when out of fuel** to keep propulsion available at zero fuel.
+The switch takes effect when you accept the settings. Fuel use and inventory
+tracking continue with the switch off.
 
 Fuel use follows the demanded engine setting, including during acceleration.
 Percentages apply to the ship's fuel burn at Ahead Standard.
