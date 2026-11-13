@@ -312,7 +312,7 @@ internal static partial class PlayerFlightDeck
     }
 
     private static bool HasAirEngagement(ObjectBase unit) => unit._currentEngageTasks.Count > 0
-        || unit._alignmentTasks.Count > 0 || unit._ai?._objectToDestroy != null;
+        || unit._alignmentTasks.Any(task => !task._isGuidingWeapon) || unit._ai?._objectToDestroy != null;
 
     internal static string QueueAirMission(ObjectBase host, Taskforce side, string fitId, string role, int count,
         GeoPosition[] route, bool useRadar, string? targetId = null, bool prepare = false,
@@ -445,8 +445,12 @@ internal static partial class PlayerFlightDeck
             }
             return zone.AttachUnit(unit) ? $"CAP ordered · {zone._zoneName}" : "Rejected · native patrol zone declined the flight";
         }
-        if (role == "Hold") HeldRoutes.GetValue(unit, aircraft => new(aircraft.ExportWaypoints(),
-            aircraft.GetAllWaypointsGeoPositions(getRelative: false).Select(point => point.wpGP).ToArray()));
+        if (role == "Hold")
+        {
+            if (HasAirEngagement(unit)) return "Rejected · native attack still active; use Disengage to break off";
+            HeldRoutes.GetValue(unit, aircraft => new(aircraft.ExportWaypoints(),
+                aircraft.GetAllWaypointsGeoPositions(getRelative: false).Select(point => point.wpGP).ToArray()));
+        }
         else if (role == "Transport") HeldRoutes.Remove(unit);
         if (role == "Disengage") unit.CeaseFire(report: false, stopJamming: false);
         return SetAirRoute(unit, route, role, RepeatsAirRoute(role));
@@ -517,14 +521,16 @@ internal static partial class PlayerFlightDeck
     private static string QueueAirAttack(ObjectBase unit, Vehicle track, string role, bool preferBombs = false, bool useRadar = false)
     {
         ObjectBase target = track.BaseObject;
-        if (unit._currentEngageTasks.Any(task => task._targetObject == target))
+        if (ReadAttackProgress(unit, target).Active)
             return $"Kept · attack already assigned against {PlayerPicture.ContactLabel(track)}";
-        AmmunitionParameters? ammo = StockedAirWeapons(unit)
-            .Where(item => MatchesAirWeapon(item, role) && unit.DoesAmmoMatchTarget(item._ammunitionFileName, target))
+        AmmunitionParameters[] weapons = StockedAirWeapons(unit).Where(item => MatchesAirWeapon(item, role))
             .OrderByDescending(item => preferBombs ? item._type is Ammunition.Type.Bomb or Ammunition.Type.Cluster or Ammunition.Type.AerialRocket
                 : item._type == Ammunition.Type.Missile).ThenByDescending(item => item._maxLaunchRangeInMiles)
-            .FirstOrDefault();
-        if (ammo == null) return $"Rejected · no usable {role} weapon for {PlayerPicture.ContactLabel(track)}";
+            .ToArray();
+        if (weapons.Length == 0) return $"Rejected · no stocked {role} weapon";
+        var candidates = weapons.Select(item => (Ammo: item, Blocker: AirWeaponBlocker(unit, target, item))).ToArray();
+        AmmunitionParameters? ammo = candidates.FirstOrDefault(item => item.Blocker == null).Ammo;
+        if (ammo == null) return $"Rejected · {string.Join(" · ", candidates.Take(3).Select(item => $"{item.Ammo._displayedName}: {item.Blocker}"))}";
         if (unit._userRoot == null) return "Rejected · native attack control unavailable";
         if (unit.IsFormationWingman && unit.Formation is { } formation)
         {
@@ -549,14 +555,17 @@ internal static partial class PlayerFlightDeck
 
     internal static bool IsAirborne(ObjectBase unit) => InFlight(unit);
 
-    internal static IEnumerable<(string Role, AmmunitionParameters Weapon)> AttackWeapons(Taskforce side, ObjectBase unit, Vehicle contact)
+    internal static IEnumerable<(string Role, AmmunitionParameters Weapon, string? Blocker)> AttackWeapons(Taskforce side, ObjectBase unit, Vehicle contact)
     {
         string targetId = PlayerPicture.Id(contact);
         foreach (string role in new[] { "CAP", "SEAD", "Strike", "Strafe", "AntiShip" })
         {
             if (AirTarget(side, targetId, role) == null || role != "Strafe" && !AirRoles(unit).Contains(role)) continue;
-            foreach (AmmunitionParameters ammo in StockedAirWeapons(unit).Where(ammo => MatchesAirWeapon(ammo, role)
-                && unit.DoesAmmoMatchTarget(ammo._ammunitionFileName, contact.BaseObject))) yield return (role, ammo);
+            foreach (AmmunitionParameters ammo in StockedAirWeapons(unit).Where(ammo => MatchesAirWeapon(ammo, role)))
+            {
+                string? blocker = AirWeaponBlocker(unit, contact.BaseObject, ammo);
+                if (blocker != "Native weapon-to-target compatibility check failed") yield return (role, ammo, blocker);
+            }
         }
     }
 

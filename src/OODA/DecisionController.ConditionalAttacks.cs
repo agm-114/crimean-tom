@@ -65,8 +65,7 @@ internal partial class DecisionController
             if ((string?)item["action"] != "Arm" || !owned.TryGetValue(id, out ObjectBase? unit)
                 || (string?)item["attack"] is not { } attack || !Enum.TryParse((string?)item["weapons"], out SurfaceWeapon weapon)
                 || (double?)item["expiresInSeconds"] is not double duration || !double.IsFinite(duration) || duration <= 0
-                || input["contacts"]?.Any(track => (string?)track["id"] == targetId
-                    && (string?)track["posture"] is not ("Friendly" or "Neutral")) != true) continue;
+                || !CanArmAgainst(input, targetId, attack)) continue;
             if (PlayerPicture.LiveContact(side, targetId)?.CurrentRelationship() is RelationsState.Friendly or RelationsState.Neutral) continue;
             bool eligible = attack switch
             {
@@ -87,6 +86,14 @@ internal partial class DecisionController
             Add("Conditional attack", Mode == ControlMode.AiControl ? "Armed" : "Suggested", $"{attack} when the track is live · {reason}",
                 id, unit.DisplayNameShort, targetId: targetId);
         }
+    }
+
+    private static bool CanArmAgainst(JObject input, string targetId, string attack)
+    {
+        JToken? contact = input["contacts"]?.FirstOrDefault(track => (string?)track["id"] == targetId);
+        if (contact != null) return (string?)contact["posture"] is not ("Friendly" or "Neutral");
+        return attack is ("Bombard" or "SEAD" or "Strike" or "Strafe")
+            && input["airDefenseAssessment"]?.Any(site => (string?)site["targetId"] == targetId && site["position"] is JObject) == true;
     }
 
     private void RunConditionalAttacks(Taskforce side)

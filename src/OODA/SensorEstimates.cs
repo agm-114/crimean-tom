@@ -28,18 +28,30 @@ internal static class SensorEstimates
             && (string?)track["posture"] == "Hostile").Select(track => (string?)track["observedClass"]).OfType<string>().Distinct())
         {
             if (!units.TryGetValue(("land_units", classId), out var entry) || entry.Item2._ini is not { } ini) continue;
-            JArray radars = new(ini.Data.Keys.Where(section => section.StartsWith("SensorSystem", StringComparison.Ordinal)
-                && ini.readValue(section, "Type", "", performLogging: false).Equals("Radar", StringComparison.OrdinalIgnoreCase))
-                .Select(section => ini.readValue(section, "SystemName", "", performLogging: false)).Where(name => name.Length > 0).Distinct()
-                .Select(ReadRadar).OfType<RadarParameters>().Where(radar => radar._frequency != Globals.Frequency.Undefined)
-                .Select(radar => new JObject { ["id"] = radar._systemName, ["role"] = radar._role.ToString(),
-                    ["band"] = radar._frequency.ToString().Replace('_', '-') }));
+            HashSet<string> missileSensors = ini.Data.Keys.Where(section => IsSystem(section, "WeaponSystem", "Missile"))
+                .SelectMany(section => ini.readValue(section, "AssociatedSensors", "", performLogging: false).Split(','))
+                .Select(sensor => sensor.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            JArray radars = new(ini.Data.Keys.Where(section => IsSystem(section, "SensorSystem", "Radar"))
+                .Select(section => (Section: section, Radar: ReadRadar(ini.readValue(section, "SystemName", "", performLogging: false))))
+                .Where(entry => entry.Radar != null)
+                .GroupBy(entry => entry.Radar!._systemName)
+                .Select(group =>
+                {
+                    RadarParameters radar = group.First().Radar!;
+                    return new JObject { ["id"] = group.Key, ["role"] = radar._role.ToString(),
+                        ["band"] = radar._frequency == Globals.Frequency.Undefined ? null : radar._frequency.ToString().Replace('_', '-'),
+                        ["supportsMissileFire"] = group.Any(entry => missileSensors.Contains(entry.Section)) };
+                }));
             if (radars.HasValues) result[classId] = radars;
+
+            bool IsSystem(string section, string prefix, string type) => section.StartsWith(prefix, StringComparison.Ordinal)
+                && ini.readValue(section, "Type", "", performLogging: false).Equals(type, StringComparison.OrdinalIgnoreCase);
         }
         return result;
 
         static RadarParameters? ReadRadar(string name)
         {
+            if (string.IsNullOrWhiteSpace(name)) return null;
             try { return new(name); }
             catch (KeyNotFoundException) { return null; }
         }
