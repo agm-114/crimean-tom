@@ -2,6 +2,8 @@ Actively raise `timePolicy.cruiseSpeed` when orders are in place and the situati
 
 Use a lower cruise speed while waiting on a brief firing window, an intermittent hostile fix, or the result of a strike that determines whether transports can advance. A 20-second decision at 30× spans ten simulated minutes. When one track matters, prefer a short subject-specific `TrackAppeared` or `TrackChanged` interrupt so the next order can use the fix. Raise cruise once the shot is committed or the force is back to waiting on a longer task.
 
+Use `timePolicy.reviewAtMissionSeconds` for the next decision milestone when useful orders are already running. Give an absolute time on `missionClock.elapsedSeconds`, up to 15 minutes ahead. Pick the earliest useful search leg, package staging time, coverage gap, or deadline. The planner can still wake early on urgent events, strike effects, or objective changes. Use null for the normal tactical review cadence. Routine deck prep, transit and recovery can continue at cruise while you wait.
+
 Use `timePolicy.rules` to replace the current custom rules for this mission. Return the full list of rules to keep, `[]` to restore the built-in rules, or null to leave the current rules in place. A matching custom rule replaces the built-in response to that event, including when the interrupt is already active. To cancel a built-in slowdown for a specific contact, set its matching rule to the cruise speed. Use null when `timeInterrupts.allowedSpeeds` is empty.
 
 Each rule takes an `event`, optional `subjectId`, optional `category`, optional `posture`, an allowed `speed`, and `holdSeconds` from 2 to 60 wall-clock seconds. Omitted filters must be null.

@@ -335,7 +335,8 @@ internal static class DecisionSchema
         ("route", Array(Object(("latitude", Number()), ("longitude", Number())))), ("reason", Text())));
     private static JObject ConditionalAttacks() => Array(Object(("action", Choice("Arm", "Cancel")),
         ("unitId", Text()), ("targetId", Text()), ("attack", Choice("CAP", "SEAD", "Strike", "Strafe", "AntiShip", "EngageShip", "Bombard")),
-        ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("expiresInSeconds", Number()), ("reason", Text())));
+        ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("expiresInSeconds", Number(nullable: true)),
+        ("notBeforeMissionSeconds", Number(nullable: true)), ("reason", Text())));
     private static JObject ToolRoute() => Array(Object(("latitude", Number()), ("longitude", Number()), ("altitudeFeet", Number(nullable: true))));
     private static JObject DecisionQueries() => Array(Object(("tool", Choice("preview_route", "get_engagement_options", "get_order_status", "preview_sortie_cycle", "estimate_damage", "estimate_detection")),
         ("unitId", Text(nullable: true)), ("targetId", Text(nullable: true)), ("orderId", Text(nullable: true)), ("fitId", Text(nullable: true)),
@@ -353,7 +354,7 @@ internal static class DecisionSchema
     private static JObject ConditionalOrders() => Array(Object(("action", Choice("Arm", "Cancel")), ("orderId", Text()),
         ("unitId", Text(nullable: true)), ("condition", Choice("AirRouteClear", "CapCoverageBelow", "ContactLost")),
         ("order", Choice("ResumeTransport", "LaunchRelief", "SetSurfaceRoute", "DisengageFlight")),
-        ("conditionId", Text(nullable: true)), ("minimumCoverage", IntegerOrNull()), ("fitId", Text(nullable: true)),
+        ("conditionId", Text(nullable: true)), ("minimumCoverage", IntegerOrNull()), ("leadSeconds", Number(nullable: true)), ("fitId", Text(nullable: true)),
         ("count", IntegerOrNull()), ("waypoints", ToolRoute()), ("expiresInSeconds", Number()), ("reason", Text())));
     private static JObject IntegerOrNull() => new() { ["type"] = new JArray("integer", "null") };
     private static JObject CapabilityRequests() => Array(Object(("kind", Choice("Automation", "Tool", "Analysis")),
@@ -365,6 +366,7 @@ internal static class DecisionSchema
             .Concat(nullable ? [JValue.CreateNull()] : Enumerable.Empty<JValue>()))
     };
     private static JObject TimePolicy() => Object(("cruiseSpeed", TimeSpeed(nullable: true)), ("cruiseReason", Text(nullable: true)),
+        ("reviewAtMissionSeconds", Number(nullable: true)),
         ("rules", new JObject
         {
             ["type"] = new JArray("array", "null"),
