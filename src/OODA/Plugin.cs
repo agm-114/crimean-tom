@@ -1,6 +1,8 @@
 using AnchorChain;
 using HarmonyLib;
 using SeaPower;
+using SeaPower.GameBridge;
+using SeapowerUI.ViewModels;
 using UnityEngine;
 
 namespace OODA;
@@ -64,6 +66,26 @@ public class Plugin : IAnchorChainMod
     [HarmonyPostfix]
     [HarmonyPatch(typeof(ObjectsManager), nameof(ObjectsManager.AddObjectToItsTaskforce))]
     private static void CountCarrierAircraft(ObjectBase obj) => drill?.RecordCarrierAircraft(obj);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(PatrolZoneDrawing), "Render")]
+    private static void HideLineCapArea(PatrolZoneDrawing __instance, ref bool ____areaShown, out bool __state)
+    {
+        __state = ____areaShown;
+        if (PlayerFlightDeck.IsLineCap(__instance.Zone)) ____areaShown = false;
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(PatrolZoneDrawing), "Render")]
+    private static void RestoreCapArea(ref bool ____areaShown, bool __state) => ____areaShown = __state;
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(PatrolZoneDrawing), nameof(PatrolZoneDrawing.Update))]
+    private static void HideLineCapCorners(PatrolZoneDrawing __instance, PatrolZoneLayer ____layer)
+    {
+        if (!PlayerFlightDeck.IsLineCap(__instance.Zone)) return;
+        foreach (PatrolZoneVertexDrawing corner in __instance.Vertices) ____layer.Remove(corner);
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoUnload))]

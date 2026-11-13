@@ -18,7 +18,19 @@ An inbound raid warning prompts OODA to ready the escorts' air defenses. When ma
 
 OODA plans CAP, reconnaissance, suppression, strike, transport, and recovery using the player-visible briefing, current flights, and deck readiness. It can authorize a held batch or queue a suitable fit, then give airborne flights native orders. The **Air Operations** tab shows deck preparation, airborne flights, and order results. Actual weapon launches appear in `Player.log`.
 
+Transport planning includes the flight's estimated fuel margin for the delivery and recovery route. OODA can clear a pursuit, split an aircraft into a separate flight, or join compatible aircraft to an airborne leader.
+
+When an airborne flight's route crosses the estimated range of a live, identified hostile ship or ground air defense, OODA warns in **Air Operations** and the **Decision Log** and requests a fresh plan. The warning gives the distance to the crossing. When OODA manages time, the default interrupt briefly caps speed at 2×. Native attacks use the direct line to the plotted target as an approach estimate.
+
+OODA compares radar emissions before and after a strike. A tracked site that goes quiet after friendly fire is marked **Likely suppressed** in the Decision Log. OODA can use a conventional strike to finish the site when the route is safe. Carrier and airbase fighters can share CAP stations and launch in time to cover an exposed route. Straight CAP routes appear as lines. OODA removes its own stations once they have no aircraft or pending launches.
+
+The tactical map shows active strike and intercept assignments as lines from the flight lead to the player’s current target fix, with labels at the target. CAP labels sit at patrol centers and staging labels sit at their waypoints. OODA removes the assignment line when the attack ends or the live fix is lost.
+
+OODA can stage submarines just inside nominal torpedo range of plotted surface contacts while scouts work on identification. It shows in-range hostile targets and prefers a torpedo shot over a ship-launched missile when the submarine can take the shot. An immediate threat can justify a missile alongside the torpedo.
+
 OODA can task escort helicopters and anti-ship aircraft against the sea threat. Ships can engage plotted vessels or bombard plotted shore targets. When the approach is clear, an independently navigable ship can take a depth-checked route into shore gun range.
+
+OODA hails eligible unidentified surface contacts once when an owned ship can reach them by radio. The planner can arm a one-shot attack that waits for a live hostile track. The Decision Log records hails and conditional orders, and `ooda-status` shows orders still waiting.
 
 With the Game Bridge enabled, run `seapower-cli player-view --json` for the player-scoped snapshot and map annotations, and `seapower-cli ooda-status --json` for the plan, message history, and trace. The CLI and OODA share the native waypoint and Standing Orders actions. See the [CLI documentation](../seapower-cli/README.md).
 

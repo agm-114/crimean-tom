@@ -1,5 +1,7 @@
 Actively raise `timePolicy.cruiseSpeed` when orders are in place and the situation becomes a waiting game. Use 30×, 50×, or 100× from `timeInterrupts.allowedSpeeds` during quiet transit, loiter, or routine deck preparation if there is no near-term maneuver or threat that needs attention. Give a brief `cruiseReason` that says what you are waiting for. Use short, specific interrupts to slow down when that changes, and raise cruise again once the response is underway. Use null for both fields when the current cruise speed still fits or time control is unavailable.
 
+Use a lower cruise speed while waiting on a brief firing window, an intermittent hostile fix, or the result of a strike that determines whether transports can advance. A 20-second decision at 30× spans ten simulated minutes. When one track matters, prefer a short subject-specific `TrackAppeared` or `TrackChanged` interrupt so the next order can use the fix. Raise cruise once the shot is committed or the force is back to waiting on a longer task.
+
 Use `timePolicy.rules` to replace the current custom rules for this mission. Return the full list of rules to keep, `[]` to restore the built-in rules, or null to leave the current rules in place. A matching custom rule replaces the built-in response to that event, including when the interrupt is already active. To cancel a built-in slowdown for a specific contact, set its matching rule to the cruise speed. Use null when `timeInterrupts.allowedSpeeds` is empty.
 
 Each rule takes an `event`, optional `subjectId`, optional `category`, optional `posture`, an allowed `speed`, and `holdSeconds` from 2 to 60 wall-clock seconds. Omitted filters must be null.
@@ -7,6 +9,7 @@ Each rule takes an `event`, optional `subjectId`, optional `category`, optional 
 - `RadarContact` fires when radar acquires or reacquires a live track. `TrackAppeared` and `TrackLost` cover live tracks on any sensor. `TrackChanged` fires when a track's classification, identification, posture, or visual confirmation changes.
 - `HostileNearby` fires when a hostile contact enters nearby range. `SurfaceAttack` fires at the start of a surface defense response, with the attacker as the subject when known.
 - `AirRaidWarning` fires on an inbound strike warning and when hostile aircraft are tracked afterward.
+- `AirDefenseRoute` fires when a flight's route first intersects a known hostile air-defense envelope. The subject is the flight.
 - `UnitStatusChanged` covers own unit orders, weapons posture, disablement, and loss of control. `UnitDamaged` covers increases in reported damage. `MissileHit` covers observed missile collisions with a target.
 - For a general rule, leave `subjectId` null. Use the exact category or posture from the player picture or recent event when filtering. For a specific rule, use a supplied track or owned unit ID. On `MissileHit`, the subject can be the target or the known missile track.
 

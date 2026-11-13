@@ -5,14 +5,14 @@ namespace OODA;
 
 internal static class SurfaceWeaponRange
 {
-    internal static double? ForClass(string classId)
+    internal static double? ForClass(string classId, string target = "ASuW", string folder = "vessels")
     {
         // Use the identified class's public catalog. Scenario loadouts and current enemy stocks stay hidden.
         if (!Singleton<UnitMetadataProvider>.InstanceExists()
             || Singleton<UnitMetadataProvider>.Instance.UnitData is not { } units
-            || !units.TryGetValue(("vessels", classId), out var entry) || entry.Item2._ini is not { } vessel) return null;
+            || !units.TryGetValue((folder, classId), out var entry) || entry.Item2._ini is not { } vessel) return null;
         return MountedAmmunition(vessel).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(AmmoRange).Where(range => range is > 0 and < double.PositiveInfinity).Max();
+            .Select(ammo => AmmoRange(ammo, target)).Where(range => range is > 0 and < double.PositiveInfinity).Max();
     }
 
     private static IEnumerable<string> MountedAmmunition(IniHandler vessel)
@@ -30,7 +30,7 @@ internal static class SurfaceWeaponRange
         }
     }
 
-    private static double? AmmoRange(string id)
+    private static double? AmmoRange(string id, string target)
     {
         if (id.Length == 0 || OpenAmmo(id) is not { } ammo) return null;
         if (Read(ammo, "General", "Type").Equals("Container", StringComparison.OrdinalIgnoreCase))
@@ -39,8 +39,8 @@ internal static class SurfaceWeaponRange
             if (attachment.Length == 0 || OpenAmmo(attachment) is not { } attachedAmmo) return null;
             ammo = attachedAmmo;
         }
-        if (!Read(ammo, "General", "TargetType").Equals("ASuW", StringComparison.OrdinalIgnoreCase)
-            && !Read(ammo, "General", "SecondaryTargetType").Equals("ASuW", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!Read(ammo, "General", "TargetType").Equals(target, StringComparison.OrdinalIgnoreCase)
+            && !Read(ammo, "General", "SecondaryTargetType").Equals(target, StringComparison.OrdinalIgnoreCase)) return null;
         return ammo.readValue("General", "Type", Ammunition.Type.Unknown, performLogging: false) switch
         {
             Ammunition.Type.Projectile => ammo.readValue("Physics", "MaxRange", 10000f, performLogging: false) / 1852d,

@@ -133,12 +133,14 @@ internal static class DecisionSchema
             ("inspectGroupId", Text(nullable: true)), ("mapMarks", Array(Object(
                 ("kind", Choice(Enum.GetNames(typeof(ChartMarkKind)))), ("label", Text()), ("latitude", Number()), ("longitude", Number()),
                 ("radiusNm", Number(nullable: true))))), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
-            ("maritimeOrders", MaritimeOrders()), ("coastalApproaches", CoastalApproaches()), ("timePolicy", TimePolicy())),
+            ("maritimeOrders", MaritimeOrders()), ("approaches", Approaches()), ("surfaceRoutes", SurfaceRoutes()),
+            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy())),
         DecisionRole.RoutineTactical => Object(("orders", Array(Order("action", "SetWaypoint", "Wait", "RequestReplan"))),
             ("standingOrderChanges", StandingOrders()),
             ("timeCompression", TimeSpeed(nullable: true)),
             ("timeReason", Text(nullable: true)), ("helicopterOrders", HelicopterOrders()), ("airOrders", AirOrders()),
-            ("maritimeOrders", MaritimeOrders()), ("coastalApproaches", CoastalApproaches()), ("timePolicy", TimePolicy())),
+            ("maritimeOrders", MaritimeOrders()), ("approaches", Approaches()), ("surfaceRoutes", SurfaceRoutes()),
+            ("conditionalAttacks", ConditionalAttacks()), ("timePolicy", TimePolicy())),
         DecisionRole.SurfaceDefense => Object(("engagements", Array(Object(("shipId", Text()), ("targetId", Text()),
             ("victimId", Text()), ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))),
             ("evidence", Choice("ObservedGunfire", "AttackReport", "HostileThreat")),
@@ -156,15 +158,21 @@ internal static class DecisionSchema
         Array(Object(("targetId", Text()), ("settingId", Text()), ("value", Text()), ("reason", Text())));
     private static JObject HelicopterOrders() => Array(Object(("shipId", Text()), ("fitId", Text()), ("anchorId", Text(nullable: true)),
         ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
-    private static JObject AirOrders() => Array(Object(("action", Choice("Launch", "Task")), ("unitId", Text()),
-        ("role", Choice("CAP", "SEAD", "Recon", "Strike", "AntiShip", "Transport", "Hold", "Recover")), ("fitId", Text(nullable: true)),
+    private static JObject AirOrders() => Array(Object(("action", Choice("Prepare", "Launch", "Task", "Split", "Join")), ("unitId", Text()),
+        ("role", Choice("CAP", "SEAD", "Recon", "ASW", "Strike", "Strafe", "AntiShip", "Transport", "Hold", "Disengage", "Recover", "Formation")), ("fitId", Text(nullable: true)),
         ("count", new JObject { ["type"] = new JArray("integer", "null") }), ("targetId", Text(nullable: true)),
         ("route", Array(Object(("latitude", Number()), ("longitude", Number()), ("altitudeFeet", Number())))),
         ("useRadar", new JObject { ["type"] = "boolean" }), ("reason", Text())));
     private static JObject MaritimeOrders() => Array(Object(("action", Choice("EngageShip", "Bombard")), ("shipId", Text()), ("targetId", Text()),
         ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("reason", Text()),
         ("roeAssessment", Choice("Consistent", "Unclear", "PossibleViolation")), ("roeReason", Text())));
-    private static JObject CoastalApproaches() => Array(Object(("shipId", Text()), ("targetId", Text()), ("reason", Text())));
+    private static JObject Approaches() => Array(Object(("shipId", Text()), ("targetId", Text()),
+        ("standoffNm", Number(nullable: true)), ("reason", Text())));
+    private static JObject SurfaceRoutes() => Array(Object(("shipId", Text()),
+        ("route", Array(Object(("latitude", Number()), ("longitude", Number())))), ("reason", Text())));
+    private static JObject ConditionalAttacks() => Array(Object(("action", Choice("Arm", "Cancel")),
+        ("unitId", Text()), ("targetId", Text()), ("attack", Choice("CAP", "SEAD", "Strike", "Strafe", "AntiShip", "EngageShip", "Bombard")),
+        ("weapons", Choice(Enum.GetNames(typeof(SurfaceWeapon)))), ("expiresInSeconds", Number()), ("reason", Text())));
     private static JObject TimeSpeed(bool nullable = false) => new()
     {
         ["type"] = nullable ? new JArray("integer", "null") : new JValue("integer"),

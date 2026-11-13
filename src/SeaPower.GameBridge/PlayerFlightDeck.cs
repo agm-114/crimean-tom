@@ -69,7 +69,7 @@ internal static partial class PlayerFlightDeck
                 held = replacement;
             }
             held._ltp._waypoints.AddRange(route);
-            WatchLaunch(held, ship, fit.Loadout, useRadar);
+            WatchLaunch(held, ship, fit.Loadout, route, useRadar);
             if (!held.launchAllowed) held.ToggleLaunchAllowedFunc(null);
             return $"Launch authorized · {held.AircraftType} · {fit.Loadout.DisplayName} · {held.FlightDeckTaskLabel}";
         }
@@ -79,7 +79,7 @@ internal static partial class PlayerFlightDeck
         LaunchTaskParameters parameters = new() { _waypoints = route.ToList() };
         PendingLaunchTask? task = deck.createLaunchTask(fit.Aircraft, fit.Loadout, squadron, squadron.Callsigns[0], parameters);
         if (task == null) return $"Rejected · deck could not queue {fit.Loadout.DisplayName}";
-        WatchLaunch(task, ship, fit.Loadout, useRadar);
+        WatchLaunch(task, ship, fit.Loadout, route, useRadar);
         return $"Screen queued · {fit.Aircraft.DisplayName} · {fit.Loadout.DisplayName} · {task.FlightDeckTaskLabel}";
     }
 
@@ -104,7 +104,7 @@ internal static partial class PlayerFlightDeck
     {
         ["id"] = fit.Id, ["aircraft"] = fit.Aircraft.DisplayName, ["loadout"] = fit.Loadout.DisplayName,
         ["antiShip"] = fit.Loadout._loadoutCapabilities._hasAShM || fit.Loadout.Name.IndexOf("AntiShip", StringComparison.OrdinalIgnoreCase) >= 0,
-        ["antiSubmarine"] = fit.Loadout._loadoutCapabilities._hasASWTorpedoes || fit.Loadout.Name.StartsWith("ASW", StringComparison.OrdinalIgnoreCase),
+        ["antiSubmarine"] = IsAswFit(fit.Loadout.Name, fit.Loadout._loadoutCapabilities),
         ["stores"] = new JArray(fit.Loadout.AmmunitionAmounts.Where(ammo => ammo.Value > 0).Select(ammo => $"{ammo.Value}× {ammo.Key}")),
         ["preparing"] = fit.Held != null,
         ["requiresLoadoutChange"] = fit.Held is { } held && held.VehicleType.Loadouts[held._loadoutIndex] != fit.Loadout
@@ -119,9 +119,10 @@ internal static partial class PlayerFlightDeck
             && (task._ltp?._loadoutIndex is not int index || index < 0 || index >= task.VehicleType.Loadouts.Count
                 || !IsTransportFit(task.VehicleType.Loadouts[index].Name))).Distinct().ToArray();
 
-    private static void WatchLaunch(PendingLaunchTask task, Vessel ship, Loadout fit, bool useRadar) => task.Launched += (_, unit) =>
+    private static void WatchLaunch(PendingLaunchTask task, Vessel ship, Loadout fit, GeoPosition[] route, bool useRadar) => task.Launched += (_, unit) =>
     {
-        if (useRadar) unit.EnableSurfaceSearchRadars();
+        if (unit == null) return;
+        Departures[unit] = new("Screen", useRadar, null, Patrol: true, Route: route, SurfaceRadarOnly: true);
         UnityEngine.Debug.Log($"[Player flight deck] {ship.DisplayNameShort} launched {unit.DisplayNameShort} for a helicopter screen · {fit.DisplayName}");
     };
 }

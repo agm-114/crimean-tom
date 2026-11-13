@@ -2,7 +2,11 @@ using Newtonsoft.Json.Linq;
 
 namespace OODA;
 
-internal enum TimeEventKind { RadarContact, TrackAppeared, TrackChanged, TrackLost, HostileNearby, SurfaceAttack, AirRaidWarning, UnitStatusChanged, UnitDamaged, MissileHit }
+internal enum TimeEventKind
+{
+    RadarContact, TrackAppeared, TrackChanged, TrackLost, HostileNearby, SurfaceAttack, AirRaidWarning,
+    AirDefenseRoute, UnitStatusChanged, UnitDamaged, MissileHit
+}
 
 internal record TimeEvent(TimeEventKind Kind, string? SubjectId, string Label, string Category, string Posture, string Detail,
     string? MissileId = null, string? PreviousPosture = null)
@@ -37,6 +41,7 @@ internal class TimeInterrupts
         new(TimeEventKind.HostileNearby, null, null, null, 5, 5),
         new(TimeEventKind.SurfaceAttack, null, null, null, 1, 8),
         new(TimeEventKind.AirRaidWarning, null, null, null, 2, 10),
+        new(TimeEventKind.AirDefenseRoute, null, null, null, 2, 8),
         new(TimeEventKind.UnitDamaged, null, null, null, 3, 8),
         new(TimeEventKind.MissileHit, null, null, null, 1, 12)
     ];

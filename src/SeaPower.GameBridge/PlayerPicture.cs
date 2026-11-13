@@ -30,6 +30,7 @@ internal static class PlayerPicture
     internal static string Id(Vehicle track) => $"track-{track.Id}";
     internal static bool IsLive(Vehicle track) => track.BaseObject && !track.BaseObject.IsDestroyed && track.HasLiveTrack && track.IsVisible();
     internal static bool IsVisual(Vehicle track) => IsLive(track) && track.IsObservedByVisual;
+    internal static bool ObservesEmission(Vehicle track) => (track.DetectingSensors & SensorSystem.SensorTypeSet.ESM) != 0;
     internal static string ContactLabel(Vehicle track)
     {
         if (track.HasReportedIdentity && track.BaseObject.DisplayNameShort is { Length: > 0 } name) return name;

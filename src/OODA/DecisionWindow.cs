@@ -28,6 +28,7 @@ public class DecisionWindow : MonoBehaviour
     private TextBlock? clockStatus;
     private TextBlock? paceSource;
     private TextBlock? paceReason;
+    private TextBlock? airDefenseRouteSummary;
     private Button? replanButton;
     private Button? takeControl;
     private Button? observeButton;
@@ -36,17 +37,39 @@ public class DecisionWindow : MonoBehaviour
     private double nextTimeTick;
     private int revision = -1;
     private string? tabMembership;
+    private const string FollowCameraPreference = "OODA.FollowAiUnit";
+    private bool followAiUnit;
+    private string? lastCameraUnit;
     private readonly Dictionary<string, TextBlock> shipStates = new();
 
-    private void Awake() => instance = this;
+    private void Awake()
+    {
+        instance = this;
+        followAiUnit = PlayerPrefs.GetInt(FollowCameraPreference, 1) != 0;
+    }
 
-    internal static JObject ReadStatus() => instance?.controller.Report() ?? new JObject { ["mode"] = "Unavailable" };
+    internal static JObject ReadStatus()
+    {
+        if (instance == null) return new JObject { ["mode"] = "Unavailable" };
+        JObject report = instance.controller.Report();
+        report["followAiUnit"] = instance.followAiUnit;
+        report["cameraUnitId"] = instance.lastCameraUnit;
+        return report;
+    }
     internal static JArray? ReadPlanMarks() => PlayerPicture.Side == null ? null : instance?.controller.PlanMarks();
+    internal static JArray? ReadFlightMapOrders() => PlayerPicture.Side == null ? null : instance?.controller.FlightMapOrders();
+    internal static JArray? ReadCoastalThreats() => instance?.controller.ReadCoastalThreats();
 
     internal static void EndMission() => instance?.controller.Reset();
 
     private void Update()
     {
+        try { controller.ApplyReadyDecision(); }
+        catch (Exception error)
+        {
+            controller.SetMode(ControlMode.Manual);
+            Debug.LogWarning($"[OODA] Applying the decision failed: {error.Message}");
+        }
         double now = Time.realtimeSinceStartupAsDouble;
         if (now >= nextTimeTick)
         {
@@ -73,10 +96,26 @@ public class DecisionWindow : MonoBehaviour
             Debug.LogWarning($"[OODA] Decision loop stopped: {error.Message}");
         }
         Taskforce? side = PlayerPicture.Side;
-        if (host == null || side == null) { Close(); DetachLauncher(); return; }
+        if (host == null || side == null) { lastCameraUnit = null; Close(); DetachLauncher(); return; }
         if (launcher?.Button.Parent == null) { DetachLauncher(); AttachLauncher(host); }
+        FollowAiUnit(side);
         RefreshUnitStatus(side);
         if (window != null && tabs != null) Refresh(PlayerPicture.Ships(side));
+    }
+
+    private void FollowAiUnit(Taskforce side)
+    {
+        if (!followAiUnit || controller.Mode != ControlMode.AiControl) { lastCameraUnit = null; return; }
+        string? targetId = controller.CameraUnitId;
+        if (targetId == null || targetId == lastCameraUnit || PlayerTime.Blocked || !Singleton<RenderPosition>.InstanceExists()
+            || !Singleton<CameraManager>.InstanceExists()) return;
+        ObjectBase? unit = PlayerPicture.Units(side).FirstOrDefault(candidate => PlayerPicture.Id(candidate) == targetId);
+        if (unit == null) return;
+        RenderPosition camera = Singleton<RenderPosition>.Instance;
+        camera.switchToObject(unit, performSmoothMove: false, checkAirLeader: false);
+        if (camera.SelectedObject != unit || !camera.IsCameraAttachedToTarget) return;
+        lastCameraUnit = targetId;
+        Debug.Log($"[OODA] Camera following {unit.DisplayNameShort} ({targetId})");
     }
 
     private void AttachLauncher(MainGameView view)
@@ -113,7 +152,12 @@ public class DecisionWindow : MonoBehaviour
         DockPanel layout = new() { Margin = new Thickness(10) };
         StackPanel header = Stack(Text(controller.Provider), status, clockStatus, Wrap(
             observeButton, aiControlButton, takeControl, replanButton,
-            Check("Let AI manage time", controller.ManageTime, controller.SetTimeManagement)),
+            Check("Let AI manage time", controller.ManageTime, controller.SetTimeManagement),
+            Check("Follow AI unit", followAiUnit, value =>
+            {
+                followAiUnit = value;
+                PlayerPrefs.SetInt(FollowCameraPreference, value ? 1 : 0);
+            })),
             Section("Chart waypoint", ChartEditor(), expanded: false));
         DockPanel.SetDock(header, Dock.Top);
         layout.Children.Add(header);
@@ -160,6 +204,7 @@ public class DecisionWindow : MonoBehaviour
         if (revision == controller.Revision && tabMembership == membership)
         {
             RefreshTimeControl();
+            if (airDefenseRouteSummary != null) airDefenseRouteSummary.Text = controller.AirDefenseRouteSummary;
             foreach (Vessel ship in ships)
                 if (shipStates.TryGetValue(PlayerPicture.Id(ship), out TextBlock line)) line.Text = ShipState(ship);
             return;
@@ -170,10 +215,12 @@ public class DecisionWindow : MonoBehaviour
         if (tabs.Items.Count > 0 && selected == null) selected = "mission";
         tabs.Items.Clear();
         shipStates.Clear();
+        airDefenseRouteSummary = null;
         AddTab("mission", "Mission Command", MissionPage());
         AddTab("trace", "Decision log", Stack(Timeline(controller.Events, showShipNames: true)));
         AddTab("time", "Time Control", TimeControlPage());
-        if (controller.LastAirInput?["airDecks"]?.Any() == true || controller.LastAirInput?["airborne"]?.Any() == true)
+        if (controller.LastAirInput?["airDecks"]?.Any() == true || controller.LastAirInput?["airborne"]?.Any() == true
+            || controller.AirDefenseRouteWarnings().HasValues)
             AddTab("air", "Air Operations", AirOperationsPage());
         AddTab("contacts", "Contact picture", ContactsPage());
         foreach (Vessel ship in ships)
@@ -227,7 +274,8 @@ public class DecisionWindow : MonoBehaviour
             decks.Children.Add(Section((string?)deck["shipName"] ?? "Flight deck", tasks));
         }
         if (decks.Children.Count == 0) decks.Children.Add(Text("No flight decks"));
-        return Stack(Section("Airborne", flights), Section("Deck preparation", decks),
+        airDefenseRouteSummary = Text(controller.AirDefenseRouteSummary);
+        return Stack(Section("Air-defense route warnings", Card(airDefenseRouteSummary)), Section("Airborne", flights), Section("Deck preparation", decks),
             Section("Orders", Timeline(controller.Events.Where(item => item.Stage == "Air operations"), showShipNames: true)));
     }
 
@@ -435,6 +483,7 @@ public class DecisionWindow : MonoBehaviour
         window = null;
         tabs = null;
         paceSource = paceReason = null;
+        airDefenseRouteSummary = null;
         observeButton = aiControlButton = null;
         shipStates.Clear();
         if (launcher != null) launcher.Button.IsChecked = false;

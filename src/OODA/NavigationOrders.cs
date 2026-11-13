@@ -8,6 +8,32 @@ internal record ChartDestination(string Id, string Label, GeoPosition Position, 
 
 internal static class NavigationOrders
 {
+    internal static string StageSubmarine(Submarine sub, Taskforce side, Vehicle contact, bool observe)
+    {
+        if (!PlayerOrders.CanStageSubmarine(sub, side) || !PlayerOrders.CanStageOnContact(contact)
+            || contact.PositionEstimate?.Item1 is not { } fix) return "Rejected · no available submarine or live surface plot";
+        double standoff = PlayerOrders.SubmarineTorpedoStandoffNm(sub);
+        if (standoff <= 0) return "Rejected · no stocked anti-surface torpedoes";
+        GeoPosition origin = sub.getGeoPosition();
+        double distance = GeoPosition.HaversineDistanceNmi(origin, fix);
+        if (distance <= standoff + 0.25) return "Kept · already near torpedo range";
+        var route = sub.GetAllWaypointsGeoPositions(getRelative: false);
+        if (route.Count > 0 && GeoPosition.HaversineDistanceNmi(route[^1].wpGP, fix) <= standoff + 0.75)
+            return "Kept · current route reaches torpedo range";
+
+        ChartPosition start = new(origin._latitude, origin._longitude);
+        ChartPosition target = new(fix._latitude, origin._longitude + Math.IEEERemainder(fix._longitude - origin._longitude, 360));
+        ChartPosition end = start.Towards(target, 1 - standoff / distance);
+        float depthMeters = Math.Max(20, (float)(-origin._height / Utils.heightInMeterToUnity(1)) + 10);
+        if (end.Longitude is < -180 or > 180 || start.DistanceTo(end) > 150 || !ScenarioTerrain.IsNavigable(start, end, depthMeters))
+            return "Rejected · direct staging leg crosses shallow water or exceeds chart limits";
+        GeoPosition point = new() { _latitude = end.Latitude, _longitude = end.Longitude, _height = origin._height };
+        string detail = $"{distance - standoff:0.#} nm to a {standoff:0.#} nm standoff from {PlayerPicture.ContactLabel(contact)}";
+        if (observe) return $"Suggested submarine staging · {detail}";
+        var result = PlayerOrders.ReplaceSubmarineWaypoint(sub, side, point);
+        return $"{result.Disposition} · {(result.Disposition == WaypointDisposition.Applied ? detail : result.Detail)}";
+    }
+
     internal static ChartDestination[] Destinations(Taskforce side, Vessel[] ships, ChartDestination? chartPoint)
     {
         Vehicle[] protectedContacts = SurfaceDefense.ProtectedContacts(side).Take(6).ToArray();
@@ -55,19 +81,49 @@ internal static class NavigationOrders
         return $"{result.Disposition} · {result.Detail}";
     }
 
-    internal static string CoastalApproach(Vessel ship, Taskforce side, Vehicle contact, bool observe)
+    internal static string SetSurfaceRoute(Vessel ship, Taskforce side, GeoPosition[] route, SurfaceDefense defense, bool observe)
     {
-        if (!PlayerPicture.CanNavigate(ship) || contact.BaseObject is not LandUnit target
-            || contact.PositionEstimate?.Item1 is not { } position) return "Rejected · no independent ship or live shore position";
-        double range = PlayerOrders.ShoreGunRangeNm(ship, target);
-        if (!double.IsFinite(range) || range <= 0) return "Rejected · no stocked shore-capable gun";
+        if (!PlayerPicture.CanCommand(ship, side) || !PlayerPicture.CanNavigate(ship)
+            || ship.CurrentOrder.Value?.OrderType != Order.Type.None || ship._patrolZone != null)
+            return "Rejected · ship has a separate active order or cannot navigate independently";
+        GeoPosition origin = ship.getGeoPosition();
+        ChartPosition start = new(origin._latitude, origin._longitude);
+        double distance = 0;
+        foreach (GeoPosition point in route)
+        {
+            ChartPosition end = new(point._latitude, point._longitude);
+            distance += start.DistanceTo(end);
+            if (distance > 300 || !ScenarioTerrain.IsNavigable(start, end, depth: 12))
+                return "Rejected · route crosses shallow water or exceeds chart limits";
+            if (defense.ApproachBlocker(side, start, end, allowWithdrawal: true) is { } blocker)
+                return $"Rejected · route crosses the threat envelope of {blocker}";
+            start = end;
+        }
+        string detail = $"{route.Length} {(route.Length == 1 ? "waypoint" : "waypoints")} · {distance:0.#} nm to {start.ToMissionValue()}";
+        if (observe) return $"Suggested surface route · {detail}";
+        var result = PlayerOrders.ReplaceSurfaceRoute(ship, side, route);
+        return $"{result.Disposition} · {(result.Disposition == WaypointDisposition.Applied ? detail : result.Detail)}";
+    }
+
+    internal static string Approach(Vessel ship, Taskforce side, Vehicle contact, SurfaceDefense defense,
+        double? standoffNm, bool observe)
+    {
+        if (!PlayerPicture.CanNavigate(ship) || contact.BaseObject is not (LandUnit or Vessel)
+            || contact.PositionEstimate?.Item1 is not { } position) return "Rejected · no independent ship or live surface or ground position";
+        if (standoffNm.HasValue && (!double.IsFinite(standoffNm.Value) || standoffNm.Value is < 8 or > 70))
+            return "Rejected · support standoff must be 8 to 70 nm";
+        double range = standoffNm ?? (contact.BaseObject is LandUnit target ? PlayerOrders.ShoreGunRangeNm(ship, target) : 0);
+        if (!double.IsFinite(range) || range <= 0) return "Rejected · specify a support standoff or use a stocked shore-capable gun";
         GeoPosition origin = ship.getGeoPosition();
         ChartPosition start = new(origin._latitude, origin._longitude);
         ChartPosition shore = new(position._latitude, position._longitude);
         double distance = start.DistanceTo(shore);
-        if (distance <= range) return "Kept · already in nominal shore gun range";
-        ChartPosition firingPoint = start.Towards(shore, 1 - 0.85 * range / distance);
-        ChartDestination destination = new("coastal-approach", $"Gun position for {PlayerPicture.ContactLabel(contact)}",
+        if (distance <= range) return standoffNm.HasValue ? "Kept · already within support standoff" : "Kept · already in nominal shore gun range";
+        ChartPosition firingPoint = start.Towards(shore, 1 - (standoffNm.HasValue ? range : 0.85 * range) / distance);
+        if (defense.ApproachBlocker(side, start, firingPoint) is { } blocker)
+            return $"Rejected · approach crosses the threat envelope of {blocker}";
+        string positionType = standoffNm.HasValue ? "Support position" : "Gun position";
+        ChartDestination destination = new("approach", $"{positionType} for {PlayerPicture.ContactLabel(contact)}",
             new GeoPosition { _latitude = firingPoint.Latitude, _longitude = firingPoint.Longitude }, PlayerPicture.Id(ship));
         return SetWaypoint(ship, side, destination, observe);
     }
