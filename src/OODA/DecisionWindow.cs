@@ -29,6 +29,8 @@ public class DecisionWindow : MonoBehaviour
     private TextBlock? paceSource;
     private TextBlock? paceReason;
     private TextBlock? airDefenseRouteSummary;
+    private StackPanel? planningThreads;
+    private PlanningThreadStatus[] displayedThreads = [];
     private Button? replanButton;
     private Button? takeControl;
     private Button? observeButton;
@@ -208,6 +210,7 @@ public class DecisionWindow : MonoBehaviour
         if (revision == controller.Revision && tabMembership == membership)
         {
             RefreshTimeControl();
+            RefreshPlanningThreads();
             if (airDefenseRouteSummary != null) airDefenseRouteSummary.Text = controller.AirDefenseRouteSummary;
             foreach (Vessel ship in ships)
                 if (shipStates.TryGetValue(PlayerPicture.Id(ship), out TextBlock line)) line.Text = ShipState(ship);
@@ -223,6 +226,10 @@ public class DecisionWindow : MonoBehaviour
         AddTab("mission", "Mission Command", MissionPage());
         AddTab("trace", "Decision log", Stack(Section("Order progress", OrderProgress(), expanded: false), Timeline(controller.Events, showShipNames: true)));
         AddTab("time", "Time Control", TimeControlPage());
+        planningThreads = Stack();
+        displayedThreads = [];
+        RefreshPlanningThreads();
+        AddTab("threads", "Threads", planningThreads);
         if (controller.LastAirInput?["airDecks"]?.Any() == true || controller.LastAirInput?["airborne"]?.Any() == true
             || controller.AirDefenseRouteWarnings().HasValues)
             AddTab("air", "Air Operations", AirOperationsPage());
@@ -238,6 +245,24 @@ public class DecisionWindow : MonoBehaviour
 
     private void AddTab(string id, string title, FrameworkElement content) => tabs!.Items.Add(new TabItem
         { Header = title, Tag = id, Content = Scroll(content) });
+
+    private void RefreshPlanningThreads()
+    {
+        if (planningThreads == null) return;
+        PlanningThreadStatus[] threads = controller.PlanningThreads;
+        if (planningThreads.Children.Count > 0 && threads.SequenceEqual(displayedThreads)) return;
+        displayedThreads = threads;
+        planningThreads.Children.Clear();
+        foreach (PlanningThreadStatus thread in threads)
+        {
+            string role = thread.Role == DecisionRole.Operational ? "Operational" : "Fleet tactics";
+            string detail = $"{thread.Decisions} decisions · {thread.Compactions} compactions";
+            if (thread.LastInputTokens > 0) detail += $" · {thread.LastInputTokens:N0} input tokens last decision";
+            if (thread.Error != null) detail += $"\n{thread.Error}";
+            planningThreads.Children.Add(EventRow($"{role} · Thread {thread.Id}", thread.State.ToString(), detail));
+        }
+        if (threads.Length == 0) planningThreads.Children.Add(Text("No planning threads yet"));
+    }
 
     private FrameworkElement TimeControlPage()
     {
@@ -502,6 +527,8 @@ public class DecisionWindow : MonoBehaviour
         tabs = null;
         paceSource = paceReason = null;
         airDefenseRouteSummary = null;
+        planningThreads = null;
+        displayedThreads = [];
         observeButton = aiControlButton = null;
         shipStates.Clear();
         if (launcher != null) launcher.Button.IsChecked = false;
