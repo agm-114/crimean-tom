@@ -27,24 +27,19 @@ public class TaskLoadout : INotifyPropertyChanged
         set
         {
             if (value == null || value == SelectedLoadout) return;
-            if (CanChange && Loadouts.Contains(value))
-            {
-                TaskPreparation? preparation = TaskPreparation.Find(task);
-                PreparationLoadout? target = preparation == null ? null : TaskPreparation.Plan(task, value);
-                if (preparation != null && target == null) return;
-                if (CanAfford(value, preparation, target)) Change(value, preparation, target);
-                else Globals._mainGameViewModel.RaiseAlert(task._flightDeck._baseObject,
-                    Singleton<LanguageResourceHandler>.Instance.getText("FlightDeck", "UnableToLaunchNoAmmo"));
-            }
+            TryChange(value);
             PropertyChanged?.Invoke(this, new(nameof(SelectedLoadout)));
         }
     }
 
-    public TaskLoadout(PendingLaunchTask task)
+    public TaskLoadout(PendingLaunchTask task) : this(task, observe: true) { }
+
+    private TaskLoadout(PendingLaunchTask task, bool observe)
     {
         this.task = task;
         Loadouts = task.VehicleType.Loadouts.Where(loadout => loadout == SelectedLoadout
             || loadout.ServiceEntryYear <= CurrentYear).ToArray();
+        if (!observe) return;
         task._stateMachine.OnStateChanged += (_, _) =>
         {
             PropertyChanged?.Invoke(this, new(nameof(CanChange)));
@@ -56,6 +51,22 @@ public class TaskLoadout : INotifyPropertyChanged
             nextStatusUpdate = GameTime.simulationTime + 1;
             PropertyChanged?.Invoke(this, new(nameof(PreparationStatus)));
         };
+    }
+
+    public static PendingLaunchTask? ChangePreparedLoadout(PendingLaunchTask task, Loadout loadout) =>
+        new TaskLoadout(task, observe: false).TryChange(loadout);
+
+    private PendingLaunchTask? TryChange(Loadout loadout)
+    {
+        if (loadout == SelectedLoadout) return task;
+        if (!CanChange || !Loadouts.Contains(loadout)) return null;
+        TaskPreparation? preparation = TaskPreparation.Find(task);
+        PreparationLoadout? target = preparation == null ? null : TaskPreparation.Plan(task, loadout);
+        if (preparation != null && target == null) return null;
+        if (CanAfford(loadout, preparation, target)) return Change(loadout, preparation, target);
+        Globals._mainGameViewModel.RaiseAlert(task._flightDeck._baseObject,
+            Singleton<LanguageResourceHandler>.Instance.getText("FlightDeck", "UnableToLaunchNoAmmo"));
+        return null;
     }
 
     internal IEnumerable<PreparationLine> Preview(Loadout loadout)
@@ -95,7 +106,7 @@ public class TaskLoadout : INotifyPropertyChanged
         });
     }
 
-    private void Change(Loadout loadout, TaskPreparation? preparation, PreparationLoadout? target)
+    private PendingLaunchTask? Change(Loadout loadout, TaskPreparation? preparation, PreparationLoadout? target)
     {
         FlightDeck deck = task._flightDeck;
         Squadron squadron = task.VehicleType.Squadrons[task._squadronIndex];
@@ -127,12 +138,13 @@ public class TaskLoadout : INotifyPropertyChanged
                 HangarPreparation.ChangingLoadout = false;
                 if (preparation != null) HangarPreparation.Return(task, preparation.Batch);
                 deck.UpdateLoadoutsAvailability();
-                return;
+                return null;
             }
             if (preparation != null && target != null) preparation.Transfer(replacement, target);
             replacement._formation = task._formation;
             replacement.Launched = task.Launched;
             deck.FlightDeckTasks.Move(deck.FlightDeckTasks.IndexOf(replacement), index);
+            return replacement.VehicleType.Loadouts[replacement._loadoutIndex] == loadout ? replacement : null;
         }
         finally { HangarPreparation.ChangingLoadout = false; }
     }
