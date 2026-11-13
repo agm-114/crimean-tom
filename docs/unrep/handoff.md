@@ -249,8 +249,8 @@ Deploy the new `YamlDotNet.dll` dependency with UNREP; preserve user YAML settin
 
 These are gaps, not approved tasks:
 
-- Empty fuel and food reserves have no propulsion or crew penalty. Aircraft
-  refuelling remains separate. Spare parts consumption does not slow or block DC.
+- Empty food reserves have no crew penalty. Aircraft refuelling uses a separate
+  reserve. Spare parts consumption does not slow or block DC.
 - Active jobs are not restored from saves. Finish/cancel and complete breakaway
   before saving. Otherwise native saves can retain temporary movement orders
   without the owning job. This needs design before claiming save/load support.

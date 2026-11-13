@@ -9,6 +9,8 @@ namespace UNREP;
 internal class SupplyConsumption(Vessel ship)
 {
     private static readonly ConditionalWeakTable<Vessel, SupplyConsumption> Ships = new();
+    private static readonly Action<Compartments, float> SetWantedVelocity = AccessTools.MethodDelegate<Action<Compartments, float>>(
+        AccessTools.PropertySetter(typeof(Compartments), nameof(Compartments.WantedVelocityInKnots)));
     private readonly List<SupplyBin> bins = SupplyInventory.Additional(ship);
     private readonly double fuelStandard = SupplyTuning.Value(ship, "FuelStandard");
     private readonly double foodUse = SupplyTuning.Value(ship, "FoodUse");
@@ -20,6 +22,17 @@ internal class SupplyConsumption(Vessel ship)
     internal static SupplyConsumption For(Vessel ship) => Ships.GetValue(ship, unit => new(unit));
     private static bool Operating(Vessel ship) => ship._canUpdate && !ship.IsDestroyed && !ship.Disabled
         && ship._compartments is { _isSinking: false } && !Globals._inMuseum;
+
+    [HarmonyPostfix, HarmonyPatch(typeof(Compartments), nameof(Compartments.UpdateWantedVelocityInKnots))]
+    private static void CutPropulsion(Compartments __instance)
+    {
+        if (!SupplyTuning.StopWhenOutOfFuel || __instance._baseObject is not Vessel ship || !Operating(ship)
+            || For(ship).bins.Find(bin => bin.Key == "Fuel") is not { Amount: <= 0 }) return;
+
+        // The native movement tick applies drag when thrust is zero. Keep the speed order for refuelling.
+        SetWantedVelocity(__instance, 0);
+        ship._mainThrust = 0;
+    }
 
     internal double Rate(SupplyBin bin)
     {
