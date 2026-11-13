@@ -8,7 +8,9 @@ OODA starts in **AI control** when a scenario loads with a controllable player s
 
 OODA can adjust its cruise speed and time-compression rules during a mission. Rules can apply to every matching event or target a specific unit or track. Radar reacquisition is recorded without slowing cruise by default. **Time Control** shows the current pace and the rule, AI decision, or game condition behind it. Use `seapower-cli ooda-status --json` to inspect the cruise speed, rules, and recent events. OODA writes proposals for changing the built-in rules to `Player.log` under `[OODA] Time defaults suggestion`.
 
-Each completed Codex decision with reported usage adds an `[OODA] Codex usage` line to `Player.log` with the decision role, model, input, cached input, output, reasoning output, and total tokens, plus the size of OODA's submitted text in bytes.
+The **Threads** tab shows operational and fleet tactics threads, including when they are **Compacting**. OODA reuses the most recently used ready thread for the same role and briefing, or opens one if none is ready. It keeps up to two ready threads per role. After four decisions or a turn with at least 150,000 input tokens, OODA compacts the thread in the background. It returns to the pool when Codex confirms completion. Each decision gets a fresh player picture. Taking control or leaving the mission clears the pool. Defense decisions run independently.
+
+Each completed Codex decision with reported usage adds an `[OODA] Codex usage` line to `Player.log` with input, cached input, output, reasoning output, and total tokens. Compare `cached_input` against `input` to measure reuse. `transport=session` identifies decisions sent through a pooled thread. The CLI status output also lists the threads.
 
 OODA can request new automation, tools, or analysis when it encounters a gap. Requests appear in `Player.log` under `[OODA] Capability request` with the mission, observed problem, and requested behavior.
 

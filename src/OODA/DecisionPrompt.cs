@@ -63,11 +63,17 @@ internal record DecisionPrompt(string StableInstructions, string RoleInstruction
 
     internal string ToCodexInput(DecisionRole role)
     {
+        return $"{RoleInstructions}{BriefingText}\n\n{SnapshotGuide}\n{CompactSnapshot(role).ToString(Formatting.None)}";
+    }
+
+    internal string BriefingText => (string?)Input["briefing"] is { Length: > 0 } briefing ? $"\n\nOpening mission briefing:\n{briefing}" : "";
+    internal const string SnapshotGuide = "Current player-view data (JSON). Omitted fields are unavailable or empty. Identified civilian traffic may be summarized by category.";
+
+    internal JObject CompactSnapshot(DecisionRole role)
+    {
         JObject snapshot = PromptSnapshot.Compact(Input, role);
-        string? briefing = (string?)snapshot["briefing"];
         snapshot.Remove("briefing");
-        string briefingText = briefing is { Length: > 0 } ? $"\n\nOpening mission briefing:\n{briefing}" : "";
-        return $"{RoleInstructions}{briefingText}\n\nCurrent player-view data (JSON). Omitted fields are unavailable or empty. Identified civilian traffic may be summarized by category.\n{snapshot.ToString(Formatting.None)}";
+        return snapshot;
     }
 
     private static string Read(string name)

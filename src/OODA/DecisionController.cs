@@ -17,7 +17,7 @@ internal partial class DecisionController
         Stopwatch Clock, ChartDestination[] Destinations, Dictionary<string, string> Routes, string? ShipId, bool ToolFollowUp = false);
     private record DeferredFire(JObject Order, string TargetId, double WallDeadline, double MissionDeadline);
 
-    private readonly IDecisionProvider codex = new CodexDecisions();
+    private readonly CodexDecisions codex = new();
     private readonly IDecisionProvider urgentProvider;
     private readonly DecisionClock clock = new();
     private readonly TimeInterrupts interrupts = new();
@@ -68,6 +68,7 @@ internal partial class DecisionController
     internal int Revision { get; private set; }
     internal string Objective => (string?)plan?["objective"] ?? "No plan yet";
     internal string Provider => $"Codex {CodexDecisions.Model} · urgent: {(urgentProvider == codex ? "Codex mock" : "OpenAI Decisions")}";
+    internal PlanningThreadStatus[] PlanningThreads => codex.Threads();
     internal string Status => regular is { } request ? request.Task.IsCompleted ? $"{Stage(request.Role)} reply ready"
         : $"{Stage(request.Role)} pending · {request.Clock.Elapsed.TotalSeconds:0}s"
         : urgent is { } preview ? $"Urgent preview pending · {preview.Clock.Elapsed.TotalSeconds:0}s" : statusMessage ?? Mode switch
@@ -210,6 +211,7 @@ internal partial class DecisionController
         catch (Exception error)
         {
             statusMessage = cancellation.IsCancellationRequested ? "Codex request timed out" : error.Message;
+            if (cancellation.IsCancellationRequested) codex.OnDecisionTimeout(work.Role);
             Add(Stage(work.Role), "Failed", statusMessage);
             previousSituation = null;
             if (work.Role == DecisionRole.Operational)
@@ -259,6 +261,7 @@ internal partial class DecisionController
         Cancel(ref regular);
         Cancel(ref urgent);
         Mode = mode;
+        if (mode == ControlMode.Manual) codex.Reset();
         deferredFire.Clear();
         sensorSweeps.CancelAll();
         foreach (ConditionalAttack order in conditionalAttacks.Values) FinishConditionalAttack(order, "superseded", "AI control ended");
@@ -289,6 +292,7 @@ internal partial class DecisionController
     {
         Cancel(ref regular);
         Cancel(ref urgent);
+        codex.Reset();
         sensorSweeps.CancelAll();
         mission = null;
         Mode = ControlMode.Manual;
@@ -523,6 +527,12 @@ internal partial class DecisionController
     internal JObject Report() => new()
     {
         ["mode"] = Mode.ToString(), ["status"] = Status, ["provider"] = Provider, ["urgentPreviews"] = urgentPreviews,
+        ["planningThreads"] = new JArray(PlanningThreads.Select(thread => new JObject
+        {
+            ["id"] = thread.Id, ["role"] = thread.Role.ToString(), ["state"] = thread.State.ToString(),
+            ["decisions"] = thread.Decisions, ["compactions"] = thread.Compactions, ["lastInputTokens"] = thread.LastInputTokens,
+            ["error"] = thread.Error
+        })),
         ["chartPoint"] = chartPoint?.Label, ["briefing"] = Briefing,
         ["plan"] = plan?.DeepClone(), ["lastInput"] = LastInput?.DeepClone(), ["missionMessages"] = MissionCommunications.Snapshot(),
         ["planMarks"] = PlanMarks(), ["flightMapOrders"] = FlightMapOrders(), ["airDefenseAssessment"] = airDefenseAssessment.Read(),

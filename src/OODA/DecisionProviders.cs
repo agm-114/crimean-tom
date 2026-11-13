@@ -13,45 +13,166 @@ internal interface IDecisionProvider
     Task<JObject> Decide(DecisionRole role, DecisionPrompt prompt, CancellationToken cancellation);
 }
 
+internal enum PlanningThreadState { Starting, Ready, Deciding, Compacting, Failed }
+internal record PlanningThreadStatus(int Id, DecisionRole Role, PlanningThreadState State, int Decisions, int Compactions, long LastInputTokens, string? Error);
+
 internal class CodexDecisions : IDecisionProvider
 {
     internal const string Model = "gpt-6.1-sol";
+    internal const string PlanningEffort = "low";
+    private readonly object gate = new();
+    private readonly List<PlanningThread> pool = [];
+    private readonly Dictionary<DecisionRole, PlanningThreadStatus> failures = [];
+    private readonly HashSet<DecisionRole> skipNext = [];
+    private int nextId;
+
+    private class PlanningThread(int id, DecisionRole role, DecisionPrompt prompt)
+    {
+        internal CodexPlanningSession Session { get; } = new(role, prompt);
+        internal PlanningThreadStatus Status { get; set; } = new(id, role, PlanningThreadState.Starting, 0, 0, 0, null);
+        internal long LastUsed { get; set; }
+    }
 
     public Task<JObject> Decide(DecisionRole role, DecisionPrompt prompt, CancellationToken cancellation) =>
-        Task.Run(() => Run(role, prompt, cancellation), cancellation);
+        Task.Run(() => UsesPool(role) ? Plan(role, prompt, cancellation) : Run(role, prompt, cancellation), cancellation);
+
+    private static bool UsesPool(DecisionRole role) => role is DecisionRole.Operational or DecisionRole.RoutineTactical;
+
+    internal PlanningThreadStatus[] Threads()
+    {
+        lock (gate) return pool.Select(thread => thread.Status).Concat(failures.Values).OrderBy(status => status.Id).ToArray();
+    }
+
+    internal void Reset()
+    {
+        lock (gate)
+        {
+            foreach (PlanningThread thread in pool) thread.Session.Dispose();
+            pool.Clear();
+            failures.Clear();
+            skipNext.Clear();
+        }
+    }
+
+    internal void OnDecisionTimeout(DecisionRole role)
+    {
+        if (!UsesPool(role)) return;
+        lock (gate) skipNext.Add(role);
+    }
+
+    private async Task<JObject> Plan(DecisionRole role, DecisionPrompt prompt, CancellationToken cancellation)
+    {
+        PlanningThread? thread = null;
+        lock (gate)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (!skipNext.Remove(role))
+            {
+                foreach (PlanningThread stale in ReadyThreads(role).Where(item => !item.Session.Matches(prompt)).ToArray())
+                    Retire(stale);
+                thread = ReadyThreads(role).FirstOrDefault();
+                if (thread == null)
+                {
+                    thread = new(++nextId, role, prompt);
+                    pool.Add(thread);
+                }
+                else thread.Status = thread.Status with { State = PlanningThreadState.Deciding };
+            }
+        }
+        if (thread == null) return await Run(role, prompt, cancellation).ConfigureAwait(false);
+
+        try
+        {
+            JObject result = await thread.Session.Decide(prompt, cancellation, () => MarkDeciding(thread)).ConfigureAwait(false);
+            lock (gate)
+            {
+                if (pool.Contains(thread))
+                {
+                    bool compact = thread.Session.NeedsCompaction;
+                    thread.Status = thread.Status with
+                    {
+                        State = compact ? PlanningThreadState.Compacting : PlanningThreadState.Ready,
+                        Decisions = thread.Status.Decisions + 1,
+                        LastInputTokens = thread.Session.LastInputTokens
+                    };
+                    thread.LastUsed = Stopwatch.GetTimestamp();
+                    if (compact) _ = Task.Run(() => Compact(thread));
+                    else TrimReady(role);
+                }
+            }
+            return result;
+        }
+        catch (Exception error)
+        {
+            lock (gate) Retire(thread, cancellation.IsCancellationRequested ? null : error.Message);
+            if (error is not CodexSessionUnavailableException || cancellation.IsCancellationRequested) throw;
+            UnityEngine.Debug.LogWarning($"[OODA] Codex thread unavailable. Trying codex exec for {role}. {error.Message}");
+            return await Run(role, prompt, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    private void MarkDeciding(PlanningThread thread)
+    {
+        lock (gate)
+            if (pool.Contains(thread)) thread.Status = thread.Status with { State = PlanningThreadState.Deciding };
+    }
+
+    private async Task Compact(PlanningThread thread)
+    {
+        try
+        {
+            await thread.Session.Compact().ConfigureAwait(false);
+            lock (gate)
+            {
+                if (!pool.Contains(thread)) return;
+                thread.Status = thread.Status with
+                {
+                    State = PlanningThreadState.Ready,
+                    Compactions = thread.Status.Compactions + 1
+                };
+                TrimReady(thread.Status.Role);
+            }
+        }
+        catch (Exception error)
+        {
+            lock (gate) Retire(thread, $"Compaction failed. {error.Message}");
+        }
+    }
+
+    // Keep spare threads available without accumulating idle Codex processes.
+    private void TrimReady(DecisionRole role)
+    {
+        foreach (PlanningThread idle in ReadyThreads(role).Skip(2).ToArray())
+            Retire(idle);
+    }
+
+    private IEnumerable<PlanningThread> ReadyThreads(DecisionRole role) => pool
+        .Where(item => item.Status.Role == role && item.Status.State == PlanningThreadState.Ready)
+        .OrderByDescending(item => item.LastUsed);
+
+    private void Retire(PlanningThread thread, string? error = null)
+    {
+        if (!pool.Remove(thread)) return;
+        thread.Session.Dispose();
+        if (error != null) failures[thread.Status.Role] = thread.Status with { State = PlanningThreadState.Failed, Error = error };
+    }
 
     private static async Task<JObject> Run(DecisionRole role, DecisionPrompt prompt, CancellationToken cancellation)
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"ooda-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        string directory = CreateDirectory();
         string schema = Path.Combine(directory, "schema.json");
         string output = Path.Combine(directory, "decision.json");
         try
         {
             File.WriteAllText(schema, DecisionSchema.For(role).ToString(Formatting.None));
-            string installed = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
-                "Programs", "OpenAI", "Codex", "bin", "codex.exe");
-            ProcessStartInfo start = new()
-            {
-                FileName = File.Exists(installed) ? installed : "codex",
-                WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
-            };
-            string[] arguments = ["--disable", "apps", "--disable", "plugins", "--disable", "shell_tool", "--disable", "shell_snapshot",
-                "-c", "mcp_servers={}", "-c", "web_search=\"disabled\"", "-c", $"developer_instructions={JsonConvert.ToString(prompt.StableInstructions)}",
+            string[] effort = UsesPool(role) ? ["-c", $"model_reasoning_effort=\"{PlanningEffort}\""] : [];
+            ProcessStartInfo start = StartInfo(directory, [
+                .. effort, "-c", $"developer_instructions={JsonConvert.ToString(prompt.StableInstructions)}",
                 "--ask-for-approval", "never", "exec", "--ignore-user-config", "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check",
-                "--model", Model, "--json", "--output-schema", "schema.json", "--output-last-message", "decision.json", "-"];
-            foreach (string argument in arguments) start.ArgumentList.Add(argument);
-            foreach (string key in new[] { "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_BASE_URL" })
-                start.Environment.Remove(key);
+                "--model", Model, "--json", "--output-schema", "schema.json", "--output-last-message", "decision.json", "-"]);
 
             using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start Codex.");
-            using CancellationTokenRegistration stop = cancellation.Register(() =>
-            {
-                try { if (!process.HasExited) process.Kill(); }
-                catch (InvalidOperationException) { }
-                catch (System.ComponentModel.Win32Exception) { }
-            });
+            using CancellationTokenRegistration stop = cancellation.Register(() => Kill(process));
             Task<string> stdout = process.StandardOutput.ReadToEndAsync();
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             string input = prompt.ToCodexInput(role);
@@ -73,6 +194,38 @@ internal class CodexDecisions : IDecisionProvider
         }
     }
 
+    internal static string CreateDirectory() =>
+        Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"ooda-{Guid.NewGuid():N}")).FullName;
+
+    internal static ProcessStartInfo StartInfo(string directory, string[] arguments, string[]? extraDisabledFeatures = null)
+    {
+        string installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs", "OpenAI", "Codex", "bin", "codex.exe");
+        ProcessStartInfo start = new()
+        {
+            FileName = File.Exists(installed) ? installed : "codex",
+            WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+        };
+        foreach (string feature in new[] { "apps", "plugins", "shell_tool", "shell_snapshot" }.Concat(extraDisabledFeatures ?? []))
+        {
+            start.ArgumentList.Add("--disable");
+            start.ArgumentList.Add(feature);
+        }
+        foreach (string argument in arguments) start.ArgumentList.Add(argument);
+        foreach (string key in new[] { "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_BASE_URL" })
+            start.Environment.Remove(key);
+        return start;
+    }
+
+    internal static void Kill(Process process)
+    {
+        try { if (!process.HasExited) process.Kill(); }
+        catch (InvalidOperationException) { }
+        catch (System.ComponentModel.Win32Exception) { }
+    }
+
     private static void LogUsage(DecisionRole role, string events, int payloadBytes)
     {
         using StringReader reader = new(events);
@@ -85,10 +238,13 @@ internal class CodexDecisions : IDecisionProvider
             if ((string?)item["type"] != "turn.completed" || item["usage"] is not JObject usage) continue;
             long? Count(string name) => usage[name] is JValue { Type: JTokenType.Integer } count ? count.Value<long>() : null;
             if (Count("input_tokens") is not { } input || Count("output_tokens") is not { } output) continue;
-            UnityEngine.Debug.Log($"[OODA] Codex usage | {role} | model={Model} input={input} cached_input={Count("cached_input_tokens")?.ToString() ?? "unknown"} "
-                + $"output={output} reasoning_output={Count("reasoning_output_tokens")?.ToString() ?? "unknown"} total={input + output} payload_bytes={payloadBytes}");
+            LogUsage(role, input, Count("cached_input_tokens"), output, Count("reasoning_output_tokens"), payloadBytes, "exec");
         }
     }
+
+    internal static void LogUsage(DecisionRole role, long input, long? cached, long output, long? reasoning, int bytes, string transport) =>
+        UnityEngine.Debug.Log($"[OODA] Codex usage | {role} | model={Model} input={input} cached_input={cached?.ToString() ?? "unknown"} "
+            + $"output={output} reasoning_output={reasoning?.ToString() ?? "unknown"} total={input + output} payload_bytes={bytes} transport={transport}");
 }
 
 internal class OpenAiDecisions(HttpClient client, string apiKey) : IDecisionProvider
