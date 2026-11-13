@@ -15,8 +15,14 @@ internal static class PlayerControls
         view["airDecks"] = PlayerFlightDeck.AirOperations(side);
         view["airborne"] = PlayerFlightDeck.Airborne(side);
         view["airTargets"] = PlayerFlightDeck.AirTargets(side);
+        view["strafingOptions"] = PlayerFlightDeck.StrafingOptions(side);
+        view["groundAttackOptions"] = PlayerFlightDeck.GroundAttackOptions(side);
+        view["capStations"] = PlayerFlightDeck.CapStations(side);
+        view["submarines"] = PlayerOrders.SubmarineStrikeOptions(side);
         if (PlayerBriefing.Read() is string briefing) view["briefing"] = briefing;
         if (Call("ReadPlanMarks") is JArray marks) view["planMarks"] = marks;
+        if (Call("ReadFlightMapOrders") is JArray flightOrders) view["flightMapOrders"] = flightOrders;
+        if (Call("ReadCoastalThreats") is JArray threats) view["coastalThreats"] = threats;
         return view;
     }
 

@@ -14,7 +14,7 @@ internal static class PlayerCombat
 
     private static readonly Dictionary<(string Attacker, string Victim), Gunfire> GunfireByPair = [];
     private static readonly Dictionary<(string Unit, string Target, string Weapon), OwnFire> OwnFireByWeapon = [];
-    private static readonly Dictionary<Missile, ObjectBase> OwnMissileTargets = [];
+    private static readonly Dictionary<WeaponBase, ObjectBase> OwnGuidedWeaponTargets = [];
     private static readonly Queue<MissileImpact> MissileImpacts = new();
     private static readonly Queue<string> OwnLaunchReports = new();
 
@@ -53,14 +53,15 @@ internal static class PlayerCombat
     [HarmonyPatch(typeof(Projectile), nameof(Projectile.fire))]
     private static void ObserveGunfire(Projectile __instance)
     {
-        if (__instance._ws is not WeaponSystemGun || __instance._launchPlatform is not Vessel source || !source
+        if (__instance._ws is not WeaponSystemGun || __instance._launchPlatform is not { } source || !source
             || __instance._targetObject is not { } target || !target || PlayerPicture.Side is not { } side) return;
         if (source._taskforce == side)
         {
             RecordOwnFire(side, source, target, __instance._pp._displayedName, missile: false);
             return;
         }
-        if (target is not Vessel || source.GetMapVehicle(side) is not { } attacker || !PlayerPicture.IsVisual(attacker)) return;
+        if (source is not Vessel || target is not (Vessel or Submarine)
+            || source.GetMapVehicle(side) is not { } attacker || !PlayerPicture.IsVisual(attacker)) return;
 
         Vehicle? victim = target.GetMapVehicle(side);
         bool owned = target._taskforce == side;
@@ -78,26 +79,38 @@ internal static class PlayerCombat
     [HarmonyPatch(typeof(WeaponBase), nameof(WeaponBase.CommonLaunchSettings))]
     private static void ObserveLaunch(WeaponBase __instance, ObjectBase targetObject, bool isSubmunition)
     {
-        Missile? missile = __instance as Missile;
-        if (missile != null) OwnMissileTargets.Remove(missile);
-        if (isSubmunition || __instance._launchPlatform is not (Vessel or Aircraft)
+        bool guided = __instance is Missile or Torpedo;
+        if (guided) OwnGuidedWeaponTargets.Remove(__instance);
+        if (isSubmunition || __instance._launchPlatform is not (Vessel or Submarine or Aircraft or Helicopter)
             || __instance._launchPlatform is not { } source || !source || !targetObject
             || PlayerPicture.Side is not { } side || source._taskforce != side) return;
-        if (source is Vessel)
-        {
-            if (missile == null) return;
-            OwnMissileTargets[missile] = targetObject;
-        }
+        if (source is Vessel && !guided) return;
+        if (guided) OwnGuidedWeaponTargets[__instance] = targetObject;
         if (__instance._ap?._displayedName is { Length: > 0 } weapon)
-            RecordOwnFire(side, source, targetObject, weapon, missile != null);
+            RecordOwnFire(side, source, targetObject, weapon, guided);
     }
 
-    internal static IEnumerable<ObjectBase> MissileTargetsInFlight()
+    internal static IEnumerable<ObjectBase> MissileTargetsInFlight(bool includeAircraft = false)
     {
-        foreach (Missile missile in OwnMissileTargets.Keys.Where(missile => !missile || missile.IsDestroyed
-            || !missile.gameObject.activeInHierarchy).ToArray()) OwnMissileTargets.Remove(missile);
-        return OwnMissileTargets.Values.Where(target => target && !target.IsDestroyed).Distinct();
+        PruneGuidedWeapons();
+        return OwnGuidedWeaponTargets.Where(entry => entry.Key is Missile && (includeAircraft || entry.Key._launchPlatform is Vessel or Submarine))
+            .Select(entry => entry.Value).Where(target => target && !target.IsDestroyed).Distinct();
     }
+
+    internal static bool TorpedoInbound(ObjectBase target)
+    {
+        PruneGuidedWeapons();
+        return OwnGuidedWeaponTargets.Any(entry => entry.Key is Torpedo && entry.Value == target);
+    }
+
+    private static void PruneGuidedWeapons()
+    {
+        foreach (WeaponBase weapon in OwnGuidedWeaponTargets.Keys.Where(weapon => !weapon || weapon.IsDestroyed
+            || !weapon.gameObject.activeInHierarchy).ToArray()) OwnGuidedWeaponTargets.Remove(weapon);
+    }
+
+    internal static double? LastOwnFireAt(string targetId) => OwnFireByWeapon.Values.Where(item => item.TargetId == targetId)
+        .Select(item => (double?)item.LastFired).Max();
 
     private static void RecordOwnFire(Taskforce side, ObjectBase source, ObjectBase target, string weapon, bool missile)
     {
@@ -107,7 +120,7 @@ internal static class PlayerCombat
         double now = GameTime.missionElapsedTime;
         var key = (unitId, targetId, weapon);
         OwnFire? previous = OwnFireByWeapon.GetValueOrDefault(key);
-        OwnFireByWeapon[key] = new(unitId, source is Aircraft, targetId, weapon, (previous?.Shots ?? 0) + 1, now);
+        OwnFireByWeapon[key] = new(unitId, source is Aircraft or Helicopter, targetId, weapon, (previous?.Shots ?? 0) + 1, now);
         if (missile || previous == null || now - previous.LastFired >= 30)
         {
             if (OwnLaunchReports.Count == 32) OwnLaunchReports.Dequeue();
@@ -123,7 +136,7 @@ internal static class PlayerCombat
     {
         GunfireByPair.Clear();
         OwnFireByWeapon.Clear();
-        OwnMissileTargets.Clear();
+        OwnGuidedWeaponTargets.Clear();
         OwnLaunchReports.Clear();
         MissileImpacts.Clear();
     }

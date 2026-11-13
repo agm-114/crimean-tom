@@ -26,7 +26,8 @@ internal record DecisionPrompt(string Instructions, JObject Input)
         "contacts", "currentOrders", "plan", "lastOrderResults", "destinations", "allowedTasks", "allowedActions",
         "rulesOfEngagement", "standingOrders", "missionMessages", "availableTimeCompressions", "attackReports", "observedGunfire", "ownWeaponFire",
         "ownMissileTargetsInFlight", "nearbySurfaceThreats", "helicopterDecks", "helicopterScreenAnchors", "airDecks", "airborne", "airTargets", "airWeaponFire",
-        "maritimeShips", "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts"
+        "airDefenseAssessment", "airDefenseRouteWarnings", "heldTransportRouteWarnings", "capStations", "maritimeShips", "submarines", "coastalThreats", "strafingOptions", "groundAttackOptions",
+        "availableTools", "toolResults", "unit", "threat", "options", "deadline", "timeInterrupts", "conditionalAttacks", "identificationRequests"
     ];
 
     // Call on the game thread with the snapshot from the player-view reader.

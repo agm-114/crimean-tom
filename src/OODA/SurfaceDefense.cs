@@ -1,7 +1,9 @@
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using CrimeanTom.SeaPower;
 using SeaPower;
 using SeaPower.GameBridge;
+using SeapowerUI;
 
 namespace OODA;
 
@@ -26,6 +28,7 @@ internal class SurfaceDefense
     private readonly HashSet<(string Target, string Victim, bool Inside)> reviewedThreats = [];
     private readonly Dictionary<(string Target, string Victim), RangeSample> rangeSamples = [];
     private readonly Dictionary<string, double?> weaponRanges = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double?> airDefenseRanges = new(StringComparer.OrdinalIgnoreCase);
     private CloseThreat[] nearbyThreats = [];
     private HashSet<string> reportContacts = [];
     private readonly Dictionary<string, double> nextReportReview = [];
@@ -104,6 +107,7 @@ internal class SurfaceDefense
         reviewedThreats.Clear();
         rangeSamples.Clear();
         weaponRanges.Clear();
+        airDefenseRanges.Clear();
         nearbyThreats = [];
         reportContacts.Clear();
         nextReportReview.Clear();
@@ -137,6 +141,99 @@ internal class SurfaceDefense
         })));
     }
 
+    internal JArray CoastalThreats(Taskforce side, JArray airborne)
+    {
+        var flightRoutes = airborne.Where(flight => flight["leaderId"]?.Type == JTokenType.Null)
+            .Select(flight => (Id: (string)flight["id"]!, Points: new[] { flight["position"] }
+                .Concat((flight["holding"]?.Value<bool>() == true ? flight["heldRoute"] : flight["route"])?.Children() ?? [])
+                .OfType<JObject>().Select(point => new ChartPosition((double)point["latitude"]!, (double)point["longitude"]!)).ToArray()))
+            .Where(route => route.Points.Length > 1).ToArray();
+        HashSet<ObjectBase> engaged = new(PlayerCombat.MissileTargetsInFlight(includeAircraft: true));
+        foreach (ObjectBase unit in PlayerPicture.Units(side))
+        {
+            engaged.UnionWith(unit._currentEngageTasks.Select(task => task._targetObject).Where(target => target));
+            if (unit._ai?._objectToDestroy is { } target && target) engaged.Add(target);
+        }
+        var tracks = (side.PlottingTable?.Vehicles.AsEnumerable() ?? []).Where(track => PlayerPicture.IsLive(track)
+            && track.CurrentRelationship() == RelationsState.Hostile && track.PositionEstimate.HasValue
+            && (track.BaseObject is Vessel || track.GetMapType() is MapVisualType.Radar or MapVisualType.SAM or MapVisualType.AAA));
+        return new JArray(tracks.Select(track =>
+        {
+            GeoPosition estimate = track.PositionEstimate!.Value.Item1;
+            ChartPosition position = new(estimate._latitude, estimate._longitude);
+            return new JObject
+            {
+                ["targetId"] = PlayerPicture.Id(track), ["label"] = PlayerPicture.ContactLabel(track),
+                ["category"] = track.GetMapType().ToString(),
+                ["estimatedPosition"] = PlayerPicture.Point(estimate), ["emitting"] = PlayerPicture.ObservesEmission(track),
+                ["weaponRangeNm"] = track.BaseObject is Vessel ? Rounded(WeaponRange(track)) : null,
+                ["airDefenseRangeNm"] = track.BaseObject is Vessel ? Rounded(ShipAirDefenseRange(track)) : null,
+                ["engaged"] = engaged.Contains(track.BaseObject) || PlayerCombat.TorpedoInbound(track.BaseObject),
+                ["nearFlightRoutes"] = new JArray(flightRoutes.Where(route => route.Points.Zip(route.Points.Skip(1),
+                    (start, end) => DistanceToLeg(position, start, end)).Any(distance => distance <= WatchRangeNm)).Select(route => route.Id))
+            };
+        }));
+    }
+
+    internal string? ApproachBlocker(Taskforce side, ChartPosition start, ChartPosition end, bool allowWithdrawal = false) => HostileSurfaceTracks(side)
+        .FirstOrDefault(track =>
+        {
+            GeoPosition estimate = track.PositionEstimate!.Value.Item1;
+            ChartPosition threat = new(estimate._latitude, estimate._longitude);
+            double distance = DistanceToLeg(threat, start, end);
+            double radius = WeaponRange(track) ?? WatchRangeNm;
+            if (distance > radius) return false;
+            return !allowWithdrawal || distance < threat.DistanceTo(start) - 0.01 || threat.DistanceTo(end) <= radius;
+        }) is { } blocker ? PlayerPicture.ContactLabel(blocker) : null;
+
+    internal string? HelicopterRouteBlocker(Taskforce side, GeoPosition origin, GeoPosition[] route, bool repeat)
+    {
+        if (route.Length == 0) return null;
+        ChartPosition[] points = new[] { origin }.Concat(route).Concat(repeat ? [route[0]] : [])
+            .Select(point => new ChartPosition(point._latitude, point._longitude)).ToArray();
+        foreach (Vehicle track in HostileSurfaceTracks(side))
+        {
+            if (ShipAirDefenseRange(track) is not double range) continue;
+            GeoPosition estimate = track.PositionEstimate!.Value.Item1;
+            ChartPosition target = new(estimate._latitude, estimate._longitude);
+            double safeRange = range + 2;
+            // Allow an aircraft already inside the envelope to fly directly out of it.
+            bool leaving = points[0].DistanceTo(target) < safeRange && points[1].DistanceTo(target) >= safeRange
+                && DistanceToLeg(target, points[0], points[1]) >= points[0].DistanceTo(target) - 0.01;
+            if (points.Zip(points.Skip(1), (start, end) => DistanceToLeg(target, start, end)).Skip(leaving ? 1 : 0)
+                .Any(distance => distance < safeRange))
+                return $"{PlayerPicture.ContactLabel(track)} · estimated {range:0.#} nm air-defense range";
+        }
+        return null;
+    }
+
+    private double? ShipAirDefenseRange(Vehicle track)
+    {
+        if (!track.Identified.Value || track.Class?.Value is not { Length: > 0 } classId) return null;
+        if (!airDefenseRanges.TryGetValue(classId, out double? range)) airDefenseRanges[classId] = range = SurfaceWeaponRange.ForClass(classId, "AAW");
+        return range;
+    }
+
+    private static IEnumerable<Vehicle> HostileSurfaceTracks(Taskforce side) => (side.PlottingTable?.Vehicles.AsEnumerable() ?? [])
+        .Where(track => PlayerPicture.IsLive(track) && track.BaseObject is Vessel && track.CurrentRelationship() == RelationsState.Hostile
+            && track.PositionEstimate.HasValue);
+
+    private double? WeaponRange(Vehicle track)
+    {
+        if (!track.Identified.Value || track.Class?.Value is not { Length: > 0 } classId) return null;
+        if (!weaponRanges.TryGetValue(classId, out double? range)) weaponRanges[classId] = range = SurfaceWeaponRange.ForClass(classId);
+        return range;
+    }
+
+    private static double DistanceToLeg(ChartPosition point, ChartPosition start, ChartPosition end)
+    {
+        MissionPosition leg = end.RelativeTo(start);
+        MissionPosition offset = point.RelativeTo(start);
+        double lengthSquared = leg.X * leg.X + leg.Z * leg.Z;
+        double fraction = lengthSquared > 0 ? Math.Clamp((offset.X * leg.X + offset.Z * leg.Z) / lengthSquared, 0, 1) : 0;
+        return point.DistanceTo(start.Towards(end, fraction));
+    }
+
     internal static IEnumerable<Vehicle> ProtectedContacts(Taskforce side)
     {
         if (side.PlottingTable?.Vehicles is not { } tracks) yield break;
@@ -155,20 +252,13 @@ internal class SurfaceDefense
 
     private IEnumerable<CloseThreat> NearbyThreats(Taskforce side, double now)
     {
-        if (side.PlottingTable?.Vehicles is not { } tracks) yield break;
         var victims = OwnVessels(side).Select(ship => (Id: PlayerPicture.Id(ship), Position: ship.getGeoPosition()))
             .Concat(ProtectedContacts(side).Select(track => (Id: PlayerPicture.Id(track), Position: track.PositionEstimate!.Value.Item1))).ToArray();
-        foreach (Vehicle track in tracks)
+        foreach (Vehicle track in HostileSurfaceTracks(side))
         {
-            if (!PlayerPicture.IsLive(track) || track.BaseObject is not Vessel || track.CurrentRelationship() != RelationsState.Hostile
-                || track.PositionEstimate?.Item1 is not { } estimate) continue;
+            GeoPosition estimate = track.PositionEstimate!.Value.Item1;
             string targetId = PlayerPicture.Id(track);
-            double? weaponRange = null;
-            if (track.Identified.Value && track.Class?.Value is { Length: > 0 } classId)
-            {
-                if (!weaponRanges.TryGetValue(classId, out weaponRange))
-                    weaponRanges[classId] = weaponRange = SurfaceWeaponRange.ForClass(classId);
-            }
+            double? weaponRange = WeaponRange(track);
             foreach (var victim in victims)
             {
                 double range = GeoPosition.HaversineDistanceNmi(victim.Position, estimate);
