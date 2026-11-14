@@ -4,14 +4,31 @@ This module compiles into each consuming mod. It produces no DLL and needs no
 AnchorChain plugin or deployment step. The mods and the CLI's development gallery
 import the same source.
 
-Import it once in a mod's project:
+Add the source package to your mod project.
+
+```xml
+<PackageReference Include="SeaPower.SharedUi" Version="[0.1.0]" PrivateAssets="all" />
+```
+
+Build both packages from the repository root, then register the output folder
+as a local NuGet source.
+
+```powershell
+dotnet pack src/SeaPower.SharedUi -o artifacts/nuget
+dotnet pack src/SeaPower.SharedSettings -o artifacts/nuget
+dotnet nuget add source (Resolve-Path artifacts/nuget).Path --name SeaPowerLocal
+```
+
+Use the direct import for a project that builds from this checkout.
+Choose one source per project.
 
 ```xml
 <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
 ```
 
 The consumer supplies the game's Noesis, Seapower-Scripts and Unity references.
-The source uses the repository's current C# language version and nullable settings.
+The source uses .NET Standard 2.1 or a compatible target, the repository's current
+C# language version, implicit usings and nullable settings.
 Linked files appear under `SharedUi` in the consuming project.
 
 ```csharp
