@@ -4,7 +4,7 @@
 	branch = main
 [submodule "external/SeaPowerKeel"]
 	path = external/SeaPowerKeel
-	url = https://github.com/struckl/SeaPowerKeel.git
+	url = https://github.com/agm-114/SeaPowerKeel.git
 	branch = main
 [submodule "external/SeaPowerFlotilla"]
 	path = external/SeaPowerFlotilla
