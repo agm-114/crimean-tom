@@ -15,7 +15,7 @@ Close the game before deployment and restart through Steam afterward. Override
 `-p:SeaPowerDir=...` for another installation. Builds deploy by default on Windows;
 use `-p:DeployToGame=false` for compile-only checks.
 Requires the installed BepInEx 5 runtime and Sea Power managed assemblies.
-Currently verified against Sea Power `0.8.2-23444+s358`.
+Currently verified against Sea Power `0.9.2-261113`.
 
 One module builds two DLLs:
 
@@ -105,9 +105,11 @@ It does not measure time spent yielding or GPU-presented frames.
 `notFound`, `failed`, and `seconds`. Cache bypass counts explicit false caching
 flags, not cache misses. Failures are separate from successful null results.
 Virtual INI reads include their nested physical reads, so those totals overlap.
-The capture window spans `SceneCreator.LoadMission`, including its yielded waits;
-background calls during those waits are included, but earlier `PreloadInis` work
-is not. Overlapping load routines share one aggregate window until both finish.
+The profiler aggregates INI calls during the native `PreloadInis` stage and
+`SceneCreator.LoadMission`, including background calls during yielded waits.
+It emits totals at the end of each interval. Overlapping routines share one
+interval until both finish. The profiler also times native encyclopedia sensor,
+weapon and unit routines, including any waits while Quickload pauses them.
 A blocking dialog contributes wall time to its enclosing coroutine. Exclude
 such samples or report that wait separately. A loading screen ending does not
 prove tactical readiness; check the actual UI and simulation state too.

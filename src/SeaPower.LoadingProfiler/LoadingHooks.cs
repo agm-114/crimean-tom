@@ -10,7 +10,8 @@ internal static class LoadingHooks
 {
     private static int sequence;
     private static int missionLoads;
-    private static bool InMissionLoad => missionLoads > 0;
+    private static string? lastDetail;
+    private static bool InMissionLoad => Volatile.Read(ref missionLoads) > 0;
     internal static void Install(Harmony harmony)
     {
         Patch(AccessTools.Method(typeof(LoadScreen), "ExecuteLoadScreen"), nameof(PrepareStages), nameof(TimeScreen));
@@ -20,6 +21,10 @@ internal static class LoadingHooks
         string[] routines = ["LoadMission", "loadAssetBundles", "preloadObjects", "LoadBackgroundData", "loadVessels", "loadSubmarines", "loadAircraft", "loadHelicopters", "loadBiologic", "loadLifeRafts", "loadWeapons", "loadFormations"];
         foreach (string routine in routines)
             Patch(AccessTools.Method(typeof(SceneCreator), routine), postfix: nameof(TimeRoutine));
+        Patch(AccessTools.Method(typeof(MissionManager), nameof(MissionManager.PreLoadSystems)), postfix: nameof(TimeRoutine));
+        var encyclopedia = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+        foreach (string routine in new[] { "LoadSensors", "LoadWeapons", "LoadUnitsFromMetadata" })
+            Patch(AccessTools.Method(encyclopedia, routine), postfix: nameof(TimeRoutine), after: ["crimean-tom.quickload"]);
 
         // Straight-line work inside LoadMission that the routine hooks above cannot see.
         (string Type, string Method)[] missionCalls =
@@ -66,13 +71,13 @@ internal static class LoadingHooks
         }
 
         // Called far too often to trace individually, so these are totalled per load.
-        (string Type, string Method)[] missionTotals = [("SeaPower.Utils", "openIniFile"), ("SeaPower.Utils", "openVirtualIniFile")];
-        foreach (var (typeName, methodName) in missionTotals)
+        foreach (var method in AccessTools.GetDeclaredMethods(typeof(Utils)).Where(method => method.Name is "openIniFile" or "openVirtualIniFile"))
         {
-            Type? type = AccessTools.TypeByName(typeName);
-            if (type == null) { TraceLog.Write("missing-type", new { name = typeName }); continue; }
-            foreach (var method in AccessTools.GetDeclaredMethods(type).Where(candidate => candidate.Name == methodName))
-                Patch(method, nameof(AggregateStart), finalizer: nameof(AggregateEnd));
+            var options = method.GetParameters().Where(parameter => parameter.ParameterType == typeof(bool)
+                && parameter.Name is "useCaching" or "checkCached" or "forceDisk").ToArray();
+            if (options.Length == 0) continue;
+            cacheOptions.Add(method, options);
+            Patch(method, nameof(AggregateStart), finalizer: nameof(AggregateEnd));
         }
 
         string[] startupTypes = ["SeaPower.BackgroundSceneController", "SeaPower.FileManager", "SeaPower.OptionsManager", "SeaPower.LanguageResourceHandler", "SeaPower.ListenerManager", "SeaPower.InputHandler", "SeaPower.VoiceMessage", "SeaPower.MusicManager", "SeaPower.SensorMetadataProvider", "SeaPower.UnitMetadataProvider", "SeaPower.EncyclopedicDataManager", "SeaPower.LoadScreen", "NoesisUnity"];
@@ -86,11 +91,13 @@ internal static class LoadingHooks
         }
         TraceLog.Write("hooks-ready");
 
-        void Patch(MethodBase? method, string? prefix = null, string? postfix = null, string? finalizer = null)
+        void Patch(MethodBase? method, string? prefix = null, string? postfix = null, string? finalizer = null, string[]? after = null)
         {
             if (method == null) { TraceLog.Write("missing-hook", new { prefix, postfix, finalizer }); return; }
             TraceLog.Write("install-hook", new { name = Name(method) });
-            harmony.Patch(method, Hook(prefix), Hook(postfix), finalizer: Hook(finalizer));
+            var post = Hook(postfix);
+            if (post != null) post.after = after;
+            harmony.Patch(method, Hook(prefix), post, finalizer: Hook(finalizer));
         }
     }
 
@@ -99,26 +106,33 @@ internal static class LoadingHooks
     private static void PrepareStages(List<LoadAction> coroutines, out int __state)
     {
         __state = ++sequence;
+        lastDetail = null;
         for (int i = 0; i < coroutines.Count; i++)
         {
-            var action = coroutines[i];
-            action.enumerator = new TimedRoutine($"stage:{__state}:{action.description}", action.enumerator);
-            coroutines[i] = action;
+            var native = coroutines[i];
+            string name = $"stage:{__state}:{native.description}";
+            coroutines[i] = new LoadAction(native.priority, native.description, () => new TimedRoutine(name, native.GetEnumerator()), native.numberOfSubSteps);
         }
     }
     private static void TimeScreen(int __state, ref IEnumerator __result) => __result = new TimedRoutine($"screen:{__state}", __result);
     private static void TimeRoutine(MethodBase __originalMethod, ref IEnumerator __result) =>
         __result = new TimedRoutine($"routine:{sequence}:{__originalMethod.Name}", __result,
-            __originalMethod.Name == "LoadMission" ? EnterMissionLoad : null);
+            __originalMethod.Name is "LoadMission" or nameof(MissionManager.PreLoadSystems) ? EnterMissionLoad : null);
     private static void EnterMissionLoad(bool active)
     {
-        if (active)
+        KeyValuePair<MethodBase, Tally>[] totals;
+        lock (aggregates)
         {
-            if (missionLoads++ == 0) aggregates.Clear();
-            return;
+            if (active)
+            {
+                if (missionLoads++ == 0) aggregates.Clear();
+                return;
+            }
+            if (missionLoads == 0 || --missionLoads > 0) return;
+            totals = aggregates.ToArray();
+            aggregates.Clear();
         }
-        if (missionLoads == 0 || --missionLoads > 0) return;
-        foreach (var total in aggregates)
+        foreach (var total in totals)
             TraceLog.Write("mission-total", new
             {
                 name = $"{Name(total.Key)}({string.Join(",", total.Key.GetParameters().Select(parameter => parameter.ParameterType.Name))})",
@@ -129,9 +143,13 @@ internal static class LoadingHooks
                 failed = total.Value.Failed,
                 seconds = total.Value.Ticks / (double)Stopwatch.Frequency
             });
-        aggregates.Clear();
     }
-    private static void Detail(string value) => TraceLog.Write("detail", new { text = value });
+    private static void Detail(string value)
+    {
+        if (lastDetail == value) return;
+        lastDetail = value;
+        TraceLog.Write("detail", new { text = value });
+    }
     private static void MissionRequested() => TraceLog.Write("mission-request", new { path = Globals.currentMissionFilePath });
     private static void CallStart(MethodBase __originalMethod, out long __state)
     {
@@ -162,14 +180,15 @@ internal static class LoadingHooks
         internal bool Cached;
     }
     private static readonly Dictionary<MethodBase, Tally> aggregates = [];
-    private static void AggregateStart(object[] __args, out Sample? __state)
+    private static readonly Dictionary<MethodBase, ParameterInfo[]> cacheOptions = [];
+
+    private static void AggregateStart(MethodBase __originalMethod, object[] __args, out Sample? __state)
     {
         if (!InMissionLoad) { __state = null; return; }
-        // The last argument of every patched overload is its caching flag.
         __state = new Sample
         {
             Path = string.Join("/", __args.OfType<string>()),
-            Cached = __args.Length > 0 && __args[__args.Length - 1] is bool flag && flag
+            Cached = cacheOptions[__originalMethod].All(option => (bool)__args[option.Position] != (option.Name == "forceDisk"))
         };
         __state.Started = Stopwatch.GetTimestamp();
     }
@@ -177,13 +196,17 @@ internal static class LoadingHooks
     {
         if (__state == null) return;
         long ticks = Stopwatch.GetTimestamp() - __state.Started;
-        if (!aggregates.TryGetValue(__originalMethod, out var tally)) aggregates[__originalMethod] = tally = new Tally();
-        tally.Calls++;
-        tally.Ticks += ticks;
-        tally.Paths.Add(__state.Path);
-        if (!__state.Cached) tally.Uncached++;
-        if (__exception != null) tally.Failed++;
-        else if (__result == null) tally.NotFound++;
+        lock (aggregates)
+        {
+            if (!InMissionLoad) return;
+            if (!aggregates.TryGetValue(__originalMethod, out var tally)) aggregates[__originalMethod] = tally = new Tally();
+            tally.Calls++;
+            tally.Ticks += ticks;
+            tally.Paths.Add(__state.Path);
+            if (!__state.Cached) tally.Uncached++;
+            if (__exception != null) tally.Failed++;
+            else if (__result == null) tally.NotFound++;
+        }
     }
 
     // Several of these run every frame in a live mission, so they only trace during the load.
