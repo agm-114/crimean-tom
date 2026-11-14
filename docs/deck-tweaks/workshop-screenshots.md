@@ -12,26 +12,32 @@ and the Game Bridge, and set **Flight Deck Timings** to **Realistic**.
    ```
 
 2. With the mission paused, open Nimitz's **Unit Status → Flight Deck**.
-   Select **F-14A**, **VF-41 Black Aces**, **2** assigned aircraft, and
-   **Air To Air Long Range**. Click **Ready**. The scenario starts with two
-   recovered fighters with different amounts of fuel, 20 mm ammunition, and
-   chaff. One has an extra Phoenix to unload.
-3. Advance until the second fighter has filled its open stations and started
-   unloading its extra Phoenix.
+   Select **A-7E**, **VA-82 Marauders**, **2** assigned aircraft, and
+   **SEAD Long Range**. Click **Ready**. Both Corsairs have some fuel,
+   20 mm ammunition, chaff, and a Sidewinder. They still carry Walleye IIs
+   and data link pods from their previous loadout.
+3. Advance one simulation minute, then leave the mission paused. Both aircraft
+   should be refueling, with the same work remaining. The details should
+   group them under **Aircraft 1 & 2**, with Shrikes, Rockeyes and drop
+   tanks to load and the precision strike stores to unload.
 
    ```powershell
-   seapower-cli advance-sim --minutes 8 --speed 20
+   seapower-cli advance-sim --minutes 1 --speed 5
    ```
 
-4. Hover over the batch's **State** cell in **Flight Operations**. Check that
-   Aircraft 1 shows its remaining loading work and Aircraft 2 says
-   **Unloading AIM-54A (Phoenix)**. Move the window if the tooltip is clipped.
-5. With the tooltip open, run `seapower-cli screenshot`. Crop the same frame
-   twice: the full Unit Status window including the tooltip
-   (`deck-tweaks-flight-deck.png`), then just the tooltip
-   (`deck-tweaks-rearm-tooltip.png`).
+4. Use `seapower-cli screenshot` to capture these four views at the same
+   paused time. Move the window if the tooltip or menu is clipped.
 
-Keep the two PNGs in a folder outside the packaged mod. Pass that folder as
-`-DeckTweaksPreviews` to the [Crimean Tom release script](../crimean-tom/workshop-bundle.md)
-to update Deck Tweaks and the bundle together. Reuse the filenames to replace
-the existing gallery images.
+   | View | Crop and filename |
+   | --- | --- |
+   | Flight Deck with timing collapsed | Unit Status window, `deck-tweaks-flight-deck.png` |
+   | Hover over State or the ETA | Timing tooltip, `deck-tweaks-rearm-tooltip.png` |
+   | Click the caret beside the ETA | Flight Operations and the expanded timing panel, `deck-tweaks-expanded-timing.png` |
+   | Collapse timing and open the batch's Loadout dropdown | Flight Operations and the open menu, `deck-tweaks-loadout-dropdown.png` |
+
+Crop the original PNGs before resizing. Export each crop at 200% as a PNG and
+keep the files outside the packaged mod. Reuse the filenames to replace the
+existing gallery images. For Deck Tweaks alone, pass the gallery directory as
+`--preview-dir` to [`seapower-cli workshop-update`](../seapower-cli/README.md#updating-an-existing-workshop-mod).
+For a bundle release, pass it as `-DeckTweaksPreviews` to the
+[Crimean Tom release script](../crimean-tom/workshop-bundle.md).
