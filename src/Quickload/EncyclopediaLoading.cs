@@ -8,7 +8,7 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class EncyclopediaLoading
 {
-    private const double FrameBudgetMilliseconds = 4;
+    internal const double FrameBudgetMilliseconds = 4;
     internal static bool Ready { get; private set; }
 
     private static IEnumerable<MethodBase> TargetMethods()
@@ -17,10 +17,22 @@ internal static class EncyclopediaLoading
         return new[] { "LoadSensors", "LoadWeapons", "LoadUnitsFromMetadata" }.Select(name => AccessTools.Method(manager, name));
     }
 
-    private static void Postfix(MethodBase __originalMethod, ref IEnumerator __result)
+    private static void Postfix(MethodBase __originalMethod, object __instance, object[] __args, ref IEnumerator __result)
     {
         string part = __originalMethod.Name switch { "LoadSensors" => "sensors", "LoadWeapons" => "weapons", _ => "units" };
-        __result = StartupLoading.BuildEncyclopediaPart(part, part == "units" ? BatchUnits(__result) : __result);
+        var routine = EncyclopediaCache.Wrap(part, __instance, __args, part switch
+        {
+            "weapons" => EncyclopediaWeapons.Wrap(__instance, __args[0], __result),
+            "units" => BatchUnits(__result),
+            _ => __result,
+        });
+        __result = StartupLoading.BuildEncyclopediaPart(part, part == "units" ? MarkReady(routine) : routine);
+    }
+
+    private static IEnumerator MarkReady(IEnumerator routine)
+    {
+        yield return routine;
+        Ready = true;
     }
 
     private static IEnumerator BatchUnits(IEnumerator original)
@@ -41,7 +53,6 @@ internal static class EncyclopediaLoading
                 yield return current;
                 budget.Restart();
             }
-            Ready = true;
             UnityEngine.Debug.Log($"[Quickload] Encyclopedia completed with {batchedYields} per-unit frame waits batched.");
         }
         finally { (original as IDisposable)?.Dispose(); }

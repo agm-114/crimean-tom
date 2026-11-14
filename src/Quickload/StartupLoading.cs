@@ -25,6 +25,7 @@ internal static class StartupLoading
     private static float nextRefresh;
 
     internal static bool Active => pending.Count > 0;
+    internal static bool DeferredEncyclopedia => preparingEncyclopedia;
     private static bool EncyclopediaReady => coreReady && (EncyclopediaLoading.Ready || !hasEncyclopedia);
     internal static bool CanBuildEncyclopedia => !preparingEncyclopedia ||
         Singleton<MenuSystemViewModel>.Instance.CurrentWindow is MainMenuView && !Singleton<LoadScreen>.Instance.cameraObject.enabled;
@@ -100,13 +101,34 @@ internal static class StartupLoading
         var music = pending.Where(IsMusic).ToArray();
         progress = new(stages.Select(action => StageName(action.description))
             .Concat(hasEncyclopedia ? new[] { "Encyclopedia sensors", "Encyclopedia weapons", "Encyclopedia units" } : []).ToArray());
+        RefreshMenu(MainMenuView.Instance);
         Debug.Log("[Quickload] Main menu visible; loading deferred startup data.");
+        MenuProgress.LogGates(MainMenuView.Instance);
+        var archives = StartupArchives.Start();
+        var iniPrefetch = archives == null ? null : IniWarmupCache.Prefetch(archives);
+        if (archives != null)
+        {
+            if (stages.Any(action => action.description == "UnitMetadataProvider LoadUnitMetadata"))
+                UnitMetadataCache.StartValidation(archives);
+            if (hasEncyclopedia) EncyclopediaCache.Start(archives);
+        }
         yield return null;
         foreach (var action in stages)
         {
             BeginStage($"Loading {StageName(action.description).ToLowerInvariant()}…");
             var start = Time.realtimeSinceStartup;
-            yield return Run(action.GetEnumerator());
+            if (action.description == "UnitMetadataProvider LoadUnitMetadata")
+            {
+                yield return UnitMetadataCache.OpenForStartup();
+                try { yield return Run(action.GetEnumerator()); }
+                finally { UnitMetadataCache.Finish(archives, !failed); }
+            }
+            else if (action.description == "IniPreloader PreloadAll")
+            {
+                yield return Run(IniWarmupCache.Wrap(action.GetEnumerator(), archives, iniPrefetch));
+                iniPrefetch = null;
+            }
+            else yield return Run(action.GetEnumerator());
             if (failed) yield break;
             progress.Finish();
             Debug.Log($"[Quickload] {action.description}: {Time.realtimeSinceStartup - start:F2}s");
@@ -114,6 +136,8 @@ internal static class StartupLoading
         }
 
         coreReady = true;
+        RefreshMenu(MainMenuView.Instance);
+        MenuProgress.LogGates(MainMenuView.Instance);
         screen.LoadText = "Done";
         Debug.Log("[Quickload] Core startup data ready.");
         if (music.Length > 0)
@@ -134,7 +158,11 @@ internal static class StartupLoading
             while (!EncyclopediaLoading.Ready && !failed) yield return null;
             if (!failed) FinishProgress();
         }
-        finally { preparingEncyclopedia = false; }
+        finally
+        {
+            EncyclopediaCache.Finish();
+            preparingEncyclopedia = false;
+        }
     }
 
     private static IEnumerator LoadMusic(LoadAction[] actions)
@@ -160,20 +188,25 @@ internal static class StartupLoading
             yield break;
         }
         // The native weapon pass can hold a single frame for seconds. Let music finish while the menu still responds.
-        if (part == "weapons" && loadingMusic)
+        if (part == "weapons" && loadingMusic && !EncyclopediaCache.HasSnapshot)
         {
             detail = "Loading music…";
             while (loadingMusic) yield return null;
         }
         BeginStage($"Loading encyclopedia {part}…");
         yield return Run(routine, waitForMenu: true);
-        if (!failed) progress?.Finish();
+        if (!failed)
+        {
+            progress?.Finish();
+            Debug.Log($"[Quickload] Encyclopedia {part} ready.");
+        }
     }
 
     private static void BeginStage(string label)
     {
         detail = label;
         progress?.Start();
+        Debug.Log($"[Quickload] {label}");
     }
 
     private static string StageName(string action) => action switch
@@ -192,7 +225,9 @@ internal static class StartupLoading
     private static void FinishProgress()
     {
         progress?.Save();
-        RefreshMenu(Singleton<MenuSystemViewModel>.Instance.CurrentWindow as MainMenuView);
+        var menu = Singleton<MenuSystemViewModel>.Instance.CurrentWindow as MainMenuView;
+        RefreshMenu(menu);
+        if (menu != null) MenuProgress.LogGates(menu);
         pending.Clear();
         display = null;
         progress = null;
@@ -250,9 +285,15 @@ internal static class StartupLoading
             display = new(menu);
         }
         var status = progress?.Read(failed);
-        display.Refresh(failed ? "Startup data failed to load. Check Player.log." : detail, status?.Timing, status?.Stage, status?.Percent,
+        display.Refresh(failed ? "Startup data failed to load. Check Player.log." : detail, status?.Timing, status?.Stage, progress,
             EncyclopediaReady);
         if (EncyclopediaReady) display = null;
+    }
+
+    internal static void AttachMenu(MainMenuView menu)
+    {
+        if (!Active || EncyclopediaReady) return;
+        RefreshMenu(menu);
     }
 
     private static IEnumerator Empty() { yield break; }

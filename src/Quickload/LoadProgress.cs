@@ -53,14 +53,29 @@ internal class LoadProgress
         started = false;
     }
 
-    internal (string Timing, string Stage, float? Percent) Read(bool failed)
+    internal int StageCount => stages.Length;
+
+    internal (string Tooltip, float Seconds, float Fraction, bool Indeterminate) ReadStage(int stage)
+    {
+        bool active = started && stage == index;
+        double? elapsed = stage < index ? measured[stage] : active ? clock.Elapsed.TotalSeconds : null;
+        double? last = previous.Length == stages.Length ? previous[stage] : null;
+        string tooltip = $"{stages[stage]}\n{(stage < index ? "Completed in " : "Elapsed ")}";
+        tooltip = elapsed is double time ? tooltip + $"{time:F2} s" : $"{stages[stage]}\nWaiting";
+        if (last is double lastDuration) tooltip += $"\nLast run {lastDuration:F2} s";
+        double duration = stage < index ? measured[stage] : Math.Max(elapsed ?? 0, last ?? 0);
+        float fraction = stage < index ? 1 : active && duration > 0 ? (float)Math.Min(.99, elapsed!.Value / duration) : 0;
+        return (tooltip, (float)duration, fraction, active && last == null);
+    }
+
+    internal (string Timing, string Stage) Read(bool failed)
     {
         double elapsed = clock.Elapsed.TotalSeconds;
         double total = measured.Sum() + elapsed;
         string stage = index < stages.Length ? $"Stage {index + 1}/{stages.Length} · {stages[index]} · {Seconds(elapsed)}" : "";
         string timing = $"Elapsed {Seconds(total)}";
-        if (failed) return (timing, stage, null);
-        if (previous.Length == 0) return ($"{timing} · ETA after first complete run", stage, null);
+        if (failed) return (timing, stage);
+        if (previous.Length == 0) return ($"{timing} · ETA after first complete run", stage);
 
         double remaining = previous.Skip(index + 1).Sum();
         if (index < previous.Length) remaining += Math.Max(0, previous[index] - elapsed);
@@ -69,7 +84,7 @@ internal class LoadProgress
         // Keep progress moving forward even if an individual stage exceeds its last duration.
         double done = previous.Take(index).Sum() + (index < previous.Length ? Math.Min(elapsed, previous[index] * 0.99) : 0);
         float percent = (float)Math.Clamp(100 * done / lastRun, 0, 100);
-        return ($"{Math.Floor(percent):0}% · {estimate} · {timing} · Last run {Seconds(lastRun)}", stage, percent);
+        return ($"{Math.Floor(percent):0}% · {estimate} · {timing} · Last run {Seconds(lastRun)}", stage);
     }
 
     internal void Save()
