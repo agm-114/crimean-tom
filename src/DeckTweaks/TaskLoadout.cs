@@ -19,6 +19,23 @@ public class TaskLoadout : INotifyPropertyChanged
             or HandleReadyUpTask or HandleAwaitSpawnTask;
     public Loadout[] Loadouts { get; }
     internal bool TimingExpanded { get; set; }
+    internal bool CanShowTiming => task.LaunchCount > 0
+        && task._stateMachine.CurrentState is HandleAwaitDeckSpaceTask or HandleAwaitGroundCrewTask
+            or HandleReadyUpTask or AbortPreparation;
+    internal bool CanResize => CanChange && CanShowTiming && task._ltp._groundCargo.Count == 0
+        && !task._ltp._fromScript && task._ltp._airStrike == null && task._ltp._civRoute == null
+        && TaskPreparation.Find(task) != null;
+    internal int Count => task.LaunchCount;
+    internal bool CanAddAircraft => CanResize && HangarPreparation.CanAddToBatch(task);
+    internal bool CanRemoveAircraft => CanResize && Count > 1;
+    internal void AddAircraft()
+    {
+        if (CanResize) HangarPreparation.AddToBatch(task);
+    }
+    internal void RemoveAircraft()
+    {
+        if (CanRemoveAircraft) HangarPreparation.RemoveFromBatch(task);
+    }
     private static int CurrentYear => Singleton<SeaPower.Environment>.InstanceExists()
         ? Singleton<SeaPower.Environment>.Instance.Year : int.MaxValue;
     internal IEnumerable<PreparationLine> PreparationStatus => TaskPreparation.Find(task) is { } preparation
