@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Diagnostics;
+using System.Reflection;
 using HarmonyLib;
 
 namespace Quickload;
@@ -7,33 +8,42 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class EncyclopediaLoading
 {
-    internal static bool Pending { get; private set; }
-    private static System.Reflection.MethodBase TargetMethod() => AccessTools.Method(
-        AccessTools.TypeByName("SeaPower.EncyclopedicDataManager"), "LoadUnitsFromMetadata");
-    private static void Postfix(ref IEnumerator __result) => __result = Batch(__result);
+    private const double FrameBudgetMilliseconds = 4;
+    internal static bool Ready { get; private set; }
 
-    private static IEnumerator Batch(IEnumerator original)
+    private static IEnumerable<MethodBase> TargetMethods()
     {
-        Pending = true;
+        var manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+        return new[] { "LoadSensors", "LoadWeapons", "LoadUnitsFromMetadata" }.Select(name => AccessTools.Method(manager, name));
+    }
+
+    private static void Postfix(MethodBase __originalMethod, ref IEnumerator __result)
+    {
+        string part = __originalMethod.Name switch { "LoadSensors" => "sensors", "LoadWeapons" => "weapons", _ => "units" };
+        __result = StartupLoading.BuildEncyclopediaPart(part, part == "units" ? BatchUnits(__result) : __result);
+    }
+
+    private static IEnumerator BatchUnits(IEnumerator original)
+    {
         Stopwatch budget = Stopwatch.StartNew();
+        int batchedYields = 0;
         try
         {
-            while (true)
+            while (original.MoveNext())
             {
-                object? current;
-                try
+                // The native coroutine yields null after each unit. Keep other Unity waits intact.
+                object? current = original.Current;
+                if (current == null && budget.Elapsed.TotalMilliseconds < FrameBudgetMilliseconds)
                 {
-                    if (!original.MoveNext()) break;
-                    current = original.Current;
+                    batchedYields++;
+                    continue;
                 }
-                catch (Exception error) { Quickload.Instance.Fail(error); break; }
-                // Native code yields once per entry. Process small batches rather than
-                // spending hundreds of frames populating the encyclopedia.
-                if (current == null && budget.Elapsed.TotalMilliseconds < 4) continue;
                 yield return current;
                 budget.Restart();
             }
+            Ready = true;
+            UnityEngine.Debug.Log($"[Quickload] Encyclopedia completed with {batchedYields} per-unit frame waits batched.");
         }
-        finally { Pending = false; (original as IDisposable)?.Dispose(); }
+        finally { (original as IDisposable)?.Dispose(); }
     }
 }

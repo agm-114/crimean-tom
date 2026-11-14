@@ -16,7 +16,7 @@ The [Crimean Tom Workshop bundle](docs/crimean-tom/workshop-bundle.md) packages 
 | UNREP | [UNREP](src/UNREP) | [Supplies tab](docs/unrep/README.md) |
 | Sea Power CLI | [Game bridge](src/SeaPower.GameBridge), [CLI](src/SeaPower.Cli) | [UI and simulator inspection](docs/seapower-cli/README.md) |
 | Loading Profiler | [Profiler](src/SeaPower.LoadingProfiler), [bootstrap](src/SeaPower.LoadingProfiler.Bootstrap) | [Startup and scenario timings](docs/loading-profiler/README.md) |
-| Quickload | [Quickload](src/Quickload) | [Deferred startup loading](docs/quickload/README.md) |
+| Quickload | [Quickload](src/Quickload) | [Early main menu and startup loading](docs/quickload/README.md) |
 
 Read [AGENTS.md](AGENTS.md) and the relevant module's docs before changing it. Campaign design and refactoring suggestions do not apply to Deck Tweaks.
 
