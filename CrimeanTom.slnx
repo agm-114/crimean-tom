@@ -24,4 +24,5 @@
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" />
   <Project Path="src/Quickload/Quickload.csproj" />
+  <Project Path="src/Quickload.Prefetch/Quickload.Prefetch.csproj" />
 </Solution>

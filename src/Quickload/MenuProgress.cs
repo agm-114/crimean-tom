@@ -13,41 +13,38 @@ internal class MenuProgress
 {
     private static readonly string[] Gated = ["Scenarios", "Tutorials", "Campaign", "Instant", "Editor", "Encyclopedia", "Options", "ModManager"];
     private static readonly ConditionalWeakTable<MainMenuView, Dictionary<Button, string>> menuActions = new();
-    private readonly Border panel;
+    private readonly StartupProgressPanel panel;
     private readonly UIElement content;
     private readonly Grid root = new();
-    private readonly TextBlock label = new() { FontSize = 15, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap };
-    private readonly TextBlock timing = DetailLine();
-    private readonly TextBlock stage = DetailLine();
-    private readonly SegmentedProgress segments = new("QuickloadPhase");
     private readonly Dictionary<Button, string> actions;
     private readonly Dictionary<Button, (string Action, BindingBase? Binding, bool? LocalValue)> blocked = [];
     internal MainMenuView Menu { get; }
 
-    internal MenuProgress(MainMenuView menu)
+    private float shrinkStarted = -1;
+
+    internal MenuProgress(MainMenuView menu, StartupProgressPanel panel)
     {
         Menu = menu;
+        this.panel = panel;
         actions = menuActions.GetOrCreateValue(menu);
         content = (UIElement)menu.Content;
         menu.Content = null;
         root.Children.Add(content);
-        StackPanel stack = new();
-        stack.Children.Add(label);
-        segments.Content.Name = "QuickloadPhases";
-        segments.Content.Height = 6;
-        segments.Content.Margin = new Thickness(0, 8, 0, 0);
-        stack.Children.Add(segments.Content);
-        stack.Children.Add(timing);
-        stack.Children.Add(stage);
-        panel = new()
-        {
-            Child = stack, Background = new SolidColorBrush(Color.FromArgb(240, 35, 38, 40)), Padding = new Thickness(12),
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
-            Width = 440, Margin = new Thickness(0, 0, 24, 24),
-        };
-        root.Children.Add(panel);
+        panel.Detach();
+        panel.View.Visibility = Visibility.Visible;
+        root.Children.Add(panel.View);
         menu.Content = root;
     }
+
+    internal void Shrink()
+    {
+        if (shrinkStarted < 0) shrinkStarted = UnityEngine.Time.unscaledTime;
+        float t = Math.Clamp((UnityEngine.Time.unscaledTime - shrinkStarted) / 0.65f, 0, 1);
+        float wide = (1 - t) * (1 - t);
+        panel.Layout(wide, (float)root.ActualWidth, (float)root.ActualHeight);
+    }
+
+    internal void DetachPanel() => root.Children.Remove(panel.View);
 
     [HarmonyPostfix, HarmonyPatch(typeof(MainMenuView), MethodType.Constructor)]
     private static void AttachOnCreation(MainMenuView __instance) => StartupLoading.AttachMenu(__instance);
@@ -77,18 +74,8 @@ internal class MenuProgress
             Menu.Content = content;
         }
         else
-        {
-            if (label.Text != text) label.Text = text;
-            if (timing.Text != times) timing.Text = times ?? "";
-            if (stage.Text != currentStage) stage.Text = currentStage ?? "";
-            if (progress != null) segments.Refresh(progress.StageCount, progress.ReadStage);
-        }
+            panel.Refresh(text, times, currentStage, progress);
     }
-
-    private static TextBlock DetailLine() => new()
-    {
-        FontSize = 13, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
-    };
 
     private void BlockButtons(DependencyObject element, MainMenuViewModel? model)
     {
@@ -138,9 +125,15 @@ internal class MenuProgress
     private static class MenuGate
     {
         private static IEnumerable<MethodBase> TargetMethods() => Gated.Select(action => AccessTools.Method(typeof(MainMenuView), $"Button{action}_Click"));
-        private static bool Prefix(MethodBase __originalMethod, object sender)
+        private static bool Prefix(MainMenuView __instance, MethodBase __originalMethod, object sender)
         {
-            if (StartupLoading.CanOpen(ActionName(__originalMethod.Name))) return true;
+            string action = ActionName(__originalMethod.Name);
+            if (StartupLoading.CanOpen(action))
+            {
+                if (action != "Encyclopedia" || !DeferredPointValues.Running) return true;
+                MuseumLoading.OpenReferenceOnMenu(__instance);
+                return false;
+            }
             if (sender is Button) return false;
             throw new InvalidOperationException("This menu will be available when Quickload finishes loading its data.");
         }

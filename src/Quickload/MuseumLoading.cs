@@ -18,6 +18,24 @@ internal static class MuseumLoading
     private static ObjectInformationView? reference;
     private static System.Windows.Input.ICommand? testCommand;
 
+    internal static void OpenReferenceOnMenu(MainMenuView menu)
+    {
+        var browser = new ObjectInformationViewModel(menu);
+        SetMode(browser, false, null, new SeaPower.DelegateCommand(entry =>
+        {
+            if (entry is not MuseumEntry item) return;
+            ObjectInformationViewModel details = item switch
+            {
+                MuseumWeaponEntry => new ObjectWeaponInformationViewModel(menu, item),
+                MuseumSensorEntry => new ObjectSensorInformationViewModel(menu, item),
+                _ => new(menu, item),
+            };
+            SetMode(details, false, null, null);
+            WindowHostCommands.OpenWindowCommand.Execute(details, menu);
+        }));
+        WindowHostCommands.OpenWindowCommand.Execute(browser, menu);
+    }
+
     internal static IEnumerator Dispatch(LoadAction action)
     {
         switch (action.description)

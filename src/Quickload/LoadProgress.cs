@@ -17,14 +17,15 @@ internal class LoadProgress
     private int index;
     private bool started;
 
-    internal LoadProgress(string[] stages)
+    internal LoadProgress(string[] stages, StartupTimeline.Phase[] startup)
     {
-        this.stages = stages;
-        measured = new double[stages.Length];
+        this.stages = startup.Select(phase => phase.Name).Concat(stages).ToArray();
+        measured = new double[this.stages.Length];
+        foreach (var phase in startup) measured[index++] = phase.Seconds;
         var files = Singleton<FileManager>.Instance.Directories.Where(directory => directory.IsChecked)
             .Select(directory => directory.DirectoryInfo.FullName);
         string context = string.Join("\n", new[] { Application.version, Singleton<LanguageResourceHandler>.Instance.Language }
-            .Concat(files).Concat(stages));
+            .Concat(files).Concat(this.stages));
         using var hash = SHA256.Create();
         string key = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(context))).Replace("-", "");
         path = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),

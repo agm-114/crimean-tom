@@ -22,6 +22,7 @@ internal static class ResolvedSensors
     private static bool loading;
     private static int reused;
     private static HashSet<string> changedSources = new(StringComparer.OrdinalIgnoreCase);
+    private static StartupArchives? activeArchives;
     private static bool sourceOrderChanged;
     private static bool? externalReferences;
 
@@ -42,6 +43,7 @@ internal static class ResolvedSensors
         Stamp = "";
         sensors.Clear();
         changedSources.Clear();
+        activeArchives = null;
         sourceOrderChanged = false;
         externalReferences = null;
         loading = false;
@@ -68,6 +70,7 @@ internal static class ResolvedSensors
         Stamp = Fingerprint(current);
         Delta = previous == null ? null : Change.Compare(previous.Sections, current);
         var sources = archives.Inputs.IsCompletedSuccessfully ? archives.Inputs.Result.SensorFiles : new(StringComparer.OrdinalIgnoreCase);
+        activeArchives = archives;
         changedSources = previous == null ? new(StringComparer.OrdinalIgnoreCase)
             : new(previous.Sources.Keys.Concat(sources.Keys).Where(path =>
                 previous.Sources.GetValueOrDefault(path) != sources.GetValueOrDefault(path)), StringComparer.OrdinalIgnoreCase);
@@ -96,7 +99,7 @@ internal static class ResolvedSensors
         if (sourceOrderChanged) return false;
         if (changedSources.Count == 0) return !HasExternalRadarReferences(change);
         if (change.Names.Count == 0 || changedSources.Count != 1) return false;
-        string path = changedSources.Single();
+        string path = activeArchives?.LocalPath(changedSources.Single()) ?? changedSources.Single();
         if (!File.Exists(path)) return false;
         // A changed source can also change which mod the Encyclopedia credits.
         try

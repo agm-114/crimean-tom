@@ -2,12 +2,15 @@
   <PropertyGroup>
     <Version>0.2.0</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
+    <QuickloadCacheBundlesDir Condition="'$(QuickloadCacheBundlesDir)' == ''">$(MSBuildProjectDirectory)\CacheBundles</QuickloadCacheBundlesDir>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Quickload.Prefetch/Quickload.Prefetch.csproj" />
     <Compile Include="../CrimeanTom.SeaPower/IsExternalInit.cs" Link="IsExternalInit.cs" />
     <Reference Include="AnchorChain" HintPath="$(AnchorChainDll)" Private="false" />
     <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" />
     <Reference Include="Seapower-Scripts" HintPath="$(GameManaged)\Seapower-Scripts.dll" Private="false" />
+    <Reference Include="Steamworks" HintPath="$(GameManaged)\com.rlabrecque.steamworks.net.dll" Private="false" />
     <Reference Include="Noesis.NoesisGUI" HintPath="$(GameManaged)\Noesis.NoesisGUI.dll" Private="false" />
     <Reference Include="Newtonsoft.Json" HintPath="$(GameManaged)\Newtonsoft.Json.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
@@ -30,8 +33,13 @@
     <RemoveDir Directories="@(_LegacyDeployment)" />
     <Delete Files="$(SeaPowerDir)\BepInEx\config\crimean-tom.startup-tweaks.cfg" />
     <MakeDir Directories="$(PluginDeployDirectory)" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetPath);$(TargetDir)Quickload.Preloader.dll" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Delete Files="$(PluginDeployDirectory)\Quickload.Prefetch.dll" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Exec Condition="Exists('$(QuickloadCacheBundlesDir)')" Command="robocopy &quot;$(QuickloadCacheBundlesDir)&quot; &quot;$(PluginDeployDirectory)\CacheBundles&quot; *.gz point-values-*.json content.sha256 /S /R:0 /W:0 /NFL /NDL /NJH /NJS /NP" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_BundleCopyExitCode" />
+    </Exec>
+    <Error Condition="'$(_BundleCopyExitCode)' != '' and $(_BundleCopyExitCode) &gt;= 8" Text="Could not copy Quickload cache bundles (Robocopy exit code $(_BundleCopyExitCode))." />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Quickload to $(PluginDeployDirectory)" />

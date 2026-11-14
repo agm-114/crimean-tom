@@ -18,6 +18,8 @@ public class Plugin : IAnchorChainMod
         Harmony harmony = new("crimean-tom.quickload");
         try { harmony.PatchAll(typeof(Plugin).Assembly); }
         catch { harmony.UnpatchSelf(); throw; }
+        StartupTimeline.Initialize();
+        StartupPrefetch.Start(Application.streamingAssetsPath, StartupArchives.ActiveRoots());
         Debug.Log("[Quickload] Enabled deferred startup loading and encyclopedia batching.");
     }
 }

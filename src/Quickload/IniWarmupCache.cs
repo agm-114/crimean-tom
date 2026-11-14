@@ -12,9 +12,9 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class IniWarmupCache
 {
-    private const int Format = 2;
+    private const int Format = 3;
     private const string FileName = "ini-warmup.bin.gz";
-    private const int SegmentFormat = 1;
+    private const int SegmentFormat = 2;
     private static readonly Type handler = typeof(IniHandler);
     private static readonly Action scanModifiers = AccessTools.MethodDelegate<Action>(AccessTools.Method(handler, "ScanForModifierFiles"));
     private static readonly Action<string, List<string>> registerCopies =
@@ -53,8 +53,8 @@ internal static class IniWarmupCache
         session = null;
         if (!loaded || active == null || active.Full != null || active.Added.IsEmpty) return;
         Debug.Log($"[Quickload] Reused {active.Segmented:N0} parsed INIs from layer snapshots.");
-        active.Source.Save(FileName, Format, active.Added, Write);
-        _ = System.Threading.Tasks.Task.Run(async () =>
+        active.Source.Save(FileName, Format, active.Added, (stream, entries) => Write(stream, entries, active.Source));
+        active.Source.Track(System.Threading.Tasks.Task.Run(async () =>
         {
             try
             {
@@ -62,16 +62,16 @@ internal static class IniWarmupCache
                 var reusable = active.Added
                     .Where(pair => inputs.Files.TryGetValue(StartupArchives.Normalize(pair.Key), out var file) &&
                         !file.HasIncludes && pair.Value.Unmodified)
-                    .ToDictionary(pair => StartupArchives.Normalize(pair.Key), pair => new Segment(inputs.Files[StartupArchives.Normalize(pair.Key)].Hash,
+                    .ToDictionary(pair => active.Source.PortablePath(pair.Key), pair => new Segment(inputs.Files[StartupArchives.Normalize(pair.Key)].Hash,
                         pair.Value), StringComparer.OrdinalIgnoreCase);
                 StartupSegments.Save(active.Source, "inis.bin.gz", SegmentFormat, reusable,
-                    pair => active.Source.LayerFor(pair.Key), ReadSegments, WriteSegments);
+                    pair => active.Source.LayerFor(active.Source.LocalPath(pair.Key)), ReadSegments, WriteSegments);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 Debug.LogWarning($"[Quickload] Could not segment parsed INIs: {error.Message}");
             }
-        });
+        }));
     }
 
     [HarmonyFinalizer, HarmonyPatch(typeof(IniHandler), nameof(IniHandler.open))]
@@ -127,13 +127,13 @@ internal static class IniWarmupCache
         Entry entry;
         if (active.Full != null)
         {
-            if (!active.Full.TryRemove(path, out entry)) return null;
+            if (!active.Full.TryRemove(active.Source.PortablePath(path), out entry)) return null;
             scanModifiers();
         }
         else
         {
             string normalized = StartupArchives.Normalize(path);
-            if (active.Inputs == null || active.Segments == null || !active.Segments.TryGetValue(normalized, out var saved) ||
+            if (active.Inputs == null || active.Segments == null || !active.Segments.TryGetValue(active.Source.PortablePath(path), out var saved) ||
                 !active.Inputs.Files.TryGetValue(normalized, out var file) || file.Hash != saved.Hash ||
                 !HasNoModifiers(path)) return null;
             entry = saved.Value;
@@ -141,8 +141,8 @@ internal static class IniWarmupCache
             entry = entry with { Data = Clone(entry.Data) };
             Interlocked.Increment(ref active.Segmented);
         }
-        ini.aliasFiles.AddRange(entry.Aliases);
-        if (entry.Copies.Length > 0) registerCopies(ini.getFilePath(), entry.Copies.ToList());
+        ini.aliasFiles.AddRange(entry.Aliases.Select(active.Source.LocalPath));
+        if (entry.Copies.Length > 0) registerCopies(ini.getFilePath(), entry.Copies.Select(active.Source.LocalPath).ToList());
         Interlocked.Increment(ref active.Restored);
         return entry.Data;
     }
@@ -158,7 +158,9 @@ internal static class IniWarmupCache
         expandTemplates(ini, data);
         if (!useCaching || persistent || forceDisk || session is not { Full: null } active || data.Count == 0) return;
         string path = ini.getFilePath();
-        if (!active.Source.Includes(path) || active.Added.ContainsKey(path)) return;
+        if (!active.Source.Includes(path) || active.Added.ContainsKey(path) ||
+            ini.aliasFiles.Any(alias => Path.IsPathRooted(alias) && !active.Source.Includes(alias)) ||
+            copies is { } source && source.Path == path && source.Files.Any(file => !active.Source.Includes(file))) return;
         // Snapshot worker output before it becomes writable through the native cache.
         active.Added.TryAdd(path, new(ini.aliasFiles.ToArray(), copies is { } copied && copied.Path == path ? copied.Files : [],
             Clone(data), HasNoModifiers(path)));
@@ -210,8 +212,12 @@ internal static class IniWarmupCache
         return result;
     }
 
-    private static void Write(Stream stream, ConcurrentDictionary<string, Entry> entries)
-        => WriteEntries(stream, entries.Count, entries.Select(pair => (pair.Key, (string?)null, pair.Value)));
+    private static void Write(Stream stream, ConcurrentDictionary<string, Entry> entries, StartupArchives source)
+        => WriteEntries(stream, entries.Count, entries.Select(pair => (source.PortablePath(pair.Key), (string?)null, pair.Value with
+        {
+            Aliases = pair.Value.Aliases.Select(source.PortablePath).ToArray(),
+            Copies = pair.Value.Copies.Select(source.PortablePath).ToArray(),
+        })));
 
     private static void WriteSegments(Stream stream, Dictionary<string, Segment> entries)
         => WriteEntries(stream, entries.Count, entries.Select(pair => (pair.Key, (string?)pair.Value.Hash, pair.Value.Value)));
