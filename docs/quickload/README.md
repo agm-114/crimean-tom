@@ -25,9 +25,18 @@ within a 4 ms budget. An individual weapon or unit can take longer than that.
 To try the experimental startup snapshots, create an empty
 `%LOCALAPPDATA%/SeaPowerQuickload/cache-unit-loadouts.enabled` file. The first
 startup writes the cache for the current game, language, year, and enabled mod
-order. Quickload compresses the resolved unit metadata, parsed INIs, and
-Encyclopedia records. Subsequent runs hash enabled INI, JSON, and DLL inputs
-while workers read and decompress the snapshots. The game still attaches live
+order. Quickload keeps compressed startup snapshots per profile alongside
+reusable INI and unit records grouped by the vanilla or mod folder that supplied
+them. After a profile change, it checks the resolved paths, file contents, and
+shared inputs before reusing those records. Files with aliases, copy directives,
+or applied modifiers use the native parser on this path. Changes to shared
+libraries can require more unit records to be rebuilt. The Encyclopedia keeps
+a full snapshot for each profile.
+Start once with the gameplay mods disabled to create a full vanilla snapshot.
+Quickload keeps it when you switch back to a modded profile.
+
+Workers hash enabled INI, JSON, and DLL inputs while they read and decompress
+the snapshots. The game still attaches live
 sensors, assigns unit IDs, applies point values, and publishes its catalog.
 The unit metadata stage and INI warmup use Sea Power's path resolution and
 cache registration. A complete unit snapshot replaces the native unit worker pass.
@@ -35,6 +44,19 @@ The Encyclopedia reuses the cached ranges, hit chances, and cross-references, th
 resolves live missile parameters on demand. Changing the Encyclopedia's naming
 options rebuilds its catalog. Delete the flag to use the native loading passes
 on the next startup.
+
+Sea Power writes its own point-value cache into a Quickload profile directory.
+Returning to a matching load order and shared inputs can reuse its unit scores
+and ammunition prices. A new profile can start from a compatible profile's
+results. The native fingerprint and per-unit hash still apply.
+
+Quickload stores the resolved sensor data by name and binds it to fresh game
+entities on startup. For isolated radar range edits, it rebinds unit metadata,
+recalculates scores for units that reference the radar, and refreshes the shared
+radar entry used by the Encyclopedia's sensor and unit pages. It checks unit
+variants, loadout and nation overrides, and references in the weapon and ammo
+libraries. Changes with unresolved dependencies, or changes to other sensor
+fields, use the native downstream loaders.
 
 ## Build and deploy
 

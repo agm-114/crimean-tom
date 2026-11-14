@@ -15,7 +15,7 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class EncyclopediaCache
 {
-    private const int Format = 2;
+    private const int Format = 3;
     private const string FileName = "encyclopedia.json.gz";
     private static readonly Type manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
     private static readonly MethodInfo setUnitsLoaded = AccessTools.PropertySetter(manager, "UnitsLoaded");
@@ -23,9 +23,11 @@ internal static class EncyclopediaCache
     // Native UI callers still get the shared game object when they open missile details.
     private static readonly ConditionalWeakTable<MuseumWeaponEntry, string> ammunition = new();
     private static Task<Snapshot?>? prefetch;
+    private static Task<Snapshot?>? radarPrefetch;
     private static Snapshot? restored;
     private static Snapshot? captured;
     private static StartupArchives? archives;
+    private static bool refreshedRadars;
 
     internal static bool HasSnapshot => restored != null;
 
@@ -33,14 +35,17 @@ internal static class EncyclopediaCache
     {
         archives = source;
         prefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()));
+        radarPrefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()), sensorIndependent: true);
     }
 
     internal static void Finish()
     {
         prefetch = null;
+        radarPrefetch = null;
         restored = null;
         captured = null;
         archives = null;
+        refreshedRadars = false;
     }
 
     internal static IEnumerator Wrap(string part, object manager, object[] arguments, IEnumerator native)
@@ -58,6 +63,27 @@ internal static class EncyclopediaCache
             restored = read.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? read.Result : null;
             if (restored is { } cache && !cache.CanRestore)
                 restored = null;
+            if (restored == null && EncyclopediaSensors.Available && ResolvedSensors.Delta is { } delta &&
+                ResolvedSensors.CanReuseEncyclopedia(delta) && radarPrefetch is { } radarRead)
+            {
+                while (!radarRead.IsCompleted) yield return null;
+                if (radarRead is { IsCompletedSuccessfully: true, Result: { CanRestore: true } radar } &&
+                    radar.SensorStamp == delta.PreviousStamp &&
+                    delta.Names.All(name => radar.Sensors.Any(sensor => sensor.IniRef == name && sensor is MuseumRadarEntry)))
+                {
+                    if (EncyclopediaSensors.TryRefreshRadars(manager, arguments[0], native, radar.Sensors, delta.Names))
+                    {
+                        radar.SensorGroups = Panel(arguments[0]).ToArray();
+                        radar.SensorStamp = ResolvedSensors.Stamp;
+                        restored = radar;
+                        refreshedRadars = true;
+                        Debug.Log($"[Quickload] Rebuilt {delta.Names.Count} Encyclopedia radar entries and reused the weapons and units.");
+                        yield return null;
+                        yield break;
+                    }
+                    native = EncyclopediaSensors.Load(manager, arguments[0]);
+                }
+            }
             if (restored == null) captured = new();
         }
 
@@ -65,6 +91,8 @@ internal static class EncyclopediaCache
         {
             (native as IDisposable)?.Dispose();
             Restore(part, manager, arguments, snapshot);
+            if (part == "units" && refreshedRadars && archives != null)
+                archives.Save(FileName, Format, snapshot, Write);
             Debug.Log($"[Quickload] Encyclopedia {part} restored from snapshot.");
             yield break;
         }
@@ -97,8 +125,10 @@ internal static class EncyclopediaCache
                 snapshot.NatoUnitNames = OptionsManager.NatoUnitNamesEnabled;
                 snapshot.NatoWeaponNames = OptionsManager.NatoWeaponNamesEnabled;
                 snapshot.Culture = System.Globalization.CultureInfo.CurrentCulture.Name;
+                snapshot.SensorStamp = ResolvedSensors.Stamp;
                 captured = null;
-                archives?.Save(FileName, Format, snapshot, (stream, data) => StartupArchives.WriteJson(stream, data, CreateSerializer()));
+                archives?.Save(FileName, Format, snapshot, Write);
+                archives?.Save(FileName, Format, snapshot, Write, sensorIndependent: true);
                 break;
         }
     }
@@ -148,6 +178,7 @@ internal static class EncyclopediaCache
     }
 
     private static JsonSerializer CreateSerializer() => JsonSerializer.Create(settings);
+    private static void Write(Stream stream, Snapshot snapshot) => StartupArchives.WriteJson(stream, snapshot, CreateSerializer());
 
     private static readonly JsonSerializerSettings settings = new()
     {
@@ -174,6 +205,7 @@ internal static class EncyclopediaCache
         [JsonRequired] public bool NatoUnitNames { get; set; }
         [JsonRequired] public bool NatoWeaponNames { get; set; }
         [JsonRequired] public string Culture { get; set; } = "";
+        public string SensorStamp { get; set; } = "";
 
         internal bool CanRestore => Panels.Length == 8 && BaseWeaponCount >= 0 && BaseWeaponCount <= Weapons.Length
             && NatoUnitNames == OptionsManager.NatoUnitNamesEnabled

@@ -4,7 +4,7 @@ using System.Reflection.Emit;
 using HarmonyLib;
 using SeaPower;
 using Debug = UnityEngine.Debug;
-using Task = System.Threading.Tasks.Task;
+using System.Threading.Tasks;
 using IniData = System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>;
 
 namespace Quickload;
@@ -14,6 +14,7 @@ internal static class IniWarmupCache
 {
     private const int Format = 2;
     private const string FileName = "ini-warmup.bin.gz";
+    private const int SegmentFormat = 1;
     private static readonly Type handler = typeof(IniHandler);
     private static readonly Action scanModifiers = AccessTools.MethodDelegate<Action>(AccessTools.Method(handler, "ScanForModifierFiles"));
     private static readonly Action<string, List<string>> registerCopies =
@@ -26,10 +27,18 @@ internal static class IniWarmupCache
     private static Session? session;
     [ThreadStatic] private static (string Path, string[] Files)? copies;
 
-    internal static Task<ConcurrentDictionary<string, Entry>?>? Prefetch(StartupArchives source) =>
-        available ? source.Read(FileName, Format, Read) : null;
+    internal static Task<Prepared>? Prefetch(StartupArchives source) => available ? ReadStartup(source) : null;
 
-    internal static void Begin(StartupArchives? source, Task<ConcurrentDictionary<string, Entry>?>? prefetch)
+    private static async Task<Prepared> ReadStartup(StartupArchives source)
+    {
+        var full = await source.Read(FileName, Format, Read).ConfigureAwait(false);
+        if (full != null) return new(full, null, null);
+        var inputTask = source.Inputs;
+        var segments = await StartupSegments.Read(source, "inis.bin.gz", SegmentFormat, ReadSegments).ConfigureAwait(false);
+        return new(null, await inputTask.ConfigureAwait(false), segments);
+    }
+
+    internal static void Begin(StartupArchives? source, Task<Prepared>? prefetch)
     {
         if (source == null || prefetch == null || session != null) return;
         var entries = prefetch.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? prefetch.Result : null;
@@ -42,8 +51,27 @@ internal static class IniWarmupCache
     {
         var active = session;
         session = null;
-        if (loaded && active is { Entries: null } && !active.Added.IsEmpty)
-            active.Source.Save(FileName, Format, active.Added, Write);
+        if (!loaded || active == null || active.Full != null || active.Added.IsEmpty) return;
+        Debug.Log($"[Quickload] Reused {active.Segmented:N0} parsed INIs from layer snapshots.");
+        active.Source.Save(FileName, Format, active.Added, Write);
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                var inputs = await active.Source.Inputs.ConfigureAwait(false);
+                var reusable = active.Added
+                    .Where(pair => inputs.Files.TryGetValue(StartupArchives.Normalize(pair.Key), out var file) &&
+                        !file.HasIncludes && pair.Value.Unmodified)
+                    .ToDictionary(pair => StartupArchives.Normalize(pair.Key), pair => new Segment(inputs.Files[StartupArchives.Normalize(pair.Key)].Hash,
+                        pair.Value), StringComparer.OrdinalIgnoreCase);
+                StartupSegments.Save(active.Source, "inis.bin.gz", SegmentFormat, reusable,
+                    pair => active.Source.LayerFor(pair.Key), ReadSegments, WriteSegments);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                Debug.LogWarning($"[Quickload] Could not segment parsed INIs: {error.Message}");
+            }
+        });
     }
 
     [HarmonyFinalizer, HarmonyPatch(typeof(IniHandler), nameof(IniHandler.open))]
@@ -94,9 +122,25 @@ internal static class IniWarmupCache
 
     private static IniData? Restore(IniHandler ini, bool useCaching, bool persistent, bool forceDisk)
     {
-        if (!useCaching || persistent || forceDisk || session is not { Entries: { } entries } active
-            || !entries.TryRemove(ini.getFilePath(), out var entry)) return null;
-        scanModifiers();
+        if (!useCaching || persistent || forceDisk || session is not { } active) return null;
+        string path = ini.getFilePath();
+        Entry entry;
+        if (active.Full != null)
+        {
+            if (!active.Full.TryRemove(path, out entry)) return null;
+            scanModifiers();
+        }
+        else
+        {
+            string normalized = StartupArchives.Normalize(path);
+            if (active.Inputs == null || active.Segments == null || !active.Segments.TryGetValue(normalized, out var saved) ||
+                !active.Inputs.Files.TryGetValue(normalized, out var file) || file.Hash != saved.Hash ||
+                !HasNoModifiers(path)) return null;
+            entry = saved.Value;
+            active.Added.TryAdd(path, entry);
+            entry = entry with { Data = Clone(entry.Data) };
+            Interlocked.Increment(ref active.Segmented);
+        }
         ini.aliasFiles.AddRange(entry.Aliases);
         if (entry.Copies.Length > 0) registerCopies(ini.getFilePath(), entry.Copies.ToList());
         Interlocked.Increment(ref active.Restored);
@@ -106,29 +150,48 @@ internal static class IniWarmupCache
     private static void RegisterCopies(string path, List<string> files)
     {
         registerCopies(path, files);
-        if (session is { Entries: null }) copies = (path, files.ToArray());
+        if (session is { Full: null }) copies = (path, files.ToArray());
     }
 
     private static void ExpandAndCapture(IniHandler ini, IniData data, bool useCaching, bool persistent, bool forceDisk)
     {
         expandTemplates(ini, data);
-        if (!useCaching || persistent || forceDisk || session is not { Entries: null } active || data.Count == 0) return;
+        if (!useCaching || persistent || forceDisk || session is not { Full: null } active || data.Count == 0) return;
         string path = ini.getFilePath();
         if (!active.Source.Includes(path) || active.Added.ContainsKey(path)) return;
         // Snapshot worker output before it becomes writable through the native cache.
-        var sections = new IniData(data.Count, data.Comparer);
-        foreach (var section in data) sections.Add(section.Key, new(section.Value, section.Value.Comparer));
-        active.Added.TryAdd(path, new(ini.aliasFiles.ToArray(), copies is { } copied && copied.Path == path ? copied.Files : [], sections));
+        active.Added.TryAdd(path, new(ini.aliasFiles.ToArray(), copies is { } copied && copied.Path == path ? copied.Files : [],
+            Clone(data), HasNoModifiers(path)));
     }
 
-    private static ConcurrentDictionary<string, Entry> Read(Stream stream)
+    private static bool HasNoModifiers(string path)
+    {
+        IniHandler.GetModifierFilePaths(path, out var extend, out var prepend);
+        return extend.Count == 0 && prepend.Count == 0;
+    }
+
+    private static IniData Clone(IniData data)
+    {
+        var sections = new IniData(data.Count, data.Comparer);
+        foreach (var section in data) sections.Add(section.Key, new(section.Value, section.Value.Comparer));
+        return sections;
+    }
+
+    private static ConcurrentDictionary<string, Entry> Read(Stream stream) =>
+        new(ReadEntries(stream, segmented: false).ToDictionary(pair => pair.Key, pair => pair.Value.Value),
+            StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, Segment> ReadSegments(Stream stream) => ReadEntries(stream, segmented: true);
+
+    private static Dictionary<string, Segment> ReadEntries(Stream stream, bool segmented)
     {
         using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
         int count = ReadCount(reader);
-        var result = new Dictionary<string, Entry>(count, StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, Segment>(count, StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < count; i++)
         {
             string path = reader.ReadString();
+            string hash = segmented ? reader.ReadString() : "";
             string[] aliases = ReadStrings(reader);
             string[] copies = ReadStrings(reader);
             int sectionCount = ReadCount(reader);
@@ -141,19 +204,26 @@ internal static class IniWarmupCache
                 for (int key = 0; key < keyCount; key++) values.Add(reader.ReadString(), reader.ReadString());
                 sections.Add(name, values);
             }
-            result.Add(path, new(aliases, copies, sections));
+            result.Add(path, new(hash, new(aliases, copies, sections, segmented)));
         }
         if (stream.ReadByte() != -1) throw new InvalidDataException("Unexpected data after the INI snapshot.");
-        return new(result, StringComparer.OrdinalIgnoreCase);
+        return result;
     }
 
     private static void Write(Stream stream, ConcurrentDictionary<string, Entry> entries)
+        => WriteEntries(stream, entries.Count, entries.Select(pair => (pair.Key, (string?)null, pair.Value)));
+
+    private static void WriteSegments(Stream stream, Dictionary<string, Segment> entries)
+        => WriteEntries(stream, entries.Count, entries.Select(pair => (pair.Key, (string?)pair.Value.Hash, pair.Value.Value)));
+
+    private static void WriteEntries(Stream stream, int count, IEnumerable<(string Path, string? Hash, Entry Value)> entries)
     {
         using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-        writer.Write(entries.Count);
+        writer.Write(count);
         foreach (var pair in entries)
         {
-            writer.Write(pair.Key);
+            writer.Write(pair.Path);
+            if (pair.Hash != null) writer.Write(pair.Hash);
             WriteStrings(writer, pair.Value.Aliases);
             WriteStrings(writer, pair.Value.Copies);
             writer.Write(pair.Value.Data.Count);
@@ -189,13 +259,19 @@ internal static class IniWarmupCache
         foreach (string value in values) writer.Write(value);
     }
 
-    internal record Entry(string[] Aliases, string[] Copies, IniData Data);
+    internal record Entry(string[] Aliases, string[] Copies, IniData Data, bool Unmodified = false);
+    internal record Segment(string Hash, Entry Value);
+    internal record Prepared(ConcurrentDictionary<string, Entry>? Full, StartupArchives.InputIndex? Inputs,
+        Dictionary<string, Segment>? Segments);
 
-    private class Session(StartupArchives source, ConcurrentDictionary<string, Entry>? entries)
+    private class Session(StartupArchives source, Prepared? prepared)
     {
         internal StartupArchives Source { get; } = source;
-        internal ConcurrentDictionary<string, Entry>? Entries { get; } = entries;
+        internal ConcurrentDictionary<string, Entry>? Full { get; } = prepared?.Full;
+        internal StartupArchives.InputIndex? Inputs { get; } = prepared?.Inputs;
+        internal Dictionary<string, Segment>? Segments { get; } = prepared?.Segments;
         internal ConcurrentDictionary<string, Entry> Added { get; } = new(StringComparer.OrdinalIgnoreCase);
         internal int Restored;
+        internal int Segmented;
     }
 }

@@ -16,13 +16,29 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class UnitMetadataCache
 {
-    private const int Format = 5;
+    private const int Format = 6;
     private const string FileName = "unit-worker-output.json.gz";
+    private const int SegmentFormat = 1;
     private static Session? session;
-    private static Task<CacheFile?>? validation;
+    private static Task<Prepared>? validation;
 
     internal static void StartValidation(StartupArchives archives) =>
-        validation = archives.Read(FileName, Format, Read);
+        validation = ReadStartup(archives);
+
+    private static async Task<Prepared> ReadStartup(StartupArchives archives)
+    {
+        var full = await archives.Read(FileName, Format, Read).ConfigureAwait(false);
+        if (full != null) return new(full, null, null, false);
+        var radarCompatible = await archives.Read(FileName, Format, Read, sensorIndependent: true).ConfigureAwait(false);
+        if (radarCompatible != null) return new(radarCompatible, null, null, true);
+        var inputs = await archives.Inputs.ConfigureAwait(false);
+        var segments = await StartupSegments.Read(archives, UnitSegmentFile(inputs), SegmentFormat, ReadSegment).ConfigureAwait(false);
+        return new(null, inputs, segments, false);
+    }
+
+    private static string UnitSegmentFile(StartupArchives.InputIndex inputs) => $"units-{inputs.SharedUnitInputs}.json.gz";
+    private static Dictionary<string, Segment>? ReadSegment(Stream stream) =>
+        StartupArchives.ReadJson<Dictionary<string, Segment>>(stream, UnitWorkerOutput.CreateSerializer());
 
     private static CacheFile? Read(Stream stream)
     {
@@ -43,7 +59,10 @@ internal static class UnitMetadataCache
         {
             Debug.LogWarning($"[Quickload] Unit metadata cache unavailable: {task.Exception?.GetBaseException()}");
         }
-        var prepared = new Session(task.Status == TaskStatus.RanToCompletion ? task.Result : null);
+        var candidate = task.Status == TaskStatus.RanToCompletion ? task.Result : null;
+        if (candidate is { SensorIndependent: true } && (ResolvedSensors.Delta is not { } delta ||
+            candidate.Full?.SensorStamp != delta.PreviousStamp)) candidate = null;
+        var prepared = new Session(candidate);
         var sensors = Singleton<SensorMetadataProvider>.Instance;
         prepared.SensorNames = sensors.Sensors.ToDictionary(pair => pair.Value, pair => pair.Key);
         foreach (var record in prepared.SignatureRecords)
@@ -58,9 +77,72 @@ internal static class UnitMetadataCache
         session = null;
         if (completed == null || archives == null || !loaded) return;
         Debug.Log($"[Quickload] Unit metadata cache restored {completed.Restored} units.");
-        if (completed.Added.IsEmpty || completed.Restored > 0) return;
+        if (completed.SensorIndependent && completed.Restored > 0 && completed.Original is { } compatible)
+        {
+            compatible.SensorStamp = ResolvedSensors.Stamp;
+            archives.Save(FileName, Format, compatible, WriteCache);
+            return;
+        }
+        if (completed.Added.IsEmpty || completed.Full && completed.Restored > 0) return;
         var snapshot = completed.BuildCache();
-        archives.Save(FileName, Format, snapshot, (stream, data) => StartupArchives.WriteJson(stream, data, UnitWorkerOutput.CreateSerializer()));
+        archives.Save(FileName, Format, snapshot, WriteCache);
+        archives.Save(FileName, Format, snapshot, WriteCache, sensorIndependent: true);
+        _ = BackgroundTask.Run(async () =>
+        {
+            try
+            {
+                var inputs = await archives.Inputs.ConfigureAwait(false);
+                var records = new Dictionary<string, Segment>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, output) in snapshot.Units)
+                {
+                    if (!completed.Stamps.TryGetValue(key, out var stamp)) continue;
+                    records[stamp.Path] = new(stamp, output,
+                        output.Ammunition.Select(reference => reference.Name).Distinct()
+                            .ToDictionary(name => name, name => snapshot.Ammunition[name], StringComparer.Ordinal),
+                        snapshot.Signatures.Where(record => output.SignatureIds.Contains(record.Id)).ToArray());
+                }
+                StartupSegments.Save(archives, UnitSegmentFile(inputs), SegmentFormat, records, pair => archives.LayerFor(pair.Key),
+                    ReadSegment,
+                    (stream, data) => StartupArchives.WriteJson(stream, data, UnitWorkerOutput.CreateSerializer()));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or KeyNotFoundException)
+            {
+                Debug.LogWarning($"[Quickload] Could not write unit layer snapshots: {error.Message}");
+            }
+        });
+    }
+
+    private static void WriteCache(Stream stream, CacheFile data) =>
+        StartupArchives.WriteJson(stream, data, UnitWorkerOutput.CreateSerializer());
+
+    [HarmonyPrefix, HarmonyPatch(typeof(SimpleObjectParameters), nameof(SimpleObjectParameters.LoadSimpleParameters))]
+    private static bool RestoreSegment(string objectIniName, string objectIniFolder, int objectNumber, ref SimpleObjectParameters __result)
+    {
+        if (objectNumber != 0 || !SimpleObjectParameters.DeferSensorEntityCreation || session is not { Full: false } active ||
+            active.Inputs == null || active.Segments == null || active.Segments.Count == 0) return true;
+        var stamp = UnitStamp.Create(active.Inputs, objectIniFolder, objectIniName);
+        if (stamp == null || !active.Segments.TryGetValue(stamp.Path, out var segment) || segment.Stamp != stamp) return true;
+
+        var sensors = Singleton<SensorMetadataProvider>.Instance;
+        try
+        {
+            var prepared = segment.Output.Restore(objectIniFolder, objectIniName, sensors, segment.Signatures.ToDictionary(
+                record => record.Id, record => sensors.GetSignatureId(record.Key, record.Family, record.Category)), segment.Ammunition);
+            var output = UnitWorkerOutput.Capture(prepared, active.SensorNames);
+            var live = Singleton<UnitMetadataProvider>.Instance.AmmunitionData;
+            foreach (var pair in segment.Ammunition) live.TryAdd(pair.Key, pair.Value);
+            foreach (var ammo in prepared.OnboardAmmunition) ammo.Ammunition = live[ammo.Ammunition.Name];
+            __result = prepared;
+            active.Stamps[objectIniFolder + "/" + objectIniName] = stamp;
+            active.Added[objectIniFolder + "/" + objectIniName] = output;
+            Interlocked.Increment(ref active.Restored);
+            return false;
+        }
+        catch (Exception error) when (error is JsonException or IOException or KeyNotFoundException or ArgumentException or NullReferenceException)
+        {
+            Debug.LogWarning($"[Quickload] Rebuilding unit {objectIniName}: {error.Message}");
+            return true;
+        }
     }
 
     [HarmonyPatch]
@@ -123,7 +205,7 @@ internal static class UnitMetadataCache
 
                 foreach (var pair in active.Ammunition) ammunition.TryAdd(pair.Key, pair.Value);
                 active.Restored = results.Length;
-                active.Entries.Clear();
+                if (!active.SensorIndependent) active.Entries.Clear();
                 Debug.Log($"[Quickload] Supplied {results.Length:N0} cached records without the native unit worker pool.");
                 return default;
             });
@@ -137,8 +219,12 @@ internal static class UnitMetadataCache
             || __result?._ini == null || session is not { } active) return;
         try
         {
-            active.Added[__result._objectIniFolder + "/" + __result._objectIniName] =
-                UnitWorkerOutput.Capture(__result, active.SensorNames);
+            string key = __result._objectIniFolder + "/" + __result._objectIniName;
+            active.Added[key] = UnitWorkerOutput.Capture(__result, active.SensorNames);
+            if (active.Inputs is { } inputs &&
+                UnitStamp.Create(inputs, __result._objectIniFolder, __result._objectIniName) is { } stamp &&
+                string.Equals(stamp.Path, StartupArchives.Normalize(__result._ini.getFilePath()), StringComparison.OrdinalIgnoreCase))
+                active.Stamps[key] = stamp;
         }
         catch (Exception error) when (error is JsonException or KeyNotFoundException)
         {
@@ -146,12 +232,18 @@ internal static class UnitMetadataCache
         }
     }
 
-    private class Session(CacheFile? snapshot)
+    private class Session(Prepared? prepared)
     {
-        internal readonly ConcurrentDictionary<string, UnitWorkerOutput> Entries = snapshot?.Units ?? new(StringComparer.Ordinal);
+        internal readonly bool Full = prepared?.Full != null;
+        internal readonly bool SensorIndependent = prepared?.SensorIndependent == true;
+        internal readonly CacheFile? Original = prepared?.Full;
+        internal readonly StartupArchives.InputIndex? Inputs = prepared?.Inputs;
+        internal readonly Dictionary<string, Segment>? Segments = prepared?.Segments;
+        internal readonly ConcurrentDictionary<string, UnitStamp> Stamps = new(StringComparer.Ordinal);
+        internal readonly ConcurrentDictionary<string, UnitWorkerOutput> Entries = prepared?.Full?.Units ?? new(StringComparer.Ordinal);
         internal readonly ConcurrentDictionary<string, UnitWorkerOutput> Added = new(StringComparer.Ordinal);
-        internal readonly Dictionary<string, AmmunitionSimpleParameters> Ammunition = snapshot?.Ammunition ?? new(StringComparer.Ordinal);
-        internal readonly SignatureRecord[] SignatureRecords = snapshot?.Signatures ?? [];
+        internal readonly Dictionary<string, AmmunitionSimpleParameters> Ammunition = prepared?.Full?.Ammunition ?? new(StringComparer.Ordinal);
+        internal readonly SignatureRecord[] SignatureRecords = prepared?.Full?.Signatures ?? [];
         internal Dictionary<int, int> Signatures = [];
         internal Dictionary<Entity, string> SensorNames = [];
         internal int Restored;
@@ -162,6 +254,7 @@ internal static class UnitMetadataCache
             return new()
             {
                 Units = Added,
+                SensorStamp = ResolvedSensors.Stamp,
                 Ammunition = new(Singleton<UnitMetadataProvider>.Instance.AmmunitionData),
                 Signatures = sensor.SignatureIdMap.Select(pair => new SignatureRecord(pair.Key, pair.Value,
                     sensor.FamilyMap[pair.Value], sensor.CategoryMap[pair.Value])).ToArray(),
@@ -174,7 +267,40 @@ internal static class UnitMetadataCache
         [JsonProperty(Required = Required.Always)] public ConcurrentDictionary<string, UnitWorkerOutput> Units = new(StringComparer.Ordinal);
         [JsonProperty(Required = Required.Always)] public Dictionary<string, AmmunitionSimpleParameters> Ammunition = [];
         [JsonProperty(Required = Required.Always)] public SignatureRecord[] Signatures = [];
+        [JsonProperty(Required = Required.Always)] public string SensorStamp = "";
     }
 
     private record SignatureRecord(int Id, string Key, string? Family, string? Category);
+    private record Prepared(CacheFile? Full, StartupArchives.InputIndex? Inputs, Dictionary<string, Segment>? Segments, bool SensorIndependent);
+    private record Segment(UnitStamp Stamp, UnitWorkerOutput Output, Dictionary<string, AmmunitionSimpleParameters> Ammunition,
+        SignatureRecord[] Signatures);
+
+    private record UnitStamp(string Path, string Digest)
+    {
+        internal static UnitStamp? Create(StartupArchives.InputIndex inputs, string folder, string name)
+        {
+            var manager = Singleton<FileManager>.Instance;
+            string? mainPath = null;
+            var keys = new List<string> { inputs.SharedUnitInputs };
+            foreach (string suffix in new[] { "", "_variants", "_squadrons" })
+            {
+                string path = manager.GetFile($"{folder}/{name}{suffix}.ini");
+                if (path == null)
+                {
+                    if (suffix.Length == 0) return null;
+                    if (IniHandler.GetCopySources(name).Count > 0) return null;
+                    keys.Add("");
+                    continue;
+                }
+                path = StartupArchives.Normalize(path);
+                if (!inputs.Files.TryGetValue(path, out var file) || file.HasIncludes) return null;
+                IniHandler.GetModifierFilePaths(path, out var extend, out var prepend);
+                if (extend.Count > 0 || prepend.Count > 0) return null;
+                mainPath ??= path;
+                keys.Add(path);
+                keys.Add(file.Hash);
+            }
+            return new(mainPath!, StartupArchives.Digest(string.Join("\0", keys)));
+        }
+    }
 }
