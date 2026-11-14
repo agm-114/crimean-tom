@@ -89,6 +89,7 @@ internal static class LoadingHooks
                 if (method.Name is "Awake" or "Start" or "OnStart" or "OnEnable" or "RefreshSearchDirectories" or "GetSearchDirectories" or "InitialLoadActions" or "Init" or "OnBeforeSplashScreen")
                     Patch(method, nameof(CallStart), finalizer: nameof(CallEnd));
         }
+        UnitMetadataTiming.Install(harmony);
         TraceLog.Write("hooks-ready");
 
         void Patch(MethodBase? method, string? prefix = null, string? postfix = null, string? finalizer = null, string[]? after = null)
