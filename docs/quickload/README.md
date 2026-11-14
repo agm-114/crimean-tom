@@ -9,7 +9,9 @@ Encyclopedia, Options and Mods unlock after the encyclopedia finishes. Manual,
 Credits and Exit are available from the start.
 
 Sea Power still builds its own INI cache and unit metadata. Quickload runs the
-native startup routines behind the menu. The Encyclopedia shows the reference
+native startup routines behind the menu. Music loads in the background after
+Scenarios unlocks. Voice definitions are ready before a mission starts, and the
+game loads voice clips as needed. The Encyclopedia shows the reference
 browser while its scene loads. The same browser moves into the in-scene window
 with the current search and selection. Unit testing becomes available while
 terrain continues streaming. Regular missions still wait for terrain.

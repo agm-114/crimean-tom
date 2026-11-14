@@ -17,6 +17,8 @@ internal static class StartupLoading
     private static bool failed;
     private static bool preparingEncyclopedia;
     private static bool hasEncyclopedia;
+    private static bool loadingMusic;
+    private static bool advancingMusic;
     private static string detail = "Preparing game data…";
     private static MenuProgress? display;
     private static LoadProgress? progress;
@@ -56,8 +58,8 @@ internal static class StartupLoading
             if (Active) Singleton<BackgroundSceneController>.Instance.StartCoroutine(LoadBehindMenu());
             return action.GetEnumerator();
         }
-        if (action.description is not ("MusicManager LoadMusicAsync" or "MusicManager CreateAudioSource"
-            or "VoiceMessage_LoadClips" or "SensorMetadataProvider LoadSensorMetadata" or "UnitMetadataProvider LoadUnitMetadata"
+        if (!IsMusic(action) && action.description is not (
+            "VoiceMessage_LoadClips" or "SensorMetadataProvider LoadSensorMetadata" or "UnitMetadataProvider LoadUnitMetadata"
             or "IniPreloader PreloadAll" or "EncyclopedicDataManager.GetMuseumEntries" or "WriteTacViewDatabase" or "ClearLaunchMarker")) return action.GetEnumerator();
 
         pending.Add(action);
@@ -68,6 +70,7 @@ internal static class StartupLoading
     [HarmonyPrefix, HarmonyPatch(typeof(LoadScreen), nameof(LoadScreen.LoadText), MethodType.Setter)]
     private static bool KeepKeelWaiting(LoadScreen __instance, string value)
     {
+        if (advancingMusic) return false;
         if (!Active || collecting || coreReady) return true;
         // Keel uses the native "Done" marker to start mods that need the unit catalogue.
         if (value == "Done" && __instance.cameraObject.enabled) return false;
@@ -75,6 +78,13 @@ internal static class StartupLoading
         detail = value;
         return false;
     }
+
+    [HarmonyPrefix, HarmonyPatch(typeof(LoadScreen), nameof(LoadScreen.LoadPercent), MethodType.Setter)]
+    private static bool SuppressMusicProgress() => !advancingMusic;
+
+    // A mission with ForceMusicLoading can request the same load while startup music is in flight.
+    [HarmonyPrefix, HarmonyPatch(typeof(MusicManager), nameof(MusicManager.ReloadMusic))]
+    private static bool SkipDuplicateMusicLoad() => !loadingMusic;
 
     [HarmonyPrefix, HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoLoad))]
     private static void RequireData()
@@ -86,9 +96,10 @@ internal static class StartupLoading
     {
         var screen = Singleton<LoadScreen>.Instance;
         while (screen.cameraObject.enabled || MainMenuView.Instance is not { IsVisible: true }) yield return null;
-        var stages = pending.Where(action => !IsEncyclopedia(action)).ToArray();
+        var stages = pending.Where(action => !IsEncyclopedia(action) && !IsMusic(action)).ToArray();
+        var music = pending.Where(IsMusic).ToArray();
         progress = new(stages.Select(action => StageName(action.description))
-            .Concat(hasEncyclopedia ? new[] { "Brief menu pause", "Encyclopedia sensors", "Encyclopedia weapons", "Encyclopedia units" } : []).ToArray());
+            .Concat(hasEncyclopedia ? new[] { "Encyclopedia sensors", "Encyclopedia weapons", "Encyclopedia units" } : []).ToArray());
         Debug.Log("[Quickload] Main menu visible; loading deferred startup data.");
         yield return null;
         foreach (var action in stages)
@@ -105,6 +116,8 @@ internal static class StartupLoading
         coreReady = true;
         screen.LoadText = "Done";
         Debug.Log("[Quickload] Core startup data ready.");
+        if (music.Length > 0)
+            Singleton<BackgroundSceneController>.Instance.StartCoroutine(LoadMusic(music));
         var museum = pending.Find(IsEncyclopedia);
         if (museum.description == null)
         {
@@ -117,16 +130,26 @@ internal static class StartupLoading
         preparingEncyclopedia = true;
         try
         {
-            BeginStage("Encyclopedia starts shortly…");
-            // Give the player a chance to choose a scenario before native encyclopedia
-            // work starts, since some of its routines don't yield until a batch is done.
-            yield return new WaitForSecondsRealtime(5f);
-            progress.Finish();
             yield return Run(museum.GetEnumerator(), waitForMenu: true);
             while (!EncyclopediaLoading.Ready && !failed) yield return null;
             if (!failed) FinishProgress();
         }
         finally { preparingEncyclopedia = false; }
+    }
+
+    private static IEnumerator LoadMusic(LoadAction[] actions)
+    {
+        loadingMusic = true;
+        try
+        {
+            yield return null;
+            var start = Time.realtimeSinceStartup;
+            Debug.Log("[Quickload] Loading music after core startup.");
+            foreach (var action in actions) yield return Run(action.GetEnumerator(), backgroundMusic: true);
+            if (Singleton<MusicManager>.Instance._isInitialized)
+                Debug.Log($"[Quickload] Music ready: {Time.realtimeSinceStartup - start:F2}s");
+        }
+        finally { loadingMusic = false; }
     }
 
     internal static IEnumerator BuildEncyclopediaPart(string part, IEnumerator routine)
@@ -135,6 +158,12 @@ internal static class StartupLoading
         {
             yield return routine;
             yield break;
+        }
+        // The native weapon pass can hold a single frame for seconds. Let music finish while the menu still responds.
+        if (part == "weapons" && loadingMusic)
+        {
+            detail = "Loading music…";
+            while (loadingMusic) yield return null;
         }
         BeginStage($"Loading encyclopedia {part}…");
         yield return Run(routine, waitForMenu: true);
@@ -149,8 +178,6 @@ internal static class StartupLoading
 
     private static string StageName(string action) => action switch
     {
-        "MusicManager LoadMusicAsync" => "Music",
-        "MusicManager CreateAudioSource" => "Menu audio",
         "VoiceMessage_LoadClips" => "Voice messages",
         "SensorMetadataProvider LoadSensorMetadata" => "Sensor data",
         "UnitMetadataProvider LoadUnitMetadata" => "Unit data",
@@ -160,6 +187,7 @@ internal static class StartupLoading
     };
 
     private static bool IsEncyclopedia(LoadAction action) => action.description == "EncyclopedicDataManager.GetMuseumEntries";
+    private static bool IsMusic(LoadAction action) => action.description is "MusicManager LoadMusicAsync" or "MusicManager CreateAudioSource";
 
     private static void FinishProgress()
     {
@@ -170,7 +198,7 @@ internal static class StartupLoading
         progress = null;
     }
 
-    private static IEnumerator Run(IEnumerator routine, bool waitForMenu = false)
+    private static IEnumerator Run(IEnumerator routine, bool waitForMenu = false, bool backgroundMusic = false)
     {
         try
         {
@@ -180,19 +208,25 @@ internal static class StartupLoading
                 object? item;
                 try
                 {
+                    advancingMusic = backgroundMusic;
                     if (!routine.MoveNext()) yield break;
                     item = routine.Current;
                 }
                 catch (Exception error)
                 {
-                    failed = true;
-                    progress?.SetRunning(false);
-                    Debug.LogError($"[Quickload] Deferred startup failed: {error}");
+                    if (backgroundMusic) Debug.LogWarning($"[Quickload] Music loading failed: {error}");
+                    else
+                    {
+                        failed = true;
+                        progress?.SetRunning(false);
+                        Debug.LogError($"[Quickload] Deferred startup failed: {error}");
+                    }
                     yield break;
                 }
-                if (item is IEnumerator nested and not CustomYieldInstruction) yield return Run(nested, waitForMenu);
+                finally { advancingMusic = false; }
+                if (item is IEnumerator nested and not CustomYieldInstruction) yield return Run(nested, waitForMenu, backgroundMusic);
                 else yield return item;
-                if (failed) yield break;
+                if (failed && !backgroundMusic) yield break;
             }
         }
         finally { (routine as IDisposable)?.Dispose(); }
