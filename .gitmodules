@@ -2,3 +2,11 @@
 	path = external/AnchorChain
 	url = https://github.com/SeaPower-Modders/AnchorChain.git
 	branch = main
+[submodule "external/SeaPowerKeel"]
+	path = external/SeaPowerKeel
+	url = https://github.com/struckl/SeaPowerKeel.git
+	branch = main
+[submodule "external/SeaPowerFlotilla"]
+	path = external/SeaPowerFlotilla
+	url = https://github.com/agm-114/SeaPowerFlotilla.git
+	branch = codex/flotilla-cli
