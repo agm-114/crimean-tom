@@ -40,3 +40,31 @@ It uses the Windows Bahnschrift font. It creates no AI artwork, edits no mod
 descriptions, and does not build, deploy, launch or upload the mods.
 Git ignores the renders, cached photos, and generated thumbnails. OODA and
 Observer use pinned source photos and fixed crops in the manifest.
+
+## Controls and Settings
+
+Capture the real game UI at 1920 × 1200. Close Sea Power first and have the
+Sea Power CLI and Game Bridge installed for local testing. Enable Deck Tweaks
+before capturing Settings. For Controls, .NET builds a temporary bridge with the
+seven-window gallery and restores the installed bridge after the capture. Use
+`-AnchorChainDll` if your build uses an Anchor Chain reference outside the default
+Steam Workshop folder.
+
+```powershell
+./scripts/capture-workshop-icons.ps1
+./scripts/capture-workshop-icons.ps1 -Mod controls
+./scripts/capture-workshop-icons.ps1 -Mod settings
+```
+
+The script starts Sea Power through Steam, writes `controls.jpg` and
+`settings.jpg` to `artifacts/mod-icons/`, and closes the capture session.
+Settings uses the shipped **Options → Gameplay → Deck Tweaks** page and expands
+the weapon mounting section. Controls uses the gallery in
+`scripts/workshop-icon-gallery/UiGallery.cs`. The square crops leave room at
+the bottom for the Workshop item name.
+
+Use `content/workshop/controls/_info.ini` and
+`content/workshop/settings/_info.ini` for the public descriptions.
+The Controls Workshop payload is `SeaPower.Controls.dll` from
+`src/SeaPower.Controls`, plus its README, metadata, and `controls.jpg` as
+`thumbnail.jpg`.
