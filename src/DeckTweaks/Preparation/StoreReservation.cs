@@ -8,6 +8,14 @@ internal class StoreReservation
     private double ammoPoints;
     private readonly Dictionary<string, int> categories = new(StringComparer.OrdinalIgnoreCase);
 
+    internal static StoreReservation ForLoadout(Loadout loadout, int count)
+    {
+        StoreReservation reservation = new() { ammoPoints = loadout._ammoPoints * count };
+        foreach (var entry in loadout._accountableAmmunition)
+            reservation.categories[entry.Key] = entry.Value * count;
+        return reservation;
+    }
+
     internal static StoreReservation Excess(PreparationBatch batch, PreparationLoadout target) => From(batch.Aircraft, target);
     internal static StoreReservation From(IEnumerable<AircraftPreparation> aircraft, PreparationLoadout? target = null)
     {

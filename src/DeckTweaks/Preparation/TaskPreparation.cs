@@ -13,6 +13,7 @@ internal class TaskPreparation(PreparationBatch batch)
     private PreparationLoadout? abortReturnTarget;
     private Func<double, double>? drawFuel;
     internal PreparationBatch Batch { get; } = batch;
+    internal Guid RecoveryFlight { get; set; }
     internal StoreReservation Reservation { get; private set; } = new();
     internal static TaskPreparation? Find(PendingLaunchTask task) => Tasks.TryGetValue(task, out var preparation) ? preparation : null;
     internal static Loadout Selected(PendingLaunchTask task) => task.VehicleType.Loadouts[task._loadoutIndex];
@@ -55,6 +56,25 @@ internal class TaskPreparation(PreparationBatch batch)
         Batch.Retarget(target);
         TaskPreparation preparation = Attach(replacement, Batch);
         preparation.UpdateReservation(replacement);
+    }
+
+    internal void Resize(PendingLaunchTask task)
+    {
+        UpdateReservation(task);
+        int count = Batch.Aircraft.Count;
+        bool wasReady = task._stateMachine.CurrentState is HandleAwaitSpawnTask;
+        task._ltp._launchCount = count;
+        task.multipleLaunch = count > 1;
+        task.AssignedGroundCrew = Math.Min(task.AssignedGroundCrew, count);
+        task.AssignedDeckSpots = Math.Min(task.AssignedDeckSpots, count);
+        task.LaunchCount = count;
+        if (wasReady || task.AssignedDeckSpots < count)
+        {
+            // The native Ready state leaves its Launch command attached on exit.
+            if (wasReady && task.Commands.Count > 1) task.Commands.RemoveAt(1);
+            task.AssignedGroundCrew = 0;
+            task._stateMachine.SetStateByName(nameof(HandleAwaitDeckSpaceTask));
+        }
     }
 
     internal void BeginAbort(PendingLaunchTask task)
@@ -112,7 +132,7 @@ internal class TaskPreparation(PreparationBatch batch)
         string complete = abortReturnTarget == null ? "Ready" : "Empty";
         bool noFuel = DeckFuel.Available(task._flightDeck) <= 0;
         return string.Join("\n", Batch.Aircraft.Select(aircraft => aircraft.Ready ? complete
-            : aircraft.NeedsFuel && noFuel ? "Awaiting aviation fuel"
+            : aircraft.NextWorkNeedsFuel && noFuel ? "Awaiting aviation fuel"
             : crews-- > 0 ? aircraft.Activity(PreparationCatalog.WeaponName) : waiting).GroupBy(activity => activity)
             .Select(group => $"{group.Count()}x {group.Key}"));
     }
@@ -198,7 +218,7 @@ internal class TaskPreparation(PreparationBatch batch)
         preparation.UpdateReservation(task);
         preparation.Sync(task);
         double seconds = preparation.Batch.EstimatedSeconds(task.AssignedGroundCrew) / speed;
-        task.Info = preparation.Batch.Aircraft.Any(aircraft => aircraft.NeedsFuel) && DeckFuel.Available(task._flightDeck) <= 0
+        task.Info = preparation.Batch.Aircraft.Any(aircraft => aircraft.NextWorkNeedsFuel) && DeckFuel.Available(task._flightDeck) <= 0
             ? "Awaiting aviation fuel" : !double.IsFinite(seconds) ? "Awaiting crew"
             : $"{task.AssignedGroundCrew} crew, batch ready in {(int)(seconds / 60)}:{(int)(seconds % 60):00}";
         return false;

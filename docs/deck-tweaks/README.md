@@ -12,15 +12,18 @@ Aircraft launch as a batch, only after every member is ready.
 ## Preparation
 
 Aircraft without a tracked hangar record start with empty internal fuel and no
-mounted ammunition. Returning aircraft retain their remaining internal fuel and
-weapons through vanilla recovery servicing. The next player preparation batch
-uses available recovered aircraft from that squadron first, then untracked
-aircraft. One assigned crew works on one aircraft at a time, in this order:
+mounted ammunition. Returning aircraft keep their remaining internal fuel and
+weapons. As each clears the deck, Deck Tweaks queues it on its previous loadout.
+Aircraft from the same returning flight, squadron, and loadout join the same
+batch while it is holding for launch and has room. They wait for crew, deck space,
+and supplies, then hold for your **Launch** order. You can change their loadout or
+abort in Flight Operations. Each assigned crew works on one aircraft at a time:
 
-1. Refuel.
-2. Load built-in guns, chaff and flares.
-3. Fill weapon stations that are known to be free. Load weapons shared by more of the aircraft's date-appropriate loadouts first.
-4. Remove excess or incompatible stores as needed, then fill newly available stations before unloading the next type of store.
+1. Service a recovered aircraft for five minutes at the base preparation rate.
+2. Refuel.
+3. Load built-in guns, chaff and flares.
+4. Fill weapon stations that are known to be free. Load weapons shared by more of the aircraft's date-appropriate loadouts first.
+5. Remove excess or incompatible stores as needed, then fill newly available stations before unloading the next type of store.
 
 Changing loadouts keeps fuel, common stores and fractional loading or unloading
 progress. Incompatible stores remain aboard until crews remove them; removal
@@ -36,6 +39,10 @@ The row hides Preparation, Launch and Prioritise while unloading.
 
 State shows counts by actual activity, such as `1x Refueling`, `1x Loading Mk 46`,
 `1x Unloading Mk 46`, `1x Awaiting Crew` and `1x Ready`.
+Use **+** and **−** beside the total flight size in State to adjust a preparing
+batch one aircraft at a time. **+** adds an available aircraft from the same
+squadron. **−** returns the last aircraft to the hangar with its fuel and
+mounted stores. The other aircraft keep their preparation progress.
 Info shows assigned crew and the estimated time until the batch is
 ready, assuming its current crew allocation. The game's flight-deck timing
 multiplier applies. Instant preparation settings complete all work immediately.
@@ -48,7 +55,8 @@ fuel already aboard. Deck Tweaks works independently when UNREP is absent.
 
 Select the caret beside the batch ETA in Info to show per-aircraft details across
 the Loadout and Info cells, below the loadout dropdown. Select it again to restore
-the ETA. Hover over the ETA, State cell or closed Loadout dropdown for the same
+the ETA. The caret disappears when the batch is ready. Hover over the ETA, State
+text or closed Loadout dropdown for the same
 details. They show each aircraft's fuel in kg and percentage,
 effective refueling rate while below full, and time to full fuel. Missing, partially loaded,
 excess and incompatible weapons show quantities and remaining work time per type.
@@ -77,10 +85,9 @@ Scope:
   Station layouts identify where a retained weapon could be mounted. If the
   layout cannot rule out a conflict, crews clear the possible blocker first.
   External tanks have mounting time; their fuel is not modeled separately.
-- Recovery servicing duration, aircraft already airborne, AI preparation and scripted
-  launches keep their native behavior. Normal player recovery captures fuel and
-  stores before despawn; instant/debug recovery is not captured. Spawned aircraft use the complete native
-  loadout and fuel state once preparation finishes.
+- Normal player recovery captures fuel and stores before despawn. AI and
+  instant/debug recovery use native servicing. Spawned aircraft use the complete
+  native loadout and fuel state once preparation finishes.
 - Tactical saves retain detailed preparation in an extra field on the native
   pending-task record and a separate hangar field, including aircraft still
   servicing. Saves without those fields use native timing for their
@@ -142,11 +149,11 @@ aircraft regardless of its weapons, and stores take time per item.
 Heavy loads take longer, unarmed aircraft have little or no stores work, and
 returning aircraft need only the fuel and stores they actually used.
 
-Both operation multipliers apply to refueling, mounting and removal. They multiply
+Both operation multipliers apply to servicing, refueling, mounting and removal. They multiply
 together, and the game difficulty setting scales the resulting duration.
 For example, aircraft `1.25` × nation `0.8` leaves duration unchanged. Values above
 1 are slower. Nations refer to the operator, not where the aircraft was built.
-These modifiers do not change recovery servicing, taxiing, launch intervals or AI
+These modifiers do not change taxiing, launch intervals or AI
 tasks. The stock instant setting completes preparation immediately.
 
 All configuration values must be positive and at most 86,400.

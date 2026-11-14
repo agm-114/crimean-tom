@@ -39,14 +39,18 @@ internal readonly struct PreparationLine(string text, string? perUnit = null, st
 internal class AircraftPreparation
 {
     internal double Fuel { get; private set; }
+    internal double ServiceSecondsRemaining { get; set; }
     internal Dictionary<string, double> Mounted { get; } = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, StoreRequirement> knownStores = new(StringComparer.OrdinalIgnoreCase);
     internal PreparationLoadout Target { get; private set; }
-    internal double RemainingWork => Operations().Sum(operation => operation.Amount * operation.Seconds);
+    private double ServiceWork => Target.Refuel ? ServiceSecondsRemaining : 0;
+    internal double RemainingWork => ServiceWork + Operations().Sum(operation => operation.Amount * operation.Seconds);
     internal bool Ready => RemainingWork <= 0;
     internal bool NeedsFuel => Target.Refuel && Fuel < 1;
+    internal bool NextWorkNeedsFuel => ServiceWork <= 0 && NeedsFuel;
     internal string Activity(Func<string, string> weaponName)
     {
+        if (ServiceWork > 0) return "Servicing";
         var operation = Operations().FirstOrDefault();
         return operation.Amount <= 0 ? "Ready" : operation.Reference == "" ? operation.Activity
             : $"{operation.Activity} {weaponName(operation.Reference)}";
@@ -55,7 +59,7 @@ internal class AircraftPreparation
     internal IEnumerable<PreparationLine> Describe(double workSpeed, bool working, string waiting, Func<string, string> weaponName)
     {
         Dictionary<string, double> completion = new(StringComparer.OrdinalIgnoreCase);
-        double elapsed = 0;
+        double elapsed = ServiceWork / workSpeed;
         foreach (var operation in Operations())
         {
             elapsed += operation.Amount * operation.Seconds / workSpeed;
@@ -64,6 +68,8 @@ internal class AircraftPreparation
         double total = Target.Stores.Sum(store => store.Amount * store.MountSeconds);
         double loaded = Target.Stores.Sum(store => Math.Min(store.Amount, Mounted.GetValueOrDefault(store.Reference)) * store.MountSeconds);
         yield return new(Ready ? (Target.Refuel ? "Ready" : "Empty") : working ? Activity(weaponName) : $"{waiting} (times after crew assignment)");
+        if (ServiceWork > 0)
+            yield return new("Post-flight servicing", completion: $"Serviced in {Duration(ServiceWork / workSpeed)}");
         yield return new($"Fuel: {Fuel * Target.FuelCapacity:0.0}/{Target.FuelCapacity:0.0} kg, {Math.Floor(Fuel * 100):0}%");
         if (Target.Refuel && Fuel < 1)
         {
@@ -72,8 +78,9 @@ internal class AircraftPreparation
             else
             {
                 double rate = Target.FuelCapacity / Target.RefuelSeconds * workSpeed;
-                string service = working ? $"{rate:0.00} kg/s" : $"0 kg/s ({rate:0.00} kg/s when assigned)";
-                yield return new($"Refueling: {service}", completion: $"Refueled in {Duration((1 - Fuel) * Target.RefuelSeconds / workSpeed)}");
+                string rateText = !working ? $"0 kg/s ({rate:0.00} kg/s when assigned)"
+                    : ServiceWork > 0 ? $"0 kg/s ({rate:0.00} kg/s after servicing)" : $"{rate:0.00} kg/s";
+                yield return new($"Refueling: {rateText}", completion: $"Refueled in {Duration(completion[""])}");
             }
         }
         yield return new($"Target stores loaded: {(total > 0 ? Math.Floor(loaded / total * 100) : 100):0}%");
@@ -115,7 +122,7 @@ internal class AircraftPreparation
 
     internal AircraftPreparation Preview(PreparationLoadout target)
     {
-        AircraftPreparation preview = new(Target) { Fuel = Fuel };
+        AircraftPreparation preview = new(Target) { Fuel = Fuel, ServiceSecondsRemaining = ServiceSecondsRemaining };
         foreach (var store in knownStores) preview.knownStores[store.Key] = store.Value;
         foreach (var store in Mounted) preview.Mounted[store.Key] = store.Value;
         preview.Retarget(target);
@@ -162,7 +169,10 @@ internal class AircraftPreparation
 
     internal bool Advance(double seconds, Func<double, double>? drawFuel = null)
     {
-        bool progressed = false;
+        double servicing = Math.Min(seconds, ServiceWork);
+        ServiceSecondsRemaining -= servicing;
+        seconds -= servicing;
+        bool progressed = servicing > 0;
         while (seconds > 0)
         {
             var operation = Operations().FirstOrDefault();
@@ -191,6 +201,7 @@ internal class AircraftPreparation
 
     internal void Complete(Func<double, double>? drawFuel = null)
     {
+        if (Target.Refuel) ServiceSecondsRemaining = 0;
         if (NeedsFuel && !RefuelTo(1, drawFuel)) return;
         Mounted.Clear();
         foreach (StoreRequirement store in Target.Stores) Mounted[store.Reference] = store.Amount;
@@ -209,13 +220,15 @@ internal class AircraftPreparation
         return true;
     }
 
-    internal XElement Save() => new("Aircraft", new XAttribute("Fuel", Fuel), Mounted.Select(pair =>
+    internal XElement Save() => new("Aircraft", new XAttribute("Fuel", Fuel),
+        ServiceSecondsRemaining > 0 ? new XAttribute("ServiceSeconds", ServiceSecondsRemaining) : null, Mounted.Select(pair =>
         new XElement("Store", new XAttribute("Ref", pair.Key), new XAttribute("Amount", pair.Value),
             new XAttribute("RemoveSeconds", knownStores[pair.Key].RemoveSeconds))));
 
     internal void Load(XElement saved)
     {
         Fuel = ValidNumber((double?)saved.Attribute("Fuel") ?? 0, 1);
+        ServiceSecondsRemaining = ValidNumber((double?)saved.Attribute("ServiceSeconds") ?? 0, 86400);
         Mounted.Clear();
         foreach (XElement store in saved.Elements("Store"))
         {

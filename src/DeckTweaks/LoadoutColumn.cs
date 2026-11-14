@@ -43,10 +43,7 @@ internal static class LoadoutColumn
         view.Columns[0].DisplayMemberBinding = null;
         view.Columns[0].CellTemplate = (DataTemplate)GUI.ParseXaml("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
-                <Border Tag="DeckTweaks.State" Background="Transparent" Padding="4,2">
-                    <TextBlock Text="{Binding FlightDeckTaskLabel}" VerticalAlignment="Center"
-                               TextWrapping="Wrap" MaxWidth="220"/>
-                </Border>
+                <Border Tag="DeckTweaks.State" Background="Transparent" Padding="4,2"/>
             </DataTemplate>
             """);
         GridViewColumn info = view.Columns[3];
@@ -97,13 +94,8 @@ internal static class LoadoutColumn
             return;
         }
         if (border.Tag as string != StateTag) return;
-        border.DataContextChanged -= OnStateContextChanged;
-        border.DataContextChanged += OnStateContextChanged;
-        BindStatus(border, Row(border));
+        if (border.Child == null) new StateCell(border);
     }
-
-    private static void OnStateContextChanged(object sender, DependencyPropertyChangedEventArgs args) =>
-        BindStatus((Border)sender, Row((Border)sender));
 
     private static void OnOptionLoaded(object sender, RoutedEventArgs args)
     {
@@ -223,6 +215,87 @@ internal static class LoadoutColumn
         ToolTipService.SetShowDuration(element, 60000);
     }
 
+    private class StateCell
+    {
+        private readonly TextBlock count = new() { VerticalAlignment = VerticalAlignment.Center };
+        private readonly Button add = ResizeButton("DeckBatchAdd", "+", "Add an aircraft");
+        private readonly Button remove = ResizeButton("DeckBatchRemove", "−", "Remove the last aircraft");
+        private readonly StackPanel size = new() { Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock label = new() { TextWrapping = TextWrapping.Wrap, MaxWidth = 220,
+            VerticalAlignment = VerticalAlignment.Center };
+        private FlightDeckTask? task;
+        private TaskLoadout? row;
+
+        internal StateCell(Border host)
+        {
+            Grid layout = new();
+            layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            layout.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(label, 1);
+            StackPanel buttons = new() { Margin = new Thickness(3, 0, 0, 0) };
+            buttons.Children.Add(add);
+            buttons.Children.Add(remove);
+            size.Children.Add(count);
+            size.Children.Add(buttons);
+            layout.Children.Add(size);
+            layout.Children.Add(label);
+            add.Click += (_, _) => { row?.AddAircraft(); Refresh(); };
+            remove.Click += (_, _) => { row?.RemoveAircraft(); Refresh(); };
+            size.MouseEnter += (_, _) => Refresh();
+            host.Child = layout;
+            host.Loaded += (_, _) => Bind(host, host.DataContext as FlightDeckTask);
+            host.DataContextChanged += (_, _) => { if (host.IsLoaded) Bind(host, host.DataContext as FlightDeckTask); };
+            host.Unloaded += (_, _) => Bind(host, null);
+            Bind(host, host.DataContext as FlightDeckTask);
+        }
+
+        private static Button ResizeButton(string name, string symbol, string tooltip) => new()
+        {
+            Name = name, Content = symbol, ToolTip = tooltip, Width = 20, Height = 17, Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+        };
+
+        private void Bind(Border host, FlightDeckTask? next)
+        {
+            if (task != null) task.PropertyChanged -= RefreshLabel;
+            if (row != null) row.PropertyChanged -= RefreshOptions;
+            task = next;
+            row = next == null ? null : Row(host);
+            if (task != null) task.PropertyChanged += RefreshLabel;
+            if (row != null) row.PropertyChanged += RefreshOptions;
+            BindStatus(label, row);
+            Refresh();
+        }
+
+        private void RefreshOptions(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(TaskLoadout.PreparationStatus)) Refresh();
+        }
+
+        private void RefreshLabel(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(FlightDeckTask.FlightDeckTaskLabel)) UpdateLabel();
+        }
+
+        private void Refresh()
+        {
+            size.Visibility = row?.CanResize == true ? Visibility.Visible : Visibility.Collapsed;
+            add.IsEnabled = row?.CanAddAircraft == true;
+            remove.IsEnabled = row?.CanRemoveAircraft == true;
+            UpdateLabel();
+        }
+
+        private void UpdateLabel()
+        {
+            string text = task?.FlightDeckTaskLabel ?? "";
+            count.Text = $"{row?.Count}x";
+            string prefix = count.Text + " ";
+            label.Text = size.Visibility == Visibility.Visible && !text.Contains('\n')
+                && text.StartsWith(prefix, StringComparison.Ordinal) ? text[prefix.Length..] : text;
+        }
+    }
+
     private class TimingCell
     {
         private static readonly ControlTemplate CaretTemplate = (ControlTemplate)GUI.ParseXaml("""
@@ -274,8 +347,15 @@ internal static class LoadoutColumn
             if (ReferenceEquals(row, next) && toggle.ToolTip != null) return;
             if (row != null) row.PropertyChanged -= Refresh;
             row = next;
-            toggle.Visibility = row == null ? Visibility.Collapsed : Visibility.Visible;
-            bool expanded = row?.TimingExpanded == true;
+            if (row != null) row.PropertyChanged += Refresh;
+            UpdateAvailability();
+        }
+
+        private void UpdateAvailability()
+        {
+            bool available = row?.CanShowTiming == true;
+            toggle.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+            bool expanded = available && row?.TimingExpanded == true;
             if (toggle.IsChecked != expanded) toggle.IsChecked = expanded;
             else SetExpanded(expanded);
         }
@@ -288,24 +368,23 @@ internal static class LoadoutColumn
 
         private void SetExpanded(bool expanded)
         {
-            if (row != null) row.PropertyChanged -= Refresh;
             toggle.ToolTip = expanded ? "Hide timing details" : "Show timing details";
             summary.Visibility = expanded ? Visibility.Hidden : Visibility.Visible;
             scroll.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-            BindStatus(summary, expanded ? null : row);
+            BindStatus(summary, expanded || row?.CanShowTiming != true ? null : row);
             if (expanded && row != null)
             {
                 scroll.ScrollToTop();
                 SetDetails(details, row.PreparationStatus);
-                row.PropertyChanged += Refresh;
             }
             else SetDetails(details, []);
         }
 
         private void Refresh(object? sender, PropertyChangedEventArgs args)
         {
-            if (args.PropertyName == nameof(TaskLoadout.PreparationStatus) && row != null)
-                SetDetails(details, row.PreparationStatus);
+            if (args.PropertyName != nameof(TaskLoadout.PreparationStatus) || row == null) return;
+            if ((toggle.Visibility == Visibility.Visible) != row.CanShowTiming) UpdateAvailability();
+            else if (toggle.IsChecked == true) SetDetails(details, row.PreparationStatus);
         }
     }
 

@@ -8,6 +8,7 @@ namespace DeckTweaks.Preparation;
 internal static class PreparationSave
 {
     private const string Tag = "FDTP1:";
+    private const string RecoveryFlight = "FDTFlight:";
 
     [HarmonyPrefix, HarmonyPatch(typeof(FlightDeck), nameof(FlightDeck.SaveTask))]
     private static bool HasAircraft(FlightDeckTask task) => task is not PendingLaunchTask pending || pending.LaunchCount > 0;
@@ -18,7 +19,8 @@ internal static class PreparationSave
     {
         if (task is not PendingLaunchTask pending || pending.LaunchCount <= 0 || TaskPreparation.Find(pending) is not { } preparation) return;
         if (ini.Data.TryGetValue(sectionName, out var section) && section.TryGetValue($"PendingLaunchTask{index - 1}", out string record))
-            section[$"PendingLaunchTask{index - 1}"] = record + "," + Tag + preparation.Batch.Save();
+            section[$"PendingLaunchTask{index - 1}"] = record + "," + Tag + preparation.Batch.Save()
+                + (preparation.RecoveryFlight != Guid.Empty ? "," + RecoveryFlight + preparation.RecoveryFlight.ToString("N") : "");
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(FlightDeck), nameof(FlightDeck.LoadStateFromFile))]
@@ -49,6 +51,9 @@ internal static class PreparationSave
                 // Native inventory was already saved with these reservations deducted.
                 StoreReservation reservation = StoreReservation.Excess(batch, target);
                 TaskPreparation preparation = TaskPreparation.Attach(task, batch, reservation);
+                string? flight = record.Skip(14).FirstOrDefault(field => field.StartsWith(RecoveryFlight, StringComparison.Ordinal));
+                if (flight != null && Guid.TryParseExact(flight[RecoveryFlight.Length..], "N", out Guid id))
+                    preparation.RecoveryFlight = id;
                 if (record[0] == nameof(AbortPreparation)) preparation.BeginAbort(task);
             }
             catch (Exception exception)
