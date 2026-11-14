@@ -1,5 +1,27 @@
 # Native control catalogue
 
+The Sea Power `0.9.2-261113` audit scanned the shipped Noesis XAML in Unity
+assets and checked the managed view classes. It found these reusable groups:
+
+| Native UI | How to build it in Controls |
+|---|---|
+| Speed, depth, and altitude popups | `VerticalRange`, `SliderEntry`, and `PopupFor`. Use `Slider.Ticks` for explicit marks and the reversed option for a value that increases downward. |
+| Buttons, toggles, radio buttons, repeat buttons, and checkboxes | `Button`, `Toggle`, `Radio`, `Repeat`, `Check`, and `TriState` |
+| Single and multiline text, numbers, dropdowns, and searches | `Entry`, `Number`, `Choice`, `ChoicePicker`, `SearchablePicker`, and `SearchBar` |
+| Lists, trees, repeated rows, tables, and sortable headers | `List`, `Tree`, `Items`, `Table`, and native `GridViewColumnHeader.Click` for caller-owned sorting |
+| Progress bars, track parts, thumbs, and tick bars | `Progress`, `SegmentedProgress`, and native `Track`, `Thumb`, and `TickBar` for custom templates |
+| Tabs, panels, splitters, scrollbars, and expanders | `Tabs`, `Docked`, `Columns`, `Split`, `Scroll`, `Section`, and `ExpandableDetails`. Use native `ScrollBar` for standalone range control. |
+| Menus, popups, toolbars, and tooltips | `Menu`, `MenuAction`, `PopupFor`, `Toolbar`, and `WithTooltip` |
+| Images, vector drawings, formatted text, hyperlinks, and media | `Picture` and native `Path`, `Canvas`, `TextBlock`, `Run`, `Hyperlink`, and `MediaElement`, directly or through `FromXaml<T>` |
+| Windows, file selection, and colors | `Window`, `HostedWindow`, `ShowFilePicker`, and an RGB `ColorPicker` built with native sliders |
+
+`WithResource` applies named styles and brushes from the game's theme, such
+as `Style.HyperlinkButton`. A caller can also use the original Noesis type or
+XAML template without a dedicated helper. Views such as the tactical map,
+replay timeline, and flight deck require their game data and view models.
+
+## Earlier live survey
+
 Sea Power `0.8.2-23810+s366`. Inspected with CLI `inspect`, `details` and screenshots.
 This catalogue separates reusable controls from game-owned views and behaviour.
 

@@ -28,6 +28,12 @@ open an interactive widget gallery in a mission or the Encyclopedia.
 `WidgetGallery.CreatePage()` returns the same tabs for embedding in your own
 window.
 
+Use `VerticalRange` for the game's speed or depth slider appearance, including
+tick marks and an optional reversed direction. `SliderEntry` pairs the slider
+with a number field and units. The Native controls tab also shows a toolbar,
+menu, popup, rich text, and an RGB picker made with native sliders. `ShowFilePicker` opens the
+game's file picker and gives your mod the selected path.
+
 Build and open the window on the game's UI thread through the native window
 host. The DLL exposes the existing `SeaPower.SharedUi` types directly.
 Helpers return native Noesis controls, so callers can use their properties,

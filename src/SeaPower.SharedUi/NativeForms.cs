@@ -114,16 +114,60 @@ public static partial class NativeUi
     }
 
     public static Slider Range(float value, float minimum, float maximum, float step, Action<float>? changed = null)
+        => Range(value, minimum, maximum, step, Orientation.Horizontal, changed);
+
+    public static Slider Range(float value, float minimum, float maximum, float step, Orientation orientation,
+        Action<float>? changed = null)
     {
         ValidateRange(value, minimum, maximum);
         if (!float.IsFinite(step) || step <= 0) throw new ArgumentOutOfRangeException(nameof(step));
         var slider = new Slider
         {
             Minimum = minimum, Maximum = maximum, Value = value, SmallChange = step,
-            LargeChange = (float)Math.Min(float.MaxValue, (double)step * 10), TickFrequency = step, IsSnapToTickEnabled = true, MinWidth = 80,
+            LargeChange = (float)Math.Min(float.MaxValue, (double)step * 10), TickFrequency = step,
+            IsSnapToTickEnabled = true, Orientation = orientation,
+            MinWidth = orientation == Orientation.Horizontal ? 80 : 0,
+            MinHeight = orientation == Orientation.Vertical ? 90 : 0,
         };
         slider.ValueChanged += (_, _) => changed?.Invoke(slider.Value);
         return slider;
+    }
+
+    /// <summary>Native speed and depth style, with visual ticks and a continuous value.</summary>
+    public static Slider VerticalRange(float value, float minimum, float maximum, float step,
+        Action<float>? changed = null, bool reversed = false, string? ticks = null)
+    {
+        var slider = Range(value, minimum, maximum, step, Orientation.Vertical, changed);
+        slider.HorizontalAlignment = HorizontalAlignment.Center;
+        slider.TickPlacement = TickPlacement.BottomRight;
+        slider.IsDirectionReversed = reversed;
+        slider.IsSnapToTickEnabled = false;
+        if (ticks != null) slider.Ticks = ticks;
+        slider.SetResourceReference(Control.BackgroundProperty, "Brush.Foreground.Normal");
+        return slider;
+    }
+
+    /// <summary>Combines a slider with an editable numeric value and optional units.</summary>
+    public static StackPanel SliderEntry(Slider slider, string unit = "")
+    {
+        bool syncing = false;
+        var number = Number(slider.Value, slider.Minimum, slider.Maximum, value =>
+        {
+            if (!syncing) slider.Value = (float)value;
+        });
+        number.MinWidth = 60;
+        slider.ValueChanged += (_, _) => { if (!number.IsKeyboardFocused) Sync(); };
+        number.LostFocus += (_, _) => Sync();
+        var header = Wrap(number, Text(unit));
+        header.HorizontalAlignment = HorizontalAlignment.Center;
+        return Stack(header, slider);
+
+        void Sync()
+        {
+            syncing = true;
+            try { number.Text = slider.Value.ToString("G9", CultureInfo.CurrentCulture); }
+            finally { syncing = false; }
+        }
     }
 
     public static StackPanel SliderField(string label, Slider slider, Func<float, string>? format = null)

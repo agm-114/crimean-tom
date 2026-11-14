@@ -54,14 +54,18 @@ Steam Workshop folder.
 ./scripts/capture-workshop-icons.ps1
 ./scripts/capture-workshop-icons.ps1 -Mod controls
 ./scripts/capture-workshop-icons.ps1 -Mod settings
+./scripts/capture-workshop-icons.ps1 -Mod gallery
 ```
 
-The script starts Sea Power through Steam, writes `controls.jpg` and
-`settings.jpg` to `artifacts/mod-icons/`, and closes the capture session.
+The script starts Sea Power through Steam, writes `controls.jpg`,
+`settings.jpg`, and one PNG per Controls demo tab under
+`artifacts/mod-icons/controls-gallery/`, then closes the capture session.
 Settings uses the shipped **Options → Gameplay → Deck Tweaks** page and expands
 the weapon mounting section. Controls uses the gallery in
-`scripts/workshop-icon-gallery/UiGallery.cs`. The square crops leave room at
-the bottom for the Workshop item name.
+`scripts/workshop-icon-gallery/UiGallery.cs`. Its thumbnail uses the same
+charcoal title band, red rule, and Bahnschrift type as the other mod icons.
+Pass the gallery folder to `seapower-cli workshop-update --preview-dir` to
+replace or add the listing screenshots.
 
 Use `content/workshop/controls/_info.ini` and
 `content/workshop/settings/_info.ini` for the public descriptions.

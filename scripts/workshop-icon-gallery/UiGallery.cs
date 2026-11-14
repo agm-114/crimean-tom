@@ -9,7 +9,8 @@ namespace SeaPower.GameBridge;
 // Replaces the bridge gallery only in a temporary Workshop capture build.
 internal static class UiGallery
 {
-    private static SeapowerUI.Window? settings;
+    private static readonly List<SeapowerUI.Window> Panels = [];
+    private static SeapowerUI.Window? demo;
 
     internal static object Open(GameCommand command)
     {
@@ -18,7 +19,15 @@ internal static class UiGallery
             || !Singleton<WindowHostManager>.InstanceExists()
             || Singleton<WindowHostManager>.Instance.CurrentHost?.AssociatedObject is not UIElement host)
             throw new InvalidOperationException("Open a mission or the encyclopedia first.");
-        if (settings?.IsVisible == true) return new { ok = true, state = "already-open" };
+        if (demo?.IsVisible == true) return new { ok = true, state = "already-open" };
+        if (Panels.Count > 0)
+        {
+            foreach (var panel in Panels.Where(panel => panel.IsVisible))
+                panel.Visibility = Visibility.Collapsed;
+            Panels.Clear();
+            demo = WidgetGallery.Show(host);
+            return new { ok = true, state = "demo-opened" };
+        }
 
         var surface = Branch("Surface combatants", null, Branch("Cruisers"), Branch("Destroyers"), Branch("Frigates"));
         surface.IsExpanded = true;
@@ -89,7 +98,7 @@ internal static class UiGallery
         RenderEditors(draft);
 
         var body = Stack(useDefaults, editors, actions);
-        settings = OpenPanel("Controls", "Settings", Tabs(("Display", body),
+        OpenPanel("Controls", "Settings", Tabs(("Display", body),
             ("Controls", Stack(FormRow("Refresh (s)", draft.NumberEditor("Controls", "Refresh", "Refresh", 5, 1, 30), 82),
                 Radio("Automatic", "SharedIconMode", true), Radio("Manual", "SharedIconMode", false)))), 738, 376, 335, 260);
         return new { ok = true, state = "opened" };
@@ -128,6 +137,7 @@ internal static class UiGallery
             window.X = x;
             window.Y = y;
             WindowHostCommands.OpenWindowCommand.Execute(window, host);
+            Panels.Add(window);
             return window;
         }
     }

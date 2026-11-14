@@ -1,5 +1,6 @@
 using Noesis;
 using SeapowerUI;
+using SeapowerUI.ViewModels;
 using static SeaPower.SharedUi.NativeUi;
 
 namespace SeaPower.SharedUi;
@@ -9,27 +10,30 @@ public static class WidgetGallery
     /// <summary>Opens an interactive gallery in the supplied native window host.</summary>
     public static SeapowerUI.Window Show(UIElement host)
     {
-        var window = Window("ControlsWidgetGallery", "Controls", CreatePage(), 820, 580);
+        var window = Window("ControlsWidgetGallery", "Controls", CreatePage(host), 820, 580);
         WindowHostCommands.OpenWindowCommand.Execute(window, host);
         return window;
     }
 
     /// <summary>Builds a gallery page that can also be embedded in a mod's own window.</summary>
-    public static TabControl CreatePage()
+    public static TabControl CreatePage() => CreatePage(null);
+
+    public static TabControl CreatePage(UIElement? host)
     {
         var output = Text("Change a control to see its value here.");
         output.Name = "ControlsGalleryFeedback";
         var tabs = Tabs(
-            ("Inputs", Inputs(output)),
+            ("Inputs", Inputs(output, host)),
             ("Tables", Tables()),
             ("Lists & trees", Browse()),
             ("Meters", Meters()),
-            ("Layout", Layout()));
+            ("Layout", Layout()),
+            ("Native controls", NativeControls()));
         tabs.Name = "ControlsGalleryTabs";
         return tabs;
     }
 
-    private static FrameworkElement Inputs(TextBlock output)
+    private static FrameworkElement Inputs(TextBlock output, UIElement? host)
     {
         void Show(string label, object? value) => output.Text = $"{label}: {value}";
         var mode = Choice(new[] { "Automatic", "Manual", "Disabled" }, value => value, changed: value => Show("Mode", value));
@@ -40,6 +44,15 @@ public static class WidgetGallery
         int count = 0;
         void Step(int direction) => counter.Text = (count += direction).ToString();
         string group = Guid.NewGuid().ToString("N");
+        var path = Entry("missions/example.ini");
+        var browse = BrowseField(path, () =>
+        {
+            var owner = host ?? path;
+            var root = new DirectoryInfo(UnityEngine.Application.streamingAssetsPath);
+            var picker = new FilePickerViewModel(owner, FilePickerViewModel.FilePickerMode.OpenFile,
+                root, root, "ini", includeOtherPaths: false, createPath: false);
+            ShowFilePicker(owner, picker, selected => path.Text = selected);
+        });
         return Scroll(Stack(
             FormRow("Mode", mode), FormRow("Amount", amount),
             FormRow("Call sign", Entry("Alpha", value => Show("Call sign", value))),
@@ -51,7 +64,7 @@ public static class WidgetGallery
             Wrap(Radio("Primary", group, true, () => Show("Channel", "Primary")),
                 Radio("Secondary", group, false, () => Show("Channel", "Secondary"))),
             FormRow("Counter", Stepper(counter, Repeat("−", () => Step(-1)), Repeat("+", () => Step(1)))),
-            FormRow("Path", BrowseField(Entry("missions/example.ini"), () => Show("File picker", "The mod supplies the browse action"))),
+            FormRow("Path", browse),
             Divider(), WithTooltip(Button("Sample action", () => Show("Button", "Clicked"), primary: true), "A native tooltip."),
             output));
     }
@@ -101,12 +114,23 @@ public static class WidgetGallery
             segments.Refresh(4, i => ($"Stage {i + 1}", i == 0 ? 2 : 1, Math.Clamp(progress / 25 - i, 0, 1), false));
         }
         Refresh(65);
-        return Stack(
+        var meters = Stack(
             CapacityMeters(Button("Complete", () => Refresh(100)),
                 ("Hangar", first, value), ("Deck", Progress(3, 10), Text("3 / 10")), ("Crew", Progress(1, 4), Text("1 / 4"))),
             Divider(), Labelled("Segmented progress", segments.Content),
             SliderField("Readiness", Range(65, 0, 100, 5, Refresh), progress => $"{progress}%"),
             Labelled("Indeterminate progress", Progress(0, indeterminate: true)));
+        var speed = VerticalRange(18, 0, 36, 6);
+        speed.Name = "ControlsGallerySpeed";
+        speed.Height = 180;
+        var depth = VerticalRange(60, 0, 180, 30, reversed: true);
+        depth.Height = 180;
+        var vertical = Columns(2,
+            Card(Labelled("Speed", SliderEntry(speed, "kts"))),
+            Card(Labelled("Depth", SliderEntry(depth, "m"))));
+        vertical.Margin = new Thickness(0, 12, 0, 0);
+        meters.Children.Add(vertical);
+        return Scroll(meters);
     }
 
     private static FrameworkElement Layout()
@@ -123,6 +147,29 @@ public static class WidgetGallery
         return Scroll(Stack(Columns(2, Card(heading), Card(graphic)), detail.Content,
             Section("Event cards", Stack(EventRow("07:30:12", "Contact acquired", "Bearing 148°"),
                 EventRow("07:30:18", "Formation set", "Screen assigned")))));
+    }
+
+    private static FrameworkElement NativeControls()
+    {
+        var feedback = Text("Choose a toolbar or menu action.");
+        var button = Button("Show popup", () => { });
+        var popup = PopupFor(button, Card(Text("A native popup anchored to the button.")));
+        button.Click += (_, _) => popup.IsOpen = !popup.IsOpen;
+        var menu = new Menu();
+        var actions = new MenuItem { Header = "Display" };
+        actions.Items.Add(MenuAction("Refresh", () => feedback.Text = "Refresh selected."));
+        menu.Items.Add(actions);
+        var richText = FromXaml<TextBlock>("""
+            <TextBlock xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TextWrapping="Wrap">
+                <Run FontWeight="Bold" Text="Signal acquired"/><Run Text=" · "/><Run FontStyle="Italic" Text="Bearing 148°"/>
+            </TextBlock>
+            """);
+        richText.Foreground = TextBrush;
+        var toolbar = Toolbar(Button("Focus", () => feedback.Text = "Focus selected."),
+            Toggle("Track", false, active => feedback.Text = active ? "Tracking." : "Tracking off."));
+        var colors = ColorPicker(Color.FromRgb(190, 72, 58), color => feedback.Text = $"Color: {color}");
+        return Scroll(Stack(menu, toolbar, Divider(), Wrap(button, popup), feedback, Divider(),
+            Card(richText), Section("Color picker", colors)));
     }
 
     private class AircraftRow(string name, string state, int progress, FrameworkElement actions)
