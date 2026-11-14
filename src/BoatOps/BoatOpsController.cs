@@ -1,114 +1,39 @@
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
 using SeapowerUI;
+using SeapowerUI.ViewModels;
 using UnityEngine;
 using static SeaPower.SharedUi.NativeUi;
-using SeapowerUI.ViewModels;
 
 namespace BoatOps;
 
 public class BoatOpsController : MonoBehaviour
 {
-    private MainGameView? host;
-    private UnitStatusViewModel? status;
-    private UnitStatusTabViewModel? tab;
-    private ContentControl? presenter;
-    private UnitStatusView? view;
-    private bool listening;
-    private ObjectBase? selected;
-    private Action? refresh;
+    private readonly UnitStatusPage page = new(0x5744, "Boat Ops", UnitStatusTab.FlightDeck, "WellDeckContent");
     private float nextRefresh;
 
     private void Update()
     {
         if (Time.realtimeSinceStartup < nextRefresh) return;
         nextRefresh = Time.realtimeSinceStartup + 0.3f;
-        if (host != MainGameView.Instance) { Detach(); host = MainGameView.Instance; }
-        if (host == null || !host.IsVisible) { Close(); return; }
-        if (!listening)
-        {
-            EventManager.RegisterClassHandler(typeof(UnitStatusView), FrameworkElement.LoadedEvent,
-                new RoutedEventHandler(OnViewLoaded));
-            listening = true;
-        }
-        BoatOperations.UpdateRecovery();
-        if (status != Globals._mainGameViewModel?.UnitStatus) { Detach(); Attach(); }
-        if (tab == null) return;
-        AttachContent();
+        var host = MainGameView.Instance;
+        if (host?.IsVisible == true) BoatOperations.UpdateRecovery();
         var unit = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
-        if (unit != selected) { Close(); selected = unit; }
-        bool available = CanUse(selected);
-        tab.IsAvailable = available;
-        if (!available) Close();
-        else if (tab.Content == null) Open();
-        refresh?.Invoke();
-    }
-
-    private void Attach()
-    {
-        status = Globals._mainGameViewModel?.UnitStatus;
-        if (status == null) return;
-        // An extension kind leaves native lazy-content handling untouched.
-        tab = new(status, (UnitStatusTab)0x5744, "Boat Ops");
-        tab.PropertyChanged += OnTabChanged;
-        status.Tabs.Insert(status.Tabs.IndexOf(status.FlightDeckTab) + 1, tab);
+        bool available = CanUse(unit);
+        page.Refresh(host, Globals._mainGameViewModel?.UnitStatus, available);
+        if (available && Singleton<UnitMetadataProvider>.InstanceExists()) page.SetContent(unit!, Build);
+        page.RefreshContent();
     }
 
     private static bool CanUse(ObjectBase? unit) => unit != null && !unit.IsDestroyed && unit._taskforce != null
         && unit.IsPlayerUnit && unit.AcceptsOrdersFromPlayer && unit._obp != null
         && BoatCatalog.Decks.ContainsKey(unit._obp._objectIniName);
 
-    private void AttachContent()
+    private (FrameworkElement, Action) Build(ObjectBase ship)
     {
-        if (presenter != null || view == null || tab == null) return;
-        // Native Unit Status creates one content container per tab, not a shared presenter.
-        var flight = FindFlightDeck(view);
-        if (flight?.Parent is not Grid wrapper || wrapper.Parent is not Grid panels) return;
-        presenter = new ContentControl
-        {
-            Name = "WellDeckContent", HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch,
-        };
-        presenter.SetBinding(ContentControl.ContentProperty, new Binding(nameof(tab.Content)) { Source = tab });
-        presenter.Visibility = tab.IsSelected ? Visibility.Visible : Visibility.Collapsed;
-        panels.Children.Add(presenter);
-    }
-
-    private void OnViewLoaded(object sender, RoutedEventArgs args)
-    {
-        if (!Equals(sender, args.Source) || sender is not UnitStatusView loaded) return;
-        if (view == loaded && presenter != null) return;
-        if (presenter?.Parent is Panel panels) panels.Children.Remove(presenter);
-        presenter = null;
-        view = loaded;
-        AttachContent();
-    }
-
-    private void OnTabChanged(object sender, System.ComponentModel.PropertyChangedEventArgs args)
-    {
-        if (presenter != null && args.PropertyName == nameof(UnitStatusTabViewModel.IsSelected))
-            presenter.Visibility = tab?.IsSelected == true ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private static FlightDeckContentView? FindFlightDeck(DependencyObject root)
-    {
-        if (root is FlightDeckContentView flight) return flight;
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            if (FindFlightDeck(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
-        return null;
-    }
-
-    private void Open()
-    {
-        if (tab == null || tab.Content != null || !CanUse(selected) || !Singleton<UnitMetadataProvider>.InstanceExists()) return;
-        var ship = selected!;
         var inventory = BoatOperations.Inventory(ship);
-        var content = new Grid { Margin = new Thickness(5) };
-        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var controls = new StackPanel();
-        content.Children.Add(controls);
         var capacity = new ProgressBar { Maximum = inventory.Definition.StorageCapacity };
         var staged = new ProgressBar { Maximum = inventory.Definition.Capacity };
         var capacityText = Text("");
@@ -132,18 +57,17 @@ public class BoatOpsController : MonoBehaviour
         choices.RowDefinitions.Add(new() { Height = GridLength.Auto });
         choices.RowDefinitions.Add(new() { Height = new GridLength(18) });
         choices.RowDefinitions.Add(new() { Height = new GridLength(30) });
-        var type = new ComboBox { Height = 30 };
-        var assigned = new ComboBox { Height = 30 };
-        foreach (var craft in inventory.Definition.Craft) type.Items.Add(new ComboBoxItem { Content = Name(craft), Tag = craft });
-        for (int i = 1; i <= inventory.Definition.Craft.Max(craft => craft.Count); i++) assigned.Items.Add(i.ToString());
-        type.SelectedIndex = assigned.SelectedIndex = 0;
-        choices.Children.Add(Labelled("Type", type));
+        var type = new ChoicePicker<CraftDefinition?>(inventory.Definition.Craft.Select(craft => (Name(craft), (CraftDefinition?)craft)));
+        var assigned = new ChoicePicker<int>(Enumerable.Range(1, inventory.Definition.Craft.Max(craft => craft.Count))
+            .Select(count => (count.ToString(), count)), fallback: 1);
+        type.Control.Height = assigned.Control.Height = 30;
+        choices.Children.Add(Labelled("Type", type.Control));
         var assignment = new Grid();
         assignment.ColumnDefinitions.Add(new() { Width = new GridLength(3, GridUnitType.Star) });
         assignment.ColumnDefinitions.Add(new() { Width = new GridLength(15) });
         assignment.ColumnDefinitions.Add(new() { Width = new GridLength(1.75f, GridUnitType.Star) });
-        assignment.Children.Add(Labelled("Assigned", assigned));
-        var all = Button("ALL", () => assigned.SelectedIndex = (SelectedCraft()?.Count ?? 1) - 1, primary: true);
+        assignment.Children.Add(Labelled("Assigned", assigned.Control));
+        var all = Button("ALL", () => assigned.Control.SelectedIndex = (type.Value?.Count ?? 1) - 1, primary: true);
         all.Margin = new Thickness(0);
         all.Height = 30;
         all.VerticalAlignment = VerticalAlignment.Bottom;
@@ -159,13 +83,13 @@ public class BoatOpsController : MonoBehaviour
         var message = Text("");
         var ready = Button("READY", () =>
         {
-            if (!Valid() || SelectedCraft() is not { } craft || !Exists(craft)) return;
-            inventory.Queue(craft, Quantity(), false);
+            if (!Valid() || type.Value is not { } craft || !Exists(craft)) return;
+            inventory.Queue(craft, assigned.Value, false);
             inventory.Message = "";
         }, primary: true);
         var launch = Button("LAUNCH", () =>
         {
-            if (Valid() && SelectedCraft() is { } craft && Exists(craft)) { inventory.Queue(craft, Quantity(), true); inventory.Message = ""; }
+            if (Valid() && type.Value is { } craft && Exists(craft)) { inventory.Queue(craft, assigned.Value, true); inventory.Message = ""; }
         }, primary: true);
         ready.Margin = launch.Margin = new Thickness(0);
         Grid.SetColumn(launch, 2);
@@ -180,15 +104,12 @@ public class BoatOpsController : MonoBehaviour
             TextColumn("Craft", nameof(BoatOperationRow.Craft), 150),
             TextColumn("Info", nameof(BoatOperationRow.Info), 190),
             ContentColumn("Actions", nameof(BoatOperationRow.Action), 190));
-        Grid.SetRow(rows, 1);
-        Grid.SetRow(message, 2);
-        content.Children.Add(rows);
-        content.Children.Add(message);
-        content.Name = "BoatOpsPanel";
+        var content = FillPanel("BoatOpsPanel", 5, controls, rows, message);
         content.DataContext = content;
-        tab.Content = content;
         string previous = "";
-        refresh = () =>
+        return (content, Refresh);
+
+        void Refresh()
         {
             capacity.Value = inventory.OccupiedSpace;
             staged.Value = inventory.StagingSpace;
@@ -197,7 +118,7 @@ public class BoatOpsController : MonoBehaviour
             capacityText.Text = $"{capacity.Value} / {capacity.Maximum} SUs";
             stagedText.Text = $"{staged.Value} / {staged.Maximum} SUs";
             crewsText.Text = $"{crews.Value} / {crews.Maximum}";
-            var craft = SelectedCraft();
+            var craft = type.Value;
             ready.IsEnabled = craft != null && Exists(craft) && inventory.Aboard[craft.Key] > inventory.Reserved(craft);
             launch.IsEnabled = craft != null && Exists(craft) && inventory.Aboard[craft.Key] > 0;
             var deployed = BoatOperations.Deployed(inventory).ToArray();
@@ -234,37 +155,11 @@ public class BoatOpsController : MonoBehaviour
                         if (deployment.Recovering) { deployment.Recovering = false; boat.RemoveWaypoints(); }
                         else BoatOperations.Recover(ship, boat, deployment);
                     })));
-        };
-        refresh();
-        bool Valid() => selected == ship && CanUse(ship);
-        CraftDefinition? SelectedCraft() => (type.SelectedItem as ComboBoxItem)?.Tag as CraftDefinition;
-        int Quantity() => Math.Max(1, assigned.SelectedIndex + 1);
-    }
-
-    private void Close()
-    {
-        refresh = null;
-        if (tab == null) return;
-        tab.Content = null;
-        if (tab.IsSelected && !CanUse(selected)) status?.SelectTab(UnitStatusTab.Engagement);
-    }
-
-    private void Detach()
-    {
-        Close();
-        if (presenter?.Parent is Panel panels) panels.Children.Remove(presenter);
-        presenter = null;
-        view = null;
-        if (tab != null)
-        {
-            tab.PropertyChanged -= OnTabChanged;
-            status?.Tabs.Remove(tab);
         }
-        tab = null;
-        status = null;
-        selected = null;
+        bool Valid() => page.IsShowing(ship) && CanUse(ship);
     }
-    private void OnDestroy() => Detach();
+
+    private void OnDestroy() => page.Dispose();
     private static bool Exists(CraftDefinition craft) => craft.AvailableUnit != null;
     private static string Name(CraftDefinition craft) => craft.AvailableUnit is { } unit
         ? $"{unit.DefaultName} ({craft.Space} SUs)" : craft.Reference + " (unavailable)";

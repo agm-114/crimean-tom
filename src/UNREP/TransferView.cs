@@ -1,5 +1,6 @@
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
 using static SeaPower.SharedUi.NativeUi;
 
 namespace UNREP;
@@ -12,22 +13,15 @@ internal class TransferView
 
     internal TransferView(Vessel ship)
     {
-        var list = new StackPanel();
         var empty = Text("No compatible receiving ships.");
         var message = Text("");
         message.Name = "UnrepMessage";
-        var root = new Grid { Name = "UnrepPanel", Margin = new Thickness(8) };
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.Children.Add(Text("Receiving ships"));
-        var scroll = Scroll(Stack(empty, list));
-        Grid.SetRow(scroll, 1);
-        root.Children.Add(scroll);
-        Grid.SetRow(message, 2);
-        root.Children.Add(message);
-        var rows = new Dictionary<SupplyTransfer, ReceiverRow>();
-        SupplyTransfer[] displayed = [];
+        var rows = new KeyedPanel<SupplyTransfer>(plan =>
+        {
+            var row = new ReceiverRow(plan, text => message.Text = text);
+            return (row.Content, row.Refresh);
+        });
+        Content = FillPanel("UnrepPanel", 8, Text("Receiving ships"), Scroll(Stack(empty, rows.Panel)), message);
         refresh = () =>
         {
             var receivers = ship._taskforce?._taskforceUnits.OfType<Vessel>()
@@ -36,20 +30,8 @@ internal class TransferView
                 .Where(plan => plan.Supplies.Count > 0).OrderBy(plan => plan.Finished ? 1 : 0)
                 .ThenBy(plan => SupplyTransfers.Jobs.IndexOf(plan)).ToArray();
             empty.Visibility = plans.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (!displayed.SequenceEqual(plans))
-            {
-                displayed = plans;
-                list.Children.Clear();
-                foreach (var plan in plans)
-                {
-                    if (!rows.TryGetValue(plan, out var row)) rows[plan] = row = new(plan, text => message.Text = text);
-                    list.Children.Add(row.Content);
-                }
-                foreach (var removed in rows.Keys.Where(plan => !plans.Contains(plan)).ToArray()) rows.Remove(removed);
-            }
-            foreach (var plan in plans) rows[plan].Refresh();
+            rows.Refresh(plans);
         };
-        Content = root;
         Refresh();
     }
 
@@ -96,7 +78,6 @@ internal class TransferView
             Content = Section("", Stack(supplies, Wrap(supplyUp, supplyDown, enableAll, disableAll)), expanded: false);
             Content.Name = "UnrepReceiver";
             Content.Header = header;
-            UnrepSupply[] displayed = [];
             refresh = () =>
             {
                 var queueJobs = SupplyTransfers.Jobs.Where(plan => plan.Source == job.Source && !plan.Finished).ToList();
@@ -109,15 +90,8 @@ internal class TransferView
                 up.IsEnabled = index > 0;
                 down.IsEnabled = index >= 0 && index < queueJobs.Count - 1;
                 cancel.IsEnabled = !job.Finished;
-                if (!displayed.SequenceEqual(job.Supplies))
-                {
-                    displayed = job.Supplies.ToArray();
-                    var selected = supplies.SelectedItem;
-                    supplies.Items.Clear();
-                    job.Supplies.ForEach(plan => supplies.Items.Add(plan));
-                    if (selected != null && supplies.Items.Contains(selected)) supplies.SelectedItem = selected;
-                    supplies.Height = Math.Min(360, 42 + job.Supplies.Count * 39);
-                }
+                SyncSelection(supplies, job.Supplies, supply => supply);
+                supplies.Height = Math.Min(360, 42 + job.Supplies.Count * 39);
                 job.Supplies.ForEach(plan => plan.Refresh());
                 int selectedIndex = supplies.SelectedItem is UnrepSupply selectedPlan ? job.Supplies.IndexOf(selectedPlan) : -1;
                 supplyUp.IsEnabled = selectedIndex > 0;

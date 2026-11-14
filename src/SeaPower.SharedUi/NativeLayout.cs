@@ -33,6 +33,27 @@ internal static partial class NativeUi
         return panel;
     }
 
+    internal static Grid FillPanel(string name, float margin, FrameworkElement? header, FrameworkElement body,
+        FrameworkElement? footer = null, float minimumBodyHeight = 0)
+    {
+        var grid = new Grid { Name = name, Margin = new Thickness(margin) };
+        if (header != null)
+        {
+            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            grid.Children.Add(header);
+        }
+        Grid.SetRow(body, grid.RowDefinitions.Count);
+        grid.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star), MinHeight = minimumBodyHeight });
+        grid.Children.Add(body);
+        if (footer != null)
+        {
+            Grid.SetRow(footer, grid.RowDefinitions.Count);
+            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            grid.Children.Add(footer);
+        }
+        return grid;
+    }
+
     internal static Grid FormRow(string label, FrameworkElement editor, float labelWidth = 180)
     {
         var grid = new Grid { Margin = new Thickness(0, 4, 0, 4) };

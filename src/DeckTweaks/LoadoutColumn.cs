@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using DeckTweaks.Preparation;
 using HarmonyLib;
 using Noesis;
+using SeaPower.SharedUi;
 using SeaPower;
 using SeapowerUI;
 
@@ -220,8 +221,7 @@ internal static class LoadoutColumn
         private readonly TextBlock count = new() { VerticalAlignment = VerticalAlignment.Center };
         private readonly Button add = ResizeButton("DeckBatchAdd", "+", "Add an aircraft");
         private readonly Button remove = ResizeButton("DeckBatchRemove", "−", "Remove the last aircraft");
-        private readonly StackPanel size = new() { Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
+        private readonly Panel size;
         private readonly TextBlock label = new() { TextWrapping = TextWrapping.Wrap, MaxWidth = 220,
             VerticalAlignment = VerticalAlignment.Center };
         private FlightDeckTask? task;
@@ -233,11 +233,9 @@ internal static class LoadoutColumn
             layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
             layout.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             Grid.SetColumn(label, 1);
-            StackPanel buttons = new() { Margin = new Thickness(3, 0, 0, 0) };
-            buttons.Children.Add(add);
-            buttons.Children.Add(remove);
-            size.Children.Add(count);
-            size.Children.Add(buttons);
+            size = NativeUi.Stepper(count, remove, add, compact: true);
+            size.Margin = new Thickness(0, 0, 5, 0);
+            size.VerticalAlignment = VerticalAlignment.Center;
             layout.Children.Add(size);
             layout.Children.Add(label);
             add.Click += (_, _) => { row?.AddAircraft(); Refresh(); };
@@ -298,44 +296,24 @@ internal static class LoadoutColumn
 
     private class TimingCell
     {
-        private static readonly ControlTemplate CaretTemplate = (ControlTemplate)GUI.ParseXaml("""
-            <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ToggleButton">
-                <Border x:Name="Face" Background="Transparent">
-                    <Path x:Name="Caret" Data="M 0,0 L 4,4 L 8,0" Stroke="#C8C9CB" StrokeThickness="1.5"
-                          HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"/>
-                </Border>
-                <ControlTemplate.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter TargetName="Face" Property="Background" Value="#494C4F"/>
-                    </Trigger>
-                    <Trigger Property="IsChecked" Value="True">
-                        <Setter TargetName="Caret" Property="RenderTransform">
-                            <Setter.Value><RotateTransform Angle="180"/></Setter.Value>
-                        </Setter>
-                    </Trigger>
-                </ControlTemplate.Triggers>
-            </ControlTemplate>
-            """);
-
         private readonly TextBlock summary = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-        private readonly ToggleButton toggle = new() { Name = "DeckTimingDetails", Template = CaretTemplate,
-            Width = 18, Height = 20 };
         private readonly Grid details = CreateDetails();
-        private readonly ScrollViewer scroll;
+        private readonly ExpandableDetails disclosure;
         private TaskLoadout? row;
 
         internal TimingCell(Border host)
         {
             summary.SetBinding(TextBlock.TextProperty, new Binding(nameof(FlightDeckTask.Info)));
-            scroll = new() { Content = details, MaxHeight = 280, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Margin = new Thickness(4, 3, 4, 2), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            disclosure = new(summary, details, "timing details", 280, expanded =>
+            {
+                if (row != null) row.TimingExpanded = expanded;
+                SetExpanded(expanded);
+            });
+            disclosure.Content.Margin = new Thickness(4, 3, 4, 2);
+            disclosure.Toggle.Name = "DeckTimingDetails";
             ComboBox picker = new() { Tag = PickerTag, DisplayMemberPath = "DisplayName",
                 Margin = new Thickness(4, 2, 4, 2), VerticalAlignment = VerticalAlignment.Center };
-            toggle.Checked += (_, _) => ToggleDetails(true);
-            toggle.Unchecked += (_, _) => ToggleDetails(false);
-            host.Child = new TimingLayout(picker, summary, scroll, toggle);
+            host.Child = new TimingLayout(picker, summary, disclosure.Content, disclosure.Toggle);
             host.Loaded += (_, _) => Bind(Row(host));
             host.DataContextChanged += (_, _) => { if (host.IsLoaded) Bind(Row(host)); };
             host.Unloaded += (_, _) => Bind(null);
@@ -344,7 +322,7 @@ internal static class LoadoutColumn
 
         private void Bind(TaskLoadout? next)
         {
-            if (ReferenceEquals(row, next) && toggle.ToolTip != null) return;
+            if (ReferenceEquals(row, next) && next != null) return;
             if (row != null) row.PropertyChanged -= Refresh;
             row = next;
             if (row != null) row.PropertyChanged += Refresh;
@@ -354,37 +332,22 @@ internal static class LoadoutColumn
         private void UpdateAvailability()
         {
             bool available = row?.CanShowTiming == true;
-            toggle.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
             bool expanded = available && row?.TimingExpanded == true;
-            if (toggle.IsChecked != expanded) toggle.IsChecked = expanded;
-            else SetExpanded(expanded);
-        }
-
-        private void ToggleDetails(bool expanded)
-        {
-            if (row != null) row.TimingExpanded = expanded;
+            disclosure.SetState(available, expanded);
             SetExpanded(expanded);
         }
 
         private void SetExpanded(bool expanded)
         {
-            toggle.ToolTip = expanded ? "Hide timing details" : "Show timing details";
-            summary.Visibility = expanded ? Visibility.Hidden : Visibility.Visible;
-            scroll.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
             BindStatus(summary, expanded || row?.CanShowTiming != true ? null : row);
-            if (expanded && row != null)
-            {
-                scroll.ScrollToTop();
-                SetDetails(details, row.PreparationStatus);
-            }
-            else SetDetails(details, []);
+            SetDetails(details, expanded && row != null ? row.PreparationStatus : []);
         }
 
         private void Refresh(object? sender, PropertyChangedEventArgs args)
         {
             if (args.PropertyName != nameof(TaskLoadout.PreparationStatus) || row == null) return;
-            if ((toggle.Visibility == Visibility.Visible) != row.CanShowTiming) UpdateAvailability();
-            else if (toggle.IsChecked == true) SetDetails(details, row.PreparationStatus);
+            if ((disclosure.Toggle.Visibility == Visibility.Visible) != row.CanShowTiming) UpdateAvailability();
+            else if (disclosure.IsExpanded) SetDetails(details, row.PreparationStatus);
         }
     }
 

@@ -16,8 +16,16 @@ internal static partial class NativeUi
     }
 
     // The caller owns limits and availability, as with native damage-control teams.
-    internal static Grid Stepper(TextBlock value, Button decrease, Button increase)
+    internal static Panel Stepper(TextBlock value, Button decrease, Button increase, bool compact = false)
     {
+        if (compact)
+        {
+            var buttons = Stack(increase, decrease);
+            buttons.Margin = new Thickness(3, 0, 0, 0);
+            var row = Stack(value, buttons);
+            row.Orientation = Orientation.Horizontal;
+            return row;
+        }
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
@@ -58,17 +66,12 @@ internal static partial class NativeUi
     internal static ComboBox Choice<T>(IEnumerable<T> values, Func<T, string> label,
         int selected = 0, Action<T>? changed = null, Func<T, string>? tooltip = null)
     {
-        var box = new ComboBox { Foreground = TextBrush, MinHeight = 30, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        foreach (var value in values)
-            box.Items.Add(new ComboBoxItem { Content = label(value), Tag = value, ToolTip = tooltip?.Invoke(value) });
-        if (selected < -1 || selected >= Math.Max(1, box.Items.Count))
-            throw new ArgumentOutOfRangeException(nameof(selected));
-        box.SelectedIndex = box.Items.Count == 0 ? -1 : selected;
-        box.SelectionChanged += (_, _) =>
+        var picker = new ChoicePicker<T>(values.Select(value => (label(value), value)), selected, tooltip: tooltip);
+        if (changed != null) picker.Control.SelectionChanged += (_, _) =>
         {
-            if (box.SelectedItem is ComboBoxItem { Tag: T value }) changed?.Invoke(value);
+            if (picker.TryGetValue(out T value)) changed(value);
         };
-        return box;
+        return picker.Control;
     }
 
     internal static TextBox Entry(string text, Action<string>? changed = null, bool multiline = false)

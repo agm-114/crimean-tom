@@ -1,5 +1,6 @@
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
 using static SeaPower.SharedUi.NativeUi;
 
 namespace UNREP;
@@ -12,22 +13,15 @@ internal class VertrepTransfersView
 
     internal VertrepTransfersView(VertrepOperation operation)
     {
-        var list = new StackPanel();
         var empty = Text("No compatible receiving ships.");
         var message = Text("");
         message.Name = "VertrepTransferMessage";
-        var root = new Grid { Name = "VertrepTransfersPanel", Margin = new Thickness(8) };
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.Children.Add(Text("Receiving ships"));
-        var scroll = Scroll(Stack(empty, list));
-        Grid.SetRow(scroll, 1);
-        root.Children.Add(scroll);
-        Grid.SetRow(message, 2);
-        root.Children.Add(message);
-        var rows = new Dictionary<VertrepReceiver, ReceiverRow>();
-        VertrepReceiver[] displayed = [];
+        var rows = new KeyedPanel<VertrepReceiver>(plan =>
+        {
+            var row = new ReceiverRow(plan, text => message.Text = text);
+            return (row.Content, row.Refresh);
+        });
+        Content = FillPanel("VertrepTransfersPanel", 8, Text("Receiving ships"), Scroll(Stack(empty, rows.Panel)), message);
         refresh = () =>
         {
             var receivers = operation.Source._taskforce?._taskforceUnits.OfType<Vessel>()
@@ -35,20 +29,8 @@ internal class VertrepTransfersView
             var plans = receivers.Select(operation.Plan).Where(plan => plan.Supplies.Count > 0)
                 .OrderBy(plan => plan.Queued ? 0 : 1).ThenBy(plan => operation.Receivers.IndexOf(plan)).ToArray();
             empty.Visibility = plans.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (!displayed.SequenceEqual(plans))
-            {
-                displayed = plans;
-                list.Children.Clear();
-                foreach (var plan in plans)
-                {
-                    if (!rows.TryGetValue(plan, out var row)) rows[plan] = row = new(plan, text => message.Text = text);
-                    list.Children.Add(row.Content);
-                }
-                foreach (var removed in rows.Keys.Where(plan => !plans.Contains(plan)).ToArray()) rows.Remove(removed);
-            }
-            foreach (var plan in plans) rows[plan].Refresh();
+            rows.Refresh(plans);
         };
-        Content = root;
         Refresh();
     }
 
@@ -109,7 +91,7 @@ internal class VertrepTransfersView
                 up.IsEnabled = index > 0;
                 down.IsEnabled = index >= 0 && index < queued.Count - 1;
                 cancel.IsEnabled = receiver.Queued;
-                VertrepView.SyncRows(supplies, receiver.Supplies);
+                SyncSelection(supplies, receiver.Supplies, supply => supply);
                 supplies.Height = Math.Min(300, 42 + receiver.Supplies.Count * 39);
                 receiver.Supplies.ForEach(plan => plan.Refresh());
                 int selected = supplies.SelectedItem is VertrepTransfer supply ? receiver.Supplies.IndexOf(supply) : -1;

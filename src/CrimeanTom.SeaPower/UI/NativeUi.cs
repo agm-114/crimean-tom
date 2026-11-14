@@ -1,7 +1,9 @@
 using HarmonyLib;
 using Noesis;
+using SeaPower.SharedUi;
 using SeapowerUI;
 using UnityEngine;
+using SharedUi = global::SeaPower.SharedUi.NativeUi;
 
 namespace CrimeanTom.SeaPower;
 
@@ -13,6 +15,15 @@ internal static class NativeUi
     internal static readonly SolidColorBrush TextBrush = new(Noesis.Color.FromArgb(255, 232, 234, 235));
     internal static readonly SolidColorBrush MutedTextBrush = new(Noesis.Color.FromArgb(255, 164, 171, 176));
     private static readonly SolidColorBrush CampaignOverlayBrush = new(Noesis.Color.FromArgb(190, 9, 11, 13));
+
+    internal static ComboBox ConfigurePicker<T>(ChoicePicker<T> picker)
+    {
+        var control = picker.Control;
+        control.MinWidth = 330;
+        if (control.ToolTip == null && control.Items.OfType<ComboBoxItem>().Any(item => item.Content is "Random"))
+            control.ToolTip = "Chances apply when Random is selected. Choosing an entry directly overrides the roll.";
+        return control;
+    }
 
     internal static void CloseWindow(
         FrameworkElement panel, FrameworkElement host, ref FrameworkElement? openPanel)
@@ -38,38 +49,17 @@ internal static class NativeUi
         StackPanel content, FrameworkElement host, float minWidth, float maxWidth, bool scrollable = false)
     {
         float hostWidth = host.ActualWidth > 0f ? host.ActualWidth : Screen.width;
-        Border dialog = new()
-        {
-            Width = Math.Min(maxWidth, Math.Max(minWidth, hostWidth - 100f)),
-            Background = PanelBrush,
-            BorderBrush = BorderBrush,
-            BorderThickness = new Thickness(1f),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        float width = Math.Min(maxWidth, Math.Max(minWidth, hostWidth - 100f));
+        float height = float.PositiveInfinity;
+        FrameworkElement body = content;
         if (scrollable)
         {
             float hostHeight = host.ActualHeight > 0f ? host.ActualHeight : Screen.height;
-            dialog.MaxHeight = Math.Max(440f, hostHeight - 60f);
-            dialog.Child = new ScrollViewer
-            {
-                Content = content,
-                MaxHeight = dialog.MaxHeight,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            };
+            height = Math.Max(440f, hostHeight - 60f);
+            var scroll = SharedUi.Scroll(content);
+            scroll.MaxHeight = height;
+            body = scroll;
         }
-        else
-        {
-            dialog.Child = content;
-        }
-        Grid overlay = new()
-        {
-            Background = CampaignOverlayBrush,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
-        overlay.Children.Add(dialog);
-        return overlay;
+        return SharedUi.Overlay(body, CampaignOverlayBrush, PanelBrush, BorderBrush, width, maxHeight: height);
     }
 }

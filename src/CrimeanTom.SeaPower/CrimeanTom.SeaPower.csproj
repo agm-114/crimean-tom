@@ -83,4 +83,5 @@
           SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
+  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
 </Project>

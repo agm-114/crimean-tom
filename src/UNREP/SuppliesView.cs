@@ -48,32 +48,19 @@ internal class SuppliesView
             minimum.IsEnabled = apply.IsEnabled = stock?.CanChange == true;
             minimum.Text = stock == null ? "0" : policy.Minimum(stock.Key).ToString(System.Globalization.CultureInfo.CurrentCulture);
         };
-        SupplyStock[] displayed = [];
         void Filter()
         {
             var visible = stocks.Where(stock => stock.Visible && (category == "All" || stock.Category == category)
                 && (stock.Name + " " + stock.Location).IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0).ToArray();
-            if (displayed.SequenceEqual(visible)) return;
-            string? selectedKey = (table.SelectedItem as SupplyStock)?.Key;
-            displayed = visible;
-            table.Items.Clear();
-            foreach (var stock in visible) table.Items.Add(stock);
-            table.SelectedItem = visible.FirstOrDefault(stock => stock.Key == selectedKey);
+            SyncSelection(table, visible, stock => stock.Key);
         }
         var categories = Choice(new[] { "All" }.Concat(stocks.Select(stock => stock.Category).Distinct()), value => value,
             changed: value => { category = value; Filter(); });
         var find = Entry("", value => { search = value; Filter(); });
         find.Name = "SupplySearch";
-        var root = new Grid { Name = "SuppliesPanel", Margin = new Thickness(8) };
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star), MinHeight = 100 });
-        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        root.Children.Add(Stack(Wrap(unrep, vertrep), Columns(2, Labelled("Category", categories), Labelled("Search", find))));
-        Grid.SetRow(table, 1);
-        root.Children.Add(table);
+        var header = Stack(Wrap(unrep, vertrep), Columns(2, Labelled("Category", categories), Labelled("Search", find)));
         var footer = Stack(FormRow("Minimum retained", Wrap(minimum, apply)), reserve, message);
-        Grid.SetRow(footer, 2);
-        root.Children.Add(footer);
+        Content = FillPanel("SuppliesPanel", 8, header, table, footer, minimumBodyHeight: 100);
         refresh = () =>
         {
             string updated = SupplyInventory.Structure(ship);
@@ -86,6 +73,5 @@ internal class SuppliesView
                 : "";
         };
         Filter();
-        Content = root;
     }
 }

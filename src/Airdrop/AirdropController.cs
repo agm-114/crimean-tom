@@ -10,8 +10,6 @@ namespace Airdrop;
 public class AirdropController : MonoBehaviour
 {
     private readonly UnitStatusPage page = new(0x4144, "Airdrop");
-    private Aircraft? selected;
-    private Action? refresh;
     private float nextRefresh;
 
     private void Update()
@@ -23,39 +21,28 @@ public class AirdropController : MonoBehaviour
             ? Singleton<RenderPosition>.Instance.getSelectedObject() as Aircraft : null;
         bool available = DropOperations.CanUse(aircraft);
         page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, available);
-        if (!available) { selected = null; refresh = null; page.Content = null; return; }
-        if (selected != aircraft || page.Content == null)
-        {
-            selected = aircraft;
-            Open(aircraft!);
-        }
-        refresh?.Invoke();
+        if (available) page.SetContent(aircraft!, Build);
+        page.RefreshContent();
     }
 
-    private void Open(Aircraft aircraft)
+    private (FrameworkElement, Action) Build(Aircraft aircraft)
     {
         var inventory = DropOperations.Inventory(aircraft);
-        var content = new Grid { Name = "AirdropPanel", Margin = new Thickness(5) };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
-            content.RowDefinitions.Add(new() { Height = height });
         var summary = Text("");
         summary.Name = "AirdropCapacity";
-        content.Children.Add(summary);
         var controls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 8) };
-        Grid.SetRow(controls, 1);
-        content.Children.Add(controls);
-        var type = new ComboBox { Name = "AirdropCargo", Width = 250, Height = 30 };
-        foreach (var cargo in inventory.Definition.Cargo)
-            type.Items.Add(new ComboBoxItem { Content = cargo.Name, Tag = cargo });
-        type.SelectedIndex = 0;
-        var quantity = new ComboBox { Name = "AirdropQuantity", Width = 70, Height = 30, Margin = new Thickness(8, 0, 8, 0) };
-        for (int i = 1; i <= inventory.Definition.Cargo.Max(cargo => cargo.Count); i++) quantity.Items.Add(i.ToString());
-        quantity.SelectedIndex = 0;
-        controls.Children.Add(Labelled("Ground unit", type));
-        controls.Children.Add(Labelled("Quantity", quantity));
+        var type = new ChoicePicker<CargoDefinition?>(inventory.Definition.Cargo.Select(cargo => (cargo.Name, (CargoDefinition?)cargo)));
+        type.Control.Name = "AirdropCargo";
+        type.Control.Width = 250;
+        var quantity = new ChoicePicker<int>([("1", 1)], fallback: 1);
+        quantity.Control.Name = "AirdropQuantity";
+        quantity.Control.Width = 70;
+        quantity.Control.Margin = new Thickness(8, 0, 8, 0);
+        controls.Children.Add(Labelled("Ground unit", type.Control));
+        controls.Children.Add(Labelled("Quantity", quantity.Control));
         var arm = Button("ARM RELEASE", () =>
         {
-            if (Valid() && SelectedCargo() is { Available: true } cargo) inventory.Arm(cargo, quantity.SelectedIndex + 1);
+            if (Valid() && type.Value is { Available: true } cargo) inventory.Arm(cargo, quantity.Value);
         }, primary: true);
         arm.Name = "ArmAirdrop";
         arm.VerticalAlignment = VerticalAlignment.Bottom;
@@ -67,29 +54,27 @@ public class AirdropController : MonoBehaviour
         var rows = Table("AirdropManifest", TextColumn("Ground unit", nameof(CargoRow.Name), 250),
             TextColumn("Each", nameof(CargoRow.Mass), 110), TextColumn("Aboard", nameof(CargoRow.Aboard), 90),
             TextColumn("Released", nameof(CargoRow.Released), 90), TextColumn("Status", nameof(CargoRow.Status), 190));
-        Grid.SetRow(rows, 2);
-        content.Children.Add(rows);
         var footer = Text("");
         footer.Name = "AirdropStatus";
         footer.Margin = new Thickness(0, 5, 0, 0);
-        Grid.SetRow(footer, 3);
-        content.Children.Add(footer);
+        var content = FillPanel("AirdropPanel", 5, Stack(summary, controls), rows, footer);
         content.DataContext = content;
-        page.Content = content;
         string previous = "";
-        refresh = () =>
+        int quantityLimit = 1;
+        return (content, Refresh);
+
+        void Refresh()
         {
             summary.Text = $"Cargo: {inventory.Mass:N0} / {inventory.Definition.Capacity:N0} kg";
-            var cargo = SelectedCargo();
+            var cargo = type.Value;
             int availableCount = Math.Max(1, cargo == null ? 0 : inventory.Aboard[cargo.Reference]);
-            if (quantity.Items.Count != availableCount)
+            if (quantityLimit != availableCount)
             {
-                int index = Math.Clamp(quantity.SelectedIndex, 0, availableCount - 1);
-                quantity.Items.Clear();
-                for (int i = 1; i <= availableCount; i++) quantity.Items.Add(i.ToString());
-                quantity.SelectedIndex = index;
+                quantityLimit = availableCount;
+                quantity.Replace(Enumerable.Range(1, availableCount), value => value.ToString(),
+                    fallbackIndex: availableCount - 1);
             }
-            type.IsEnabled = quantity.IsEnabled = inventory.ArmedCargo == null;
+            type.Control.IsEnabled = quantity.Control.IsEnabled = inventory.ArmedCargo == null;
             arm.IsEnabled = cargo is { Available: true } && inventory.Aboard[cargo.Reference] > 0 && inventory.ArmedCargo == null;
             cancel.IsEnabled = inventory.ArmedCargo != null;
             string blocked = DropOperations.Blocked(aircraft, inventory, out _);
@@ -104,9 +89,8 @@ public class AirdropController : MonoBehaviour
             foreach (var item in inventory.Definition.Cargo)
                 rows.Items.Add(new CargoRow(item.Name, $"{item.Mass:N0} kg", inventory.Aboard[item.Reference], inventory.Released[item.Reference],
                     !item.Available ? "Not installed" : inventory.ArmedCargo == item ? "Armed" : inventory.Aboard[item.Reference] > 0 ? "Stowed" : "Empty"));
-        };
-        bool Valid() => selected == aircraft && DropOperations.CanUse(aircraft);
-        CargoDefinition? SelectedCargo() => (type.SelectedItem as ComboBoxItem)?.Tag as CargoDefinition;
+        }
+        bool Valid() => page.IsShowing(aircraft) && DropOperations.CanUse(aircraft);
     }
 
     private void OnDestroy() => page.Dispose();

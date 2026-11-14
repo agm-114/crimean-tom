@@ -1,4 +1,5 @@
 using Noesis;
+using SeaPower.SharedUi;
 using static CrimeanTom.SeaPower.NativeUi;
 
 namespace CrimeanTom.SeaPower;
@@ -25,11 +26,11 @@ internal class ScenarioActivityControls
         content.Children.Add(CreateText("Nearby forces, not under player control", 18, TextBrush));
         foreach (var field in new (string Label, FrameworkElement Control)[]
         {
-            ("Friendly naval activity", friendlyNaval.Control), ("Friendly coastal sites", friendlyCoast.Control),
-            ("Friendly naval/coastal allowance", friendlySize.Control), ("Enemy naval activity", enemyNaval.Control),
-            ("Enemy coastal sites", enemyCoast.Control), ("Enemy naval/coastal allowance", enemySize.Control),
-            ("Friendly airfields", friendlyAirfields.Control), ("Friendly independent aircraft chance", friendlyAircraft.Control),
-            ("Enemy airfields", enemyAirfields.Control), ("Enemy independent aircraft chance", enemyAircraft.Control),
+            ("Friendly naval activity", ConfigurePicker(friendlyNaval)), ("Friendly coastal sites", ConfigurePicker(friendlyCoast)),
+            ("Friendly naval/coastal allowance", ConfigurePicker(friendlySize)), ("Enemy naval activity", ConfigurePicker(enemyNaval)),
+            ("Enemy coastal sites", ConfigurePicker(enemyCoast)), ("Enemy naval/coastal allowance", ConfigurePicker(enemySize)),
+            ("Friendly airfields", ConfigurePicker(friendlyAirfields)), ("Friendly independent aircraft chance", ConfigurePicker(friendlyAircraft)),
+            ("Enemy airfields", ConfigurePicker(enemyAirfields)), ("Enemy independent aircraft chance", ConfigurePicker(enemyAircraft)),
         })
         {
             content.Children.Add(CreateText(field.Label, 14, MutedTextBrush));

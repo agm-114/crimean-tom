@@ -36,4 +36,5 @@
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Quickload to $(PluginDeployDirectory)" />
   </Target>
+  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
 </Project>

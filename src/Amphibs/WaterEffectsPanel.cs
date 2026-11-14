@@ -1,5 +1,6 @@
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
 using SeapowerUI;
 using UnityEngine;
 using SeaPower.SharedSettings;
@@ -10,7 +11,7 @@ namespace Amphibs;
 public class WaterEffectsPanel : MonoBehaviour
 {
     private MainGameView? host;
-    private SeapowerUI.Window? window;
+    private readonly HostedWindow window = new();
     private AmphibiousProfile? current;
     private SettingsValues? displayed;
     private float nextRefresh;
@@ -19,18 +20,18 @@ public class WaterEffectsPanel : MonoBehaviour
     {
         if (Time.realtimeSinceStartup < nextRefresh) return;
         nextRefresh = Time.realtimeSinceStartup + 0.3f;
-        if (host != MainGameView.Instance) { Close(); host = MainGameView.Instance; current = null; }
-        if (!AmphibsSettings.ShowTuningPanel) { Close(); current = null; return; }
+        if (host != MainGameView.Instance) { window.Dispose(); host = MainGameView.Instance; current = null; }
+        if (!AmphibsSettings.ShowTuningPanel) { window.Dispose(); current = null; return; }
         var unit = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
         AmphibiousProfile? profile = unit && AmphibiousCatalog.TryGet(unit, out var found) ? found : null;
         if (profile == current && displayed == AmphibsSettings.Settings.Current) return;
-        Close();
+        window.Dispose();
         current = profile;
         displayed = AmphibsSettings.Settings.Current;
-        if (profile != null && host != null && host.IsVisible) Open(profile);
+        if (profile != null && host?.IsVisible == true) window.Open(host, () => Build(profile));
     }
 
-    private void Open(AmphibiousProfile profile)
+    private SeapowerUI.Window Build(AmphibiousProfile profile)
     {
         var content = new DockPanel { Margin = new Thickness(8) };
         var footer = new StackPanel();
@@ -118,20 +119,11 @@ public class WaterEffectsPanel : MonoBehaviour
             }
             section.Children.Add(controls);
         }
-        content.Children.Add(new ScrollViewer
-        {
-            Content = rows,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        });
-        window = Window("AmphibsWaterEffects", "Water effects: " + profile.Name, content, 440, 680, 360, 300);
-        window.X = 450;
-        WindowHostCommands.OpenWindowCommand.Execute(window, host);
+        content.Children.Add(Scroll(rows));
+        var panel = Window("AmphibsWaterEffects", "Water effects: " + profile.Name, content, 440, 680, 360, 300);
+        panel.X = 450;
+        return panel;
     }
 
-    private void Close()
-    {
-        if (window != null && host != null) WindowHostCommands.CloseWindowCommand.Execute(window, host);
-        window = null;
-    }
+    private void OnDestroy() => window.Dispose();
 }
