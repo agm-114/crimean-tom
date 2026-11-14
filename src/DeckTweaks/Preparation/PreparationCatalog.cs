@@ -27,11 +27,12 @@ internal static class PreparationCatalog
             ammunitionNames = LocalizationLoader.OpenVirtualLocalizationFile($"language_{language}", "ammunition_names", "ammunition_names");
             nameLanguage = language;
         }
-        if (ammunitionNames == null) return reference;
+        string fallback = reference.Equals("usn_pod_aww-9", StringComparison.OrdinalIgnoreCase) ? "AN/AWW-9 Data Link Pod" : reference;
+        if (ammunitionNames == null) return fallback;
         string entry = Value(ammunitionNames, "AmmunitionNames", reference);
         string[] names = LocalizationLoader.ApplyNatoWeaponName(ammunitionNames, reference,
-            (entry.Length > 0 ? entry : reference).Split(','));
-        string name = names.Length > 0 && !string.IsNullOrWhiteSpace(names[0]) ? names[0].Trim() : reference;
+            (entry.Length > 0 ? entry : fallback).Split(','));
+        string name = names.Length > 0 && !string.IsNullOrWhiteSpace(names[0]) ? names[0].Trim() : fallback;
         return names.Length > 1 && !string.IsNullOrWhiteSpace(names[1]) ? $"{name} ({names[1].Trim()})" : name;
     }
 
