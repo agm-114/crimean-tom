@@ -18,7 +18,7 @@ internal static class UnitMetadataCache
 {
     private const int Format = 6;
     private const string FileName = "unit-worker-output.json.gz";
-    private const int SegmentFormat = 1;
+    private const int SegmentFormat = 2;
     private static Session? session;
     private static Task<Prepared>? validation;
 
@@ -28,12 +28,13 @@ internal static class UnitMetadataCache
     private static async Task<Prepared> ReadStartup(StartupArchives archives)
     {
         var full = await archives.Read(FileName, Format, Read).ConfigureAwait(false);
-        if (full != null) return new(full, null, null, false);
+        if (full != null) return new(archives, full,
+            archives.ExportRequested ? await archives.Inputs.ConfigureAwait(false) : null, null, false);
         var radarCompatible = await archives.Read(FileName, Format, Read, sensorIndependent: true).ConfigureAwait(false);
-        if (radarCompatible != null) return new(radarCompatible, null, null, true);
+        if (radarCompatible != null) return new(archives, radarCompatible, null, null, true);
         var inputs = await archives.Inputs.ConfigureAwait(false);
         var segments = await StartupSegments.Read(archives, UnitSegmentFile(inputs), SegmentFormat, ReadSegment).ConfigureAwait(false);
-        return new(null, inputs, segments, false);
+        return new(archives, null, inputs, segments, false);
     }
 
     private static string UnitSegmentFile(StartupArchives.InputIndex inputs) => $"units-{inputs.SharedUnitInputs}.json.gz";
@@ -83,11 +84,20 @@ internal static class UnitMetadataCache
             archives.Save(FileName, Format, compatible, WriteCache);
             return;
         }
-        if (completed.Added.IsEmpty || completed.Full && completed.Restored > 0) return;
-        var snapshot = completed.BuildCache();
-        archives.Save(FileName, Format, snapshot, WriteCache);
-        archives.Save(FileName, Format, snapshot, WriteCache, sensorIndependent: true);
-        _ = BackgroundTask.Run(async () =>
+        var snapshot = completed.Full && completed.Restored > 0 ? completed.Original : completed.BuildCache();
+        if (snapshot == null || snapshot.Units.IsEmpty) return;
+        if (!completed.Full || completed.Restored == 0)
+        {
+            archives.Save(FileName, Format, snapshot, WriteCache);
+            archives.Save(FileName, Format, snapshot, WriteCache, sensorIndependent: true);
+        }
+        else if (!archives.ExportRequested) return;
+        if (completed.Stamps.IsEmpty && archives.ExportRequested && completed.Inputs is { } current)
+            foreach (var pair in Singleton<UnitMetadataProvider>.Instance.UnitData)
+                if (snapshot.Units.ContainsKey(pair.Key.Item1 + "/" + pair.Key.Item2) &&
+                    UnitStamp.Create(archives, current, pair.Key.Item1, pair.Key.Item2) is { } stamp)
+                    completed.Stamps[pair.Key.Item1 + "/" + pair.Key.Item2] = stamp;
+        archives.Track(BackgroundTask.Run(async () =>
         {
             try
             {
@@ -101,7 +111,7 @@ internal static class UnitMetadataCache
                             .ToDictionary(name => name, name => snapshot.Ammunition[name], StringComparer.Ordinal),
                         snapshot.Signatures.Where(record => output.SignatureIds.Contains(record.Id)).ToArray());
                 }
-                StartupSegments.Save(archives, UnitSegmentFile(inputs), SegmentFormat, records, pair => archives.LayerFor(pair.Key),
+                StartupSegments.Save(archives, UnitSegmentFile(inputs), SegmentFormat, records, pair => archives.LayerFor(archives.LocalPath(pair.Key)),
                     ReadSegment,
                     (stream, data) => StartupArchives.WriteJson(stream, data, UnitWorkerOutput.CreateSerializer()));
             }
@@ -109,7 +119,7 @@ internal static class UnitMetadataCache
             {
                 Debug.LogWarning($"[Quickload] Could not write unit layer snapshots: {error.Message}");
             }
-        });
+        }));
     }
 
     private static void WriteCache(Stream stream, CacheFile data) =>
@@ -120,7 +130,7 @@ internal static class UnitMetadataCache
     {
         if (objectNumber != 0 || !SimpleObjectParameters.DeferSensorEntityCreation || session is not { Full: false } active ||
             active.Inputs == null || active.Segments == null || active.Segments.Count == 0) return true;
-        var stamp = UnitStamp.Create(active.Inputs, objectIniFolder, objectIniName);
+        var stamp = UnitStamp.Create(active.Archives!, active.Inputs, objectIniFolder, objectIniName);
         if (stamp == null || !active.Segments.TryGetValue(stamp.Path, out var segment) || segment.Stamp != stamp) return true;
 
         var sensors = Singleton<SensorMetadataProvider>.Instance;
@@ -205,7 +215,7 @@ internal static class UnitMetadataCache
 
                 foreach (var pair in active.Ammunition) ammunition.TryAdd(pair.Key, pair.Value);
                 active.Restored = results.Length;
-                if (!active.SensorIndependent) active.Entries.Clear();
+                if (!active.SensorIndependent && active.Archives?.ExportRequested != true) active.Entries.Clear();
                 Debug.Log($"[Quickload] Supplied {results.Length:N0} cached records without the native unit worker pool.");
                 return default;
             });
@@ -222,8 +232,8 @@ internal static class UnitMetadataCache
             string key = __result._objectIniFolder + "/" + __result._objectIniName;
             active.Added[key] = UnitWorkerOutput.Capture(__result, active.SensorNames);
             if (active.Inputs is { } inputs &&
-                UnitStamp.Create(inputs, __result._objectIniFolder, __result._objectIniName) is { } stamp &&
-                string.Equals(stamp.Path, StartupArchives.Normalize(__result._ini.getFilePath()), StringComparison.OrdinalIgnoreCase))
+                UnitStamp.Create(active.Archives!, inputs, __result._objectIniFolder, __result._objectIniName) is { } stamp &&
+                string.Equals(stamp.Path, active.Archives!.PortablePath(__result._ini.getFilePath()), StringComparison.OrdinalIgnoreCase))
                 active.Stamps[key] = stamp;
         }
         catch (Exception error) when (error is JsonException or KeyNotFoundException)
@@ -237,6 +247,7 @@ internal static class UnitMetadataCache
         internal readonly bool Full = prepared?.Full != null;
         internal readonly bool SensorIndependent = prepared?.SensorIndependent == true;
         internal readonly CacheFile? Original = prepared?.Full;
+        internal readonly StartupArchives? Archives = prepared?.Archives;
         internal readonly StartupArchives.InputIndex? Inputs = prepared?.Inputs;
         internal readonly Dictionary<string, Segment>? Segments = prepared?.Segments;
         internal readonly ConcurrentDictionary<string, UnitStamp> Stamps = new(StringComparer.Ordinal);
@@ -271,13 +282,14 @@ internal static class UnitMetadataCache
     }
 
     private record SignatureRecord(int Id, string Key, string? Family, string? Category);
-    private record Prepared(CacheFile? Full, StartupArchives.InputIndex? Inputs, Dictionary<string, Segment>? Segments, bool SensorIndependent);
+    private record Prepared(StartupArchives Archives, CacheFile? Full, StartupArchives.InputIndex? Inputs,
+        Dictionary<string, Segment>? Segments, bool SensorIndependent);
     private record Segment(UnitStamp Stamp, UnitWorkerOutput Output, Dictionary<string, AmmunitionSimpleParameters> Ammunition,
         SignatureRecord[] Signatures);
 
     private record UnitStamp(string Path, string Digest)
     {
-        internal static UnitStamp? Create(StartupArchives.InputIndex inputs, string folder, string name)
+        internal static UnitStamp? Create(StartupArchives archives, StartupArchives.InputIndex inputs, string folder, string name)
         {
             var manager = Singleton<FileManager>.Instance;
             string? mainPath = null;
@@ -296,8 +308,9 @@ internal static class UnitMetadataCache
                 if (!inputs.Files.TryGetValue(path, out var file) || file.HasIncludes) return null;
                 IniHandler.GetModifierFilePaths(path, out var extend, out var prepend);
                 if (extend.Count > 0 || prepend.Count > 0) return null;
-                mainPath ??= path;
-                keys.Add(path);
+                string portable = archives.PortablePath(path);
+                mainPath ??= portable;
+                keys.Add(portable);
                 keys.Add(file.Hash);
             }
             return new(mainPath!, StartupArchives.Digest(string.Join("\0", keys)));

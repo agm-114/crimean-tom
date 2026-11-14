@@ -8,15 +8,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Quickload did not reach the main menu.' }
 $game = Get-Process -Id $boot.processIds[0]
 
 try {
-    $deadline = (Get-Date).AddSeconds(90)
+    $deadline = (Get-Date).AddSeconds(150)
     do {
         $gates = @(Select-String -LiteralPath $boot.playerLog.path -Pattern '\[Quickload\] Menu gates: ' |
             ForEach-Object { $_.Line.Split(@('Menu gates: '), 2, [StringSplitOptions]::None)[1] })
-        if ($gates.Count -ge 3) { break }
+        $ready = Select-String -LiteralPath $boot.playerLog.path -Pattern '\[Quickload\] Encyclopedia units ready'
+        if ($ready -and $gates.Count -ge 3 -and $gates[-1] -match '(?:^|, )Campaign=True(?:,|$)') { break }
         Start-Sleep -Milliseconds 350
     } while ((Get-Date) -lt $deadline)
 
-    if ($gates.Count -ne 3) { throw "Expected three readiness snapshots, got $($gates.Count)." }
+    if ($gates.Count -notin 3, 4) { throw "Expected three or four readiness snapshots, got $($gates.Count)." }
     $core = 'Instant', 'Scenarios', 'Campaign', 'Tutorials'
     $encyclopedia = 'Editor', 'Encyclopedia', 'Options', 'ModManager'
     for ($phase = 0; $phase -lt $gates.Count; $phase++) {
@@ -24,7 +25,9 @@ try {
         foreach ($name in $core + $encyclopedia) {
             # Instant Action can still be disabled by the native configuration.
             if ($name -eq 'Instant' -and $phase -gt 0) { continue }
-            $enabled = if ($name -in $core) { $phase -ge 1 } else { $phase -eq 2 }
+            $enabled = if ($gates.Count -eq 4) {
+                $phase -eq 3 -or ($phase -eq 2 -and $name -eq 'Encyclopedia')
+            } elseif ($name -in $core) { $phase -ge 1 } else { $phase -eq 2 }
             if ($states[$name] -ne $enabled.ToString()) {
                 throw "$name reported '$($states[$name])' at readiness snapshot $($phase + 1), expected $enabled."
             }

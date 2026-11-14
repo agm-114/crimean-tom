@@ -59,6 +59,15 @@ internal static class PointValueProfiles
                     File.Copy(compatible, path);
                 }
             }
+            if (!File.Exists(path) && source.IsVanilla)
+            {
+                string bundled = Path.Combine(source.VanillaBundle, "point-values-" + file);
+                if (File.Exists(bundled) && new FileInfo(bundled).Length <= 16 * 1024 * 1024)
+                {
+                    Directory.CreateDirectory(directory);
+                    File.Copy(bundled, path);
+                }
+            }
             if (tag.SensorIndependent != null && ResolvedSensors.Stamp.Length > 0)
             {
                 string seedDirectory = Path.Combine(root, "sensor-inputs");
@@ -109,7 +118,14 @@ internal static class PointValueProfiles
         }
     }
 
-    private static void Write(string path, string data)
+    internal static void ExportVanilla(string folder)
+    {
+        if (cachePath == null || !File.Exists(cachePath)) return;
+        Directory.CreateDirectory(folder);
+        File.Copy(cachePath, Path.Combine(folder, "point-values-" + Path.GetFileName(cachePath)), overwrite: true);
+    }
+
+    internal static void Write(string path, string data)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temporary = Path.Combine(Path.GetDirectoryName(path)!, Guid.NewGuid().ToString("N") + ".tmp");

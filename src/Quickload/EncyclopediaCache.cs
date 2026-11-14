@@ -34,12 +34,16 @@ internal static class EncyclopediaCache
     internal static void Start(StartupArchives source)
     {
         archives = source;
+        EncyclopediaWeapons.Start(source);
+        EncyclopediaUnitCalculations.Start(source);
         prefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()));
         radarPrefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()), sensorIndependent: true);
     }
 
     internal static void Finish()
     {
+        EncyclopediaWeapons.Reset();
+        EncyclopediaUnitCalculations.Finish();
         prefetch = null;
         radarPrefetch = null;
         restored = null;
@@ -112,7 +116,7 @@ internal static class EncyclopediaCache
             case "weapons":
                 var weapons = Entries<MuseumWeaponEntry>(instance, "WeaponMuseumEntries");
                 snapshot.BaseWeaponCount = weapons.Count;
-                snapshot.Missiles = weapons.Where(entry => entry.Ap != null).ToArray();
+                snapshot.Missiles = weapons.Where(entry => entry.Type == Ammunition.Type.Missile).ToArray();
                 snapshot.WeaponGroups = Panel(arguments[0]).ToArray();
                 break;
             case "units":
@@ -127,7 +131,7 @@ internal static class EncyclopediaCache
                 snapshot.Culture = System.Globalization.CultureInfo.CurrentCulture.Name;
                 snapshot.SensorStamp = ResolvedSensors.Stamp;
                 captured = null;
-                archives?.Save(FileName, Format, snapshot, Write);
+                if (archives is { } source) source.Save(FileName, Format, snapshot, Write);
                 archives?.Save(FileName, Format, snapshot, Write, sensorIndependent: true);
                 break;
         }
@@ -190,6 +194,14 @@ internal static class EncyclopediaCache
         Converters = { new LengthConverter(), new SpeedConverter(), new UnitWorkerOutput.GuidanceConverter() },
     };
 
+    internal static JsonSerializer ReferenceSerializer() => CreateSerializer();
+
+    internal static void BindMissile(MuseumWeaponEntry entry)
+    {
+        if (entry.Type == Ammunition.Type.Missile && entry.Ap == null)
+            ammunition.GetValue(entry, item => item.IniRef);
+    }
+
     private class Snapshot
     {
         [JsonRequired] public MuseumSensorEntry[] Sensors { get; set; } = [];
@@ -237,6 +249,7 @@ internal static class EncyclopediaCache
     private class MuseumMembers : DefaultContractResolver
     {
         private static readonly FieldInfo description = AccessTools.Field(typeof(MuseumEntry), "description");
+        private static readonly FieldInfo ammoPoints = AccessTools.Field(typeof(MuseumWeaponEntry), "<AmmoPointsCost>k__BackingField");
         private static readonly HashSet<string> ignored =
         [
             nameof(MuseumEntry.IsExpanded), nameof(MuseumEntry.IsSelected), nameof(MuseumEntry.FilteredMuseumEntries),
@@ -252,6 +265,8 @@ internal static class EncyclopediaCache
             {
                 if (property.UnderlyingName == nameof(MuseumEntry.Description))
                     property.ValueProvider = new ReflectionValueProvider(description);
+                else if (property.DeclaringType == typeof(MuseumWeaponEntry) && property.UnderlyingName == nameof(MuseumWeaponEntry.AmmoPointsCost))
+                    property.ValueProvider = new ReflectionValueProvider(ammoPoints);
             }
             return properties.Where(property => !ignored.Contains(property.UnderlyingName!)
                 && (property.Writable || property.PropertyType == typeof(HashSet<string>))).ToArray();

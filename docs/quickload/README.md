@@ -7,14 +7,15 @@ a segment for that phase's name, elapsed time, and last-run duration. Segment
 widths follow measured time for completed phases and the previous run for
 upcoming phases. Short phases have a small minimum width. After a
 complete run, it estimates progress and time remaining from the last complete
-run with the same game build, language, and enabled mods. Scenarios, Tutorials,
-Campaigns and Continue unlock when the game's startup data is ready. Editor,
-Encyclopedia, Options and Mods unlock after the encyclopedia finishes. Manual,
-Credits and Exit are available from the start.
+run with the same game build, language, and enabled mods. The Encyclopedia
+unlocks when its catalog is ready and opens a reference window on the menu
+while pricing is in progress. Scenarios, Tutorials, Campaigns, Continue and
+the Editor wait for current point values. Manual, Credits and Exit are
+available from the start.
 
-Sea Power still warms its own INI cache behind the menu. Music loads in the background after
-Scenarios unlocks. Voice definitions are ready before a mission starts, and the
-game loads voice clips as needed. The Encyclopedia shows the reference
+Sea Power still warms its own INI cache behind the menu. Music can load in the
+background as soon as the core data is ready. Voice definitions are ready before
+a mission starts, and the game loads voice clips as needed. The Encyclopedia shows the reference
 browser while its scene loads. The same browser moves into the in-scene window
 with the current search and selection. Unit testing becomes available while
 terrain continues streaming. Regular missions still wait for terrain.
@@ -48,7 +49,10 @@ on the next startup.
 Sea Power writes its own point-value cache into a Quickload profile directory.
 Returning to a matching load order and shared inputs can reuse its unit scores
 and ammunition prices. A new profile can start from a compatible profile's
-results. The native fingerprint and per-unit hash still apply.
+results. The native fingerprint and per-unit hash still apply. Quickload runs
+the native scorer in short main-thread batches because it reads live Unity
+sensor data. The Encyclopedia shows the profile's last unit and ammo prices
+with an "Updating…" label and refreshes them when the new prices are ready.
 
 Quickload stores the resolved sensor data by name and binds it to fresh game
 entities on startup. For isolated radar range edits, it rebinds unit metadata,
@@ -58,6 +62,29 @@ variants, loadout and nation overrides, and references in the weapon and ammo
 libraries. Changes with unresolved dependencies, or changes to other sensor
 fields, use the native downstream loaders.
 
+## Starter cache bundles
+
+The local pool keeps parsed INIs, unit records, Encyclopedia weapon records,
+and unit reference calculations for each source layer, including disabled
+mods. Weapon records use the winning ammo file's hash and a fingerprint of
+the shared ammo, sensor, and localization inputs. Unit reference calculations
+use the resolved ammo names, dispersion and range values, and the displayed units. Sea Power still builds
+the unit pages and binds their shared references.
+
+To build a starter bundle, create
+`%LOCALAPPDATA%/SeaPowerQuickload/export-bundles.enabled` alongside the cache
+flag, then let startup finish. With gameplay mods disabled this exports a
+full vanilla profile and reusable chunks. With EuroMod enabled it exports
+separate chunks for each enabled Workshop item to
+`%LOCALAPPDATA%/SeaPowerQuickload/CacheBundles`.
+
+Build with `-p:QuickloadCacheBundlesDir=<directory>` to include the exported
+bundles in a local deployment. Bundle paths use the source layer and relative
+file paths. Quickload checks the game build and content fingerprints before
+restoring a full snapshot. Workshop chunks require the matching enabled item,
+matching file contents, and a compatible record dependency fingerprint.
+Quickload uses the game's resolved file when mods override the same asset.
+
 ## Build and deploy
 
 ```powershell
@@ -65,12 +92,19 @@ dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=false
 dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=true
 ```
 
-Close the game before deployment. The DLL and `_info.ini` go into
+Close the game before deployment. The two DLLs and `_info.ini` go into
 `Sea Power_Data/StreamingAssets/Quickload`. Override `SeaPowerDir` for another
 installation. Enable **Quickload** in the game's Mod Manager and restart.
 
-Keel uses the manifest's `StartEarly` flag to install the patches before the
-native startup stages. The plugin ID is `crimean-tom.quickload`.
+Keel uses `StartEarly` to install Quickload before the native startup stages.
+The Keel draft and its 1.1.0 stub start `Quickload.Preloader.dll` while the
+regular splashes play. On mainline Keel or with an older stub, the same queue
+starts at Quickload's entry point. One reader feeds decompression and hashing
+workers, then checks for reusable mod cache chunks. Startup keeps completed work when it takes
+over and validates prefetched files against the live load order. The larger
+loading panel keeps startup dialogs accessible and shrinks into the main menu.
+Its timeline starts at process launch and includes pre-menu timings. The plugin ID is
+`crimean-tom.quickload`.
 
 With Quickload deployed and Sea Power closed, run
 `pwsh -File scripts/test-quickload-menu.ps1` to check button enabled states at

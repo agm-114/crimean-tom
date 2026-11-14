@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
 using SeaPower;
+using Task = System.Threading.Tasks.Task;
 
 namespace Quickload;
 
@@ -20,6 +21,32 @@ internal static class EncyclopediaWeapons
     private static List<string>? files;
     private static bool batching;
     private static bool sliced;
+    private static StartupArchives? archives;
+    private static Task<Prepared>? snapshots;
+
+    internal static void Start(StartupArchives source)
+    {
+        archives = source;
+        snapshots = Read(source);
+    }
+
+    internal static void Reset()
+    {
+        archives = null;
+        snapshots = null;
+    }
+
+    private static string FileName(StartupArchives.InputIndex inputs, string displayContext) =>
+        $"weapon-reference-{StartupArchives.Digest(inputs.WeaponInputs + displayContext)}.json.gz";
+    private static Dictionary<string, Record>? ReadSegment(Stream stream) =>
+        StartupArchives.ReadJson<Dictionary<string, Record>>(stream, EncyclopediaCache.ReferenceSerializer());
+
+    private static async Task<Prepared> Read(StartupArchives source)
+    {
+        var inputs = await source.Inputs.ConfigureAwait(false);
+        var records = await StartupSegments.Read(source, FileName(inputs, source.ReferenceDisplayContext), 1, ReadSegment).ConfigureAwait(false);
+        return new(inputs, records);
+    }
 
     private static MethodBase TargetMethod() => moveNext;
 
@@ -68,29 +95,73 @@ internal static class EncyclopediaWeapons
             yield break;
         }
         using var template = original as IDisposable;
-        ((IList)getEntries.Invoke(manager, null)).Clear();
-        var ammunition = Singleton<FileManager>.Instance.GetFiles("ammunition", "*.ini");
+        var entries = (IList)getEntries.Invoke(manager, null);
+        entries.Clear();
+        var source = archives;
+        var prefetch = snapshots;
+        while (prefetch is { IsCompleted: false }) yield return null;
+        var available = prefetch is { IsCompletedSuccessfully: true } ? prefetch.Result : null;
+        var captured = new Dictionary<string, Record>(StringComparer.OrdinalIgnoreCase);
+        var managerFiles = Singleton<FileManager>.Instance;
+        var ammunition = managerFiles.GetFiles("ammunition", "*.ini");
         var clock = Stopwatch.StartNew();
         var one = new List<string>(1) { "" };
+        int restored = 0;
         foreach (string file in ammunition)
         {
-            one[0] = file;
-            // Only redirect the immediate native MoveNext. Other loads can run between frames.
-            var item = (IEnumerator)clone.Invoke(original, null);
-            using var disposable = item as IDisposable;
-            batching = true;
-            files = one;
-            try { item.MoveNext(); }
-            finally
+            string? disk = managerFiles.GetFile(file);
+            string? key = null;
+            string? hash = null;
+            if (source != null && available != null && disk != null && available.Inputs.Files.TryGetValue(StartupArchives.Normalize(disk), out var input)
+                && !input.HasIncludes)
             {
-                batching = false;
-                files = null;
+                IniHandler.GetModifierFilePaths(disk, out var extend, out var prepend);
+                if (extend.Count == 0 && prepend.Count == 0)
+                {
+                    key = source.PortablePath(disk);
+                    hash = input.Hash;
+                }
+            }
+            if (key != null && available!.Records.TryGetValue(key, out var saved) && saved.Hash == hash)
+            {
+                EncyclopediaCache.BindMissile(saved.Entry);
+                entries.Add(saved.Entry);
+                restored++;
+            }
+            else
+            {
+                int before = entries.Count;
+                one[0] = file;
+                // Other loads can use the native iterator between frames.
+                var item = (IEnumerator)clone.Invoke(original, null);
+                using var disposable = item as IDisposable;
+                batching = true;
+                files = one;
+                try { item.MoveNext(); }
+                finally
+                {
+                    batching = false;
+                    files = null;
+                }
+                if (key != null && entries.Count == before + 1 && entries[before] is MuseumWeaponEntry entry)
+                {
+                    var copy = (MuseumWeaponEntry)clone.Invoke(entry, null);
+                    copy.Nations = new(entry.Nations);
+                    captured[key] = new(hash!, copy);
+                }
             }
             if (clock.Elapsed.TotalMilliseconds < BudgetMilliseconds) continue;
             yield return null;
             clock.Restart();
         }
+        if (source != null && available != null && captured.Count != 0)
+            StartupSegments.Save(source, FileName(available.Inputs, source.ReferenceDisplayContext), 1, captured, pair => source.LayerFor(source.LocalPath(pair.Key)),
+                ReadSegment, (stream, data) => StartupArchives.WriteJson(stream, data, EncyclopediaCache.ReferenceSerializer()));
+        UnityEngine.Debug.Log($"[Quickload] Reused {restored:N0} Encyclopedia weapons from mod cache chunks.");
         setup.Invoke(manager, [display]);
         yield return null;
     }
+
+    private record Record(string Hash, MuseumWeaponEntry Entry);
+    private record Prepared(StartupArchives.InputIndex Inputs, Dictionary<string, Record> Records);
 }
