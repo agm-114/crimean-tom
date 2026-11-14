@@ -90,6 +90,7 @@ internal static class LoadingHooks
                     Patch(method, nameof(CallStart), finalizer: nameof(CallEnd));
         }
         UnitMetadataTiming.Install(harmony);
+        PointValueTiming.Install(harmony);
         TraceLog.Write("hooks-ready");
 
         void Patch(MethodBase? method, string? prefix = null, string? postfix = null, string? finalizer = null, string[]? after = null)

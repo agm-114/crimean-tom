@@ -88,6 +88,7 @@ Replace `SESSION` with a captured directory name. Important events:
 | `begin` / `end` | Coroutine wall duration, including nested work and waits |
 | `call-begin` / `call-end` | Synchronous startup method entry and exit |
 | `unit-metadata-phase` | Startup unit metadata phases, including wall time waiting for the unit and ammunition worker pools |
+| `point-value-pass` | Native cache fingerprints, unit and ammo lookup counts, and time spent hashing, scoring, pricing, and writing diagnostics |
 | `unit-worker-total` | Exclusive elapsed time summed across unit workers, sampled INI and localization reads, and explicit cache-lock acquisition |
 | `mission-call` | Synchronous method duration, recorded only during mission loading |
 | `mission-total` | Per-overload INI call counts and inclusive durations during mission loading |
