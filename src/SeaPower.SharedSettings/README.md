@@ -1,7 +1,15 @@
 # Shared gameplay settings
 
-Import both projects into a mod that references Noesis, Seapower-Scripts,
-UnityEngine.CoreModule and Harmony.
+The mod project supplies references to Noesis, Seapower-Scripts,
+UnityEngine.CoreModule and Harmony. Add the source package to the project.
+It brings in the SharedUi sources through its NuGet dependency.
+
+```xml
+<PackageReference Include="SeaPower.SharedSettings" Version="[0.1.0]" PrivateAssets="all" />
+```
+
+Use a NuGet source containing both packages. For builds from this checkout, use
+the direct imports in place of the package reference.
 
 ```xml
 <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />

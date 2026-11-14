@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Authors>agm-114</Authors>
+    <Description>Source package for native Sea Power mod controls and layouts.</Description>
+    <RepositoryUrl>https://github.com/agm-114/crimean-tom</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="*.cs" Pack="true" PackagePath="buildTransitive/" />
+    <None Update="SeaPower.SharedUi.props" Pack="true" PackagePath="buildTransitive/" />
+    <None Update="_._" Pack="true" PackagePath="lib/$(TargetFramework)/" />
+    <None Update="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
