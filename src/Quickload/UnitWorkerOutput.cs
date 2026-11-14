@@ -100,7 +100,6 @@ internal class UnitWorkerOutput
             variants.Properties().Any(variant => variant.Value["Aircraft"] is JArray { Count: > 0 }))
             return;
         prepared = ReadUnit();
-        Data = new();
     }
 
     private SimpleObjectParameters ReadUnit()

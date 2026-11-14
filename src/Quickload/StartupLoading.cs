@@ -124,6 +124,8 @@ internal static class StartupLoading
         var iniPrefetch = archives == null ? null : IniWarmupCache.Prefetch(archives);
         if (archives != null)
         {
+            ResolvedSensors.Begin(archives);
+            PointValueProfiles.Start(archives);
             if (stages.Any(action => action.description == "UnitMetadataProvider LoadUnitMetadata"))
                 UnitMetadataCache.StartValidation(archives);
             if (hasEncyclopedia) EncyclopediaCache.Start(archives);
@@ -133,9 +135,12 @@ internal static class StartupLoading
         {
             BeginStage($"Loading {StageName(action.description).ToLowerInvariant()}…");
             var start = Time.realtimeSinceStartup;
-            if (action.description == "UnitMetadataProvider LoadUnitMetadata")
+            if (action.description == "SensorMetadataProvider LoadSensorMetadata" && archives != null)
+                yield return Run(ResolvedSensors.Load(action.GetEnumerator(), archives));
+            else if (action.description == "UnitMetadataProvider LoadUnitMetadata")
             {
                 yield return UnitMetadataCache.OpenForStartup();
+                while (iniPrefetch is { IsCompleted: false }) yield return null;
                 IniWarmupCache.Begin(archives, iniPrefetch);
                 iniPrefetch = null;
                 try { yield return Run(action.GetEnumerator()); }
@@ -165,6 +170,7 @@ internal static class StartupLoading
         }
 
         coreReady = true;
+        if (!hasEncyclopedia) ResolvedSensors.Reset();
         RefreshMenu(MainMenuView.Instance);
         MenuProgress.LogGates(MainMenuView.Instance);
         screen.LoadText = "Done";
@@ -190,6 +196,7 @@ internal static class StartupLoading
         finally
         {
             EncyclopediaCache.Finish();
+            ResolvedSensors.Reset();
             preparingEncyclopedia = false;
         }
     }
@@ -327,6 +334,8 @@ internal static class StartupLoading
         progress = null;
         nextRefresh = 0;
         IniWarmupCache.Finish(false);
+        PointValueProfiles.Stop();
+        ResolvedSensors.Reset();
         EncyclopediaCache.Finish();
         EncyclopediaLoading.Reset();
     }
