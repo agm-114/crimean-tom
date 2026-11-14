@@ -30,7 +30,19 @@ window.
 
 Use `VerticalRange` for the game's speed or depth slider appearance, including
 tick marks and an optional reversed direction. `SliderEntry` pairs the slider
-with a number field and units. The Native controls tab also shows a toolbar,
+with a number field and units. Pass value and label pairs to mark particular
+notches on a horizontal or vertical slider.
+
+```csharp
+var speed = VerticalRange(18, 0, 36, 6);
+var entry = SliderEntry(speed, "kts", (0, "Stop"), (12, "Cruise"), (36, "Flank"));
+```
+
+Use `RangeValue(bar, value => $"{value:0} t")` for a live progress readout
+with custom units or formatting. `SegmentedProgress.Refresh` accepts an
+optional label for each segment in addition to its tooltip.
+
+The Native controls tab also shows a toolbar,
 menu, popup, rich text, and an RGB picker made with native sliders. `ShowFilePicker` opens the
 game's file picker and gives your mod the selected path.
 

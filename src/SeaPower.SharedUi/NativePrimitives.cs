@@ -10,6 +10,15 @@ public static partial class NativeUi
         return new() { Maximum = maximum, Value = value, IsIndeterminate = indeterminate };
     }
 
+    /// <summary>Creates a readout that follows a progress bar or slider. Supply a formatter to include units or a maximum.</summary>
+    public static TextBlock RangeValue(RangeBase range, Func<float, string>? format = null)
+    {
+        format ??= value => value.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture);
+        var label = Text(format(range.Value));
+        range.ValueChanged += (_, _) => label.Text = format(range.Value);
+        return label;
+    }
+
     public static Separator Divider() => new() { Margin = new Thickness(0, 6, 0, 6) };
 
     public static RepeatButton Repeat(string label, Action action)

@@ -148,7 +148,9 @@ public static partial class NativeUi
     }
 
     /// <summary>Combines a slider with an editable numeric value and optional units.</summary>
-    public static StackPanel SliderEntry(Slider slider, string unit = "")
+    public static StackPanel SliderEntry(Slider slider, string unit = "") => SliderEntry(slider, unit, []);
+
+    public static StackPanel SliderEntry(Slider slider, string unit, params (float Value, string Label)[] notches)
     {
         bool syncing = false;
         var number = Number(slider.Value, slider.Minimum, slider.Maximum, value =>
@@ -160,7 +162,7 @@ public static partial class NativeUi
         number.LostFocus += (_, _) => Sync();
         var header = Wrap(number, Text(unit));
         header.HorizontalAlignment = HorizontalAlignment.Center;
-        return Stack(header, slider);
+        return Stack(header, SliderScale(slider, notches));
 
         void Sync()
         {
@@ -170,14 +172,12 @@ public static partial class NativeUi
         }
     }
 
-    public static StackPanel SliderField(string label, Slider slider, Func<float, string>? format = null)
-    {
-        format ??= value => value.ToString("0.##", CultureInfo.CurrentCulture);
-        var valueText = Text(format(slider.Value));
-        var panel = Stack(Text(label), slider, valueText);
-        slider.ValueChanged += (_, _) => valueText.Text = format(slider.Value);
-        return panel;
-    }
+    public static StackPanel SliderField(string label, Slider slider, Func<float, string>? format = null) =>
+        SliderField(label, slider, format, []);
+
+    public static StackPanel SliderField(string label, Slider slider, Func<float, string>? format,
+        params (float Value, string Label)[] notches)
+        => Stack(Text(label), SliderScale(slider, notches), RangeValue(slider, format));
 
     public static T WithTooltip<T>(T control, string text) where T : FrameworkElement
     {

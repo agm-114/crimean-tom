@@ -5,7 +5,7 @@ assets and checked the managed view classes. It found these reusable groups:
 
 | Native UI | How to build it in Controls |
 |---|---|
-| Speed, depth, and altitude popups | `VerticalRange`, `SliderEntry`, and `PopupFor`. Use `Slider.Ticks` for explicit marks and the reversed option for a value that increases downward. |
+| Speed, depth, and altitude popups | `VerticalRange`, `SliderEntry`, and `PopupFor`. Use `Slider.Ticks` for explicit marks, `SliderScale` for notch labels, and the reversed option for a value that increases downward. |
 | Buttons, toggles, radio buttons, repeat buttons, and checkboxes | `Button`, `Toggle`, `Radio`, `Repeat`, `Check`, and `TriState` |
 | Single and multiline text, numbers, dropdowns, and searches | `Entry`, `Number`, `Choice`, `ChoicePicker`, `SearchablePicker`, and `SearchBar` |
 | Lists, trees, repeated rows, tables, and sortable headers | `List`, `Tree`, `Items`, `Table`, and native `GridViewColumnHeader.Click` for caller-owned sorting |

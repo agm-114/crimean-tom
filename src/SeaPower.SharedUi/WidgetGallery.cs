@@ -104,21 +104,26 @@ public static class WidgetGallery
     private static FrameworkElement Meters()
     {
         var first = Progress(65);
-        var value = Text("65 / 100");
+        var deck = Progress(3, 10);
+        var crew = Progress(1, 4);
         var segments = new SegmentedProgress("ControlsGalleryStage", 3);
-        segments.Content.Height = 16;
+        segments.Content.Height = 34;
+        string[] stages = ["Queued", "Preparing", "Inspected", "Ready"];
         void Refresh(float progress)
         {
             first.Value = progress;
-            value.Text = $"{progress:0} / 100";
-            segments.Refresh(4, i => ($"Stage {i + 1}", i == 0 ? 2 : 1, Math.Clamp(progress / 25 - i, 0, 1), false));
+            segments.Refresh(stages.Length, i => (stages[i], i == 0 ? 2 : 1, Math.Clamp(progress / 25 - i, 0, 1), false),
+                i => stages[i]);
         }
         Refresh(65);
         var meters = Stack(
             CapacityMeters(Button("Complete", () => Refresh(100)),
-                ("Hangar", first, value), ("Deck", Progress(3, 10), Text("3 / 10")), ("Crew", Progress(1, 4), Text("1 / 4"))),
+                ("Hangar", first, RangeValue(first, value => $"{value:0} / 100 t")),
+                ("Deck", deck, RangeValue(deck, value => $"{value:0} / 10 spots")),
+                ("Crew", crew, RangeValue(crew, value => $"{value:0} / 4 teams"))),
             Divider(), Labelled("Segmented progress", segments.Content),
-            SliderField("Readiness", Range(65, 0, 100, 5, Refresh), progress => $"{progress}%"),
+            SliderField("Readiness", Range(65, 0, 100, 5, Refresh), progress => $"{progress}%",
+                (0, "Unavailable"), (50, "Preparing"), (100, "Ready")),
             Labelled("Indeterminate progress", Progress(0, indeterminate: true)));
         var speed = VerticalRange(18, 0, 36, 6);
         speed.Name = "ControlsGallerySpeed";
@@ -126,8 +131,8 @@ public static class WidgetGallery
         var depth = VerticalRange(60, 0, 180, 30, reversed: true);
         depth.Height = 180;
         var vertical = Columns(2,
-            Card(Labelled("Speed", SliderEntry(speed, "kts"))),
-            Card(Labelled("Depth", SliderEntry(depth, "m"))));
+            Card(Labelled("Speed", SliderEntry(speed, "kts", (0, "Stop"), (12, "Cruise"), (24, "Full"), (36, "Flank")))),
+            Card(Labelled("Depth", SliderEntry(depth, "m", (0, "Surface"), (60, "Patrol"), (180, "Deep")))));
         vertical.Margin = new Thickness(0, 12, 0, 0);
         meters.Children.Add(vertical);
         return Scroll(meters);
