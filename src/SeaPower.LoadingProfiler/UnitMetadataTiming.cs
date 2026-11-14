@@ -45,7 +45,8 @@ internal static class UnitMetadataTiming
                 && target.Name == method && (item.instruction.opcode == OpCodes.Call || item.instruction.opcode == OpCodes.Callvirt))
             .Select(item => item.index).ToArray();
 
-        var tasks = Find("Task", "Run");
+        var tasks = Find("Task", "Run").Concat(Find("UnitDispatch", "RunUnitWorker"))
+            .Concat(Find("UnitDispatch", "RunAmmoWorker")).OrderBy(index => index).ToArray();
         var completed = Find("Task", "get_IsFaulted");
         var libraries = Find("SystemLibraries", "PreloadAll");
         var ammo = Find("UnitMetadataProvider", "CollectUnreferencedAmmunition");
