@@ -32,6 +32,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="rearm-times.ini" LogicalName="rearm-times.ini" />
+    <None Update="language_en\ammunition_names_ext.ini" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Import Project="..\SeaPower.SharedUi\SeaPower.SharedUi.props" />
   <Import Project="..\SeaPower.SharedSettings\SeaPower.SharedSettings.props" />
@@ -48,6 +49,8 @@
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\language_en\ammunition_names_ext.ini"
+          DestinationFolder="$(PluginDeployDirectory)\language_en" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />

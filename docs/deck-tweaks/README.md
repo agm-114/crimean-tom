@@ -173,6 +173,14 @@ state without owning its timers.
 
 See [Regenerate the Workshop screenshots](workshop-screenshots.md).
 
+## Store names
+
+Deck Tweaks reads store names from Sea Power's ammunition localization. To name
+a store in your mod, add its ammunition reference under `[AmmunitionNames]`
+in `language_en/ammunition_names_ext.ini` in your mod folder. Use the matching
+`language_*` folder for translations. Sea Power merges entries from enabled
+mods and uses English when a translation is missing.
+
 ## Build
 
 Source: [src/DeckTweaks](../../src/DeckTweaks). See the
