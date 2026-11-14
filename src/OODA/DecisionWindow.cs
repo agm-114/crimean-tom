@@ -18,10 +18,7 @@ public class DecisionWindow : MonoBehaviour
     private MainGameView? host;
     private ToolbarToggle? launcher;
     private readonly UnitStatusPage unitPage = new(0x4f44, "OODA");
-    private ObjectBase? statusUnit;
-    private TextBlock? unitState;
-    private int unitRevision = -1;
-    private SeapowerUI.Window? window;
+    private HostedWindow window = null!;
     private TabControl? tabs;
     private TextBlock? status;
     private TextBlock? chartStatus;
@@ -46,6 +43,7 @@ public class DecisionWindow : MonoBehaviour
 
     private void Awake()
     {
+        window = new(ClearWindow);
         instance = this;
         followAiUnit = PlayerPrefs.GetInt(FollowCameraPreference, 1) != 0;
     }
@@ -106,7 +104,7 @@ public class DecisionWindow : MonoBehaviour
         if (launcher?.Button.Parent == null) { DetachLauncher(); AttachLauncher(host); }
         FollowAiUnit(side);
         RefreshUnitStatus(side);
-        if (window != null && tabs != null) Refresh(PlayerPicture.Ships(side));
+        if (tabs != null) Refresh(PlayerPicture.Ships(side));
     }
 
     private void FollowAiUnit(Taskforce side)
@@ -135,7 +133,7 @@ public class DecisionWindow : MonoBehaviour
         launcher = ToolbarToggle.Attach(anchor, "OodaDecisionsButton", icon, "OODA Decisions");
         if (launcher == null) return;
         launcher.Button.Visibility = Visibility.Visible;
-        launcher.Button.IsChecked = window != null;
+        launcher.Button.IsChecked = tabs != null;
         launcher.Button.Click += (_, _) =>
         {
             if (launcher.Button.IsChecked == true) Open();
@@ -146,8 +144,11 @@ public class DecisionWindow : MonoBehaviour
     private void Open()
     {
         if (host == null || PlayerPicture.Side is not { } side) return;
-        if (window != null) { WindowHostCommands.OpenWindowCommand.Execute(window, host); return; }
+        window.Open(host, () => BuildWindow(side));
+    }
 
+    private SeapowerUI.Window BuildWindow(Taskforce side)
+    {
         status = Text("");
         clockStatus = Text("");
         chartStatus = Text(controller.ChartPoint);
@@ -170,10 +171,8 @@ public class DecisionWindow : MonoBehaviour
         tabs = Tabs();
         layout.Children.Add(tabs);
         revision = -1;
-        window = Window("OodaDecisions", "OODA Decisions", layout, 850, 610, 560, 340);
-        window.OnClosed += (_, _) => ClearWindow();
         Refresh(PlayerPicture.Ships(side));
-        WindowHostCommands.OpenWindowCommand.Execute(window, host);
+        return Window("OodaDecisions", "OODA Decisions", layout, 850, 610, 560, 340);
     }
 
     private FrameworkElement ChartEditor()
@@ -218,9 +217,7 @@ public class DecisionWindow : MonoBehaviour
         }
         revision = controller.Revision;
         tabMembership = membership;
-        string? selected = (tabs!.SelectedItem as TabItem)?.Tag as string;
-        if (tabs.Items.Count > 0 && selected == null) selected = "mission";
-        tabs.Items.Clear();
+        var pages = new List<TabItem>();
         shipStates.Clear();
         airDefenseRouteSummary = null;
         AddTab("mission", "Mission Command", MissionPage());
@@ -240,11 +237,11 @@ public class DecisionWindow : MonoBehaviour
             shipStates[PlayerPicture.Id(ship)] = state;
             AddTab(PlayerPicture.Id(ship), ship.getName(), ShipPage(ship, state));
         }
-        tabs.SelectedItem = tabs.Items.OfType<TabItem>().FirstOrDefault(tab => (string?)tab.Tag == selected) ?? tabs.Items[0];
-    }
+        SyncSelection(tabs!, pages, tab => (string?)tab.Tag, selectFirst: true);
 
-    private void AddTab(string id, string title, FrameworkElement content) => tabs!.Items.Add(new TabItem
-        { Header = title, Tag = id, Content = Scroll(content) });
+        void AddTab(string id, string title, FrameworkElement content) =>
+            pages.Add(new TabItem { Header = title, Tag = id, Content = Scroll(content) });
+    }
 
     private void RefreshPlanningThreads()
     {
@@ -371,21 +368,20 @@ public class DecisionWindow : MonoBehaviour
         ObjectBase? unit = (model?.SelectedViewModel?.Value as ObjectBaseViewModel)?._objectBase;
         bool available = unit != null && PlayerPicture.CanCommand(unit, side);
         unitPage.Refresh(host, model?.UnitStatus, available);
-        if (!available || unit == null) { statusUnit = null; unitState = null; unitPage.Content = null; return; }
-        if (statusUnit != unit || unitRevision != controller.Revision || unitPage.Content == null)
-        {
-            statusUnit = unit;
-            unitRevision = controller.Revision;
-            unitState = Text("");
-            string id = PlayerPicture.Id(unit);
-            FrameworkElement content = unit is Vessel ship ? ShipPage(ship, unitState) : Stack(
-                Section(unit.DisplayNameShort, unitState),
-                Section("Order progress", OrderProgress(id), expanded: false),
-                Section("Standing Orders observed", StandingOrders(id), expanded: false),
-                Section("Decision history", Timeline(controller.Events.Where(item => item.ShipId == id))));
-            unitPage.Content = Scroll(content);
-        }
-        unitState!.Text = unit is Vessel selected ? ShipState(selected) : unit.CurrentOrderText.Value;
+        if (available) unitPage.SetContent((Unit: unit!, controller.Revision), key => BuildUnitPage(key.Unit));
+        unitPage.RefreshContent();
+    }
+
+    private (FrameworkElement, Action) BuildUnitPage(ObjectBase unit)
+    {
+        TextBlock state = Text("");
+        string id = PlayerPicture.Id(unit);
+        FrameworkElement content = unit is Vessel ship ? ShipPage(ship, state) : Stack(
+            Section(unit.DisplayNameShort, state),
+            Section("Order progress", OrderProgress(id), expanded: false),
+            Section("Standing Orders observed", StandingOrders(id), expanded: false),
+            Section("Decision history", Timeline(controller.Events.Where(item => item.ShipId == id))));
+        return (Scroll(content), () => state.Text = unit is Vessel selected ? ShipState(selected) : unit.CurrentOrderText.Value);
     }
 
     private FrameworkElement ShipPage(Vessel ship, TextBlock current)
@@ -515,21 +511,17 @@ public class DecisionWindow : MonoBehaviour
         return $"{(int)time.TotalMinutes:00}:{time.Seconds:00}";
     }
 
-    private void Close()
-    {
-        if (window != null && host != null) WindowHostCommands.CloseWindowCommand.Execute(window, host);
-        ClearWindow();
-    }
+    private void Close() => window.Dispose();
 
     private void ClearWindow()
     {
-        window = null;
         tabs = null;
+        status = chartStatus = clockStatus = null;
         paceSource = paceReason = null;
         airDefenseRouteSummary = null;
         planningThreads = null;
         displayedThreads = [];
-        observeButton = aiControlButton = null;
+        observeButton = aiControlButton = takeControl = replanButton = null;
         shipStates.Clear();
         if (launcher != null) launcher.Button.IsChecked = false;
     }

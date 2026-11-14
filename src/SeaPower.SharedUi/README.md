@@ -1,8 +1,8 @@
 # Shared UI source
 
 This module compiles into each consuming mod. It produces no DLL and needs no
-AnchorChain plugin or deployment step. Boat Ops, Amphibs, UNREP and the CLI's
-development gallery consume it.
+AnchorChain plugin or deployment step. The mods and the CLI's development gallery
+import the same source.
 
 Import it once in a mod's project:
 
@@ -36,7 +36,7 @@ or expanders; those containers can supply a black foreground. Shared entry,
 choice and checkbox controls use the same foreground.
 
 The window uses itself as its initial data context for native window-host commands.
-Its caller owns opening, closing, selection changes and gameplay actions.
+The caller can open and close it directly or use `HostedWindow`.
 
 `CapacityMeters` groups capacity bars with centred values and an action beside the lower rows, matching Flight Deck.
 `Labelled` places a label above a control. `Find` searches the native visual tree.
@@ -48,8 +48,12 @@ window lifecycle.
 
 ## Forms and layouts
 
-`Choice<T>` keeps typed values on dropdown items, supports option tooltips, and
-populates the initial selection before subscribing to changes. `Entry` supports
+`Choice<T>` builds a dropdown and populates its initial selection before
+subscribing to changes. Use `ChoicePicker<T>` for typed selection reads,
+replacing options while retaining the selected value, or relabeling them.
+`TryGetValue` distinguishes a selected null value from an empty selection.
+`SearchablePicker<T>` connects a search box to a capped dropdown with empty and
+overflow messages. The caller supplies the filtering rule. `Entry` supports
 single-line and multiline input. `Number` accepts finite values within bounds;
 invalid partial edits stay visible until focus leaves, then restore the last valid
 value. `Range` and `SliderField` provide a slider with its label and current value.
@@ -59,24 +63,37 @@ unique names for each independent view.
 `FormRow`, `Stack`, `Wrap`, `Columns`, `Card`, `Section`, `Tabs` and `Split` compose
 layouts. `Split` uses a native draggable splitter. `Tree`/`Branch`, `List` and
 `CollectionEditor` handle browsable collections. Callers own add/remove callbacks.
+`FillPanel` gives remaining height to a body between optional header and footer
+controls. `SyncSelection` replaces selector items and restores selection by key.
+`KeyedPanel<T>` reuses controls when rows move, preserving state such as expanded
+sections.
 `SearchBar` combines an entry with filters. `BrowseField` pairs a path entry with
 a browse action; it does not read files or choose a dialog policy. `Stepper`
-positions decrement/value/increment controls; callers set their limits and state.
+positions decrement/value/increment controls, with a compact stacked-button
+layout for cells. `ExpandableDetails` pairs a summary with a caret and bounded
+scrolling content. `SegmentedProgress` displays weighted progress bars with
+per-segment tooltips.
 
 `CheckColumn` binds an editable boolean and `ProgressColumn` displays a percentage.
 `Picture` accepts an existing image source. `Menu` and `MenuAction` build a native
 context menu. `WithTooltip` wraps long tooltip text. `Bind` uses an explicit source
 so helper bindings do not depend on an inherited data context.
 
+`HostedWindow` opens and releases a native window with its host and reports
+closure through an optional callback. `Overlay` builds a centered bordered panel
+and backdrop for caller-supplied content and dimensions.
+
 ## Unit Status tabs
 
 Keep one `UnitStatusPage` instance per mod controller. Use a unique numeric tab ID,
-call `Refresh` with the current host, view model and availability, and set `Content`
-after the tab exists. Dispose it when the controller is destroyed. The helper
-handles selection, replacement hosts and presenter cleanup without global class
-handlers. It attaches only to a visible view belonging to the current host and
-view model, and releases old visual content when that view is replaced or closed.
-UNREP's `SuppliesController` is a complete caller example.
+call `Refresh` with the current host, view model and availability, then
+`SetContent` with a key and a factory that returns the view and its refresh action.
+Call `RefreshContent` on the controller's UI update cadence. Dispose the page when
+the controller is destroyed. The helper handles selection, replacement hosts and
+presenter cleanup without global class handlers. It attaches to a visible view
+belonging to the current host and view model. It clears content when its tab
+becomes unavailable or its host changes. Boat Ops uses the optional insertion
+anchor to follow Flight Deck.
 
 The [control catalogue](catalogue.md) records the inspected screens and the limits
 of the survey. Run `seapower-cli ui-gallery --confirm` in a mission or encyclopedia

@@ -1,5 +1,7 @@
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
+using SharedUi = global::SeaPower.SharedUi.NativeUi;
 using SeapowerUI;
 using UnityEngine;
 using HarmonyLib;
@@ -150,27 +152,27 @@ internal static class ScenarioSetupWindow
         });
         if (route)
         {
-            AddField(content, "Protected group", variant.Control);
-            if (!spectator) AddField(content, "Perspective", perspective.Control);
-            AddField(content, "Encounter location", encounter.Control);
+            AddField(content, "Protected group", ConfigurePicker(variant));
+            if (!spectator) AddField(content, "Perspective", ConfigurePicker(perspective));
+            AddField(content, "Encounter location", ConfigurePicker(encounter));
         }
-        AddField(content, "Force size", size.Control);
-        if (search) AddField(content, "Hunt target", searchVariant.Control);
-        if (operation == ObjectiveOperation.AreaControl) AddField(content, "Objective", areaVariant.Control);
-        if (operation == ObjectiveOperation.FixedTarget) AddField(content, "Targets", strikeVariant.Control);
-        if (operation == ObjectiveOperation.Passage) AddField(content, "Passage", passageVariant.Control);
-        AddField(content, "Region", region.Control);
+        AddField(content, "Force size", ConfigurePicker(size));
+        if (search) AddField(content, "Hunt target", ConfigurePicker(searchVariant));
+        if (operation == ObjectiveOperation.AreaControl) AddField(content, "Objective", ConfigurePicker(areaVariant));
+        if (operation == ObjectiveOperation.FixedTarget) AddField(content, "Targets", ConfigurePicker(strikeVariant));
+        if (operation == ObjectiveOperation.Passage) AddField(content, "Passage", ConfigurePicker(passageVariant));
+        AddField(content, "Region", ConfigurePicker(region));
         content.Children.Add(chaosMode);
-        AddField(content, "Special mode", specialMode.Control);
+        AddField(content, "Special mode", ConfigurePicker(specialMode));
         AddField(content, "Seed (blank = random)", seed);
-        AddField(content, "Sea state", seaState.Control);
-        AddField(content, spectator ? "Red force strength" : "Difficulty", enemyMultiplier.Control);
-        if (!search) AddField(content, spectator ? "Red composition" : "Enemy composition", composition.Control);
+        AddField(content, "Sea state", ConfigurePicker(seaState));
+        AddField(content, spectator ? "Red force strength" : "Difficulty", ConfigurePicker(enemyMultiplier));
+        if (!search) AddField(content, spectator ? "Red composition" : "Enemy composition", ConfigurePicker(composition));
         if (!spectator)
         {
-            if (!route) AddField(content, "Player command", commandSide.Control);
-            AddField(content, "Units under your control", controlPercentage.Control);
-            AddField(content, "Controlled unit priority", controlPriority.Control);
+            if (!route) AddField(content, "Player command", ConfigurePicker(commandSide));
+            AddField(content, "Units under your control", ConfigurePicker(controlPercentage));
+            AddField(content, "Controlled unit priority", ConfigurePicker(controlPriority));
             starting.AddTo(content);
         }
         content.Children.Add(civilianNavalTraffic);
@@ -333,13 +335,8 @@ internal static class ScenarioSetupWindow
         float hostHeight = ScenarioMenuView.Instance.ActualHeight > 0f
             ? ScenarioMenuView.Instance.ActualHeight
             : Screen.height;
-        ScrollViewer scroll = new()
-        {
-            Content = content,
-            MaxHeight = Math.Max(420f, hostHeight - 48f),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
+        ScrollViewer scroll = SharedUi.Scroll(content);
+        scroll.MaxHeight = Math.Max(420f, hostHeight - 48f);
         Grid body = new();
         bool wide = hostWidth >= 1100;
         if (wide)
@@ -356,24 +353,10 @@ internal static class ScenarioSetupWindow
         }
         body.Children.Add(scroll);
         body.Children.Add(preview);
-        Border dialog = new()
-        {
-            Child = body,
-            Width = Math.Max(500f, hostWidth - 48f),
-            Height = Math.Max(420f, hostHeight - 48f),
-            Background = PanelBrush,
-            BorderBrush = BorderBrush,
-            BorderThickness = new Thickness(1f),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid overlay = new()
-        {
-            Width = hostWidth,
-            Height = hostHeight,
-            Background = OverlayBrush,
-        };
-        overlay.Children.Add(dialog);
+        Grid overlay = SharedUi.Overlay(body, OverlayBrush, PanelBrush, BorderBrush,
+            Math.Max(500f, hostWidth - 48f), Math.Max(420f, hostHeight - 48f));
+        overlay.Width = hostWidth;
+        overlay.Height = hostHeight;
         _openPanel = overlay;
         return overlay;
     }
@@ -407,9 +390,5 @@ internal static class ScenarioSetupWindow
         content.Children.Add(row);
     }
 
-    private static void Close(FrameworkElement panel)
-    {
-        WindowHostCommands.CloseWindowCommand.Execute(panel, ScenarioMenuView.Instance);
-        _openPanel = null;
-    }
+    private static void Close(FrameworkElement panel) => CloseWindow(panel, ScenarioMenuView.Instance, ref _openPanel);
 }

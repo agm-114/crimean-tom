@@ -15,8 +15,6 @@ public class SpacewarController : MonoBehaviour
     private readonly OrbitalMap orbitalMap = new();
     private readonly List<SpacecraftProxy> proxies = [];
     private ObjectsManager? mission;
-    private SpacecraftProxy? inspected;
-    private Action? refresh;
     private float nextRefresh;
 
     private void Awake() => Active = this;
@@ -39,8 +37,6 @@ public class SpacewarController : MonoBehaviour
         {
             mission = null;
             proxies.Clear();
-            inspected = null;
-            refresh = null;
             page.Dispose();
             orbitalMap.Dispose();
             OrbitalAtmosphere.Restore();
@@ -56,18 +52,13 @@ public class SpacewarController : MonoBehaviour
         }
         var selected = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() : null;
         var current = SpacecraftProxy.For(selected);
-        page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, current != null && !current.Unit.Disabled && selected!.IsPlayerUnit);
-        if (current != inspected || page.Content == null)
-        {
-            inspected = current;
-            page.Content = null;
-            refresh = null;
-            if (current != null) Open(current);
-        }
+        bool canInspect = current != null && !current.Unit.Disabled && selected!.IsPlayerUnit;
+        page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, canInspect);
+        if (canInspect && page.SetContent(current!, Build)) page.RefreshContent();
         if (Time.realtimeSinceStartup < nextRefresh) return;
         nextRefresh = Time.realtimeSinceStartup + 0.5f;
         orbitalMap.Refresh(seconds, current?.Craft);
-        refresh?.Invoke();
+        page.RefreshContent();
     }
 
     private void CreateProxies(ObjectsManager manager)
@@ -93,26 +84,20 @@ public class SpacewarController : MonoBehaviour
         }
     }
 
-    private void Open(SpacecraftProxy proxy)
+    private static (FrameworkElement, Action) Build(SpacecraftProxy proxy)
     {
         var description = Text("");
         description.Name = "SpacewarElements";
         var position = Text("");
         position.Name = "SpacewarPosition";
         var track = new GroundTrack();
-        var root = new Grid { Name = "SpacewarPanel", Margin = new Thickness(5) };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) })
-            root.RowDefinitions.Add(new() { Height = height });
-        root.Children.Add(description);
         position.Margin = new Thickness(0, 8, 0, 8);
-        Grid.SetRow(position, 1);
-        root.Children.Add(position);
         var chart = new Viewbox { Child = track.Canvas, Stretch = Stretch.Uniform };
-        Grid.SetRow(chart, 2);
-        root.Children.Add(chart);
+        var root = FillPanel("SpacewarPanel", 5, Stack(description, position), chart);
         root.DataContext = root;
-        page.Content = root;
-        refresh = () =>
+        return (root, Refresh);
+
+        void Refresh()
         {
             var craft = proxy.Craft;
             var elements = craft.Orbit;
@@ -126,8 +111,7 @@ public class SpacewarController : MonoBehaviour
                 + $"Display altitude {proxy.DisplayAltitudeKm:N1} km · Altitude scale {proxy.AltitudeScale:N4}\n"
                 + $"Horizontal scale {proxy.HorizontalScale:N4} · {(proxy.HorizontalScale < 0.9999 ? "Pinned toward map boundary" : "Accurate ground position")}";
             track.Draw(elements, seconds);
-        };
-        refresh();
+        }
     }
 
     private void OnDestroy()

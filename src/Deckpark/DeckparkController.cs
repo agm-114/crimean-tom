@@ -10,8 +10,6 @@ namespace Deckpark;
 public class DeckparkController : MonoBehaviour
 {
     private readonly UnitStatusPage page = new(0x4450, "Deckpark");
-    private Vessel? selected;
-    private Action? refresh;
     private float nextRefresh;
 
     private void Update()
@@ -21,12 +19,11 @@ public class DeckparkController : MonoBehaviour
         var ship = Singleton<RenderPosition>.InstanceExists() ? Singleton<RenderPosition>.Instance.getSelectedObject() as Vessel : null;
         bool available = DeckOperations.CanUse(ship);
         page.Refresh(MainGameView.Instance, Globals._mainGameViewModel?.UnitStatus, available);
-        if (!available) { selected = null; refresh = null; page.Content = null; return; }
-        if (selected != ship || page.Content == null) { selected = ship; Open(ship!); }
-        refresh?.Invoke();
+        if (available) page.SetContent(ship!, Build);
+        page.RefreshContent();
     }
 
-    private void Open(Vessel ship)
+    private (FrameworkElement, Action) Build(Vessel ship)
     {
         var slots = DeckOperations.Slots(ship);
         var rows = slots.Select(slot => new DeckSlotRow(ship, slot)).ToArray();
@@ -38,46 +35,37 @@ public class DeckparkController : MonoBehaviour
         var footer = Text("");
         footer.Name = "DeckparkStatus";
         var editor = new ContentControl();
-        var slotChoice = Choice(slots, slot => $"Slot {slot.Number}", changed: Edit);
-        slotChoice.Name = "DeckparkSlot";
-        slotChoice.Width = 100;
-        var types = Choice(DeckCatalog.Units, DeckCatalog.Name);
-        types.Name = "DeckparkGroundUnit";
-        types.Width = 230;
+        var slotChoice = new ChoicePicker<DeckSlot?>(slots.Select(slot => ($"Slot {slot.Number}", (DeckSlot?)slot)));
+        slotChoice.Control.Name = "DeckparkSlot";
+        slotChoice.Control.Width = 100;
+        slotChoice.Control.SelectionChanged += (_, _) => { if (slotChoice.Value is { } slot) Edit(slot); };
+        var types = new ChoicePicker<string?>(DeckCatalog.Units.Select(reference => (DeckCatalog.Name(reference), (string?)reference)));
+        types.Control.Name = "DeckparkGroundUnit";
+        types.Control.Width = 230;
         var choices = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 5) };
-        choices.Children.Add(slotChoice);
-        choices.Children.Add(types);
+        choices.Children.Add(slotChoice.Control);
+        choices.Children.Add(types.Control);
         var mountButton = Button("MOUNT", () =>
         {
-            if (Valid() && slotChoice.SelectedItem is ComboBoxItem { Tag: DeckSlot slot }
-                && types.SelectedItem is ComboBoxItem { Tag: string reference })
+            if (Valid() && slotChoice.Value is { } slot
+                && types.Value is { } reference)
                 footer.Text = DeckOperations.Mount(ship, slot, reference);
         }, primary: true);
         mountButton.Name = "DeckparkMount";
         choices.Children.Add(mountButton);
-        var root = new Grid { Name = "DeckparkPanel", Margin = new Thickness(5) };
-        foreach (var height in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
-            root.RowDefinitions.Add(new() { Height = height });
-        root.Children.Add(summary);
-        Grid.SetRow(table, 1);
-        root.Children.Add(table);
-        Grid.SetRow(choices, 2);
-        root.Children.Add(choices);
-        Grid.SetRow(editor, 3);
-        root.Children.Add(editor);
-        Grid.SetRow(footer, 4);
-        root.Children.Add(footer);
+        var root = FillPanel("DeckparkPanel", 5, summary, table, Stack(choices, editor, footer));
         root.DataContext = root;
-        page.Content = root;
         Edit(slots[0]);
-        refresh = () =>
+        return (root, Refresh);
+
+        void Refresh()
         {
             foreach (var row in rows) row.Update();
-            var slot = (slotChoice.SelectedItem as ComboBoxItem)?.Tag as DeckSlot;
-            mountButton.IsEnabled = Valid() && slot is { Used: false } && types.SelectedItem is ComboBoxItem { Tag: string reference }
+            var slot = slotChoice.Value;
+            mountButton.IsEnabled = Valid() && slot is { Used: false } && types.Value is { } reference
                 && DeckCatalog.Available(reference);
-        };
-        bool Valid() => selected == ship && DeckOperations.CanUse(ship);
+        }
+        bool Valid() => page.IsShowing(ship) && DeckOperations.CanUse(ship);
         void Edit(DeckSlot slot)
         {
             var mounted = DeckOperations.On(ship).FirstOrDefault(item => item.Slot == slot.Number);

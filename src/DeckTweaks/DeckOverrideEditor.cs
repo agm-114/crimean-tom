@@ -1,6 +1,7 @@
 using DeckTweaks.Preparation;
 using Noesis;
 using SeaPower;
+using SeaPower.SharedUi;
 using SeaPower.SharedSettings;
 using Path = System.IO.Path;
 using static SeaPower.SharedUi.NativeUi;
@@ -100,26 +101,25 @@ internal static class DeckOverrideEditor
 
     private static Action AddPicker(Table table, SettingsDraft draft, Catalog catalog, StackPanel content, Action refreshRows)
     {
-        var choices = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        var notice = Text("");
         var search = draft.Editor(Entry(""));
         search.Name = table.Section + "Search";
-        ChoiceItem? selected = null;
+        var picker = new SearchablePicker<ChoiceItem>(search, table.Section + "Choices", FindChoices,
+            item => item.Name, MaxMatches, item => item.Id);
         bool valid = true;
         double rate = table.InitialValue;
         var add = new Button { Content = "Add", Margin = new Thickness(4, 4, 0, 4), MinWidth = 54 };
         add.Click += (_, _) =>
         {
-            if (selected == null || !valid) return;
+            if (!valid || !picker.TryGetValue(out var selected)) return;
             draft.Set(table.Section, selected.Id, rate);
             refreshRows();
-            RefreshChoices();
+            picker.Refresh();
         };
         add.Name = table.Section + "Add";
         var number = draft.Editor(Number(rate, Minimum, DeckSettings.Maximum, value => rate = value, error =>
         {
             valid = error == null;
-            add.IsEnabled = valid && selected != null;
+            add.IsEnabled = valid && picker.HasSelection;
         }));
         number.Name = table.Section + "NewValue";
         var valueRow = FormRow(table.ValueLabel, number, 140);
@@ -127,29 +127,19 @@ internal static class DeckOverrideEditor
         DockPanel.SetDock(add, Dock.Right);
         addRow.Children.Add(add);
         addRow.Children.Add(valueRow);
-        var picker = Stack(FormRow("Search by name or ID", search, 140), choices, notice, addRow);
-        picker.Margin = new Thickness(0, 8, 0, 0);
-        content.Children.Add(picker);
-        search.TextChanged += (_, _) => RefreshChoices();
-        RefreshChoices();
-        return RefreshChoices;
+        var layout = Stack(FormRow("Search by name or ID", search, 140), picker.Results, addRow);
+        layout.Margin = new Thickness(0, 8, 0, 0);
+        content.Children.Add(layout);
+        picker.SelectionChanged += () => add.IsEnabled = valid && picker.HasSelection;
+        add.IsEnabled = picker.HasSelection;
+        return picker.Refresh;
 
-        void RefreshChoices()
+        IEnumerable<ChoiceItem> FindChoices(string query)
         {
             var used = new HashSet<string>(draft.Values.Entries(table.Section).Select(entry => entry.Key), StringComparer.OrdinalIgnoreCase);
-            string query = search.Text.Trim();
-            var matches = catalog.Choices(table.Kind)
+            return catalog.Choices(table.Kind)
                 .Where(item => !used.Contains(item.Id) && (item.Name.IndexOf(query, StringComparison.CurrentCultureIgnoreCase) >= 0
-                    || item.Id.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))
-                .Take(MaxMatches + 1).ToArray();
-            selected = matches.FirstOrDefault();
-            var combo = Choice(matches.Take(MaxMatches), item => item.Name, changed: item => selected = item, tooltip: item => item.Id);
-            combo.Name = table.Section + "Choices";
-            combo.IsEnabled = selected != null;
-            choices.Content = combo;
-            add.IsEnabled = valid && selected != null;
-            notice.Text = matches.Length == 0 ? "No matching entries" : matches.Length > MaxMatches ? "Refine the search to see more matches." : "";
-            notice.Visibility = notice.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+                    || item.Id.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0));
         }
     }
 

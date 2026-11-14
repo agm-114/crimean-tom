@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Noesis;
+using SeaPower.SharedUi;
 using SeapowerUI;
 using SeapowerUI.ViewModels;
 
@@ -18,10 +19,7 @@ internal class MenuProgress
     private readonly TextBlock label = new() { FontSize = 15, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock timing = DetailLine();
     private readonly TextBlock stage = DetailLine();
-    private const float SegmentGap = 1;
-    private const float MinSegmentWidth = 3;
-    private readonly Grid segments = new() { Name = "QuickloadPhases", Height = 6, Margin = new Thickness(0, 8, 0, 0) };
-    private readonly List<ProgressBar> stageBars = [];
+    private readonly SegmentedProgress segments = new("QuickloadPhase");
     private readonly Dictionary<Button, string> actions;
     private readonly Dictionary<Button, (string Action, BindingBase? Binding, bool? LocalValue)> blocked = [];
     internal MainMenuView Menu { get; }
@@ -35,7 +33,10 @@ internal class MenuProgress
         root.Children.Add(content);
         StackPanel stack = new();
         stack.Children.Add(label);
-        stack.Children.Add(segments);
+        segments.Content.Name = "QuickloadPhases";
+        segments.Content.Height = 6;
+        segments.Content.Margin = new Thickness(0, 8, 0, 0);
+        stack.Children.Add(segments.Content);
         stack.Children.Add(timing);
         stack.Children.Add(stage);
         panel = new()
@@ -80,31 +81,7 @@ internal class MenuProgress
             if (label.Text != text) label.Text = text;
             if (timing.Text != times) timing.Text = times ?? "";
             if (stage.Text != currentStage) stage.Text = currentStage ?? "";
-            if (progress != null) RefreshSegments(progress);
-        }
-    }
-
-    private void RefreshSegments(LoadProgress progress)
-    {
-        while (stageBars.Count < progress.StageCount)
-        {
-            if (stageBars.Count > 0) segments.ColumnDefinitions.Add(new() { Width = new GridLength(SegmentGap) });
-            ProgressBar bar = new() { Name = $"QuickloadPhase{stageBars.Count + 1}", Maximum = 1 };
-            Grid.SetColumn(bar, stageBars.Count * 2);
-            segments.ColumnDefinitions.Add(new() { MinWidth = MinSegmentWidth });
-            segments.Children.Add(bar);
-            stageBars.Add(bar);
-        }
-        for (int i = 0; i < stageBars.Count; i++)
-        {
-            var bar = stageBars[i];
-            var (tooltip, seconds, fraction, indeterminate) = progress.ReadStage(i);
-            if (!Equals(bar.ToolTip, tooltip)) bar.ToolTip = tooltip;
-            var width = new GridLength(seconds, GridUnitType.Star);
-            var column = segments.ColumnDefinitions[i * 2];
-            if (column.Width != width) column.Width = width;
-            bar.Value = fraction;
-            bar.IsIndeterminate = indeterminate;
+            if (progress != null) segments.Refresh(progress.StageCount, progress.ReadStage);
         }
     }
 
