@@ -32,7 +32,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli presets
         seapower-cli status [--format yaml|json]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
-        seapower-cli workshop-update --mod-dir PATH [--preview-dir PATH] [--changelog TEXT] [--confirm] [--timeout 600]
+        seapower-cli workshop-update --mod-dir PATH [--content-only] [--preview-dir PATH] [--changelog TEXT] [--confirm] [--timeout 600]
         seapower-cli workshop-create --mod-dir PATH --visibility public|friends-only|private|unlisted [--dependencies IDS] [--tags TAGS] [--confirm]
         seapower-cli workshop-status [--operation TOKEN]
         seapower-cli unity-explorer [status|install|enable|disable] [--confirm] [--game-dir PATH]
@@ -102,6 +102,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         install downloads pinned 4.9.0, verifies SHA-256 and installs disabled. It never overwrites an existing installation.
         workshop-update previews an existing item by [Workshop] Url in _info.ini or mod.info.
         --confirm syncs Language_en Name/Description from _info.ini plus content, thumbnail and compatibility metadata.
+        --content-only replaces only the packaged directory and preserves the listing fields and images.
         It verifies the app and title. Steam authorizes the update. Workshop/Title can pin the old title for an intentional rename.
         --preview-dir adds gallery images and replaces images with matching filenames.
         It never creates an item or changes tags, visibility or dependencies.
@@ -126,7 +127,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "player-waypoint" => ["--ship", "--latitude", "--longitude", "--confirm"],
             "player-standing-orders" => ["--target", "--setting", "--value", "--confirm"],
             "game-status" => ["--game-dir", "--log-file"],
-            "workshop-update" => ["--mod-dir", "--preview-dir", "--changelog", "--confirm"],
+            "workshop-update" => ["--mod-dir", "--preview-dir", "--changelog", "--content-only", "--confirm"],
             "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
             "workshop-status" => ["--operation"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
@@ -168,7 +169,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             else
             {
                 if (!allowed.Contains(key)) throw new ArgumentException($"Unknown option '{key}' for {action}.");
-                if (key is "--confirm" or "--json" or "--distinct" or "--count") value = "true";
+                if (key is "--confirm" or "--content-only" or "--json" or "--distinct" or "--count") value = "true";
                 else if (++index < args.Length && !args[index].StartsWith("--")) value = args[index];
                 else throw new ArgumentException($"{key} requires a value.");
             }
@@ -199,6 +200,9 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         string? scenario = options.ContainsKey("--scenario") ? Path.GetFullPath(Required("--scenario")) : null;
         if (action == "load-scenario" && scenario == null) Required("--scenario");
         bool workshop = action is "workshop-update" or "workshop-create";
+        bool contentOnly = options.ContainsKey("--content-only");
+        if (contentOnly && (options.ContainsKey("--preview-dir") || options.ContainsKey("--changelog")))
+            throw new ArgumentException("--content-only cannot be combined with --preview-dir or --changelog.");
         string modDirectory = workshop ? Path.GetFullPath(Required("--mod-dir")) : "";
         string previewDirectory = options.ContainsKey("--preview-dir") ? Path.GetFullPath(Required("--preview-dir")) : "";
         if (workshop) new SeaPower.Workshop.WorkshopManifest(modDirectory, action == "workshop-create").ContentFiles();
@@ -269,7 +273,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             Setting = changeStandingOrder ? Required("--setting") : "",
             SettingValue = changeStandingOrder ? Required("--value") : "",
             ModDirectory = modDirectory, ChangeLog = changeLog, Visibility = visibility, Dependencies = dependencies, Tags = tags,
-            PreviewDirectory = previewDirectory,
+            PreviewDirectory = previewDirectory, ContentOnly = contentOnly,
             Latitude = action == "player-waypoint" ? Coordinate("--latitude", 90) : null,
             Longitude = action == "player-waypoint" ? Coordinate("--longitude", 180) : null,
         }, seconds, Number("--timeout", defaultTimeout, 1, 86400), query, input)

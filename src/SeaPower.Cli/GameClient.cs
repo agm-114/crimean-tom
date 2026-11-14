@@ -48,6 +48,7 @@ internal class GameClient
         requiredCapability = command.Request.Action switch
         {
             "workshop-create" or "double-click" => command.Request.Action,
+            "workshop-update" when command.Request.ContentOnly => "workshop-content-only",
             "workshop-update" when command.Request.PreviewDirectory.Length > 0 => "workshop-preview-images",
             "workshop-update" or "workshop-status" => "workshop-update",
             "player-view" or "player-waypoint" or "player-standing-orders" or "ooda-status" => command.Request.Action, _ => null,

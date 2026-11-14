@@ -16,6 +16,8 @@ internal class WorkshopControls : IDisposable
                 throw new InvalidOperationException("That Workshop operation is no longer the current operation.");
             return current.Status();
         }
+        if (command.ContentOnly && (command.Action != "workshop-update" || command.PreviewDirectory.Length > 0 || command.ChangeLog.Length > 0))
+            throw new ArgumentException("Content-only updates cannot create items or include gallery changes or change notes.");
         if (current?.Busy == true) throw new InvalidOperationException($"Workshop operation {current.Id} is still active. Use workshop-status.");
         if (!SteamManager.Initialized || !SteamUser.BLoggedOn() || SteamUtils.GetAppID().m_AppId != WorkshopManifest.AppId)
             throw new InvalidOperationException("Sea Power must be running with Steam signed in and the updated bridge enabled.");
@@ -155,6 +157,8 @@ internal class WorkshopControls : IDisposable
                 if (item.m_eFileType != EWorkshopFileType.k_EWorkshopFileTypeFirst || item.m_bBanned)
                     throw new InvalidOperationException("URL does not identify an updateable Sea Power Workshop item.");
                 manifest.ValidateTarget(item.m_nPublishedFileId.m_PublishedFileId, item.m_nConsumerAppID.m_AppId, remoteTitle);
+                if (command.ContentOnly && !string.Equals(remoteTitle.Trim(), manifest.Title.Trim(), StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Workshop title '{remoteTitle}' does not match pinned title '{manifest.Title}'.");
                 if (previews.Length > 0) ReadPreviews();
                 if (!command.Confirm) { state = "preview"; return; }
                 Submit();
@@ -179,7 +183,6 @@ internal class WorkshopControls : IDisposable
             ValidateLocal();
             if (!SteamUser.BLoggedOn() || SteamUser.GetSteamID().m_SteamID != account)
                 throw new InvalidOperationException("Steam account changed during verification; nothing uploaded.");
-            string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
             update = SteamUGC.StartItemUpdate(new AppId_t(WorkshopManifest.AppId), new PublishedFileId_t(manifest.ItemId));
             if (update == UGCUpdateHandle_t.Invalid) throw new InvalidOperationException("Steam rejected the item update.");
             if (Creating)
@@ -187,10 +190,21 @@ internal class WorkshopControls : IDisposable
                 Require(SteamUGC.SetItemVisibility(update, Visibility), "visibility");
                 if (command.Tags.Length > 0) Require(SteamUGC.SetItemTags(update, command.Tags), "tags");
             }
+            Require(SteamUGC.SetItemContent(update, manifest.Directory), "content folder");
+            if (!command.ContentOnly) UpdateListing();
+            uploadCall = CallResult<SubmitItemUpdateResult_t>.Create(Submitted);
+            var call = SteamUGC.SubmitItemUpdate(update, command.ChangeLog);
+            if (call == SteamAPICall_t.Invalid) throw new InvalidOperationException("Steam rejected submission of the update.");
+            uploadCall.Set(call);
+            state = "uploading";
+        }
+
+        private void UpdateListing()
+        {
             Require(SteamUGC.SetItemUpdateLanguage(update, "english"), "listing language");
             Require(SteamUGC.SetItemTitle(update, manifest.Name), "name");
             Require(SteamUGC.SetItemDescription(update, manifest.Description), "description");
-            Require(SteamUGC.SetItemContent(update, manifest.Directory), "content folder");
+            string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
             if (File.Exists(preview)) Require(SteamUGC.SetItemPreview(update, preview), "thumbnail");
             foreach (FileInfo file in previews)
                 Require(currentPreviews.TryGetValue(file.Name, out uint index)
@@ -200,11 +214,6 @@ internal class WorkshopControls : IDisposable
             if (ini == null) throw new InvalidOperationException("Cannot read mod compatibility metadata.");
             var compatibility = ModCompatibility.FromIni(ini);
             if (compatibility.HasInfo) Require(SteamUGC.SetItemMetadata(update, compatibility.ToMetadataString()), "compatibility metadata");
-            uploadCall = CallResult<SubmitItemUpdateResult_t>.Create(Submitted);
-            var call = SteamUGC.SubmitItemUpdate(update, command.ChangeLog);
-            if (call == SteamAPICall_t.Invalid) throw new InvalidOperationException("Steam rejected submission of the update.");
-            state = "uploading";
-            uploadCall.Set(call);
         }
 
         private void ValidateLocal()
@@ -214,6 +223,7 @@ internal class WorkshopControls : IDisposable
                 || fresh.Name != manifest.Name || fresh.Description != manifest.Description)
                 throw new InvalidOperationException("Local Workshop metadata changed during verification; nothing uploaded.");
             fresh.ContentFiles();
+            if (command.ContentOnly) return;
             string preview = Path.Combine(manifest.Directory, "thumbnail.jpg");
             if (File.Exists(preview) && new FileInfo(preview).Length > 1000000)
                 throw new ArgumentException("thumbnail.jpg must be at most 1,000,000 bytes.");
@@ -234,7 +244,9 @@ internal class WorkshopControls : IDisposable
             {
                 ok = state is "preview" or "updated" or "created", action = command.Action, operation = Id, state,
                 url = manifest.Url, publishedFileId = manifest.ItemId == 0 ? null : manifest.ItemId.ToString(), appId = WorkshopManifest.AppId,
-                title = manifest.Name, description = manifest.Description,
+                contentOnly = command.ContentOnly,
+                title = command.ContentOnly ? remoteTitle : manifest.Name,
+                description = command.ContentOnly ? remoteDescription : manifest.Description,
                 currentTitle = remoteTitle, currentDescription = remoteDescription,
                 previewImages = previews.Select(file => file.Name).ToArray(), currentPreviewImages = currentPreviews.Keys.ToArray(),
                 ownerSteamId = owner == 0 ? null : owner.ToString(),

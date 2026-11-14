@@ -215,6 +215,45 @@ tags, visibility and dependencies. The folder must include
 rejected. Keep package contents stable during an upload. No local files are
 rewritten or silhouette data baked by this command.
 
+Use `workshop-update --content-only --mod-dir PATH` to preview a package that
+will update only the item content. Add `--confirm` to submit. The title must
+match the pinned title. The bridge skips listing fields, images, and listing
+compatibility metadata. Keep any artwork and metadata files that belong
+inside the download in the package. Omit `--preview-dir` and `--changelog`.
+
+### Staging Keel for Anchor Chain
+
+Pass a Keel commit and the stock copy of Anchor Chain Workshop item
+3380210757 to the staging script. From this repository, fetch the combined
+branch without switching the Keel submodule's checkout.
+
+```powershell
+$keelRepo = 'external/SeaPowerKeel'
+git -C $keelRepo fetch origin codex/combined-keel
+$keelCommit = git -C $keelRepo rev-parse FETCH_HEAD
+./scripts/stage-keel-for-anchor-chain.ps1 -KeelRepository $keelRepo -KeelRef $keelCommit -AnchorChainPackage $stockAnchorChain -GameDir $gameDir
+```
+
+The output under `artifacts/workshop` includes a local test package, the
+original files for rollback, the separate Keel starter, and a manifest with
+the source commit and SHA-256 hashes. The test package keeps the current
+Anchor Chain DLL, `_info.ini`, and thumbnail byte for byte. The script never
+installs or uploads the build.
+
+Before publishing to the existing item, verify that an existing Anchor Chain
+installation can start Keel and each dependent mod once. Test a fresh install
+using the documented installation steps and test rollback to the saved
+package. The current preloader starts `AnchorChain.AnchorChainLoader` from
+`AnchorChain.dll`, so the upgrade needs to preserve that entry point and
+the assembly used by dependent mods. If Anchor Chain starts Keel, the Keel
+takeover patcher must allow Anchor Chain's preloader to start on the next
+launch. Also test an installation that already has standalone Keel.
+
+Review the fork name, plugin IDs, and crash-report destination before
+distributing it. With those checks complete, preview and submit the compatible
+package with `workshop-update --content-only`. Use the same command with the
+rollback directory to restore the old files.
+
 The default timeout is 600 wall-clock seconds. Steam lookups time out after 60
 seconds without submitting. An accepted upload continues if the CLI exits or
 times out; use `workshop-status` before retrying. Only one bridge Workshop

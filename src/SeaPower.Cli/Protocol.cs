@@ -19,6 +19,7 @@ internal record GameRequest(string Action)
     public double? Longitude { get; init; }
     public string ModDirectory { get; init; } = "";
     public string PreviewDirectory { get; init; } = "";
+    public bool ContentOnly { get; init; }
     public string ChangeLog { get; init; } = "";
     public string Visibility { get; init; } = "";
     public ulong[] Dependencies { get; init; } = [];
