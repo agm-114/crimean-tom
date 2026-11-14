@@ -10,6 +10,7 @@ internal static class EncyclopediaLoading
 {
     internal const double FrameBudgetMilliseconds = 4;
     internal static bool Ready { get; private set; }
+    internal static void Reset() => Ready = false;
 
     private static IEnumerable<MethodBase> TargetMethods()
     {

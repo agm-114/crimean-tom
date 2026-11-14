@@ -1,12 +1,15 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SeaPower;
 using Unity.Entities;
 using Debug = UnityEngine.Debug;
 using System.Threading.Tasks;
+using BackgroundTask = System.Threading.Tasks.Task;
 
 namespace Quickload;
 
@@ -19,7 +22,15 @@ internal static class UnitMetadataCache
     private static Task<CacheFile?>? validation;
 
     internal static void StartValidation(StartupArchives archives) =>
-        validation = archives.Read(FileName, Format, stream => StartupArchives.ReadJson<CacheFile>(stream, UnitWorkerOutput.CreateSerializer()));
+        validation = archives.Read(FileName, Format, Read);
+
+    private static CacheFile? Read(Stream stream)
+    {
+        var cached = StartupArchives.ReadJson<CacheFile>(stream, UnitWorkerOutput.CreateSerializer());
+        if (cached == null) return null;
+        foreach (var entry in cached.Units.Values) entry.Prepare();
+        return cached;
+    }
 
     internal static IEnumerator OpenForStartup()
     {
@@ -30,10 +41,9 @@ internal static class UnitMetadataCache
         while (!task.IsCompleted) yield return null;
         if (task.IsFaulted)
         {
-            Debug.LogWarning($"[Quickload] Unit metadata cache unavailable: {task.Exception?.GetBaseException().Message}");
-            yield break;
+            Debug.LogWarning($"[Quickload] Unit metadata cache unavailable: {task.Exception?.GetBaseException()}");
         }
-        var prepared = new Session(task.Result);
+        var prepared = new Session(task.Status == TaskStatus.RanToCompletion ? task.Result : null);
         var sensors = Singleton<SensorMetadataProvider>.Instance;
         prepared.SensorNames = sensors.Sensors.ToDictionary(pair => pair.Value, pair => pair.Key);
         foreach (var record in prepared.SignatureRecords)
@@ -53,24 +63,70 @@ internal static class UnitMetadataCache
         archives.Save(FileName, Format, snapshot, (stream, data) => StartupArchives.WriteJson(stream, data, UnitWorkerOutput.CreateSerializer()));
     }
 
-    [HarmonyPrefix, HarmonyPatch(typeof(SimpleObjectParameters), nameof(SimpleObjectParameters.LoadSimpleParameters))]
-    private static bool Restore(string objectIniName, string objectIniFolder, int objectNumber, ref SimpleObjectParameters __result)
+    [HarmonyPatch]
+    private static class UnitDispatch
     {
-        if (objectNumber != 0 || !SimpleObjectParameters.DeferSensorEntityCreation || session is not { } active) return true;
-        string key = objectIniFolder + "/" + objectIniName;
-        if (!active.Entries.TryRemove(key, out var entry)) return true;
-        try
+        private static readonly Type iterator = typeof(UnitMetadataProvider).GetNestedTypes(BindingFlags.NonPublic)
+            .Single(type => type.Name.StartsWith("<<OnStart>g__LoadUnitMetadata|", StringComparison.Ordinal));
+
+        private static MethodBase TargetMethod() => AccessTools.Method(iterator, "MoveNext");
+
+        [HarmonyTranspiler]
+        private static IEnumerable<CodeInstruction> ReplaceUnitDispatch(IEnumerable<CodeInstruction> code)
         {
-            active.RestoreAmmunition();
-            __result = entry.Restore(objectIniFolder, objectIniName, Singleton<SensorMetadataProvider>.Instance,
-                active.Signatures, active.Ammunition);
-            Interlocked.Increment(ref active.Restored);
-            return false;
+            var instructions = code.ToList();
+            var dispatch = instructions.Where(instruction => instruction.operand is MethodInfo method &&
+                method.DeclaringType == typeof(BackgroundTask) && method.Name == nameof(BackgroundTask.Run) &&
+                method.ReturnType == typeof(Task<ParallelLoopResult>)).ToArray();
+            if (dispatch.Length != 2) return instructions;
+            dispatch[0].operand = AccessTools.Method(typeof(UnitDispatch), nameof(RunUnitWorker));
+            dispatch[1].operand = AccessTools.Method(typeof(UnitDispatch), nameof(RunAmmoWorker));
+            return instructions;
         }
-        catch (Exception error) when (error is JsonException or IOException or KeyNotFoundException or ArgumentException or NullReferenceException)
+
+        private static Task<ParallelLoopResult> RunAmmoWorker(Func<ParallelLoopResult> native)
         {
-            Debug.LogWarning($"[Quickload] Rebuilding cached unit {key}: {error.Message}");
-            return true;
+            if (session is { Restored: > 0 } && native.Target is { } closure &&
+                AccessTools.Field(closure.GetType(), "ammoNames")?.GetValue(closure) is List<string> { Count: 0 })
+                return BackgroundTask.FromResult(default(ParallelLoopResult));
+            return BackgroundTask.Run(native);
+        }
+
+        private static Task<ParallelLoopResult> RunUnitWorker(Func<ParallelLoopResult> native)
+        {
+            if (session is not { } active || active.Entries.IsEmpty || native.Target is not { } closure ||
+                AccessTools.Field(closure.GetType(), "workItems")?.GetValue(closure) is not List<(string Folder, string Name)> items ||
+                AccessTools.Field(closure.GetType(), "results")?.GetValue(closure) is not SimpleObjectParameters[] results ||
+                results.Length != items.Count || active.Entries.Count != items.Count ||
+                items.Any(item => !active.Entries.ContainsKey(item.Folder + "/" + item.Name)))
+                return BackgroundTask.Run(native);
+
+            var sensors = Singleton<SensorMetadataProvider>.Instance;
+            var ammunition = Singleton<UnitMetadataProvider>.Instance.AmmunitionData;
+            return BackgroundTask.Run(() =>
+            {
+                try
+                {
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var (folder, name) = items[i];
+                        var entry = active.Entries[folder + "/" + name];
+                        results[i] = entry.Restore(folder, name, sensors, active.Signatures, active.Ammunition);
+                    }
+                }
+                catch (Exception error) when (error is JsonException or IOException or KeyNotFoundException or ArgumentException or NullReferenceException)
+                {
+                    Debug.LogWarning($"[Quickload] Rebuilding cached unit batch: {error.Message}");
+                    Array.Clear(results, 0, results.Length);
+                    return native();
+                }
+
+                foreach (var pair in active.Ammunition) ammunition.TryAdd(pair.Key, pair.Value);
+                active.Restored = results.Length;
+                active.Entries.Clear();
+                Debug.Log($"[Quickload] Supplied {results.Length:N0} cached records without the native unit worker pool.");
+                return default;
+            });
         }
     }
 
@@ -99,20 +155,6 @@ internal static class UnitMetadataCache
         internal Dictionary<int, int> Signatures = [];
         internal Dictionary<Entity, string> SensorNames = [];
         internal int Restored;
-        private readonly object ammoLock = new();
-        private volatile bool ammunitionRestored;
-
-        internal void RestoreAmmunition()
-        {
-            if (ammunitionRestored) return;
-            lock (ammoLock)
-            {
-                if (ammunitionRestored) return;
-                var live = Singleton<UnitMetadataProvider>.Instance.AmmunitionData;
-                foreach (var pair in Ammunition) live.TryAdd(pair.Key, pair.Value);
-                ammunitionRestored = true;
-            }
-        }
 
         internal CacheFile BuildCache()
         {

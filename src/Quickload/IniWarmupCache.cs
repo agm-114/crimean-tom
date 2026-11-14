@@ -12,7 +12,7 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class IniWarmupCache
 {
-    private const int Format = 1;
+    private const int Format = 2;
     private const string FileName = "ini-warmup.bin.gz";
     private static readonly Type handler = typeof(IniHandler);
     private static readonly Action scanModifiers = AccessTools.MethodDelegate<Action>(AccessTools.Method(handler, "ScanForModifierFiles"));
@@ -24,39 +24,30 @@ internal static class IniWarmupCache
     private static readonly System.Reflection.FieldInfo labels = AccessTools.Field(typeof(CodeInstruction), "labels");
     private static bool available;
     private static Session? session;
-    [ThreadStatic] private static bool preloading;
-    [ThreadStatic] private static string[]? copiedFiles;
+    [ThreadStatic] private static (string Path, string[] Files)? copies;
 
     internal static Task<ConcurrentDictionary<string, Entry>?>? Prefetch(StartupArchives source) =>
         available ? source.Read(FileName, Format, Read) : null;
 
-    internal static IEnumerator Wrap(IEnumerator native, StartupArchives? source, Task<ConcurrentDictionary<string, Entry>?>? prefetch)
+    internal static void Begin(StartupArchives? source, Task<ConcurrentDictionary<string, Entry>?>? prefetch)
     {
-        if (source == null || prefetch == null)
-        {
-            yield return native;
-            yield break;
-        }
-        // Prefer the native pass if the disk worker is still busy when warmup starts.
+        if (source == null || prefetch == null || session != null) return;
         var entries = prefetch.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? prefetch.Result : null;
-        var active = new Session(source, entries);
-        session = active;
-        try { yield return native; }
-        finally { session = null; }
-        Debug.Log($"[Quickload] INI warmup snapshot restored {active.Restored:N0} files.");
-        if (IniPreloader.Completed && active.Restored == 0 && !active.Added.IsEmpty)
-            source.Save(FileName, Format, active.Added, Write);
+        session = new Session(source, entries);
     }
 
-    [HarmonyPrefix, HarmonyPatch(typeof(IniPreloader), "Open")]
-    private static void Begin() => preloading = session != null;
+    internal static int Restored => session?.Restored ?? 0;
 
-    [HarmonyFinalizer, HarmonyPatch(typeof(IniPreloader), "Open")]
-    private static void End()
+    internal static void Finish(bool loaded)
     {
-        preloading = false;
-        copiedFiles = null;
+        var active = session;
+        session = null;
+        if (loaded && active is { Entries: null } && !active.Added.IsEmpty)
+            active.Source.Save(FileName, Format, active.Added, Write);
     }
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(IniHandler), nameof(IniHandler.open))]
+    private static void ClearCopies() => copies = null;
 
     [HarmonyTranspiler, HarmonyPatch(typeof(IniHandler), nameof(IniHandler.open))]
     private static IEnumerable<CodeInstruction> ReuseParsedData(IEnumerable<CodeInstruction> code, ILGenerator generator)
@@ -74,6 +65,7 @@ internal static class IniWarmupCache
         var publish = generator.DefineLabel();
         var tryRestore = new CodeInstruction(OpCodes.Ldarg_0).MoveLabelsFrom(instructions[scan]);
         var discardMiss = new CodeInstruction(OpCodes.Pop);
+        var expandCall = instructions[expand];
         AddLabel(discardMiss, useParser);
         AddLabel(instructions[expand + 1], publish);
         instructions[expand].operand = AccessTools.Method(typeof(IniWarmupCache), nameof(ExpandAndCapture));
@@ -82,6 +74,9 @@ internal static class IniWarmupCache
         instructions.InsertRange(scan,
         [
             tryRestore,
+            new(OpCodes.Ldarg_2),
+            new(OpCodes.Ldarg_3),
+            new(OpCodes.Ldarg_S, (byte)5),
             new(OpCodes.Call, AccessTools.Method(typeof(IniWarmupCache), nameof(Restore))),
             new(OpCodes.Dup),
             new(OpCodes.Brfalse, useParser),
@@ -89,15 +84,17 @@ internal static class IniWarmupCache
             new(OpCodes.Br, publish),
             discardMiss,
         ]);
+        instructions.InsertRange(instructions.IndexOf(expandCall),
+            [new(OpCodes.Ldarg_2), new(OpCodes.Ldarg_3), new(OpCodes.Ldarg_S, (byte)5)]);
         available = true;
         return instructions;
     }
 
     private static void AddLabel(CodeInstruction instruction, object label) => ((IList)labels.GetValue(instruction)).Add(label);
 
-    private static IniData? Restore(IniHandler ini)
+    private static IniData? Restore(IniHandler ini, bool useCaching, bool persistent, bool forceDisk)
     {
-        if (!preloading || session is not { Entries: { } entries } active
+        if (!useCaching || persistent || forceDisk || session is not { Entries: { } entries } active
             || !entries.TryRemove(ini.getFilePath(), out var entry)) return null;
         scanModifiers();
         ini.aliasFiles.AddRange(entry.Aliases);
@@ -106,21 +103,22 @@ internal static class IniWarmupCache
         return entry.Data;
     }
 
-    private static void RegisterCopies(string path, List<string> copies)
+    private static void RegisterCopies(string path, List<string> files)
     {
-        registerCopies(path, copies);
-        if (preloading) copiedFiles = copies.ToArray();
+        registerCopies(path, files);
+        if (session is { Entries: null }) copies = (path, files.ToArray());
     }
 
-    private static void ExpandAndCapture(IniHandler ini, IniData data)
+    private static void ExpandAndCapture(IniHandler ini, IniData data, bool useCaching, bool persistent, bool forceDisk)
     {
         expandTemplates(ini, data);
-        if (!preloading || session is not { Entries: null } active || !active.Source.Includes(ini.getFilePath())
-            || data.Count == 0) return;
+        if (!useCaching || persistent || forceDisk || session is not { Entries: null } active || data.Count == 0) return;
+        string path = ini.getFilePath();
+        if (!active.Source.Includes(path) || active.Added.ContainsKey(path)) return;
         // Snapshot worker output before it becomes writable through the native cache.
         var sections = new IniData(data.Count, data.Comparer);
         foreach (var section in data) sections.Add(section.Key, new(section.Value, section.Value.Comparer));
-        active.Added.TryAdd(ini.getFilePath(), new(ini.aliasFiles.ToArray(), copiedFiles ?? [], sections));
+        active.Added.TryAdd(path, new(ini.aliasFiles.ToArray(), copies is { } copied && copied.Path == path ? copied.Files : [], sections));
     }
 
     private static ConcurrentDictionary<string, Entry> Read(Stream stream)

@@ -5,6 +5,7 @@ using SeaPower;
 using SeapowerUI;
 using SeapowerUI.ViewModels;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Quickload;
 
@@ -13,6 +14,9 @@ internal static class StartupLoading
 {
     private static readonly List<LoadAction> pending = [];
     private static bool collecting = true;
+    private static AsyncOperation? menuLoad;
+    private static bool startupScreen;
+    private static bool earlyMenuVisible;
     private static bool coreReady;
     private static bool failed;
     private static bool preparingEncyclopedia;
@@ -24,7 +28,7 @@ internal static class StartupLoading
     private static LoadProgress? progress;
     private static float nextRefresh;
 
-    internal static bool Active => pending.Count > 0;
+    internal static bool Active => startupScreen || pending.Count > 0;
     internal static bool DeferredEncyclopedia => preparingEncyclopedia;
     private static bool EncyclopediaReady => coreReady && (EncyclopediaLoading.Ready || !hasEncyclopedia);
     internal static bool CanBuildEncyclopedia => !preparingEncyclopedia ||
@@ -52,12 +56,18 @@ internal static class StartupLoading
     {
         if (Globals._inMuseum && action.description is ("PreloadInis" or "DEM Data" or "Terrain Chunks" or "OpenEncyclopedia"))
             return MuseumLoading.Dispatch(action);
-        if (!collecting || MainMenuView.Instance != null) return action.GetEnumerator();
+        if (!collecting) return action.GetEnumerator();
+        if (!startupScreen && MainMenuView.Instance == null &&
+            SceneManager.GetActiveScene().name == "background")
+        {
+            menuLoad = SceneManager.LoadSceneAsync("main-menu", LoadSceneMode.Additive);
+            startupScreen = menuLoad != null;
+        }
         if (action.description == "LoadMainMenu")
         {
             collecting = false;
             if (Active) Singleton<BackgroundSceneController>.Instance.StartCoroutine(LoadBehindMenu());
-            return action.GetEnumerator();
+            return menuLoad == null ? action.GetEnumerator() : Empty();
         }
         if (!IsMusic(action) && action.description is not (
             "VoiceMessage_LoadClips" or "SensorMetadataProvider LoadSensorMetadata" or "UnitMetadataProvider LoadUnitMetadata"
@@ -72,9 +82,14 @@ internal static class StartupLoading
     private static bool KeepKeelWaiting(LoadScreen __instance, string value)
     {
         if (advancingMusic) return false;
-        if (!Active || collecting || coreReady) return true;
+        if (!Active || coreReady) return true;
         // Keel uses the native "Done" marker to start mods that need the unit catalogue.
-        if (value == "Done" && __instance.cameraObject.enabled) return false;
+        if (value == "Done") return false;
+        if (startupScreen)
+        {
+            if (value.StartsWith("Loading ", StringComparison.Ordinal)) detail = "Checking game files and mods…";
+            return true;
+        }
         if (__instance.cameraObject.enabled) return true;
         detail = value;
         return false;
@@ -96,6 +111,7 @@ internal static class StartupLoading
     private static IEnumerator LoadBehindMenu()
     {
         var screen = Singleton<LoadScreen>.Instance;
+        while (startupScreen) yield return null;
         while (screen.cameraObject.enabled || MainMenuView.Instance is not { IsVisible: true }) yield return null;
         var stages = pending.Where(action => !IsEncyclopedia(action) && !IsMusic(action)).ToArray();
         var music = pending.Where(IsMusic).ToArray();
@@ -120,13 +136,26 @@ internal static class StartupLoading
             if (action.description == "UnitMetadataProvider LoadUnitMetadata")
             {
                 yield return UnitMetadataCache.OpenForStartup();
+                IniWarmupCache.Begin(archives, iniPrefetch);
+                iniPrefetch = null;
                 try { yield return Run(action.GetEnumerator()); }
-                finally { UnitMetadataCache.Finish(archives, !failed); }
+                finally
+                {
+                    UnitMetadataCache.Finish(archives, !failed);
+                    if (failed) IniWarmupCache.Finish(false);
+                }
+                Debug.Log($"[Quickload] Unit stage restored {IniWarmupCache.Restored:N0} parsed INIs.");
             }
             else if (action.description == "IniPreloader PreloadAll")
             {
-                yield return Run(IniWarmupCache.Wrap(action.GetEnumerator(), archives, iniPrefetch));
+                if (iniPrefetch != null) IniWarmupCache.Begin(archives, iniPrefetch);
                 iniPrefetch = null;
+                try { yield return Run(action.GetEnumerator()); }
+                finally
+                {
+                    Debug.Log($"[Quickload] Startup snapshot restored {IniWarmupCache.Restored:N0} parsed INIs.");
+                    IniWarmupCache.Finish(!failed && IniPreloader.Completed);
+                }
             }
             else yield return Run(action.GetEnumerator());
             if (failed) yield break;
@@ -270,10 +299,48 @@ internal static class StartupLoading
     [HarmonyPostfix, HarmonyPatch(typeof(MenuSystemViewModel), "Update")]
     private static void Update(MenuSystemViewModel __instance)
     {
+        if (startupScreen) RefreshStartupScreen();
         if (preparingEncyclopedia) progress?.SetRunning(CanBuildEncyclopedia && !failed);
         if (Time.realtimeSinceStartup < nextRefresh) return;
         nextRefresh = Time.realtimeSinceStartup + 0.1f;
         RefreshMenu(__instance.CurrentWindow as MainMenuView);
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(LoadScreen), nameof(LoadScreen.ExecuteLoadScreen), MethodType.Enumerator)]
+    private static void FinishStartupScreen(bool __result)
+    {
+        if (__result || !startupScreen) return;
+        startupScreen = false;
+        menuLoad = null;
+    }
+
+    [HarmonyPrefix, HarmonyPatch(typeof(BackgroundSceneController), "Start")]
+    private static void ResetStartup()
+    {
+        pending.Clear();
+        collecting = true;
+        startupScreen = coreReady = failed = hasEncyclopedia = earlyMenuVisible = preparingEncyclopedia = false;
+        loadingMusic = advancingMusic = false;
+        detail = "Preparing game data…";
+        menuLoad = null;
+        display = null;
+        progress = null;
+        nextRefresh = 0;
+        IniWarmupCache.Finish(false);
+        EncyclopediaCache.Finish();
+        EncyclopediaLoading.Reset();
+    }
+
+    private static void RefreshStartupScreen()
+    {
+        if (MainMenuView.Instance == null) return;
+        var screen = Singleton<LoadScreen>.Instance;
+        screen.cameraObject.enabled = screen.WindowHost.Windows.Count > 0 || screen.ShowWarningPSE;
+        if (!screen.cameraObject.enabled && !earlyMenuVisible)
+        {
+            earlyMenuVisible = true;
+            Debug.Log("[Quickload] Main menu shown during startup checks.");
+        }
     }
 
     private static void RefreshMenu(MainMenuView? menu)

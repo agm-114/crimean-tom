@@ -29,6 +29,7 @@ internal class UnitWorkerOutput
     private static JsonSerializer Serializer => serializer ??= JsonSerializer.Create(settings);
 
     [JsonProperty(Required = Required.Always)] public JObject Data = new();
+    private SimpleObjectParameters? prepared;
     [JsonProperty(Required = Required.Always)] public string[] SensorNames = [];
     [JsonProperty(Required = Required.Always)] public int[] SignatureIds = [];
     [JsonProperty(Required = Required.Always)] public Dictionary<string, UnitLoadout> Loadouts = [];
@@ -63,8 +64,7 @@ internal class UnitWorkerOutput
     internal SimpleObjectParameters Restore(string folder, string name, SensorMetadataProvider sensors,
         IReadOnlyDictionary<int, int> signatures, IReadOnlyDictionary<string, AmmunitionSimpleParameters> ammunition)
     {
-        if (Type < 0 || Type >= unitTypes.Length) throw new JsonException("Unknown unit type.");
-        var unit = (SimpleObjectParameters)(Data.ToObject(unitTypes[Type], Serializer) ?? throw new JsonException("Missing unit data."));
+        var unit = prepared ?? ReadUnit();
         if (unit._objectIniName != name || unit._objectIniFolder != folder)
             throw new JsonException("Unit identity changed.");
         string root = "/" + folder;
@@ -91,6 +91,22 @@ internal class UnitWorkerOutput
         return unit;
 
         IniHandler? OpenIni(string suffix) => Utils.openIniFile(root, "/" + name + suffix + ".ini", logErrors: false);
+    }
+
+    internal void Prepare()
+    {
+        // The native OnboardAircraftInfo constructor looks up aircraft in the live catalog.
+        if (Data["_variants"] is JObject variants &&
+            variants.Properties().Any(variant => variant.Value["Aircraft"] is JArray { Count: > 0 }))
+            return;
+        prepared = ReadUnit();
+        Data = new();
+    }
+
+    private SimpleObjectParameters ReadUnit()
+    {
+        if (Type < 0 || Type >= unitTypes.Length) throw new JsonException("Unknown unit type.");
+        return (SimpleObjectParameters)(Data.ToObject(unitTypes[Type], Serializer) ?? throw new JsonException("Missing unit data."));
     }
 
     internal static JsonSerializer CreateSerializer() => JsonSerializer.Create(settings);

@@ -1,7 +1,8 @@
 # Quickload
 
-Quickload opens the main menu after Sea Power `0.9.2-261113` runs its startup
-checks. The progress panel shows the current stage and elapsed time. Hover over
+Quickload opens the main menu while Sea Power `0.9.2-261113` runs its startup
+checks. Startup warnings can bring the game's dialog screen forward. The progress
+panel shows the current stage and elapsed time. Hover over
 a segment for that phase's name, elapsed time, and last-run duration. Segment
 widths follow measured time for completed phases and the previous run for
 upcoming phases. Short phases have a small minimum width. After a
@@ -28,8 +29,9 @@ order. Quickload compresses the resolved unit metadata, parsed INIs, and
 Encyclopedia records. Subsequent runs hash enabled INI, JSON, and DLL inputs
 while workers read and decompress the snapshots. The game still attaches live
 sensors, assigns unit IDs, applies point values, and publishes its catalog.
-The INI warmup uses Sea Power's path resolution and cache registration. The
-Encyclopedia reuses the cached ranges, hit chances, and cross-references, then
+The unit metadata stage and INI warmup use Sea Power's path resolution and
+cache registration. A complete unit snapshot replaces the native unit worker pass.
+The Encyclopedia reuses the cached ranges, hit chances, and cross-references, then
 resolves live missile parameters on demand. Changing the Encyclopedia's naming
 options rebuilds its catalog. Delete the flag to use the native loading passes
 on the next startup.
