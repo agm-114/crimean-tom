@@ -2,12 +2,12 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal class SegmentedProgress(string segmentName, float gap = 1, float minimumWidth = 3)
+public class SegmentedProgress(string segmentName, float gap = 1, float minimumWidth = 3)
 {
     private readonly List<ProgressBar> bars = [];
-    internal Grid Content { get; } = new();
+    public Grid Content { get; } = new();
 
-    internal void Refresh(int count, Func<int, (string Tooltip, float Weight, float Fraction, bool Indeterminate)> read)
+    public void Refresh(int count, Func<int, (string Tooltip, float Weight, float Fraction, bool Indeterminate)> read)
     {
         if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
         while (bars.Count > count)

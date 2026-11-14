@@ -2,9 +2,9 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal static partial class NativeUi
+public static partial class NativeUi
 {
-    internal static void SyncSelection<T, TKey>(Selector control, IReadOnlyList<T> items, Func<T, TKey> key,
+    public static void SyncSelection<T, TKey>(Selector control, IReadOnlyList<T> items, Func<T, TKey> key,
         bool selectFirst = false) where T : class
     {
         if (control.Items.Count == items.Count &&
@@ -20,13 +20,13 @@ internal static partial class NativeUi
 }
 
 // Keep the same visual and its local state when its key moves in the list.
-internal class KeyedPanel<T>(Func<T, (FrameworkElement Content, Action Refresh)> create) where T : notnull
+public class KeyedPanel<T>(Func<T, (FrameworkElement Content, Action Refresh)> create) where T : notnull
 {
     private readonly Dictionary<T, (FrameworkElement Content, Action Refresh)> rows = [];
     private IReadOnlyList<T> displayed = [];
-    internal StackPanel Panel { get; } = new();
+    public StackPanel Panel { get; } = new();
 
-    internal void Refresh(IReadOnlyList<T> items)
+    public void Refresh(IReadOnlyList<T> items)
     {
         if (!displayed.SequenceEqual(items))
         {

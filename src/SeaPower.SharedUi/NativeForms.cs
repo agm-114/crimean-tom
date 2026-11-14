@@ -5,9 +5,9 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal static partial class NativeUi
+public static partial class NativeUi
 {
-    internal static ToggleButton Toggle(string label, bool value, Action<bool>? changed = null)
+    public static ToggleButton Toggle(string label, bool value, Action<bool>? changed = null)
     {
         var button = new ToggleButton { Content = label, IsChecked = value };
         button.Checked += (_, _) => changed?.Invoke(true);
@@ -16,7 +16,7 @@ internal static partial class NativeUi
     }
 
     // The caller owns limits and availability, as with native damage-control teams.
-    internal static Panel Stepper(TextBlock value, Button decrease, Button increase, bool compact = false)
+    public static Panel Stepper(TextBlock value, ButtonBase decrease, ButtonBase increase, bool compact = false)
     {
         if (compact)
         {
@@ -39,7 +39,7 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static CheckBox Check(string label, bool value, Action<bool>? changed = null)
+    public static CheckBox Check(string label, bool value, Action<bool>? changed = null)
     {
         var box = new CheckBox { Content = label, Foreground = TextBrush, IsChecked = value, VerticalContentAlignment = VerticalAlignment.Center };
         box.Checked += (_, _) => changed?.Invoke(true);
@@ -47,14 +47,14 @@ internal static partial class NativeUi
         return box;
     }
 
-    internal static RadioButton Radio(string label, string group, bool selected, Action? selectedAction = null)
+    public static RadioButton Radio(string label, string group, bool selected, Action? selectedAction = null)
     {
         var button = new RadioButton { Content = label, GroupName = group, IsChecked = selected };
         button.Checked += (_, _) => selectedAction?.Invoke();
         return button;
     }
 
-    internal static CheckBox TriState(string label, bool? value, Action<bool?>? changed = null)
+    public static CheckBox TriState(string label, bool? value, Action<bool?>? changed = null)
     {
         var box = new CheckBox { Content = label, IsThreeState = true, IsChecked = value };
         box.Checked += (_, _) => changed?.Invoke(true);
@@ -63,7 +63,7 @@ internal static partial class NativeUi
         return box;
     }
 
-    internal static ComboBox Choice<T>(IEnumerable<T> values, Func<T, string> label,
+    public static ComboBox Choice<T>(IEnumerable<T> values, Func<T, string> label,
         int selected = 0, Action<T>? changed = null, Func<T, string>? tooltip = null)
     {
         var picker = new ChoicePicker<T>(values.Select(value => (label(value), value)), selected, tooltip: tooltip);
@@ -74,7 +74,7 @@ internal static partial class NativeUi
         return picker.Control;
     }
 
-    internal static TextBox Entry(string text, Action<string>? changed = null, bool multiline = false)
+    public static TextBox Entry(string text, Action<string>? changed = null, bool multiline = false)
     {
         var box = new TextBox
         {
@@ -87,7 +87,7 @@ internal static partial class NativeUi
     }
 
     // Callers that validate the whole form can keep invalid text visible until it is corrected.
-    internal static TextBox Number(double value, double minimum, double maximum, Action<double>? changed = null,
+    public static TextBox Number(double value, double minimum, double maximum, Action<double>? changed = null,
         Action<string?>? validation = null)
     {
         ValidateRange(value, minimum, maximum);
@@ -113,7 +113,7 @@ internal static partial class NativeUi
         return box;
     }
 
-    internal static Slider Range(float value, float minimum, float maximum, float step, Action<float>? changed = null)
+    public static Slider Range(float value, float minimum, float maximum, float step, Action<float>? changed = null)
     {
         ValidateRange(value, minimum, maximum);
         if (!float.IsFinite(step) || step <= 0) throw new ArgumentOutOfRangeException(nameof(step));
@@ -126,7 +126,7 @@ internal static partial class NativeUi
         return slider;
     }
 
-    internal static StackPanel SliderField(string label, Slider slider, Func<float, string>? format = null)
+    public static StackPanel SliderField(string label, Slider slider, Func<float, string>? format = null)
     {
         format ??= value => value.ToString("0.##", CultureInfo.CurrentCulture);
         var valueText = Text(format(slider.Value));
@@ -135,13 +135,13 @@ internal static partial class NativeUi
         return panel;
     }
 
-    internal static T WithTooltip<T>(T control, string text) where T : FrameworkElement
+    public static T WithTooltip<T>(T control, string text) where T : FrameworkElement
     {
         control.ToolTip = new ToolTip { Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 360 } };
         return control;
     }
 
-    internal static void Bind(FrameworkElement target, DependencyProperty property, string path,
+    public static void Bind(FrameworkElement target, DependencyProperty property, string path,
         object source, BindingMode mode = BindingMode.OneWay) =>
         target.SetBinding(property, new Binding(path) { Source = source, Mode = mode });
 

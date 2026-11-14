@@ -4,9 +4,9 @@ using NativeWindow = SeapowerUI.Window;
 
 namespace SeaPower.SharedUi;
 
-internal static partial class NativeUi
+public static partial class NativeUi
 {
-    internal static Grid Overlay(FrameworkElement content, Brush backdrop, Brush background, Brush borderBrush,
+    public static Grid Overlay(FrameworkElement content, Brush backdrop, Brush background, Brush borderBrush,
         float width, float height = float.NaN, float maxHeight = float.PositiveInfinity)
     {
         var border = new Border
@@ -21,12 +21,12 @@ internal static partial class NativeUi
     }
 }
 
-internal class HostedWindow(Action? closed = null) : IDisposable
+public class HostedWindow(Action? closed = null) : IDisposable
 {
     private UIElement? host;
     private NativeWindow? window;
 
-    internal void Open(UIElement owner, Func<NativeWindow> create)
+    public void Open(UIElement owner, Func<NativeWindow> create)
     {
         if (host != owner) Dispose();
         if (window == null)

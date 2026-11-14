@@ -7,7 +7,7 @@ using SeapowerUI.ViewModels;
 namespace SeaPower.SharedUi;
 
 // Owns one tab and presenter; never registers a global Noesis class handler.
-internal class UnitStatusPage(int kind, string title, UnitStatusTab? insertAfter = null, string? presenterName = null) : IDisposable
+public class UnitStatusPage(int kind, string title, UnitStatusTab? insertAfter = null, string? presenterName = null) : IDisposable
 {
     private MainGameView? host;
     private UnitStatusViewModel? owner;
@@ -17,9 +17,9 @@ internal class UnitStatusPage(int kind, string title, UnitStatusTab? insertAfter
     private object? contentKey;
     private Action? refreshContent;
 
-    internal bool IsShowing(object key) => tab?.Content != null && Equals(contentKey, key);
+    public bool IsShowing(object key) => tab?.Content != null && Equals(contentKey, key);
 
-    internal bool SetContent<TKey>(TKey key, Func<TKey, (FrameworkElement Content, Action Refresh)> create) where TKey : notnull
+    public bool SetContent<TKey>(TKey key, Func<TKey, (FrameworkElement Content, Action Refresh)> create) where TKey : notnull
     {
         if (tab?.IsAvailable != true) { ClearContent(); return false; }
         if (IsShowing(key)) return false;
@@ -30,7 +30,7 @@ internal class UnitStatusPage(int kind, string title, UnitStatusTab? insertAfter
         return true;
     }
 
-    internal void RefreshContent() => refreshContent?.Invoke();
+    public void RefreshContent() => refreshContent?.Invoke();
 
     private void ClearContent()
     {
@@ -39,7 +39,7 @@ internal class UnitStatusPage(int kind, string title, UnitStatusTab? insertAfter
         refreshContent = null;
     }
 
-    internal void Refresh(MainGameView? currentHost, UnitStatusViewModel? currentOwner, bool available)
+    public void Refresh(MainGameView? currentHost, UnitStatusViewModel? currentOwner, bool available)
     {
         if (host != currentHost || owner != currentOwner)
         {

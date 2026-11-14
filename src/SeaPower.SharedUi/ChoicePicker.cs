@@ -2,18 +2,18 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal class ChoicePicker<T>
+public class ChoicePicker<T>
 {
     private T[] values = [];
     private readonly T fallback;
     private readonly Func<T, string>? tooltip;
-    internal ComboBox Control { get; } = new()
+    public ComboBox Control { get; } = new()
     {
         Foreground = NativeUi.TextBrush, MinHeight = 30, HorizontalContentAlignment = HorizontalAlignment.Stretch,
     };
-    internal T Value => TryGetValue(out T value) ? value : fallback;
+    public T Value => TryGetValue(out T value) ? value : fallback;
 
-    internal ChoicePicker(IEnumerable<(string Label, T Value)> choices, int selectedIndex = 0,
+    public ChoicePicker(IEnumerable<(string Label, T Value)> choices, int selectedIndex = 0,
         T fallback = default!, Func<T, string>? tooltip = null)
     {
         var items = choices.ToArray();
@@ -24,7 +24,7 @@ internal class ChoicePicker<T>
         SetItems(items, items.Length == 0 ? -1 : selectedIndex);
     }
 
-    internal bool TryGetValue(out T value)
+    public bool TryGetValue(out T value)
     {
         int index = Control.SelectedIndex;
         bool selected = index >= 0 && index < values.Length;
@@ -32,7 +32,7 @@ internal class ChoicePicker<T>
         return selected;
     }
 
-    internal void Replace(IEnumerable<T> options, Func<T, string> label, int fallbackIndex = 0, bool preserveSelection = true)
+    public void Replace(IEnumerable<T> options, Func<T, string> label, int fallbackIndex = 0, bool preserveSelection = true)
     {
         T[] next = options.ToArray();
         int selected = preserveSelection && TryGetValue(out T value) ? Array.IndexOf(next, value) : -1;
@@ -45,7 +45,7 @@ internal class ChoicePicker<T>
         SetItems(next.Select(item => (label(item), item)).ToArray(), selected);
     }
 
-    internal void UpdateLabels(Func<T, string> label)
+    public void UpdateLabels(Func<T, string> label)
     {
         var items = values.Select(value => (Label: label(value), Value: value)).ToArray();
         if (items.Select((item, index) => Equals(((ComboBoxItem)Control.Items[index]).Content, item.Label)).All(same => same))

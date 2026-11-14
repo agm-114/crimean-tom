@@ -3,9 +3,9 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal static partial class NativeUi
+public static partial class NativeUi
 {
-    internal static UniformGrid Columns(int count, params FrameworkElement[] children)
+    public static UniformGrid Columns(int count, params FrameworkElement[] children)
     {
         if (count < 1) throw new ArgumentOutOfRangeException(nameof(count));
         var grid = new UniformGrid { Columns = count };
@@ -14,7 +14,7 @@ internal static partial class NativeUi
     }
 
     // Keep file selection policy and dialogs in the caller.
-    internal static Grid BrowseField(TextBox path, Action browse)
+    public static Grid BrowseField(TextBox path, Action browse)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
@@ -26,14 +26,14 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static StackPanel Stack(params FrameworkElement[] children)
+    public static StackPanel Stack(params FrameworkElement[] children)
     {
         var panel = new StackPanel();
         foreach (var child in children) panel.Children.Add(child);
         return panel;
     }
 
-    internal static Grid FillPanel(string name, float margin, FrameworkElement? header, FrameworkElement body,
+    public static Grid FillPanel(string name, float margin, FrameworkElement? header, FrameworkElement body,
         FrameworkElement? footer = null, float minimumBodyHeight = 0)
     {
         var grid = new Grid { Name = name, Margin = new Thickness(margin) };
@@ -54,7 +54,7 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static Grid FormRow(string label, FrameworkElement editor, float labelWidth = 180)
+    public static Grid FormRow(string label, FrameworkElement editor, float labelWidth = 180)
     {
         var grid = new Grid { Margin = new Thickness(0, 4, 0, 4) };
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(labelWidth) });
@@ -66,21 +66,21 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static ScrollViewer Scroll(FrameworkElement content) => new()
+    public static ScrollViewer Scroll(FrameworkElement content) => new()
     {
         Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         HorizontalContentAlignment = HorizontalAlignment.Stretch,
     };
 
-    internal static Border Card(FrameworkElement content) => new()
+    public static Border Card(FrameworkElement content) => new()
     {
         Child = content, Padding = new Thickness(12), BorderThickness = new Thickness(1),
         BorderBrush = new SolidColorBrush(Color.FromRgb(59, 62, 67)),
         Background = new SolidColorBrush(Color.FromRgb(36, 38, 41)),
     };
 
-    internal static FrameworkElement EventRow(string timestamp, string title, string detail)
+    public static FrameworkElement EventRow(string timestamp, string title, string detail)
     {
         TextBlock headline = Text(title);
         headline.FontWeight = FontWeights.SemiBold;
@@ -93,13 +93,13 @@ internal static partial class NativeUi
         return row;
     }
 
-    internal static Expander Section(string title, FrameworkElement content, bool expanded = true) => new()
+    public static Expander Section(string title, FrameworkElement content, bool expanded = true) => new()
     {
         Header = title, Content = content, IsExpanded = expanded,
         Margin = new Thickness(0, 4, 0, 4), HorizontalContentAlignment = HorizontalAlignment.Stretch,
     };
 
-    internal static TabControl Tabs(params (string Title, FrameworkElement Content)[] pages)
+    public static TabControl Tabs(params (string Title, FrameworkElement Content)[] pages)
     {
         var tabs = new TabControl
         {
@@ -111,7 +111,7 @@ internal static partial class NativeUi
         return tabs;
     }
 
-    internal static Grid Split(FrameworkElement first, FrameworkElement second, bool vertical = false, float firstWeight = 1, float secondWeight = 2)
+    public static Grid Split(FrameworkElement first, FrameworkElement second, bool vertical = false, float firstWeight = 1, float secondWeight = 2)
     {
         if (!float.IsFinite(firstWeight) || !float.IsFinite(secondWeight) || firstWeight <= 0 || secondWeight <= 0)
             throw new ArgumentOutOfRangeException(nameof(firstWeight));
@@ -135,28 +135,28 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static TreeViewItem Branch(string label, object? value = null, params TreeViewItem[] children)
+    public static TreeViewItem Branch(string label, object? value = null, params TreeViewItem[] children)
     {
         var item = new TreeViewItem { Header = label, Tag = value };
         foreach (var child in children) item.Items.Add(child);
         return item;
     }
 
-    internal static TreeView Tree(params TreeViewItem[] roots)
+    public static TreeView Tree(params TreeViewItem[] roots)
     {
         var tree = new TreeView();
         foreach (var root in roots) tree.Items.Add(root);
         return tree;
     }
 
-    internal static ListBox List(params object[] items)
+    public static ListBox List(params object[] items)
     {
         var list = new ListBox { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         foreach (var item in items) list.Items.Add(item);
         return list;
     }
 
-    internal static Grid CollectionEditor(ListBox list, Action add, Action<object> remove)
+    public static Grid CollectionEditor(ListBox list, Action add, Action<object> remove)
     {
         var grid = new Grid();
         grid.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -173,14 +173,14 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static WrapPanel Wrap(params FrameworkElement[] children)
+    public static WrapPanel Wrap(params FrameworkElement[] children)
     {
         var panel = new WrapPanel();
         foreach (var child in children) panel.Children.Add(child);
         return panel;
     }
 
-    internal static Grid SearchBar(TextBox search, params FrameworkElement[] filters)
+    public static Grid SearchBar(TextBox search, params FrameworkElement[] filters)
     {
         var grid = new Grid();
         grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -193,26 +193,26 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static MenuItem MenuAction(string label, Action execute, bool enabled = true)
+    public static MenuItem MenuAction(string label, Action execute, bool enabled = true)
     {
         var item = new MenuItem { Header = label, IsEnabled = enabled };
         item.Click += (_, _) => execute();
         return item;
     }
 
-    internal static ContextMenu Menu(params MenuItem[] items)
+    public static ContextMenu Menu(params MenuItem[] items)
     {
         var menu = new ContextMenu();
         foreach (var item in items) menu.Items.Add(item);
         return menu;
     }
 
-    internal static Image Picture(ImageSource source, float height = 120) => new()
+    public static Image Picture(ImageSource source, float height = 120) => new()
     {
         Source = source, Height = height, Stretch = Stretch.Uniform,
     };
 
-    internal static T? Find<T>(DependencyObject root, Func<T, bool>? predicate = null) where T : FrameworkElement
+    public static T? Find<T>(DependencyObject root, Func<T, bool>? predicate = null) where T : FrameworkElement
     {
         if (root is T match && (predicate == null || predicate(match))) return match;
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)

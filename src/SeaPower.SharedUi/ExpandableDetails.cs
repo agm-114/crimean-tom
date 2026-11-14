@@ -2,7 +2,7 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal class ExpandableDetails
+public class ExpandableDetails
 {
     private static readonly ControlTemplate CaretTemplate = (ControlTemplate)GUI.ParseXaml("""
         <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -24,14 +24,14 @@ internal class ExpandableDetails
         </ControlTemplate>
         """);
 
-    internal ToggleButton Toggle { get; } = new() { Template = CaretTemplate, Width = 18, Height = 20 };
-    internal ScrollViewer Content { get; }
-    internal bool IsExpanded => Toggle.IsChecked == true;
+    public ToggleButton Toggle { get; } = new() { Template = CaretTemplate, Width = 18, Height = 20 };
+    public ScrollViewer Content { get; }
+    public bool IsExpanded => Toggle.IsChecked == true;
     private readonly FrameworkElement summary;
     private readonly string description;
     private bool synchronizing;
 
-    internal ExpandableDetails(FrameworkElement summary, FrameworkElement content, string description,
+    public ExpandableDetails(FrameworkElement summary, FrameworkElement content, string description,
         float maxHeight, Action<bool> changed)
     {
         this.summary = summary;
@@ -52,7 +52,7 @@ internal class ExpandableDetails
         }
     }
 
-    internal void SetState(bool available, bool expanded)
+    public void SetState(bool available, bool expanded)
     {
         Toggle.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
         expanded &= available;

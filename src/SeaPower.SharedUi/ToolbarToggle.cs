@@ -6,7 +6,7 @@ using Noesis;
 namespace SeaPower.SharedUi;
 
 // Owns the inserted slot and restores the native toolbar layout when detached.
-internal class ToolbarToggle : IDisposable
+public class ToolbarToggle : IDisposable
 {
     private static readonly ControlTemplate IconTemplate = (ControlTemplate)GUI.ParseXaml("""
         <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -30,11 +30,11 @@ internal class ToolbarToggle : IDisposable
     private ColumnDefinition? column;
     private readonly List<(FrameworkElement Element, Thickness Margin)> shifted = [];
     private readonly ToggleButton toggle;
-    internal ToggleButton Button => toggle;
+    public ToggleButton Button => toggle;
 
     private ToolbarToggle(ToggleButton button) => toggle = button;
 
-    internal static ToolbarToggle? Attach(ToggleButton anchor, string name, object content, string tooltip)
+    public static ToolbarToggle? Attach(ToggleButton anchor, string name, object content, string tooltip)
     {
         var button = new ToggleButton
         {

@@ -4,20 +4,20 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-// Compiled into each consuming mod, never distributed as a separate assembly.
-internal static partial class NativeUi
+// Shared by source-package consumers and the Controls DLL.
+public static partial class NativeUi
 {
     // These controls also live inside expanders and custom tab presenters, where
     // inherited text color can fall back to black despite the game's dark theme.
     private const string TextColor = "#D0D2D6";
-    internal static Brush TextBrush { get; } = new SolidColorBrush(Color.FromRgb(208, 210, 214));
-    internal static TextBlock Text(string text) => new()
+    public static Brush TextBrush { get; } = new SolidColorBrush(Color.FromRgb(208, 210, 214));
+    public static TextBlock Text(string text) => new()
     {
         Text = text, Foreground = TextBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    internal static FrameworkElement? Find(DependencyObject parent, string name)
+    public static FrameworkElement? Find(DependencyObject parent, string name)
     {
         if (parent is FrameworkElement element && element.Name == name) return element;
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -25,7 +25,7 @@ internal static partial class NativeUi
         return null;
     }
 
-    internal static StackPanel Labelled(string label, FrameworkElement control)
+    public static StackPanel Labelled(string label, FrameworkElement control)
     {
         var stack = new StackPanel();
         stack.Children.Add(Text(label));
@@ -33,7 +33,7 @@ internal static partial class NativeUi
         return stack;
     }
 
-    internal static Grid CapacityMeters(FrameworkElement action,
+    public static Grid CapacityMeters(FrameworkElement action,
         params (string Label, ProgressBar Bar, TextBlock Value)[] meters)
     {
         if (meters.Length < 2) throw new ArgumentException("An action needs at least two meter rows.", nameof(meters));
@@ -65,7 +65,7 @@ internal static partial class NativeUi
         return grid;
     }
 
-    internal static Button Button(string label, Action action, bool primary = false)
+    public static Button Button(string label, Action action, bool primary = false)
     {
         var button = new Button
         {
@@ -78,26 +78,26 @@ internal static partial class NativeUi
         return button;
     }
 
-    internal static GridViewColumn TextColumn(string header, string property, float width) =>
+    public static GridViewColumn TextColumn(string header, string property, float width) =>
         Column(header, width, $"<TextBlock Text=\"{{Binding {SecurityElement.Escape(property)}}}\" Foreground=\"{TextColor}\" Margin=\"4,2\" VerticalAlignment=\"Center\"/>");
 
-    internal static GridViewColumn ContentColumn(string header, string property, float width) =>
+    public static GridViewColumn ContentColumn(string header, string property, float width) =>
         Column(header, width, $"<ContentControl Content=\"{{Binding {SecurityElement.Escape(property)}}}\" HorizontalAlignment=\"Left\"/>");
 
-    internal static GridViewColumn CheckColumn(string header, string property, float width) =>
+    public static GridViewColumn CheckColumn(string header, string property, float width) =>
         Column(header, width, $"<CheckBox IsChecked=\"{{Binding {SecurityElement.Escape(property)}, Mode=TwoWay}}\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>");
 
-    internal static GridViewColumn ProgressColumn(string header, string property, float width) =>
+    public static GridViewColumn ProgressColumn(string header, string property, float width) =>
         Column(header, width, $"<ProgressBar Value=\"{{Binding {SecurityElement.Escape(property)}}}\" Maximum=\"100\" Height=\"14\" Margin=\"4,2\" VerticalAlignment=\"Center\"/>");
 
-    internal static ListView Table(string name, params GridViewColumn[] columns)
+    public static ListView Table(string name, params GridViewColumn[] columns)
     {
         var view = new GridView();
         foreach (var column in columns) view.Columns.Add(column);
         return new ListView { Name = name, View = view, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     }
 
-    internal static SeapowerUI.Window Window(string name, string title, FrameworkElement content,
+    public static SeapowerUI.Window Window(string name, string title, FrameworkElement content,
         float width = 760, float height = 480, float minWidth = 600, float minHeight = 300)
     {
         var window = new SeapowerUI.Window

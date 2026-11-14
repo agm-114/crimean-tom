@@ -4,6 +4,8 @@
     <File Path="src/SeaPower.SharedUi/NativeUi.cs" />
     <File Path="src/SeaPower.SharedUi/NativeForms.cs" />
     <File Path="src/SeaPower.SharedUi/NativeLayout.cs" />
+    <File Path="src/SeaPower.SharedUi/NativePrimitives.cs" />
+    <File Path="src/SeaPower.SharedUi/WidgetGallery.cs" />
     <File Path="src/SeaPower.SharedUi/UnitStatusPage.cs" />
     <File Path="src/SeaPower.SharedUi/ToolbarToggle.cs" />
     <File Path="src/SeaPower.SharedUi/README.md" />
@@ -20,6 +22,7 @@
   <Project Path="src/Deckpark/Deckpark.csproj" />
   <Project Path="src/Spacewar/Spacewar.csproj" />
   <Project Path="src/SeaPower.GameBridge/SeaPower.GameBridge.csproj" />
+  <Project Path="src/SeaPower.Controls/SeaPower.Controls.csproj" />
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" />

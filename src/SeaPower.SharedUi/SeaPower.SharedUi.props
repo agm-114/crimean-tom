@@ -2,6 +2,8 @@
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)NativeUi.cs" Link="SharedUi/NativeUi.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)NativeForms.cs" Link="SharedUi/NativeForms.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)NativePrimitives.cs" Link="SharedUi/NativePrimitives.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)WidgetGallery.cs" Link="SharedUi/WidgetGallery.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)NativeLayout.cs" Link="SharedUi/NativeLayout.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChoicePicker.cs" Link="SharedUi/ChoicePicker.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)LiveCollections.cs" Link="SharedUi/LiveCollections.cs" />

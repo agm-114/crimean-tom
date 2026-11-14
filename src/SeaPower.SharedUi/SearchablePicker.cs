@@ -2,7 +2,7 @@ using Noesis;
 
 namespace SeaPower.SharedUi;
 
-internal class SearchablePicker<T>
+public class SearchablePicker<T>
 {
     private readonly TextBox search;
     private readonly Func<string, IEnumerable<T>> find;
@@ -11,12 +11,12 @@ internal class SearchablePicker<T>
     private readonly TextBlock notice = NativeUi.Text("");
     private readonly ChoicePicker<T> picker;
     private bool refreshing;
-    internal StackPanel Results { get; }
-    internal bool HasSelection => picker.TryGetValue(out _);
-    internal bool TryGetValue(out T value) => picker.TryGetValue(out value);
-    internal event Action? SelectionChanged;
+    public StackPanel Results { get; }
+    public bool HasSelection => picker.TryGetValue(out _);
+    public bool TryGetValue(out T value) => picker.TryGetValue(out value);
+    public event Action? SelectionChanged;
 
-    internal SearchablePicker(TextBox search, string name, Func<string, IEnumerable<T>> find,
+    public SearchablePicker(TextBox search, string name, Func<string, IEnumerable<T>> find,
         Func<T, string> label, int limit, Func<T, string>? tooltip = null)
     {
         if (limit < 1 || limit == int.MaxValue) throw new ArgumentOutOfRangeException(nameof(limit));
@@ -32,7 +32,7 @@ internal class SearchablePicker<T>
         Refresh();
     }
 
-    internal void Refresh()
+    public void Refresh()
     {
         var matches = find(search.Text.Trim()).Take(limit + 1).ToArray();
         refreshing = true;

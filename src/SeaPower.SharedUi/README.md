@@ -1,8 +1,9 @@
 # Shared UI source
 
-This module compiles into each consuming mod. It produces no DLL and needs no
-AnchorChain plugin or deployment step. The mods and the CLI's development gallery
-import the same source.
+The source package compiles into each consuming mod and needs no deployment
+step. The mods and the CLI's development gallery import the same source.
+The [Controls project](../SeaPower.Controls/README.md) builds that source as a
+standalone DLL for the Workshop.
 
 Add the source package to your mod project.
 
@@ -116,9 +117,9 @@ The [control catalogue](catalogue.md) records the inspected screens and the limi
 of the survey. Run `seapower-cli ui-gallery --confirm` in a mission or encyclopedia
 to inspect sample controls. Gallery actions change sample values, not gameplay.
 
-All helper types stay internal and use native controls. Do not add globally named
-Noesis types, application resource registrations, Harmony patches or shared mutable
-registries here. Each mod release contains its own compiled helper implementation;
+The helpers use native controls. Do not add globally named Noesis types,
+application resource registrations, Harmony patches or shared mutable
+registries here. Mods using the source package contain their own implementation;
 updating one deployed mod does not update another. This isolates helper versions,
 not changes to the game's native UI API.
 
