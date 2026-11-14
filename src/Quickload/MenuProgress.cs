@@ -1,73 +1,74 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using HarmonyLib;
 using Noesis;
 using SeapowerUI;
+using SeapowerUI.ViewModels;
 
 namespace Quickload;
 
+[HarmonyPatch]
 internal class MenuProgress
 {
+    private static readonly string[] Gated = ["Scenarios", "Tutorials", "Campaign", "Instant", "Editor", "Encyclopedia", "Options", "ModManager"];
+    private static readonly ConditionalWeakTable<Button, string> actions = new();
     private readonly Border panel;
-    private readonly TextBlock label;
-    private readonly TextBlock timing;
-    private readonly TextBlock files;
-    private readonly ProgressBar bar;
-    private readonly List<(Button Button, bool Enabled, string Action)> buttons = [];
+    private readonly UIElement content;
+    private readonly TextBlock label = new() { FontSize = 15, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock timing = DetailLine();
+    private readonly TextBlock stage = DetailLine();
+    private readonly ProgressBar bar = new() { Height = 6, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Dictionary<Button, (string Action, BindingBase? Binding, bool? LocalValue)> blocked = [];
+    internal MainMenuView Menu { get; }
 
     internal MenuProgress(MainMenuView menu)
     {
-        var original = (UIElement)menu.Content;
-        Collect(original);
+        Menu = menu;
+        content = (UIElement)menu.Content;
         menu.Content = null;
         Grid root = new();
-        root.Children.Add(original);
-        label = new() { FontSize = 15, Text = "Loading startup data...", Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap };
-        timing = DetailLine();
-        files = DetailLine();
-        bar = new() { Height = 6, Minimum = 0, Maximum = 100, Margin = new Thickness(0, 8, 0, 0) };
+        root.Children.Add(content);
         StackPanel stack = new();
         stack.Children.Add(label);
         stack.Children.Add(bar);
         stack.Children.Add(timing);
-        stack.Children.Add(files);
+        stack.Children.Add(stage);
         panel = new()
         {
             Child = stack, Background = new SolidColorBrush(Color.FromArgb(240, 35, 38, 40)), Padding = new Thickness(12),
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-            Width = 520, Margin = new Thickness(0, 24, 24, 0), IsHitTestVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+            Width = 440, Margin = new Thickness(0, 0, 24, 24), IsHitTestVisible = false,
         };
         root.Children.Add(panel);
         menu.Content = root;
     }
 
-    private void Collect(DependencyObject element)
+    internal void Refresh(string text, string? times, string? currentStage, float? percent, bool ready)
     {
-        if (element is Button button)
+        if (!ready) BlockButtons(content, Menu.DataContext as MainMenuViewModel);
+        foreach (var (button, (action, binding, localValue)) in blocked.ToArray())
         {
-            string action = Quickload.MenuActions.TryGetValue(button, out string name) ? name
-                : button.DataContext is SeapowerUI.ViewModels.MainMenuViewModel model && ReferenceEquals(button.Command, model.ContinueCommand)
-                    ? "Continue" : "";
-            if (action.Length > 0) buttons.Add((button, button.IsEnabled, action));
+            if (!StartupLoading.CanOpen(action)) continue;
+            button.IsEnabledChanged -= KeepBlocked;
+            if (binding != null) BindingOperations.SetBinding(button, UIElement.IsEnabledProperty, binding);
+            else if (localValue is bool enabled) button.SetValue(UIElement.IsEnabledProperty, enabled);
+            else button.ClearValue(UIElement.IsEnabledProperty);
+            blocked.Remove(button);
         }
-        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++) Collect(VisualTreeHelper.GetChild(element, index));
-    }
-
-    internal void Update(bool ready, bool failed, LoadProgress progress)
-    {
-        for (int index = buttons.Count - 1; index >= 0; index--)
+        if (ready && panel.Parent is Grid root)
         {
-            var (button, enabled, action) = buttons[index];
-            bool available = Quickload.Instance.CanOpen(action);
-            button.SetCurrentValue(UIElement.IsEnabledProperty, available && enabled);
-            if (available) buttons.RemoveAt(index);
+            root.Children.Remove(content);
+            Menu.Content = content;
         }
-        failed |= progress.Lanes.Any(lane => lane.Failed);
-        if (failed) label.Text = "Startup loading failed. Check BepInEx/LogOutput.log.";
-        else label.Text = ready ? "Background loading" : "Loading game data";
-        double? percent = progress.Percent;
-        bar.IsIndeterminate = percent == null;
-        bar.Value = (float)(percent ?? 0);
-        timing.Text = (percent is { } value ? $"{value:0}% | " : "") + progress.Eta();
-        files.Text = string.Join("\n", progress.Lanes.Where(lane => lane.Current != null).Select(Describe));
-        panel.Visibility = !failed && progress.Lanes.All(lane => lane.Done) ? Visibility.Collapsed : Visibility.Visible;
+        else
+        {
+            if (label.Text != text) label.Text = text;
+            if (timing.Text != times) timing.Text = times ?? "";
+            if (stage.Text != currentStage) stage.Text = currentStage ?? "";
+            bar.Maximum = 100;
+            bar.Value = percent ?? 0;
+            bar.IsIndeterminate = percent == null;
+        }
     }
 
     private static TextBlock DetailLine() => new()
@@ -75,20 +76,51 @@ internal class MenuProgress
         FontSize = 13, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
     };
 
-    private static string Describe(LoadLane lane)
+    private void BlockButtons(DependencyObject element, MainMenuViewModel? model)
     {
-        string file = lane.File.Replace('\\', '/');
-        string root = UnityEngine.Application.streamingAssetsPath.Replace('\\', '/').TrimEnd('/') + "/";
-        if (file.StartsWith(root, StringComparison.OrdinalIgnoreCase)) file = file[root.Length..];
-        return Friendly(lane.Current!) + (file.Length == 0 ? "" : $"\n{file}");
+        if (element is Button button)
+        {
+            string action = actions.TryGetValue(button, out string name) ? name
+                : model != null && ReferenceEquals(button.Command, model.ContinueCommand) ? "Continue" : "";
+            if (!StartupLoading.CanOpen(action))
+            {
+                var property = UIElement.IsEnabledProperty;
+                if (!blocked.ContainsKey(button))
+                {
+                    blocked.Add(button, (action, BindingOperations.GetBindingBase(button, property), button.ReadLocalValue(property) as bool?));
+                    button.IsEnabledChanged += KeepBlocked;
+                }
+                if (button.IsEnabled) button.SetValue(property, false);
+            }
+        }
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++) BlockButtons(VisualTreeHelper.GetChild(element, i), model);
     }
 
-    private static string Friendly(string stage) => stage switch
+    private void KeepBlocked(object sender, DependencyPropertyChangedEventArgs args)
     {
-        "VoiceMessage_LoadClips" => "Voice clips",
-        "UnitMetadataProvider LoadUnitMetadata" => "Unit metadata",
-        "EncyclopedicDataManager.GetMuseumEntries" => "Encyclopedia",
-        "WriteTacViewDatabase" => "Tacview database",
-        _ => stage.StartsWith("music:", StringComparison.Ordinal) ? "Music" : stage,
-    };
+        if (sender is Button { IsEnabled: true } button && blocked.TryGetValue(button, out var gate)
+            && !StartupLoading.CanOpen(gate.Action)) button.SetValue(UIElement.IsEnabledProperty, false);
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(MainMenuView), "ConnectEvent")]
+    private static void RememberAction(object source, string handlerName)
+    {
+        if (!StartupLoading.Active || source is not Button button || !handlerName.StartsWith("Button", StringComparison.Ordinal)
+            || !handlerName.EndsWith("_Click", StringComparison.Ordinal)) return;
+        actions.GetValue(button, _ => ActionName(handlerName));
+    }
+
+    [HarmonyPatch]
+    private static class MenuGate
+    {
+        private static IEnumerable<MethodBase> TargetMethods() => Gated.Select(action => AccessTools.Method(typeof(MainMenuView), $"Button{action}_Click"));
+        private static bool Prefix(MethodBase __originalMethod, object sender)
+        {
+            if (StartupLoading.CanOpen(ActionName(__originalMethod.Name))) return true;
+            if (sender is Button) return false;
+            throw new InvalidOperationException("This menu will be available when Quickload finishes loading its data.");
+        }
+    }
+
+    private static string ActionName(string handler) => handler[6..^6];
 }
