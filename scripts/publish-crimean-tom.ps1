@@ -16,7 +16,7 @@ $listing = Join-Path $repo 'content/workshop/crimean-tom'
 $cli = Join-Path $repo 'src/SeaPower.Cli/bin/Debug/net10.0/seapower-cli.exe'
 $components = @(
     @{ Name = 'Amphibs'; Path = $AmphibsPackage; Files = @('Amphibs.dll', 'amphibious-variants.ini'); ContentFolders = @('unit_extensions'); Previews = $AmphibsPreviews }
-    @{ Name = 'DeckTweaks'; Path = $DeckTweaksPackage; Files = @('DeckTweaks.dll'); OptionalFiles = @('rearm-times.ini'); Previews = $DeckTweaksPreviews }
+    @{ Name = 'DeckTweaks'; Path = $DeckTweaksPackage; Files = @('DeckTweaks.dll'); OptionalFiles = @('rearm-times.ini'); ContentFolders = @('language_en'); Previews = $DeckTweaksPreviews }
 )
 
 function Get-GameVersion($text) {
