@@ -1,6 +1,7 @@
 using AnchorChain;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Quickload;
 
@@ -15,11 +16,27 @@ public class Plugin : IAnchorChainMod
             return;
         }
 
+        var enabledFolders = StartupTimeline.Initialize();
+        StartupPrefetch.Start(Application.streamingAssetsPath, enabledFolders ?? StartupArchives.ActiveRoots());
+        if (SceneManager.GetActiveScene().isLoaded)
+            PatchGame();
+        else
+            SceneManager.sceneLoaded += PatchAfterSceneLoad;
+    }
+
+    private static void PatchAfterSceneLoad(Scene scene, LoadSceneMode mode)
+    {
+        SceneManager.sceneLoaded -= PatchAfterSceneLoad;
+        PatchGame();
+    }
+
+    private static void PatchGame()
+    {
+        StartupTimeline.Advance("Quickload patch setup");
         Harmony harmony = new("crimean-tom.quickload");
         try { harmony.PatchAll(typeof(Plugin).Assembly); }
         catch { harmony.UnpatchSelf(); throw; }
-        StartupTimeline.Initialize();
-        StartupPrefetch.Start(Application.streamingAssetsPath, StartupArchives.ActiveRoots());
+        StartupTimeline.Advance("Waiting for startup checks");
         Debug.Log("[Quickload] Enabled deferred startup loading and encyclopedia batching.");
     }
 }

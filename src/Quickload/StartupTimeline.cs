@@ -17,7 +17,7 @@ internal static class StartupTimeline
     internal static string Current => current;
     internal static int Count => completed.Count + 1;
 
-    internal static void Initialize()
+    internal static IEnumerable<string>? Initialize()
     {
         var keel = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(assembly => assembly.GetName().Name == "SeaPowerKeel")
             ?.GetType("SeaPowerKeel.Keel");
@@ -29,10 +29,12 @@ internal static class StartupTimeline
             Advance("Game startup and splashes", timings[0], "Engine and loader startup · internal timings unavailable");
             Advance("Keel mod discovery and checks", timings[1]);
             if (timings.Length >= 3 && timings[2] >= timings[1] && timings[2] <= Elapsed)
-                Advance("Quickload patch setup", timings[2]);
+                Advance("Quickload initialization", timings[2]);
         }
-        Advance("Waiting for startup checks", Elapsed, stageStarted == 0
+        Advance("Preparing startup caches", Elapsed, stageStarted == 0
             ? "Startup before Quickload · internal timings unavailable" : null);
+        return keel?.GetMethod("GetEnabledModFolders", BindingFlags.Public | BindingFlags.Static)
+            ?.Invoke(null, null) as string[];
     }
 
     internal static void Advance(string next) => Advance(next, Elapsed);

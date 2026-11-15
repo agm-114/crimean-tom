@@ -1,7 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <AssemblyName>Quickload.Preloader</AssemblyName>
-  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../CrimeanTom.SeaPower/IsExternalInit.cs" Link="IsExternalInit.cs" />
   </ItemGroup>

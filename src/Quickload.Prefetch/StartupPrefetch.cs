@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Quickload;
 
-// Called by Keel on a worker during the splash. Only managed file IO belongs here.
+// Quickload queues its file work from its regular plugin entry point.
 public static class StartupPrefetch
 {
     public static readonly string DirectoryPath = Path.Combine(
@@ -14,21 +14,15 @@ public static class StartupPrefetch
     private static readonly object disk = new();
     private static Job? current;
 
-    public static void Prepare(string streamingAssets, string[] enabledMods, Action<string> report) =>
-        Start(streamingAssets, enabledMods, report).GetAwaiter().GetResult();
-
-    public static Task Start(string streamingAssets, IEnumerable<string> enabledMods, Action<string>? report = null)
+    public static void Start(string streamingAssets, IEnumerable<string> enabledMods)
     {
-        if (!File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled"))) return Task.CompletedTask;
-        var existing = Volatile.Read(ref current);
-        if (existing != null) return existing.Done;
+        if (!File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled")) || Volatile.Read(ref current) != null)
+            return;
         var roots = new[] { Path.Combine(streamingAssets, "original"), Path.Combine(streamingAssets, "user") }
             .Concat(enabledMods).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var candidate = new Job(roots, report);
-        existing = Interlocked.CompareExchange(ref current, candidate, null);
-        if (existing != null) return existing.Done;
-        _ = Task.Run(candidate.Run);
-        return candidate.Done;
+        var candidate = new Job(roots);
+        if (Interlocked.CompareExchange(ref current, candidate, null) == null)
+            _ = Task.Run(candidate.Run);
     }
 
     public static Job? Take(string profile)
@@ -60,8 +54,6 @@ public static class StartupPrefetch
         private const int MaxFile = 96 * 1024 * 1024;
         private const int MaxPrepared = 192 * 1024 * 1024;
         private readonly string[] roots;
-        private readonly Action<string>? report;
-        private readonly TaskCompletionSource<bool> done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly BlockingCollection<ReadItem> queue = new(8);
         private readonly ConcurrentDictionary<string, TaskCompletionSource<FileHash?>> inputReads = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, Archive> archives = new(StringComparer.OrdinalIgnoreCase);
@@ -70,13 +62,8 @@ public static class StartupPrefetch
         private int preparedBytes;
         private int hashCount;
 
-        internal Job(string[] roots, Action<string>? report)
-        {
-            this.roots = roots;
-            this.report = report;
-        }
+        internal Job(string[] roots) => this.roots = roots;
 
-        public Task Done => done.Task;
         public int HashCount => Volatile.Read(ref hashCount);
         public int ArchiveCount => archives.Count;
         internal void Handoff() => Volatile.Write(ref handedOff, true);
@@ -86,7 +73,6 @@ public static class StartupPrefetch
             Task[] workers = [StartWorker(), StartWorker()];
             try
             {
-                report?.Invoke("Quickload · Reading startup snapshots");
                 if (File.Exists(profilePath))
                 {
                     string profile = Encoding.UTF8.GetString(ReadFile(profilePath)).Trim();
@@ -94,7 +80,6 @@ public static class StartupPrefetch
                         foreach (string name in coreArchives)
                             if (!Read(Path.Combine(DirectoryPath, profile, name), archive: true)) return;
                 }
-                report?.Invoke("Quickload · Checking startup input files");
                 foreach (var root in roots)
                 {
                     foreach (string name in earlyFolders)
@@ -103,7 +88,6 @@ public static class StartupPrefetch
                     foreach (string path in OtherInputs(root))
                         if (!Read(path, archive: false)) return;
                 }
-                report?.Invoke("Quickload · Reading reusable mod cache chunks");
                 using var hash = SHA256.Create();
                 foreach (string root in roots)
                 {
@@ -118,9 +102,8 @@ public static class StartupPrefetch
             finally
             {
                 queue.CompleteAdding();
-                try { Task.WaitAll(workers); done.TrySetResult(true); }
-                catch (AggregateException error) { done.TrySetException(error.InnerExceptions); }
-                queue.Dispose();
+                try { Task.WaitAll(workers); }
+                finally { queue.Dispose(); }
             }
         }
 

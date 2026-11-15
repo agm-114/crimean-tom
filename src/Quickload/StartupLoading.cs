@@ -35,11 +35,14 @@ internal static class StartupLoading
     internal static bool DeferredEncyclopedia => preparingEncyclopedia;
     private static bool EncyclopediaReady => coreReady && (EncyclopediaLoading.Ready || !hasEncyclopedia);
     private static bool StartupReady => EncyclopediaReady && !DeferredPointValues.Running;
-    internal static bool CanBuildEncyclopedia => !preparingEncyclopedia ||
-        Singleton<MenuSystemViewModel>.Instance.CurrentWindow is MainMenuView && !Singleton<LoadScreen>.Instance.cameraObject.enabled;
+    private static bool CanReadStartupData =>
+        Singleton<MenuSystemViewModel>.Instance.CurrentWindow is (MainMenuView or CampaignMenuView) &&
+        !Singleton<LoadScreen>.Instance.cameraObject.enabled;
+    internal static bool CanBuildEncyclopedia => !preparingEncyclopedia || CanReadStartupData;
     internal static bool CanOpen(string action) => !Active || action switch
     {
-        "Continue" or "Scenarios" or "Tutorials" or "Campaign" or "Instant" => coreReady && !DeferredPointValues.Running,
+        "Scenarios" or "Tutorials" or "Campaign" or "Continue" => coreReady,
+        "Instant" => coreReady && !DeferredPointValues.Running,
         "Encyclopedia" => EncyclopediaReady,
         "Editor" or "Options" or "ModManager" => StartupReady,
         _ => true,
@@ -140,8 +143,10 @@ internal static class StartupLoading
     [HarmonyPrefix, HarmonyPatch(typeof(MissionManager), nameof(MissionManager.DoLoad))]
     private static void RequireData()
     {
-        if (Active && (!coreReady || DeferredPointValues.Running))
-            throw new InvalidOperationException("Wait for Quickload to finish preparing mission data and point values.");
+        if (Active && !coreReady)
+            throw new InvalidOperationException("Wait for Quickload to finish preparing mission data.");
+        if (DeferredPointValues.Running && CampaignPricing.MissionSaveNeedsPrices(Globals.currentMissionFilePath))
+            throw new InvalidOperationException(CampaignPricing.WaitMessage);
     }
 
     private static IEnumerator LoadBehindMenu()
@@ -215,14 +220,14 @@ internal static class StartupLoading
         if (!hasEncyclopedia) ResolvedSensors.Reset();
         RefreshMenu(MainMenuView.Instance);
         MenuProgress.LogGates(MainMenuView.Instance);
-        if (!DeferredPointValues.Running) screen.LoadText = "Done";
+        screen.LoadText = "Done";
         Debug.Log("[Quickload] Core startup data ready.");
         if (music.Length > 0)
             Singleton<BackgroundSceneController>.Instance.StartCoroutine(LoadMusic(music));
         var museum = pending.Find(IsEncyclopedia);
         if (museum.description == null)
         {
-            yield return FinishPricing(screen);
+            yield return FinishPricing();
             if (!failed) FinishProgress();
             yield break;
         }
@@ -232,7 +237,7 @@ internal static class StartupLoading
         preparingEncyclopedia = true;
         try
         {
-            yield return Run(museum.GetEnumerator(), waitForMenu: true);
+            yield return Run(museum.GetEnumerator(), canAdvance: () => CanBuildEncyclopedia);
             while (!EncyclopediaLoading.Ready && !failed) yield return null;
             preparingEncyclopedia = false;
             if (DeferredPointValues.Running && MainMenuView.Instance is { } menu)
@@ -240,7 +245,7 @@ internal static class StartupLoading
                 RefreshMenu(menu);
                 MenuProgress.LogGates(menu);
             }
-            if (!failed) yield return FinishPricing(screen);
+            if (!failed) yield return FinishPricing();
             if (!failed) FinishProgress();
         }
         finally
@@ -252,14 +257,15 @@ internal static class StartupLoading
         }
     }
 
-    private static IEnumerator FinishPricing(LoadScreen screen)
+    private static IEnumerator FinishPricing()
     {
         if (DeferredPointValues.Running)
         {
             BeginStage("Updating point values…");
-            yield return Run(DeferredPointValues.Recalculate());
+            // Briefings and active missions can mount their own files. Only price against the startup catalogue.
+            yield return Run(DeferredPointValues.Recalculate(), canAdvance: () => CanReadStartupData);
             if (failed) yield break;
-            screen.LoadText = "Done";
+            CampaignPricing.Refresh();
         }
         else progress?.Start();
         progress?.Finish();
@@ -294,7 +300,7 @@ internal static class StartupLoading
             while (loadingMusic) yield return null;
         }
         BeginStage($"Loading encyclopedia {part}…");
-        yield return Run(routine, waitForMenu: true);
+        yield return Run(routine, canAdvance: () => CanBuildEncyclopedia);
         if (!failed)
         {
             progress?.Finish();
@@ -335,13 +341,14 @@ internal static class StartupLoading
         progress = null;
     }
 
-    private static IEnumerator Run(IEnumerator routine, bool waitForMenu = false, bool backgroundMusic = false)
+    private static IEnumerator Run(IEnumerator routine, bool backgroundMusic = false,
+        Func<bool>? canAdvance = null)
     {
         try
         {
             while (true)
             {
-                while (waitForMenu && !CanBuildEncyclopedia) yield return null;
+                while (canAdvance?.Invoke() == false) yield return null;
                 object? item;
                 try
                 {
@@ -361,7 +368,8 @@ internal static class StartupLoading
                     yield break;
                 }
                 finally { advancingMusic = false; }
-                if (item is IEnumerator nested and not CustomYieldInstruction) yield return Run(nested, waitForMenu, backgroundMusic);
+                if (item is IEnumerator nested and not CustomYieldInstruction)
+                    yield return Run(nested, backgroundMusic, canAdvance);
                 else yield return item;
                 if (failed && !backgroundMusic) yield break;
             }

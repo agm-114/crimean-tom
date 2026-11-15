@@ -9,8 +9,10 @@ upcoming phases. Short phases have a small minimum width. After a
 complete run, it estimates progress and time remaining from the last complete
 run with the same game build, language, and enabled mods. The Encyclopedia
 unlocks when its catalog is ready and opens a reference window on the menu
-while pricing is in progress. Scenarios, Tutorials, Campaigns, Continue and
-the Editor wait for current point values. Manual, Credits and Exit are
+while pricing is in progress. Scenarios, Tutorials, and ordinary campaigns
+open as soon as core data is ready. Point-based campaigns and their saves,
+Instant Action, and the Editor wait for current point values. Pricing pauses when a
+mission mounts its own data and resumes when you return to the menu. Manual, Credits and Exit are
 available from the start.
 
 Sea Power still warms its own INI cache behind the menu. Music can load in the
@@ -19,8 +21,8 @@ a mission starts, and the game loads voice clips as needed. The Encyclopedia sho
 browser while its scene loads. The same browser moves into the in-scene window
 with the current search and selection. Unit testing becomes available while
 terrain continues streaming. Regular missions still wait for terrain.
-The encyclopedia pauses when you leave the main menu so it does not read from
-a mounted mission. Quickload batches weapon entries and per-unit frame waits
+The encyclopedia can also load in the campaign picker. It pauses while a mission
+has its own data mounted. Quickload batches weapon entries and per-unit frame waits
 within a 4 ms budget. An individual weapon or unit can take longer than that.
 
 To try the experimental startup snapshots, create an empty
@@ -96,12 +98,12 @@ Close the game before deployment. The two DLLs and `_info.ini` go into
 `Sea Power_Data/StreamingAssets/Quickload`. Override `SeaPowerDir` for another
 installation. Enable **Quickload** in the game's Mod Manager and restart.
 
-Keel uses `StartEarly` to install Quickload before the native startup stages.
-The Keel draft and its 1.1.0 stub start `Quickload.Preloader.dll` while the
-regular splashes play. On mainline Keel or with an older stub, the same queue
-starts at Quickload's entry point. One reader feeds decompression and hashing
-workers, then checks for reusable mod cache chunks. Startup keeps completed work when it takes
-over and validates prefetched files against the live load order. The larger
+Quickload requests `LoadTiming=Early` in Keel and keeps `StartEarly=true` for
+older Keel loaders. Its normal plugin entry point installs startup patches and
+queues cache work after Keel checks the mod's enabled state and dependencies.
+One reader feeds decompression and hashing workers, then checks for reusable
+mod cache chunks. Startup keeps completed work when it takes over and validates
+prefetched files against the live load order. The larger
 loading panel keeps startup dialogs accessible and shrinks into the main menu.
 Its timeline starts at process launch and includes pre-menu timings. The plugin ID is
 `crimean-tom.quickload`.
