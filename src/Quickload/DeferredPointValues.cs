@@ -11,6 +11,7 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class DeferredPointValues
 {
+    private const double FrameBudgetMilliseconds = 8;
     private delegate void ApplyPrice(string folder, string name, SimpleObjectParameters unit, ref int computed, ref int cached);
     private static readonly ApplyPrice apply = AccessTools.MethodDelegate<ApplyPrice>(
         AccessTools.Method(typeof(PointValueCalculator), "ApplyValues"));
@@ -81,7 +82,7 @@ internal static class DeferredPointValues
             if (unit?._ini == null || unit.IsLoadoutUnit || key.Item1 == "biologic" || !applied.Add(unit)) continue;
             try { apply(key.Item1, key.Item2, unit, ref computed, ref cached); }
             catch (Exception error) { Debug.LogWarning($"[Quickload] Could not price {key.Item1}/{key.Item2}: {error.Message}"); }
-            if (clock.Elapsed.TotalMilliseconds < EncyclopediaLoading.FrameBudgetMilliseconds) continue;
+            if (clock.Elapsed.TotalMilliseconds < FrameBudgetMilliseconds) continue;
             yield return null;
             clock.Restart();
         }
@@ -91,7 +92,7 @@ internal static class DeferredPointValues
             if (name.Length == 0 || name.Equals("damage", StringComparison.OrdinalIgnoreCase)) continue;
             try { PointValueAmmoPricer.GetDetail(name); }
             catch (Exception error) { Debug.LogWarning($"[Quickload] Could not price ammunition {name}: {error.Message}"); }
-            if (clock.Elapsed.TotalMilliseconds < EncyclopediaLoading.FrameBudgetMilliseconds) continue;
+            if (clock.Elapsed.TotalMilliseconds < FrameBudgetMilliseconds) continue;
             yield return null;
             clock.Restart();
         }

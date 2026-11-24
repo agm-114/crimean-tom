@@ -326,13 +326,13 @@ internal class StartupArchives
             if (root.Replaces.Length > 0) AddLayer();
             if (root.Replaces.Any(IsSharedPath)) shared.Add(layer);
             if (root.Replaces.Any(IsSharedPath)) weaponInputs.Add(layer);
-            foreach (string path in ContentPaths(root)
+            foreach (string path in ContentPaths(root).Where(StartupPrefetch.IsInput)
                 .OrderBy(path => path, StringComparer.Ordinal))
             {
                 string relative = Normalize(Path.GetRelativePath(root.Path, path));
                 string virtualPath = "/" + (root.Mount.Trim('/') is { Length: > 0 } mount ? mount + "/" : "") + relative;
                 string extension = Path.GetExtension(path).ToLowerInvariant();
-                if (extension is not (".ini" or ".json" or ".dll")) continue;
+                if (tooling && (extension == ".dll" || relative == "_info.ini")) continue;
                 bool library = extension == ".dll" || IsSharedPath(virtualPath);
                 byte[] fileHash;
                 string text;
@@ -348,7 +348,6 @@ internal class StartupArchives
                     text = StartupPrefetch.InputText(path, bytes);
                 }
                 byte[] relativeKey = Encoding.UTF8.GetBytes(relative + "\0");
-                if (tooling && (extension == ".dll" || relative == "_info.ini")) continue;
                 full.AppendData(relativeKey);
                 full.AppendData(fileHash);
                 layerContent.AppendData(relativeKey);
@@ -356,11 +355,14 @@ internal class StartupArchives
                 string digest = BitConverter.ToString(fileHash);
                 bool sensorFile = IsSensorPath(virtualPath);
                 if (sensorFile) sensorFiles[PortablePath(path)] = Digest(layer + "\0" + digest);
-                bool directives = text.Contains("#!alias", StringComparison.Ordinal) ||
-                    text.Contains("#!copy", StringComparison.OrdinalIgnoreCase) ||
-                    text.Contains("#!extend", StringComparison.Ordinal) || text.Contains("#!prepend", StringComparison.Ordinal);
+                bool hasDirective = text.Contains("#!", StringComparison.Ordinal);
+                bool alias = hasDirective && text.Contains("#!alias", StringComparison.Ordinal);
+                bool copy = hasDirective && text.Contains("#!copy", StringComparison.OrdinalIgnoreCase);
+                bool changesSection = hasDirective && (text.Contains("#!extend", StringComparison.Ordinal) ||
+                    text.Contains("#!prepend", StringComparison.Ordinal));
+                bool directives = alias || copy || changesSection;
                 // Files that inherit from or modify sensor sources need the full dependency path.
-                if (sensorFile && (directives || text.Contains("#!repeat", StringComparison.Ordinal)) ||
+                if (sensorFile && (directives || hasDirective && text.Contains("#!repeat", StringComparison.Ordinal)) ||
                     directives && Normalize(text).Contains("systems/sensors", StringComparison.OrdinalIgnoreCase)) sensorIsolation = false;
                 if (string.Equals(relative, "_info.ini", StringComparison.OrdinalIgnoreCase))
                 {
@@ -370,14 +372,12 @@ internal class StartupArchives
                 else if (!sensorFile)
                 {
                     AddLayer();
-                    withoutSensors.AppendData(Encoding.UTF8.GetBytes(relative + "\0"));
+                    withoutSensors.AppendData(relativeKey);
                     withoutSensors.AppendData(fileHash);
                 }
                 if (extension != ".ini" && !library) continue;
-                bool hasIncludes = text.Contains("#!alias", StringComparison.Ordinal) ||
-                    text.Contains("#!copy", StringComparison.OrdinalIgnoreCase) || text.Contains("#!repeat", StringComparison.OrdinalIgnoreCase);
-                bool modifiesLibrary = (text.Contains("#!extend", StringComparison.Ordinal) ||
-                    text.Contains("#!prepend", StringComparison.Ordinal)) && ModifiesSharedInput(text);
+                bool hasIncludes = alias || copy || hasDirective && text.Contains("#!repeat", StringComparison.OrdinalIgnoreCase);
+                bool modifiesLibrary = changesSection && ModifiesSharedInput(text);
                 files[Normalize(path)] = new(digest, hasIncludes);
                 if (library || modifiesLibrary)
                 {
@@ -388,7 +388,7 @@ internal class StartupArchives
                     weaponInputs.Add(layer + virtualPath + ":" + digest);
                 if (virtualPath.StartsWith("/ammunition/", StringComparison.OrdinalIgnoreCase) && hasIncludes)
                     CollectSharedAliases(text, aliases, ref uncertain);
-                else if (hasIncludes && text.Contains("#!copy", StringComparison.OrdinalIgnoreCase))
+                else if (copy)
                 {
                     // Copy source names can change how the game resolves keys in shared INIs.
                     shared.Add(layer + virtualPath + ":" + digest);

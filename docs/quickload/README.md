@@ -1,5 +1,16 @@
 # Quickload
 
+## 0.2.4 unreleased
+
+Quickload filters cache inputs before sorting paths and skips directive searches
+in INIs without directives. Existing snapshots keep their fingerprints. Pricing
+uses an 8 ms frame budget while the encyclopedia keeps its 4 ms budget.
+
+On Sea Power `0.9.3-261116` with 29 plugins, scenarios opened at a median of
+12.72 s and the editor at 16.89 s from launch. Version 0.2.3 took 13.58 s and
+18.18 s on the same Keel build. Each median covers three launches with a warm
+cache. All 749 unit prices came from cache and the menu gates opened in order.
+
 ## 0.2.3 (2026-11-24)
 
 - Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
