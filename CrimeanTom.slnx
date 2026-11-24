@@ -2,19 +2,6 @@
   <Folder Name="/Examples/">
     <Project Path="external/sp-controls/examples/ControlsSettings/ControlsSettings.csproj" />
   </Folder>
-  <Folder Name="/Shared UI/">
-    <File Path="external/sp-controls/src/UI/UI.props" />
-    <File Path="external/sp-controls/src/UI/NativeUi.cs" />
-    <File Path="external/sp-controls/src/UI/NativeForms.cs" />
-    <File Path="external/sp-controls/src/UI/NativeLayout.cs" />
-    <File Path="external/sp-controls/src/UI/NativePrimitives.cs" />
-    <File Path="external/sp-controls/src/UI/SliderScale.cs" />
-    <File Path="external/sp-controls/src/UI/WidgetGallery.cs" />
-    <File Path="external/sp-controls/src/UI/UnitStatusPage.cs" />
-    <File Path="external/sp-controls/src/UI/ToolbarToggle.cs" />
-    <File Path="external/sp-controls/src/UI/README.md" />
-    <File Path="external/sp-controls/src/UI/catalogue.md" />
-  </Folder>
   <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
   <Project Path="src/DeckTweaks/DeckTweaks.csproj" />
   <Project Path="src/BoatOps/BoatOps.csproj" />
@@ -27,6 +14,8 @@
   <Project Path="src/Spacewar/Spacewar.csproj" />
   <Project Path="src/SeaPower.GameBridge/SeaPower.GameBridge.csproj" />
   <Project Path="external/sp-controls/src/Controls/Controls.csproj" />
+  <Project Path="external/sp-controls/src/Settings/Settings.csproj" />
+  <Project Path="external/sp-controls/src/UI/UI.csproj" />
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" />
