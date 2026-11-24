@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Airdrop;
 
-[ACPlugin("crimean-tom.airdrop", "Airdrop", "0.1.0")]
+[ACPlugin("crimean-tom.airdrop", "Airdrop", "0.1.2")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

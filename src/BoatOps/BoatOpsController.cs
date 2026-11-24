@@ -1,10 +1,10 @@
 using Noesis;
 using SeaPower;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using SeapowerUI.ViewModels;
 using UnityEngine;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace BoatOps;
 

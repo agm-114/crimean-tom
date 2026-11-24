@@ -1,7 +1,7 @@
 using MapControl;
 using Noesis;
 using SeaPower;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using MapPanel = MapControl.MapPanel;
 

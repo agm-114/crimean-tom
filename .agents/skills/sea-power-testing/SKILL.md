@@ -39,10 +39,19 @@ stock-game startup check. `launch` opens Steam app 1286220, refuses an existing
 game, and requires a process plus fresh `Player.log` content. It excludes the
 old content when a log is appended. Never invoke `Sea Power.exe` directly.
 
-Timeout or cancellation does not close a launched game. Check `game-status` and
+Timeout, cancellation, or a nonzero launcher exit does not close a launched game.
+Put launch invocation and response parsing inside the test's cleanup scope;
+malformed launch JSON can arrive after the process starts. Check `game-status` and
 `logs` before retrying. If Steam requests cloud-save conflict resolution, stop
 and ask the user rather than selecting a save. A startup marker proves loading,
 not that the scenario or campaign works.
+
+An early loader can be running while the bridge still waits for normal startup.
+If `inspect` says the bridge is unavailable, check fresh logs for a mod-version
+dialog before treating this as a loader failure. A mod's own supported-version
+guard can also stop its features after its entry point has returned successfully.
+After closing a disposable run before startup completes, restore the prior
+presence of `launch_incomplete.marker` so the test does not leave a recovery prompt.
 
 `logs` returns the Player.log tail and BepInEx log tail when present. It works
 without the bridge. Increase `--tail` or read the reported file to find the first

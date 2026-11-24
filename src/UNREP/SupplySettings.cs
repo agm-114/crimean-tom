@@ -1,5 +1,4 @@
 using SeaPower;
-using HarmonyLib;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -27,7 +26,7 @@ internal static class SupplySettings
     internal static double SlingCapacityKg { get; private set; }
     internal static double HoverToleranceNm { get; private set; }
 
-    internal static void Load(Harmony harmony)
+    internal static void Load()
     {
         string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!, "supplies.ini");
         string optionsPath = Path.ChangeExtension(path, ".yml");
@@ -49,7 +48,7 @@ internal static class SupplySettings
         RelativeSpeedTolerance = Read("Transfer", "RelativeSpeedToleranceKnots", 1, 0.1, 3);
         SlingCapacityKg = Read("Helicopter", "SlingCapacityKg", 500, 1, 10000);
         HoverToleranceNm = Read("Helicopter", "HoverToleranceNm", 0.05, 0.01, 0.1);
-        SupplyTuning.Register(harmony, ini);
+        SupplyTuning.Register(ini);
 
         double Read(string section, string key, double fallback, double min, double max) =>
             SupplyTuning.ReadNumber(ini, section, key, max, min) ?? fallback;

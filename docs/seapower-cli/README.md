@@ -1,5 +1,26 @@
 # Sea Power CLI
 
+## 0.2.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.2.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
+Version 0.2.0 (unreleased) adds optional R.A.T.S. Keel interoperability. `keel status`
+reads the loader state; `keel report` reads its report; `keel open` and `keel close`
+control the report window. Inspection, status and screenshots include Keel state.
+UI-changing actions refuse to run while Keel is starting or its report covers the
+game, preventing invisible clicks through that window. Keel is not a dependency
+of the bridge. `logs` also includes Keel's log, session, report and crash stack;
+it works after the game has stopped. The CLI detects stale bridge sessions left
+by a crash and directs the caller to those diagnostics.
+
 Development tools for operating Sea Power's menus and inspecting actual units.
 A small AnchorChain mod reads Noesis controls and simulator objects and executes
 native actions on Unity's main thread.

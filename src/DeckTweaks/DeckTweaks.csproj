@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.1.0</Version>
+    <Version>0.1.3</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\DeckTweaks</PluginDeployDirectory>
   </PropertyGroup>
-
   <ItemGroup>
     <Reference Include="AnchorChain">
       <HintPath>$(AnchorChainDll)</HintPath>
@@ -34,25 +33,21 @@
     <EmbeddedResource Include="rearm-times.ini" LogicalName="rearm-times.ini" />
     <None Update="language_en\ammunition_names_ext.ini" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Import Project="..\SeaPower.SharedUi\SeaPower.SharedUi.props" />
-  <Import Project="..\SeaPower.SharedSettings\SeaPower.SharedSettings.props" />
-
+  <ItemGroup>
+    <ProjectReference Include="../../external/sp-controls/src/Controls/Controls.csproj" Private="false" />
+  </ItemGroup>
   <Target Name="EnsureAnchorChainReference" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(AnchorChainDll)')"
-           Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
+    <Error Condition="!Exists('$(AnchorChainDll)')" Text="AnchorChain.dll was not found. Set AnchorChainDll to the installed assembly." />
   </Target>
-
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\migrate-mod-deployment.ps1&quot; -Mod DeckTweaks -GameDirectory &quot;$(SeaPowerDir)&quot;" />
-    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')"
-           Text="Sea Power was not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
+    <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir to the folder containing Sea Power.exe." />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\language_en\ammunition_names_ext.ini"
-          DestinationFolder="$(PluginDeployDirectory)\language_en" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
-          Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\language_en\ammunition_names_ext.ini" DestinationFolder="$(PluginDeployDirectory)\language_en" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Deck Tweaks to $(PluginDeployDirectory)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../docs/deck-tweaks/changelog.md" DestinationFiles="$(PluginDeployDirectory)/CHANGELOG.md" SkipUnchangedFiles="true" />
   </Target>
 </Project>

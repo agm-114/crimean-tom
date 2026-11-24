@@ -17,6 +17,19 @@ Use this procedure only when the task needs player-visible proof inside Sea Powe
    click or scrolling a virtualized list. Read the computer-use skill first and
    use a current screenshot, not coordinates from another run.
 
+With bridge 0.2.0 or newer, use `keel status` to check the loader and `keel close`
+to dismiss its report before sending native UI actions. Keel's report is not in
+the Noesis tree; an apparently enabled Noesis control can be covered by it.
+The bridge blocks UI-changing actions through that overlay while keeping
+inspection, reports and screenshots available. `logs` includes Keel diagnostics
+after a crash; a stale `session.json` alone does not prove the game is running.
+
+For dynamic settings pages, test repeated toggles, invalid input, Accept, reopen,
+and Back. A successful first rebuild does not prove the page is stable: control
+initialization can fire change events and accidentally schedule endless rebuilds.
+Use the journal's settings owner and bridge action as diagnostic context, not
+automatic proof of crash attribution.
+
 For example, read the current buttons before choosing an action:
 
 ```powershell

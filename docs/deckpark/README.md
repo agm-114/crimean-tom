@@ -1,5 +1,17 @@
 # Deckpark
 
+## 0.1.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.1.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
 Deckpark creates native ground units in fixed positions on player-controlled
 surface ships. They follow the ship's translation, heading, pitch and roll while

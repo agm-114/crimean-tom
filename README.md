@@ -20,6 +20,22 @@ The [Crimean Tom Workshop bundle](docs/crimean-tom/workshop-bundle.md) packages 
 
 Read [AGENTS.md](AGENTS.md) and the relevant module's docs before changing it. Campaign design and refactoring suggestions do not apply to Deck Tweaks.
 
+## Controls & Settings
+
+Shared controls, settings, and their runtime DLL live in
+[SEARATS/sp-controls](https://github.com/SEARATS/sp-controls), pinned here at
+`external/sp-controls`. Its filtered history preserves the UI and settings work
+from this repository.
+
+Initialize dependencies before building a fresh checkout.
+
+```powershell
+git submodule update --init --recursive
+```
+
+See the [library guide](external/sp-controls/README.md) for standalone builds,
+source packages, runtime dependencies, and the original commit map.
+
 ## Build and deploy
 
 The standalone [Nuclear Option scenario editor](docs/nuclear-option-editor/README.md) lives in `tools/` and has its own solution. Global substitutions update placed units, factory products and reserves, with separate source and output missions.

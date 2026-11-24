@@ -10,3 +10,6 @@
 	path = external/SeaPowerFlotilla
 	url = https://github.com/agm-114/SeaPowerFlotilla.git
 	branch = codex/flotilla-cli
+[submodule "external/sp-controls"]
+	path = external/sp-controls
+	url = https://github.com/SEARATS/sp-controls.git

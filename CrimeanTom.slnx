@@ -1,16 +1,19 @@
 <Solution>
+  <Folder Name="/Examples/">
+    <Project Path="external/sp-controls/examples/ControlsSettings/ControlsSettings.csproj" />
+  </Folder>
   <Folder Name="/Shared UI/">
-    <File Path="src/SeaPower.SharedUi/SeaPower.SharedUi.props" />
-    <File Path="src/SeaPower.SharedUi/NativeUi.cs" />
-    <File Path="src/SeaPower.SharedUi/NativeForms.cs" />
-    <File Path="src/SeaPower.SharedUi/NativeLayout.cs" />
-    <File Path="src/SeaPower.SharedUi/NativePrimitives.cs" />
-    <File Path="src/SeaPower.SharedUi/SliderScale.cs" />
-    <File Path="src/SeaPower.SharedUi/WidgetGallery.cs" />
-    <File Path="src/SeaPower.SharedUi/UnitStatusPage.cs" />
-    <File Path="src/SeaPower.SharedUi/ToolbarToggle.cs" />
-    <File Path="src/SeaPower.SharedUi/README.md" />
-    <File Path="src/SeaPower.SharedUi/catalogue.md" />
+    <File Path="external/sp-controls/src/UI/UI.props" />
+    <File Path="external/sp-controls/src/UI/NativeUi.cs" />
+    <File Path="external/sp-controls/src/UI/NativeForms.cs" />
+    <File Path="external/sp-controls/src/UI/NativeLayout.cs" />
+    <File Path="external/sp-controls/src/UI/NativePrimitives.cs" />
+    <File Path="external/sp-controls/src/UI/SliderScale.cs" />
+    <File Path="external/sp-controls/src/UI/WidgetGallery.cs" />
+    <File Path="external/sp-controls/src/UI/UnitStatusPage.cs" />
+    <File Path="external/sp-controls/src/UI/ToolbarToggle.cs" />
+    <File Path="external/sp-controls/src/UI/README.md" />
+    <File Path="external/sp-controls/src/UI/catalogue.md" />
   </Folder>
   <Project Path="src/CrimeanTom.SeaPower/CrimeanTom.SeaPower.csproj" />
   <Project Path="src/DeckTweaks/DeckTweaks.csproj" />
@@ -23,7 +26,7 @@
   <Project Path="src/Deckpark/Deckpark.csproj" />
   <Project Path="src/Spacewar/Spacewar.csproj" />
   <Project Path="src/SeaPower.GameBridge/SeaPower.GameBridge.csproj" />
-  <Project Path="src/SeaPower.Controls/SeaPower.Controls.csproj" />
+  <Project Path="external/sp-controls/src/Controls/Controls.csproj" />
   <Project Path="src/SeaPower.Cli/SeaPower.Cli.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler/SeaPower.LoadingProfiler.csproj" />
   <Project Path="src/SeaPower.LoadingProfiler.Bootstrap/SeaPower.LoadingProfiler.Bootstrap.csproj" />

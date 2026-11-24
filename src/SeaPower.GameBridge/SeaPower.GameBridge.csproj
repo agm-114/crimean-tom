@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.1.0</Version>
+    <Version>0.2.2</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\SeaPowerGameBridge</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
@@ -27,5 +27,5 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
   </Target>
-  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../../external/sp-controls/src/UI/UI.props" />
 </Project>

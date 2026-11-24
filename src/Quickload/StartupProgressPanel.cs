@@ -1,5 +1,5 @@
 using Noesis;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 
 namespace Quickload;

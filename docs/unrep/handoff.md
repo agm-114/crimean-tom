@@ -120,9 +120,10 @@ This update has been compiled only, not deployed or verified in-game.
 | `HelicopterMotionPatch.cs` | Suppress owned movement/AI while retaining targeting and relocation behavior |
 | `HelicopterSpeedPatch.cs` | Narrow native flight-controller speed override for owned shuttles |
 
-`src/SeaPower.SharedUi/` is source compiled into each consumer, not another mod
-or deployed shared DLL. Read its README. Changing its source requires rebuilding
-each consumer that needs the change. The Supplies fix was deployed in UNREP only.
+Shared UI and settings now live in the pinned `external/sp-controls/` checkout.
+UNREP references its `Controls.dll` runtime and requires Controls &
+Settings 0.2.2 or newer. Mods that import the UI source rebuild to consume source
+changes. The earlier Supplies fix was deployed in UNREP only.
 
 ## Details worth preserving
 

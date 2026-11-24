@@ -41,7 +41,7 @@ descriptions, and does not build, deploy, launch or upload the mods.
 Git ignores the renders, cached photos, and generated thumbnails. OODA and
 Observer use pinned source photos and fixed crops in the manifest.
 
-## Controls and Settings
+## Controls & Settings
 
 Capture the real game UI at 1920 × 1200. Close Sea Power first and have the
 Sea Power CLI and Game Bridge installed for local testing. Enable Deck Tweaks
@@ -60,15 +60,20 @@ Steam Workshop folder.
 The script starts Sea Power through Steam, writes `controls.jpg`,
 `settings.jpg`, and one PNG per Controls demo tab under
 `artifacts/mod-icons/controls-gallery/`, then closes the capture session.
-Settings uses the shipped **Options → Gameplay → Deck Tweaks** page and expands
-the weapon mounting section. Controls uses the gallery in
-`scripts/workshop-icon-gallery/UiGallery.cs`. Its thumbnail uses the same
+Settings captures the available **Options → Gameplay** pages for Deck Tweaks,
+Amphibs, UNREP and Observer into `artifacts/mod-icons/settings-pages/` and expands
+Deck Tweaks' weapon mounting section. Pass `-SettingsPages` to choose other tabs.
+It only captures pages already available; it does not enable those mods.
+Controls uses the gallery in
+`external/sp-controls/scripts/workshop-icon-gallery/UiGallery.cs`. Its thumbnail uses the same
 charcoal title band, red rule, and Bahnschrift type as the other mod icons.
 Pass the gallery folder to `seapower-cli workshop-update --preview-dir` to
 replace or add the listing screenshots.
 
-Use `content/workshop/controls/_info.ini` and
-`content/workshop/settings/_info.ini` for the public descriptions.
-The Controls Workshop payload is `SeaPower.Controls.dll` from
-`src/SeaPower.Controls`, plus its README, metadata, and `controls.jpg` as
-`thumbnail.jpg`.
+Use `external/sp-controls/content/workshop/controls/_info.ini` for the combined public description.
+`external/sp-controls/content/workshop/settings/_info.ini` is the retired standalone description.
+Building `external/sp-controls/src/Controls` stages the combined Workshop payload under
+`external/sp-controls/artifacts/workshop/ControlsAndSettings`, with screenshots staged separately under
+`external/sp-controls/artifacts/workshop/ControlsAndSettings-previews`. The payload contains the Anchor
+Chain plugin and both public APIs in `Controls.dll`, its README, metadata,
+and `controls.jpg` as `thumbnail.jpg`. Build again after capturing screenshots.

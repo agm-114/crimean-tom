@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AssemblyName>CrimeanTom.SeaPower</AssemblyName>
     <RootNamespace>CrimeanTom.SeaPower</RootNamespace>
-    <Version>0.3.0</Version>
+    <Version>0.3.2</Version>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\CrimeanTomOperations</PluginDeployDirectory>
@@ -83,5 +83,5 @@
           SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Crimean Tom Operations to $(PluginDeployDirectory)" />
   </Target>
-  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../../external/sp-controls/src/UI/UI.props" />
 </Project>

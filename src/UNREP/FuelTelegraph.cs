@@ -1,7 +1,7 @@
 using Noesis;
 using SeaPower;
-using SeaPower.SharedSettings;
-using static SeaPower.SharedUi.NativeUi;
+using Settings;
+using static UI.NativeUi;
 
 namespace UNREP;
 

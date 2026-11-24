@@ -1,6 +1,22 @@
 # UNREP
 
+## 0.1.3 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+- Requires Controls & Settings 0.3.0 or newer.
+
+
+## 0.1.2 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+- Requires Controls & Settings 0.2.2 or newer at runtime.
+
 Independent AnchorChain mod for Sea Power `0.9.1-261112`.
+Version 0.1.3 (unreleased) requires [Controls & Settings](../../external/sp-controls/src/Controls/README.md)
+for its native controls and scripted settings page; existing settings files remain valid.
 Flight-deck traffic and zone APIs vary between game assemblies. UNREP uses them
 when present. Builds without them use landing-point claims and blocking links,
 the existing 30 m conflict check, and a physical recovery-strip clearance check.

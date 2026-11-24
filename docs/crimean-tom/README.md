@@ -1,5 +1,17 @@
 # Crimean Tom
 
+## 0.3.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.3.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 Crimean Tom manages a mercenary operations campaign between Sea Power battles.
 It generates complete standalone missions, imports their results and manages the
 player's persistent task force. It has no campaign server, companion process,

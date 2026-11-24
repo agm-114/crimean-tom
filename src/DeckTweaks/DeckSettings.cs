@@ -1,8 +1,7 @@
-using HarmonyLib;
 using Noesis;
-using SeaPower.SharedSettings;
+using Settings;
 using Path = System.IO.Path;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace DeckTweaks;
 
@@ -21,12 +20,12 @@ internal static class DeckSettings
     ];
     internal static ModSettings Settings { get; private set; } = null!;
 
-    internal static void Register(Harmony harmony)
+    internal static void Register()
     {
         using var resource = typeof(Plugin).Assembly.GetManifestResourceStream("rearm-times.ini")!;
         using var reader = new StreamReader(resource);
         Settings = new("DeckTweaks", SettingsValues.Read(reader), ReadLegacy);
-        GameplaySettings.Register(harmony, "Deck Tweaks", Settings, Build);
+        GameplaySettings.Register("Deck Tweaks", Settings, Build);
     }
 
     internal static double Rate(string section, string key, double fallback) =>

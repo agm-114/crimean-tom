@@ -31,7 +31,9 @@ internal class GameDiagnostics(CliCommand command)
     {
         if (!File.Exists(playerLog)) throw new FileNotFoundException($"Player.log was not found at '{playerLog}'.");
         List<object> logs = [];
-        foreach (string path in new[] { playerLog, BepInExLog }.Distinct(StringComparer.OrdinalIgnoreCase))
+        string[] keelLogs = ["Keel-report.txt", "Keel-log.txt", "Keel-session.txt", "Keel-crash-stack.txt"];
+        foreach (string path in new[] { playerLog, BepInExLog }.Concat(keelLogs.Select(name => Path.Combine(directory, "BepInEx", name)))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!File.Exists(path)) continue;
             using StreamReader reader = OpenLog(path);

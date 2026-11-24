@@ -1,10 +1,10 @@
 using DeckTweaks.Preparation;
 using Noesis;
 using SeaPower;
-using SeaPower.SharedUi;
-using SeaPower.SharedSettings;
+using UI;
+using Settings;
 using Path = System.IO.Path;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace DeckTweaks;
 

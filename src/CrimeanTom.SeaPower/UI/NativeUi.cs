@@ -1,9 +1,9 @@
 using HarmonyLib;
 using Noesis;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using UnityEngine;
-using SharedUi = global::SeaPower.SharedUi.NativeUi;
+using NativeControls = global::UI.NativeUi;
 
 namespace CrimeanTom.SeaPower;
 
@@ -56,10 +56,10 @@ internal static class NativeUi
         {
             float hostHeight = host.ActualHeight > 0f ? host.ActualHeight : Screen.height;
             height = Math.Max(440f, hostHeight - 60f);
-            var scroll = SharedUi.Scroll(content);
+            var scroll = NativeControls.Scroll(content);
             scroll.MaxHeight = height;
             body = scroll;
         }
-        return SharedUi.Overlay(body, CampaignOverlayBrush, PanelBrush, BorderBrush, width, maxHeight: height);
+        return NativeControls.Overlay(body, CampaignOverlayBrush, PanelBrush, BorderBrush, width, maxHeight: height);
     }
 }

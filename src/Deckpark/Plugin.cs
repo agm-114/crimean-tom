@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Deckpark;
 
-[ACPlugin("crimean-tom.deckpark", "Deckpark", "0.1.0")]
+[ACPlugin("crimean-tom.deckpark", "Deckpark", "0.1.2")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

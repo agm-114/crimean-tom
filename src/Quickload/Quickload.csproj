@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.2.0</Version>
+    <Version>0.2.2</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
     <QuickloadCacheBundlesDir Condition="'$(QuickloadCacheBundlesDir)' == ''">$(MSBuildProjectDirectory)\CacheBundles</QuickloadCacheBundlesDir>
   </PropertyGroup>
@@ -44,5 +44,5 @@
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed Quickload to $(PluginDeployDirectory)" />
   </Target>
-  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../../external/sp-controls/src/UI/UI.props" />
 </Project>

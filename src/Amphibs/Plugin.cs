@@ -4,7 +4,8 @@ using HarmonyLib;
 
 namespace Amphibs;
 
-[ACPlugin("crimean-tom.amphibs", "Amphibs", "0.1.0")]
+[ACPlugin("crimean-tom.amphibs", "Amphibs", "0.1.3", after: new[] { Controls.Plugin.Id })]
+[ACDependency(Controls.Plugin.Id, "0.3.0", null)]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
@@ -12,7 +13,7 @@ public class Plugin : IAnchorChainMod
         var harmony = new Harmony("crimean-tom.amphibs");
         try
         {
-            AmphibsSettings.Register(harmony);
+            AmphibsSettings.Register();
             harmony.PatchAll(typeof(Plugin).Assembly);
             AmphibiousVariants.RegisterLoadedVariants();
             var host = new GameObject("Amphibs tuning");

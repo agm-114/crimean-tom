@@ -4,6 +4,7 @@ param(
     [ValidateSet('all', 'controls', 'settings', 'gallery')][string]$Mod = 'all',
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts/mod-icons'),
     [string]$Cli = (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SeaPower.Cli/bin/Debug/net10.0/seapower-cli.exe'),
+    [string[]]$SettingsPages = @('Deck Tweaks', 'Amphibs', 'UNREP', 'Observer'),
     [string]$AnchorChainDll
 )
 
@@ -79,7 +80,7 @@ function Draw-ControlsLabel([Drawing.Graphics]$Graphics) {
     # Match the title band on the photo-based Crimean Tom icons.
     $background = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 38, 40))
     $accent = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(190, 72, 58))
-    $font = [Drawing.Font]::new('Bahnschrift', 53.76, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
+    $font = [Drawing.Font]::new('Bahnschrift', 38, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
     $format = [Drawing.StringFormat]::new()
     try {
         $format.Alignment = [Drawing.StringAlignment]::Center
@@ -87,7 +88,7 @@ function Draw-ControlsLabel([Drawing.Graphics]$Graphics) {
         $Graphics.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAliasGridFit
         $Graphics.FillRectangle($background, 0, 399, 512, 113)
         $Graphics.FillRectangle($accent, 0, 399, 512, 4)
-        $Graphics.DrawString('Controls', $font, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(20, 399, 472, 113), $format)
+        $Graphics.DrawString('Controls & Settings', $font, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(20, 399, 472, 113), $format)
     } finally {
         $format.Dispose()
         $font.Dispose()
@@ -118,7 +119,7 @@ function Save-DemoPages {
 function Build-Gallery([string]$Stage, [string]$GameDirectory) {
     $bridgeSource = Join-Path $root 'src/SeaPower.GameBridge'
     Copy-Item -Path "$bridgeSource/*.cs" -Destination $Stage
-    Copy-Item -LiteralPath "$PSScriptRoot/workshop-icon-gallery/UiGallery.cs" -Destination $Stage -Force
+    Copy-Item -LiteralPath "$root/external/sp-controls/scripts/workshop-icon-gallery/UiGallery.cs" -Destination $Stage -Force
     $project = Join-Path $Stage 'SeaPower.GameBridge.csproj'
     [xml]$xml = Get-Content -LiteralPath "$bridgeSource/SeaPower.GameBridge.csproj" -Raw
     foreach ($item in $xml.SelectNodes('//*[@Include or @Project]')) {
@@ -129,7 +130,7 @@ function Build-Gallery([string]$Stage, [string]$GameDirectory) {
         }
     }
     $settings = $xml.CreateElement('Import')
-    $settings.SetAttribute('Project', "$root/src/SeaPower.SharedSettings/SeaPower.SharedSettings.props")
+    $settings.SetAttribute('Project', "$root/external/sp-controls/src/Settings/Settings.props")
     $null = $xml.DocumentElement.AppendChild($settings)
     $xml.Save($project)
     $buildArgs = @($project, "-p:DirectoryBuildPropsPath=$root/src/Directory.Build.props",
@@ -167,6 +168,16 @@ try {
 
     $launchTime = Get-Date
     $null = Invoke-GameCli launch --confirm --timeout 120 --require-pattern '\[Sea Power Game Bridge\] Enabled local command queue'
+    $loader = Invoke-GameCli keel status
+    if ($loader.keel.present) {
+        $deadline = (Get-Date).AddSeconds(60)
+        while (!$loader.keel.startupComplete -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 400
+            $loader = Invoke-GameCli keel status
+        }
+        if (!$loader.keel.startupComplete) { throw 'Keel has not finished starting mods.' }
+        $null = Invoke-GameCli keel close
+    }
     $news = Find-Controls 'Enabled && Name == "CloseButton" && Text == "X"'
     if (@($news.results).Count -eq 1) {
         $null = Invoke-GameCli click --snapshot $news.snapshot --id $news.results[0].id
@@ -175,10 +186,27 @@ try {
     if ($captureSettings) {
         $null = Invoke-GameCli menu options
         Select-Tab (Wait-Control 'Type == "TabControl" && Name == ""') 'Gameplay'
-        Select-Tab (Wait-Control 'Name == "ModGameplayTabs"') 'Deck Tweaks'
-        $options = Wait-Control 'Name == "WeaponMountSecondsOverrides"'
-        $null = Invoke-GameCli expand --snapshot $options.snapshot --id $options.results[0].id
-        Save-Icon 'settings' ([Drawing.Rectangle]::new(98, 58, 940, 940))
+        $settingsDirectory = Join-Path $OutputDirectory 'settings-pages'
+        New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+        $available = @((Wait-Control 'Name == "ModGameplayTabs"').results[0].options.text)
+        $captured = 0
+        foreach ($title in $SettingsPages | Where-Object { $_ -in $available }) {
+            Select-Tab (Wait-Control 'Name == "ModGameplayTabs"') $title
+            if ($title -eq 'Deck Tweaks') {
+                $options = Find-Controls 'Name == "WeaponMountSecondsOverrides"'
+                if (@($options.results).Count -eq 1) {
+                    $null = Invoke-GameCli expand --snapshot $options.snapshot --id $options.results[0].id
+                }
+                Save-Icon 'settings' ([Drawing.Rectangle]::new(98, 58, 940, 940))
+            }
+            $shot = Invoke-GameCli screenshot
+            $name = ($title.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+            $path = Join-Path $settingsDirectory "$name.png"
+            Copy-Item -LiteralPath $shot.path -Destination $path -Force
+            Write-Output $path
+            $captured++
+        }
+        if (!$captured) { throw 'None of the requested settings pages is available.' }
         if ($Mod -eq 'all') { $null = Invoke-GameCli menu main }
     }
 

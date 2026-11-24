@@ -1,10 +1,12 @@
 using Newtonsoft.Json;
 using UnityEngine;
+using UI;
 
 namespace SeaPower.GameBridge;
 
 public class GameBridge : MonoBehaviour
 {
+    private static readonly ModIdentity ActivityOwner = new("crimean-tom.game-bridge");
     private readonly UiControls controls = new();
     private readonly WorkshopControls workshop = new();
     private readonly string session = Guid.NewGuid().ToString("N");
@@ -14,7 +16,7 @@ public class GameBridge : MonoBehaviour
     private void Awake()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot", "double-click", "workshop-update", "workshop-create", "workshop-preview-images", "workshop-content-only", "player-view", "player-waypoint", "player-standing-orders", "ooda-status" } }));
+        File.WriteAllText(Path.Combine(directory, "session.json"), JsonConvert.SerializeObject(new { session, capabilities = new[] { "load-scenario", "cancel-scenario", "menu", "encyclopedia", "details", "screenshot", "double-click", "workshop-update", "workshop-create", "workshop-preview-images", "workshop-content-only", "player-view", "player-waypoint", "player-standing-orders", "ooda-status", "keel" } }));
         Debug.Log("[Sea Power Game Bridge] Enabled local command queue. Development use only.");
     }
 
@@ -38,7 +40,16 @@ public class GameBridge : MonoBehaviour
                 throw new InvalidOperationException("Expired request or stale game session. Inspect again.");
             if (command.Action is "workshop-update" or "workshop-create" or "workshop-status") Reply(command, workshop.Execute(command));
             else if (command.Action == "screenshot") StartCoroutine(Capture(command));
-            else Reply(command, controls.Execute(command));
+            else
+            {
+                if (command.Action is not ("keel" or "inspect" or "details" or "status" or "units" or "ooda-status"
+                    or "scenario-ready" or "encyclopedia-ready") && !(command.Action == "menu" && command.Text.Length == 0))
+                    KeelInterop.EnsureReady();
+                using var activity = command.Action is "inspect" or "details" or "status" or "units" or "ooda-status"
+                    or "scenario-ready" or "encyclopedia-ready" or "keel" ? null
+                    : ModActivity.Begin(ActivityOwner, command.ActivityKind, $"{command.Action}: control={command.Id}, index={command.Index}");
+                Reply(command, controls.Execute(command));
+            }
         }
         catch (Exception exception)
         {
@@ -70,7 +81,7 @@ public class GameBridge : MonoBehaviour
             string path = Path.Combine(folder, command.Request + ".png");
             File.WriteAllBytes(path, texture.EncodeToPNG());
             Reply(command, new { ok = true, action = "screenshot", path, width = texture.width,
-                height = texture.height, capturedUtc = DateTime.UtcNow, time = TimeControls.Read() });
+                height = texture.height, capturedUtc = DateTime.UtcNow, time = TimeControls.Read(), keel = KeelInterop.Read() });
         }
         catch (Exception error) { Reply(command, new { error = error.Message }); }
         finally { if (texture != null) Destroy(texture); }
@@ -86,6 +97,8 @@ public class GameBridge : MonoBehaviour
 
 internal class GameCommand
 {
+    internal ModActivityKind ActivityKind => Action is "click" or "double-click" or "select" or "expand" or "collapse" or "open" or "set-text" or "set-value"
+        ? ModActivityKind.UiInput : ModActivityKind.GameAction;
     public string Session { get; set; } = "";
     public string Request { get; set; } = "";
     public DateTime Expires { get; set; }

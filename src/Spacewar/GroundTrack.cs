@@ -1,5 +1,5 @@
 using Noesis;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace Spacewar;
 

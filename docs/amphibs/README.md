@@ -1,6 +1,22 @@
 # Amphibs
 
+## 0.1.3 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+- Requires Controls & Settings 0.3.0 or newer.
+
+
+## 0.1.2 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+- Requires Controls & Settings 0.2.2 or newer at runtime.
+
 Independent AnchorChain mod for Sea Power `0.9.1-261112`.
+Version 0.1.3 (unreleased) requires [Controls & Settings](../../external/sp-controls/src/Controls/README.md)
+for its native controls and scripted settings page; existing settings files remain valid.
 The files in `src/Amphibs/unit_extensions/` use Sea Power's `#!extend` directive
 to define swimming behavior for seven stock ground units. In Gameplay → Amphibs,
 uncheck **Use mod defaults** to edit the two independent checkboxes under Default units.

@@ -1,5 +1,17 @@
 # OODA
 
+## 0.1.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.1.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 See the [standalone scenario AI plan](scenario-ai-plan.md), [decision prompts](prompts/README.md), and [problem solving guide](decision-guide.md) for the player-side controller.
 
 OODA starts in **AI control** when a scenario loads with a controllable player side. Open **OODA Decisions** from the bottom-right HUD toolbar. **Observe** asks the signed-in Codex CLI to plan and suggest orders. **Take control** cancels pending decisions and returns control to you. **Let AI manage time** gives OODA up to four seconds of pause for the opening plan. Cruise defaults to 20×, and OODA can raise it to 100× when Sea Power permits it and the mission is quiet. Nearby missiles and torpedoes keep the game at 1× while the immediate threat persists.

@@ -1,6 +1,6 @@
 using Noesis;
 using SeapowerUI;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace SeaPower.GameBridge;
 

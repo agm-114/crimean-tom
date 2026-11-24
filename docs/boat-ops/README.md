@@ -1,5 +1,17 @@
 # Boat Ops
 
+## 0.1.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.1.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 Independent AnchorChain mod for Sea Power `0.9.1-261112`.
 Published as [[CT] Boat Ops](https://steamcommunity.com/sharedfiles/filedetails/?id=3817610390).
 Select a player-controlled Tarawa and open Boat Ops beside Flight Deck in
@@ -89,4 +101,4 @@ Implementation lives in `BoatCatalog.cs` for configuration and inventory,
 `BoatOperations.cs` for spawning, recovery and save hooks, and
 `BoatOpsController.cs` for the Unit Status tab and its content container.
 Native button and table construction comes from the linked source in
-[`SeaPower.SharedUi`](../../src/SeaPower.SharedUi/README.md), compiled into this DLL.
+[`UI`](../../external/sp-controls/src/UI/README.md), compiled into this DLL.

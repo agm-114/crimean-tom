@@ -1,9 +1,8 @@
-using HarmonyLib;
 using Noesis;
 using SeaPower;
-using SeaPower.SharedSettings;
+using Settings;
 using Path = System.IO.Path;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace Amphibs;
 
@@ -31,7 +30,7 @@ internal static class AmphibsSettings
     internal static IReadOnlyList<string> DefaultVehicles => Vehicles;
     internal static bool ShowTuningPanel => !Settings.UseDefaults && Settings.Current.Get(Wake, TuningPanel) != 0;
 
-    internal static void Register(Harmony harmony)
+    internal static void Register()
     {
         var defaults = new SettingsValues();
         defaults.Set(DefaultUnits, ExtendExistingUnits, 1);
@@ -56,7 +55,7 @@ internal static class AmphibsSettings
         Settings = new("Amphibs", defaults, ReadLegacy);
         ExtendStockUnits = Settings.Current.Get(DefaultUnits, ExtendExistingUnits, 1) != 0;
         UseVariants = Settings.Current.Get(DefaultUnits, CreateVariants) != 0;
-        GameplaySettings.Register(harmony, "Amphibs", Settings, Build);
+        GameplaySettings.Register("Amphibs", Settings, Build);
     }
 
     internal static bool ReadUnit(SettingsValues values, string id, IniHandler? ini)

@@ -1,9 +1,8 @@
 using System.Globalization;
-using HarmonyLib;
 using Noesis;
 using SeaPower;
-using SeaPower.SharedSettings;
-using static SeaPower.SharedUi.NativeUi;
+using Settings;
+using static UI.NativeUi;
 
 namespace UNREP;
 
@@ -41,7 +40,7 @@ internal static class SupplyTuning
         ["SparePartsPerDCTeam"] = new("Extra parts use per active DC team", 100, 0, hourly: true)
     };
 
-    internal static void Register(Harmony harmony, IniHandler ini)
+    internal static void Register(IniHandler ini)
     {
         installed = ini;
         var defaults = new SettingsValues();
@@ -60,7 +59,7 @@ internal static class SupplyTuning
         settings = new("UNREP", defaults);
         FuelTelegraph.Apply(settings.Current);
         settings.Changed += () => FuelTelegraph.Apply(settings.Current);
-        GameplaySettings.Register(harmony, "UNREP", settings, Build);
+        GameplaySettings.Register("UNREP", settings, Build);
     }
 
     internal static double Value(Vessel ship, string prefix)

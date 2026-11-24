@@ -47,7 +47,7 @@ internal class GameClient
     {
         requiredCapability = command.Request.Action switch
         {
-            "workshop-create" or "double-click" => command.Request.Action,
+            "workshop-create" or "double-click" or "keel" => command.Request.Action,
             "workshop-update" when command.Request.ContentOnly => "workshop-content-only",
             "workshop-update" when command.Request.PreviewDirectory.Length > 0 => "workshop-preview-images",
             "workshop-update" or "workshop-status" => "workshop-update",
@@ -235,6 +235,8 @@ internal class GameClient
 
     private async Task CheckSessionAsync(CancellationToken cancellation)
     {
+        if (GameDiagnostics.ProcessIds().Length == 0)
+            throw new InvalidOperationException("Sea Power is not running. Use game-status and logs to inspect startup or crash diagnostics, including Keel's reports.");
         string path = Path.Combine(directory, "session.json");
         if (!File.Exists(path)) throw new InvalidOperationException("Game bridge is not running or enabled.");
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellation));

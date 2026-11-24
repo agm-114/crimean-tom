@@ -1,10 +1,10 @@
 using Noesis;
 using SeaPower;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using UnityEngine;
-using SeaPower.SharedSettings;
-using static SeaPower.SharedUi.NativeUi;
+using Settings;
+using static UI.NativeUi;
 
 namespace Amphibs;
 

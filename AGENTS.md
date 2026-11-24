@@ -30,3 +30,20 @@ Use [`$sea-power-testing`](.agents/skills/sea-power-testing/SKILL.md) whenever a
 change needs verification in the installed Sea Power application.
 
 Use `pnpm` instead of `npm` or `npx` if a JavaScript workspace is added later.
+
+## Mod updates
+
+- Bump the version of every mod changed by an update. Keep its project `Version`
+  and Anchor Chain `ACPlugin` version aligned; update shared package versions and
+  dependency minimums when their consumers need the change.
+- Add concise change notes to the relevant module documentation. Describe player
+  or mod-author behavior changes, new dependencies, migration requirements, and
+  the verification performed. Keep unreleased notes separate from published releases.
+- When moving embedded shared code into a runtime dependency, update and version
+  the consuming mods too. Package the dependency separately and declare its load order.
+
+Use concrete settings models, typed activity contexts and enum operations in
+public APIs and examples. Keep string-keyed storage and object handling at
+serialization, reflection or Harmony boundaries; convert back to concrete types
+immediately. Use a synchronization primitive such as `SemaphoreSlim` for a gate
+instead of a bare object monitor.

@@ -1,5 +1,17 @@
 # Airdrop
 
+## 0.1.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.1.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
 Configured player-controlled transport aircraft carry a finite manifest of ground
 units. The starting profile gives each stock C-141B four HMMWVs and two HMMWVs

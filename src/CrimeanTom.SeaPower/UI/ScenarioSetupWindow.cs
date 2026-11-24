@@ -1,7 +1,7 @@
 using Noesis;
 using SeaPower;
-using SeaPower.SharedUi;
-using SharedUi = global::SeaPower.SharedUi.NativeUi;
+using UI;
+using NativeControls = global::UI.NativeUi;
 using SeapowerUI;
 using UnityEngine;
 using HarmonyLib;
@@ -335,7 +335,7 @@ internal static class ScenarioSetupWindow
         float hostHeight = ScenarioMenuView.Instance.ActualHeight > 0f
             ? ScenarioMenuView.Instance.ActualHeight
             : Screen.height;
-        ScrollViewer scroll = SharedUi.Scroll(content);
+        ScrollViewer scroll = NativeControls.Scroll(content);
         scroll.MaxHeight = Math.Max(420f, hostHeight - 48f);
         Grid body = new();
         bool wide = hostWidth >= 1100;
@@ -353,7 +353,7 @@ internal static class ScenarioSetupWindow
         }
         body.Children.Add(scroll);
         body.Children.Add(preview);
-        Grid overlay = SharedUi.Overlay(body, OverlayBrush, PanelBrush, BorderBrush,
+        Grid overlay = NativeControls.Overlay(body, OverlayBrush, PanelBrush, BorderBrush,
             Math.Max(500f, hostWidth - 48f), Math.Max(420f, hostHeight - 48f));
         overlay.Width = hostWidth;
         overlay.Height = hostHeight;

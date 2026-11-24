@@ -1,5 +1,5 @@
 using Noesis;
-using SeaPower.SharedUi;
+using UI;
 using static CrimeanTom.SeaPower.NativeUi;
 
 namespace CrimeanTom.SeaPower;

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>0.1.2</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\OODA</PluginDeployDirectory>
     <CampaignScenarios>../CrimeanTom.SeaPower/Scenarios</CampaignScenarios>
   </PropertyGroup>
@@ -39,5 +40,5 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)"
           Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
   </Target>
-  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../../external/sp-controls/src/UI/UI.props" />
 </Project>

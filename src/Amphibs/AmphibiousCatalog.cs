@@ -1,5 +1,5 @@
 using SeaPower;
-using SeaPower.SharedSettings;
+using Settings;
 
 namespace Amphibs;
 

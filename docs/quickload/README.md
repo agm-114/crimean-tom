@@ -1,5 +1,17 @@
 # Quickload
 
+## 0.2.2 unreleased
+
+- Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
+
+
+## 0.2.1 unreleased
+
+- Builds shared UI from the pinned `SEARATS/sp-controls` submodule.
+- Initialize dependencies with `git submodule update --init --recursive`
+  before building this checkout.
+- Verification passed for the migrated Release solution build.
+
 Quickload opens the main menu while Sea Power `0.9.2-261113` runs its startup
 checks. Startup warnings can bring the game's dialog screen forward. The progress
 panel shows the current stage and elapsed time. Hover over

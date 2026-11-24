@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>0.1.2</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Airdrop</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
@@ -18,5 +19,5 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\airdrop.ini" DestinationFolder="$(PluginDeployDirectory)" Condition="!Exists('$(PluginDeployDirectory)\airdrop.ini')" />
   </Target>
-  <Import Project="../SeaPower.SharedUi/SeaPower.SharedUi.props" />
+  <Import Project="../../external/sp-controls/src/UI/UI.props" />
 </Project>

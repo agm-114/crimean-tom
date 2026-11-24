@@ -21,6 +21,7 @@ internal class UiControls
 
     internal object Execute(GameCommand command)
     {
+        if (command.Action == "keel") { snapshot = ""; return KeelInterop.Execute(command.Text); }
         if (command.Action == "scenario-ready") return new { ready = ScenarioControls.Ready };
         if (command.Action == "encyclopedia-ready") return new { ready = EncyclopediaControls.Ready, loading = MenuControls.Loading };
         if (command.Action == "menu" && command.Text.Length == 0) return MenuControls.Execute(command);
@@ -34,7 +35,7 @@ internal class UiControls
                 _ => EncyclopediaControls.Select(command),
             };
         }
-        if (command.Action == "status") return new { time = TimeControls.Read() };
+        if (command.Action == "status") return new { time = TimeControls.Read(), keel = KeelInterop.Read() };
         if (command.Action == "ui-gallery") { snapshot = ""; return UiGallery.Open(command); }
         if (command.Action == "inspect") return Inspect();
         if (command.Action == "units") return UnitSnapshot.Read();
@@ -170,7 +171,7 @@ internal class UiControls
             if (reference.TryGetTarget(out var window) && window.IsVisible && window.View != null) Walk(window, 0);
         foreach (NoesisView view in views)
             if (view.isActiveAndEnabled && view.Content != null) Walk(view.Content, 0);
-        return new { snapshot, identityVersion = 1, truncated, time = TimeControls.Read(), controls = rows };
+        return new { snapshot, identityVersion = 1, truncated, time = TimeControls.Read(), keel = KeelInterop.Read(), controls = rows };
 
         void Walk(DependencyObject node, int parent)
         {

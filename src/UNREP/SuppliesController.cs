@@ -1,5 +1,5 @@
 using SeaPower;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using UnityEngine;
 

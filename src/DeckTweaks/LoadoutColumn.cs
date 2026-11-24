@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using DeckTweaks.Preparation;
 using HarmonyLib;
 using Noesis;
-using SeaPower.SharedUi;
+using UI;
 using SeaPower;
 using SeapowerUI;
 

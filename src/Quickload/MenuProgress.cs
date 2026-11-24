@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Noesis;
-using SeaPower.SharedUi;
+using UI;
 using SeapowerUI;
 using SeapowerUI.ViewModels;
 

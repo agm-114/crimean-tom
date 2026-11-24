@@ -68,7 +68,7 @@ Send Sol a compact player-view snapshot with each decision and let it request de
 
 ## Watch decisions in the game
 
-Build one native **OODA Decisions** window using the shared window and tab controls. **Mission Command** shows Sol's reading of the objective, current plan, group assignments, and the reason for each replan. Each ship tab shows its assignment, what Sol or Luna saw, the order and its short explanation, and whether the game accepted it. A ship following a formation leader shows the shared decision and the order recipient. [Shared UI](../../src/SeaPower.SharedUi/README.md)
+Build one native **OODA Decisions** window using the shared window and tab controls. **Mission Command** shows Sol's reading of the objective, current plan, group assignments, and the reason for each replan. Each ship tab shows its assignment, what Sol or Luna saw, the order and its short explanation, and whether the game accepted it. A ship following a formation leader shows the shared decision and the order recipient. [Shared UI](../../external/sp-controls/src/UI/README.md)
 
 Use the same bounded event history for the window and `Player.log`. Show timestamps, model and provider, tool name and result, and a small Luna call counter. Record when a response is pending or stale and, where observable, when the game starts following the order. The window reads existing observations and decisions, so opening tabs costs no model calls. Use short decision explanations returned in the schemas. Include **Take control** in the window so the demo shows both decision-making and handoff.
 

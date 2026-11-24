@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>0.1.3</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Amphibs</PluginDeployDirectory>
   </PropertyGroup>
   <ItemGroup>
@@ -15,13 +16,15 @@
     <ModData Include="amphibious-variants.ini;unit_extensions\*.ini" />
     <None Update="@(ModData)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Import Project="..\SeaPower.SharedUi\SeaPower.SharedUi.props" />
-  <Import Project="..\SeaPower.SharedSettings\SeaPower.SharedSettings.props" />
+  <ItemGroup>
+    <ProjectReference Include="../../external/sp-controls/src/Controls/Controls.csproj" Private="false" />
+  </ItemGroup>
   <Target Name="DeployToSeaPower" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(DeployToGame)' == 'true'">
     <Error Condition="!Exists('$(SeaPowerDir)\Sea Power.exe')" Text="Sea Power was not found. Set SeaPowerDir." />
     <MakeDir Directories="$(PluginDeployDirectory)" />
     <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(ModData)" DestinationFiles="@(ModData->'$(PluginDeployDirectory)\%(Identity)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ModData)" DestinationFiles="@(ModData-&gt;'$(PluginDeployDirectory)\%(Identity)')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\thumbnail.jpg" DestinationFolder="$(PluginDeployDirectory)" Condition="Exists('$(MSBuildProjectDirectory)\thumbnail.jpg')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../docs/amphibs/changelog.md" DestinationFiles="$(PluginDeployDirectory)/CHANGELOG.md" SkipUnchangedFiles="true" />
   </Target>
 </Project>

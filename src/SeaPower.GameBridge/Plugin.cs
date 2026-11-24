@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace SeaPower.GameBridge;
 
-[ACPlugin("crimean-tom.game-bridge", "Sea Power Game Bridge", "0.1.0")]
+[ACPlugin("crimean-tom.game-bridge", "Sea Power Game Bridge", "0.2.2")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

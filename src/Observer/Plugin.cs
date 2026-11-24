@@ -1,12 +1,13 @@
 using AnchorChain;
 using HarmonyLib;
-using SeaPower.SharedSettings;
-using SeaPower.SharedUi;
+using Settings;
+using UI;
 using UnityEngine;
 
 namespace Observer;
 
-[ACPlugin("crimean-tom.observer", "Observer", "0.1.0")]
+[ACPlugin("crimean-tom.observer", "Observer", "0.1.3", after: new[] { Controls.Plugin.Id })]
+[ACDependency(Controls.Plugin.Id, "0.3.0", null)]
 public class Plugin : IAnchorChainMod
 {
     private const string DebugSection = "Debug";
@@ -21,7 +22,7 @@ public class Plugin : IAnchorChainMod
         var defaults = new SettingsValues();
         defaults.Set(DebugSection, Spectator, 0);
         settings = new ModSettings("Observer", defaults);
-        GameplaySettings.Register(harmony, "Observer", settings, (panel, draft) =>
+        GameplaySettings.Register("Observer", settings, (panel, draft) =>
         {
             panel.Children.Add(draft.Editor(NativeUi.Check("Watch scenarios", draft.Values.Get(DebugSection, Spectator) != 0,
                 enabled => draft.Set(DebugSection, Spectator, enabled ? 1 : 0))));

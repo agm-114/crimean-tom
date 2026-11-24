@@ -31,6 +31,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         seapower-cli units --preset moving-units --take 10
         seapower-cli presets
         seapower-cli status [--format yaml|json]
+        seapower-cli keel [status|report|open|close]
         seapower-cli game-status [--game-dir PATH] [--log-file PATH]
         seapower-cli workshop-update --mod-dir PATH [--content-only] [--preview-dir PATH] [--changelog TEXT] [--confirm] [--timeout 600]
         seapower-cli workshop-create --mod-dir PATH --visibility public|friends-only|private|unlisted [--dependencies IDS] [--tags TAGS] [--confirm]
@@ -131,6 +132,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
             "workshop-create" => ["--mod-dir", "--visibility", "--dependencies", "--tags", "--changelog", "--confirm"],
             "workshop-status" => ["--operation"],
             "unity-explorer" => ["--game-dir", "--confirm", "--operation"],
+            "keel" => ["--operation"],
             "logs" => ["--game-dir", "--log-file", "--tail"],
             "launch" => ["--game-dir", "--log-file", "--require-pattern", "--confirm", "--scenario"],
             "load-scenario" => ["--scenario", "--confirm"],
@@ -161,10 +163,10 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         {
             string key = args[index];
             string value;
-            if (action is "set-speed" or "menu" or "unity-explorer" && index == 1 && !key.StartsWith("--"))
+            if (action is "set-speed" or "menu" or "unity-explorer" or "keel" && index == 1 && !key.StartsWith("--"))
             {
                 value = key;
-                key = action switch { "menu" => "--page", "unity-explorer" => "--operation", _ => "--speed" };
+                key = action switch { "menu" => "--page", "unity-explorer" or "keel" => "--operation", _ => "--speed" };
             }
             else
             {
@@ -222,6 +224,8 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         string operation = options.ContainsKey("--operation") ? Required("--operation").ToLowerInvariant() : "status";
         if (action == "unity-explorer" && operation is not ("status" or "install" or "enable" or "disable"))
             throw new ArgumentException("UnityExplorer operation must be status, install, enable or disable.");
+        if (action == "keel" && operation is not ("status" or "report" or "open" or "close"))
+            throw new ArgumentException("Keel operation must be status, report, open or close.");
         if (action == "menu" && page.Length > 0 && !new[] { "main", "scenarios", "campaigns", "instant-action", "editor", "encyclopedia", "options", "mods", "manual", "continue", "exit" }.Contains(page))
             throw new ArgumentException($"Unknown menu page '{page}'. Use --help.");
         if ((action is "launch" or "load-scenario" or "cancel-scenario" or "encyclopedia" or "double-click" or "player-waypoint"
@@ -241,7 +245,7 @@ internal record CliCommand(GameRequest Request, int Seconds, int TimeoutSeconds,
         string text = action switch
         {
             "set-text" or "wait-for" => Required("--text", action == "set-text"),
-            "unity-explorer" => operation,
+            "unity-explorer" or "keel" => operation,
             "workshop-status" => options.GetValueOrDefault("--operation") ?? "",
             "player-waypoint" => Required("--ship"),
             "player-view" => options.ContainsKey("--ship") ? Required("--ship") : "",

@@ -1,6 +1,6 @@
 using Noesis;
 using SeaPower;
-using static SeaPower.SharedUi.NativeUi;
+using static UI.NativeUi;
 
 namespace UNREP;
 
