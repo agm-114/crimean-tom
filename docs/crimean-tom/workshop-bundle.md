@@ -2,8 +2,8 @@
 
 Crimean Tom installs Amphibs and Deck Tweaks together. The Workshop listing
 links to the standalone mods for details. Enable the bundle or the standalone
-mods in Sea Power's Mod Manager. Both options require AnchorChain and its
-preloader. [Crimean Tom on Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3838295187).
+mods in Sea Power's Mod Manager. Both options require Controls & Settings 0.3.0
+or newer and an Anchor Chain loader such as Keel. [Crimean Tom on Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3838295187).
 
 Use the release packages for both components as inputs. Their `_info.ini`
 files must declare the same Sea Power version. For a release of one component,

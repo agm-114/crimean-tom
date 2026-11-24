@@ -1,5 +1,9 @@
 # Quickload
 
+## 0.2.3 (2026-11-24)
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.2.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
@@ -12,7 +16,7 @@
   before building this checkout.
 - Verification passed for the migrated Release solution build.
 
-Quickload opens the main menu while Sea Power `0.9.2-261113` runs its startup
+Quickload opens the main menu while Sea Power `0.9.3-261116` runs its startup
 checks. Startup warnings can bring the game's dialog screen forward. The progress
 panel shows the current stage and elapsed time. Hover over
 a segment for that phase's name, elapsed time, and last-run duration. Segment

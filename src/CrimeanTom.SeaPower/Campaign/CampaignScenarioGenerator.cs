@@ -306,9 +306,17 @@ internal static partial class ScenarioDebugGenerator
 [HarmonyPatch]
 internal static class CampaignContractGenerationPatch
 {
-    private static MethodBase TargetMethod() => AccessTools.Method(
-        AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceMissionGenerator"),
-        "TryGenerate");
+    private static MethodBase TargetMethod()
+    {
+        // The shorter overload forwards here with no assigned force groups.
+        Type outString = typeof(string).MakeByRefType();
+        return AccessTools.DeclaredMethod(
+            AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceMissionGenerator"),
+            "TryGenerate",
+            [AccessTools.TypeByName("SeaPower.LinearCampaignMission"), typeof(string),
+             typeof(LinearCampaignTaskForceSnapshot), typeof(IReadOnlyList<LinearCampaignTaskForceGroupSnapshot>),
+             outString, outString, outString]);
+    }
 
     private static bool Prefix(
         string sourceMissionPath,

@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace CrimeanTom.SeaPower;
 
-[ACPlugin("crimean-tom.operations", "Crimean Tom Operations", "0.3.2")]
+[ACPlugin("crimean-tom.operations", "Crimean Tom Operations", "0.3.4")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\UNREP</PluginDeployDirectory>
   </PropertyGroup>

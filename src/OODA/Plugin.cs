@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace OODA;
 
-[ACPlugin("crimean-tom.ooda", "OODA", "0.1.2")]
+[ACPlugin("crimean-tom.ooda", "OODA", "0.1.3")]
 [HarmonyPatch]
 public class Plugin : IAnchorChainMod
 {

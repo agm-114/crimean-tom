@@ -5,12 +5,12 @@ using UnityEngine.SceneManagement;
 
 namespace Quickload;
 
-[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.2")]
+[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.3")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
     {
-        if (Application.version != "0.9.2-261113")
+        if (Application.version != "0.9.3-261116")
         {
             Debug.LogWarning($"[Quickload] Unsupported game version {Application.version}.");
             return;

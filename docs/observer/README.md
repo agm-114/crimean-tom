@@ -1,5 +1,9 @@
 # Observer
 
+## 0.1.4 unreleased
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.1.3 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
@@ -17,7 +21,7 @@
 Observer adds a spectator mode for debugging AI behavior in Sea Power. It requires
 Anchor Chain or Keel and [Controls & Settings](../../external/sp-controls/src/Controls/README.md).
 
-Version 0.1.3 (unreleased) uses the shared Controls & Settings runtime for its
+Version 0.1.4 uses the shared Controls & Settings runtime for its
 Gameplay settings page. Existing saved values keep their original filename.
 
 In **Options → Gameplay → Observer**, clear **Use mod defaults**, check **Watch scenarios**, and select **Accept**. Start a new standalone scenario. Sea Power runs both combatants, and the tactical map shows units from every side. You can use the usual map, camera, and time controls. Spectator sessions disable saving. Crimean Tom operations use their own scenario modes.
