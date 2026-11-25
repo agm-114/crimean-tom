@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 
 namespace Quickload;
 
-[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.4")]
+[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.5")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()
@@ -32,6 +32,9 @@ public class Plugin : IAnchorChainMod
 
     private static void PatchGame()
     {
+        // Noesis initializes native UI types with the scene. Installing its detours during BepInEx startup can crash Unity.
+        if (StartupPrefetch.Progress is { } ready)
+            Debug.Log($"[Quickload] Before patch setup: {ready.Hashes:N0} input hashes and {ready.Archives} archives ready.");
         StartupTimeline.Advance("Quickload patch setup");
         Harmony harmony = new("crimean-tom.quickload");
         try { harmony.PatchAll(typeof(Plugin).Assembly); }

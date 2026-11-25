@@ -5,30 +5,50 @@ using System.Text;
 
 namespace Quickload;
 
-// Quickload queues its file work from its regular plugin entry point.
+// Keel can start this same job during the splash or from the regular plugin entry point.
 public static class StartupPrefetch
 {
     public static readonly string DirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SeaPowerQuickload");
     private static readonly string profilePath = Path.Combine(DirectoryPath, "last-startup-profile.txt");
     private static readonly object disk = new();
+    private static readonly SemaphoreSlim jobGate = new(1, 1);
     private static Job? current;
+    private static bool handedOff;
+
+    public static (int Hashes, int Archives)? Progress =>
+        Volatile.Read(ref current) is { } job ? (job.HashCount, job.ArchiveCount) : null;
+
+    public static void Prepare(string streamingAssets, string[] enabledMods, Action<string> report) =>
+        Start(streamingAssets, enabledMods);
 
     public static void Start(string streamingAssets, IEnumerable<string> enabledMods)
     {
-        if (!File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled")) || Volatile.Read(ref current) != null)
-            return;
-        var roots = new[] { Path.Combine(streamingAssets, "original"), Path.Combine(streamingAssets, "user") }
-            .Concat(enabledMods).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var candidate = new Job(roots);
-        if (Interlocked.CompareExchange(ref current, candidate, null) == null)
-            _ = Task.Run(candidate.Run);
+        if (!File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled"))) return;
+        jobGate.Wait();
+        try
+        {
+            if (handedOff || current != null) return;
+            var roots = new[] { Path.Combine(streamingAssets, "original"), Path.Combine(streamingAssets, "user") }
+                .Concat(enabledMods).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            current = new Job(roots);
+            _ = Task.Run(current.Run);
+        }
+        finally { jobGate.Release(); }
     }
 
     public static Job? Take(string profile)
     {
-        var job = Interlocked.Exchange(ref current, null);
-        job?.Handoff();
+        Job? job;
+        jobGate.Wait();
+        try
+        {
+            handedOff = true;
+            job = current;
+            current = null;
+            job?.Handoff();
+        }
+        finally { jobGate.Release(); }
         try
         {
             Directory.CreateDirectory(DirectoryPath);

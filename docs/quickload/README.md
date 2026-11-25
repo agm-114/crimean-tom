@@ -1,5 +1,14 @@
 # Quickload
 
+## 0.2.5 unreleased
+
+On Keel builds with splash-screen preparation, Quickload starts hashing files
+and reading cached archives before its plugin starts. Harmony patches wait for
+the first loaded scene so Noesis can initialize its native UI types.
+A standalone check dispatched both entry points and prepared both fixture
+files. On Sea Power `0.9.3-261116`, installing Harmony patches during the
+chainloader callback crashed in `Noesis.Extend.RegisterNativeType`.
+
 ## 0.2.4 unreleased
 
 Quickload filters cache inputs before sorting paths and skips directive searches
@@ -121,13 +130,15 @@ dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=false
 dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=true
 ```
 
-Close the game before deployment. The two DLLs and `_info.ini` go into
+Close the game before deployment. `Quickload.dll`, `Quickload.Preloader.dll`,
+and `_info.ini` go into
 `Sea Power_Data/StreamingAssets/Quickload`. Override `SeaPowerDir` for another
 installation. Enable **Quickload** in the game's Mod Manager and restart.
 
 Quickload requests `LoadTiming=Early` in Keel and keeps `StartEarly=true` for
-older Keel loaders. Its normal plugin entry point installs startup patches and
-queues cache work after Keel checks the mod's enabled state and dependencies.
+older Keel loaders. If Keel skips splash preparation or lacks that entry point,
+the regular plugin entry starts the same cache job. Both paths honor the
+startup snapshot setting.
 One reader feeds decompression and hashing workers, then checks for reusable
 mod cache chunks. Startup keeps completed work when it takes over and validates
 prefetched files against the live load order. The larger
