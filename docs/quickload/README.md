@@ -5,9 +5,12 @@
 On Keel builds with splash-screen preparation, Quickload starts hashing files
 and reading cached archives before its plugin starts. Harmony patches wait for
 the first loaded scene so Noesis can initialize its native UI types.
-A standalone check dispatched both entry points and prepared both fixture
-files. On Sea Power `0.9.3-261116`, installing Harmony patches during the
-chainloader callback crashed in `Noesis.Extend.RegisterNativeType`.
+
+On one warm launch of Sea Power `0.9.3-261116` with Quickload as the only
+active plugin, preparation started 2.08 s after launch. All 3,627 input hashes
+and 12 archives were ready when patch setup began at 7.72 s. The menu appeared
+at 9.82 s, scenarios unlocked at 12.67 s, and the editor unlocked at 14.13 s.
+All 718 point values came from cache.
 
 ## 0.2.4 unreleased
 
