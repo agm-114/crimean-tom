@@ -19,7 +19,7 @@ internal static class DeferredPointValues
         AccessTools.Method(typeof(UnitMetadataProvider), "MirrorLoadoutUnitCosts"));
     private static readonly HashSet<SimpleObjectParameters> applied = AccessTools.StaticFieldRefAccess<HashSet<SimpleObjectParameters>>(
         typeof(PointValueCalculator), "_applied");
-    private static readonly MethodInfo dump = AccessTools.Method(AccessTools.TypeByName("SeaPower.PointValueDump"), "Dump");
+    private static readonly MethodInfo dump = AccessTools.Method(typeof(PointValueDump), "Dump");
     private static readonly MethodInfo dumpAmmo = AccessTools.Method(typeof(PointValueAmmoPricer), "DumpCsv");
     private static readonly FieldInfo computedAmmo = AccessTools.Field(typeof(PointValueAmmoPricer), "_computed");
     private static UnitMetadataProvider? pending;
@@ -30,6 +30,7 @@ internal static class DeferredPointValues
     {
         pending = null;
         taking = false;
+        PreparedPriceHash.Clear();
         PointValueDisplay.Reset();
     }
 
@@ -109,6 +110,7 @@ internal static class DeferredPointValues
         PointValueCache.Flush();
         pending = null;
         PointValueDisplay.Publish(provider.UnitData);
+        Debug.Log($"[Quickload] Reused {PreparedPriceHash.Clear()} verified unit price hashes.");
         TimeSpan publishTime = total.Elapsed - setupTime - unitTime - ammoTime - frameWait;
         Debug.Log($"[Quickload] Pricing breakdown (ms): setup {setupTime.TotalMilliseconds:F0}, units {unitTime.TotalMilliseconds:F0}, ammo {ammoTime.TotalMilliseconds:F0}, publish and flush {publishTime.TotalMilliseconds:F0}, between frames {frameWait.TotalMilliseconds:F0}.");
         Debug.Log($"[Quickload] Point values ready ({computed} recalculated, {cached} from cache).");

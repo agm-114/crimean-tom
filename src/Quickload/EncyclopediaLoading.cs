@@ -8,15 +8,13 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class EncyclopediaLoading
 {
+    internal static readonly Type ManagerType = typeof(SeaPower.PointValueCache).Assembly.GetType("SeaPower.EncyclopedicDataManager", true)!;
     internal const double FrameBudgetMilliseconds = 4;
     internal static bool Ready { get; private set; }
     internal static void Reset() => Ready = false;
 
-    private static IEnumerable<MethodBase> TargetMethods()
-    {
-        var manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
-        return new[] { "LoadSensors", "LoadWeapons", "LoadUnitsFromMetadata" }.Select(name => AccessTools.Method(manager, name));
-    }
+    private static IEnumerable<MethodBase> TargetMethods() =>
+        new[] { "LoadSensors", "LoadWeapons", "LoadUnitsFromMetadata" }.Select(name => AccessTools.Method(ManagerType, name));
 
     private static void Postfix(MethodBase __originalMethod, object __instance, object[] __args, ref IEnumerator __result)
     {

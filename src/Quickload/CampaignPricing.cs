@@ -12,7 +12,7 @@ namespace Quickload;
 internal static class CampaignPricing
 {
     internal const string WaitMessage = "Point-based campaigns will be available when Quickload finishes calculating point values.";
-    private static readonly Type rules = AccessTools.TypeByName("SeapowerUI.ViewModels.LinearCampaignTaskForceModeRules");
+    private static readonly Type rules = typeof(CampaignMenuViewModel).Assembly.GetType("SeapowerUI.ViewModels.LinearCampaignTaskForceModeRules", true)!;
     private static readonly Func<string, string> resolveCampaign = AccessTools.MethodDelegate<Func<string, string>>(
         AccessTools.Method(rules, "ResolveAuthoredCampaignPath"));
     private static readonly Func<IniHandler, TaskForceUnitAcquisitionRule> defaultRule =
@@ -91,7 +91,7 @@ internal static class CampaignPricing
     private static class SavedCampaign
     {
         private static MethodBase TargetMethod() =>
-            AccessTools.Method(AccessTools.TypeByName("SeaPower.LinearCampaign"), "LoadLinearCampaign");
+            AccessTools.Method(typeof(PointValueCache).Assembly.GetType("SeaPower.LinearCampaign", true)!, "LoadLinearCampaign");
 
         private static bool Prefix(string filePath)
         {

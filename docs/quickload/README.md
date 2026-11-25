@@ -1,5 +1,26 @@
 # Quickload
 
+## 0.2.7 unreleased
+
+Quickload resolves its patch targets directly in the game's assembly. All
+patches still install at the first scene. When a full INI snapshot is available,
+the splash worker also computes Sea Power's unit price hashes. At pricing time,
+Quickload checks the live section names, keys and values before reusing a hash.
+Changed records and virtual INIs use the game's hash function.
+
+Five warm launches per build on Sea Power `0.9.3-261116` with Quickload as
+the only DLL mod gave these medians, measured from process start.
+
+| Ready | 0.2.6 | 0.2.7 |
+| --- | ---: | ---: |
+| Main menu visible | 9.94 s | 9.49 s |
+| Scenarios | 11.72 s | 11.35 s |
+| Editor | 12.72 s | 12.09 s |
+
+The two builds ran in pairs with alternating order. Every run reused all 718
+unit prices. The displayed prices for 718 units and 872 ammunition entries
+matched between builds.
+
 ## 0.2.6 unreleased
 
 On Windows, Quickload shows elapsed time on the game splash and hands the bar

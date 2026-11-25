@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 
 namespace Quickload;
 
-[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.6")]
+[ACPlugin("crimean-tom.quickload", "Quickload", "0.2.7")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

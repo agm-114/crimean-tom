@@ -17,7 +17,7 @@ internal static class EncyclopediaCache
 {
     private const int Format = 3;
     private const string FileName = "encyclopedia.json.gz";
-    private static readonly Type manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+    private static readonly Type manager = EncyclopediaLoading.ManagerType;
     private static readonly MethodInfo setUnitsLoaded = AccessTools.PropertySetter(manager, "UnitsLoaded");
     private static readonly FieldInfo unitsLoadedEvent = AccessTools.Field(manager, "UnitsLoadedEvent");
     // Native UI callers still get the shared game object when they open missile details.

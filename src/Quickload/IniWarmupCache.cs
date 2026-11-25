@@ -144,6 +144,7 @@ internal static class IniWarmupCache
         ini.aliasFiles.AddRange(entry.Aliases.Select(active.Source.LocalPath));
         if (entry.Copies.Length > 0) registerCopies(ini.getFilePath(), entry.Copies.Select(active.Source.LocalPath).ToList());
         Interlocked.Increment(ref active.Restored);
+        entry.PriceHash?.Register(path);
         return entry.Data;
     }
 
@@ -214,7 +215,8 @@ internal static class IniWarmupCache
                     for (int key = 0; key < keyCount; key++) values.Add(reader.ReadString(), reader.ReadString());
                     sections.Add(name, values);
                 }
-                result.Add(path, new(hash, new(aliases, copies, sections, segmented)));
+                result.Add(path, new(hash, new(aliases, copies, sections, segmented,
+                    segmented ? null : PreparedPriceHash.FromSnapshot(path, sections))));
             }
             if (stream.ReadByte() != -1) throw new InvalidDataException("Unexpected data after the INI snapshot.");
             return result;
@@ -274,7 +276,7 @@ internal static class IniWarmupCache
         foreach (string value in values) writer.Write(value);
     }
 
-    internal record Entry(string[] Aliases, string[] Copies, IniData Data, bool Unmodified = false);
+    internal record Entry(string[] Aliases, string[] Copies, IniData Data, bool Unmodified = false, PreparedPriceHash? PriceHash = null);
     internal record Segment(string Hash, Entry Value);
     internal record Prepared(ConcurrentDictionary<string, Entry>? Full, StartupArchives.InputIndex? Inputs,
         Dictionary<string, Segment>? Segments);
