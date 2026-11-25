@@ -70,6 +70,7 @@ internal static class DeferredPointValues
     internal static IEnumerator Recalculate()
     {
         if (pending is not { } provider) yield break;
+        var total = Stopwatch.StartNew();
         PointValueTuning.EnsureLoaded();
         PointValueRoleScorers.AaWeaponDebug.Clear();
         PointValueRoleScorers.AirLoadoutDebug.Clear();
@@ -77,15 +78,20 @@ internal static class DeferredPointValues
         int computed = 0, cached = 0;
         int ammoBefore = (int)computedAmmo.GetValue(null);
         var clock = Stopwatch.StartNew();
+        TimeSpan frameWait = TimeSpan.Zero;
+        TimeSpan setupTime = total.Elapsed;
         foreach (var (key, (_, unit)) in provider.UnitData)
         {
             if (unit?._ini == null || unit.IsLoadoutUnit || key.Item1 == "biologic" || !applied.Add(unit)) continue;
             try { apply(key.Item1, key.Item2, unit, ref computed, ref cached); }
             catch (Exception error) { Debug.LogWarning($"[Quickload] Could not price {key.Item1}/{key.Item2}: {error.Message}"); }
             if (clock.Elapsed.TotalMilliseconds < FrameBudgetMilliseconds) continue;
+            TimeSpan yielded = total.Elapsed;
             yield return null;
+            frameWait += total.Elapsed - yielded;
             clock.Restart();
         }
+        TimeSpan unitTime = total.Elapsed - setupTime - frameWait;
         foreach (string file in Singleton<FileManager>.Instance.GetFiles("ammunition", "*.ini"))
         {
             string name = Path.GetFileNameWithoutExtension(file);
@@ -93,13 +99,18 @@ internal static class DeferredPointValues
             try { PointValueAmmoPricer.GetDetail(name); }
             catch (Exception error) { Debug.LogWarning($"[Quickload] Could not price ammunition {name}: {error.Message}"); }
             if (clock.Elapsed.TotalMilliseconds < FrameBudgetMilliseconds) continue;
+            TimeSpan yielded = total.Elapsed;
             yield return null;
+            frameWait += total.Elapsed - yielded;
             clock.Restart();
         }
+        TimeSpan ammoTime = total.Elapsed - setupTime - unitTime - frameWait;
         mirror(provider);
         PointValueCache.Flush();
         pending = null;
         PointValueDisplay.Publish(provider.UnitData);
+        TimeSpan publishTime = total.Elapsed - setupTime - unitTime - ammoTime - frameWait;
+        Debug.Log($"[Quickload] Pricing breakdown (ms): setup {setupTime.TotalMilliseconds:F0}, units {unitTime.TotalMilliseconds:F0}, ammo {ammoTime.TotalMilliseconds:F0}, publish and flush {publishTime.TotalMilliseconds:F0}, between frames {frameWait.TotalMilliseconds:F0}.");
         Debug.Log($"[Quickload] Point values ready ({computed} recalculated, {cached} from cache).");
         if ((int)computedAmmo.GetValue(null) > ammoBefore) dumpAmmo.Invoke(null, null);
         if (computed > 0) dump.Invoke(null, [provider.UnitData]);

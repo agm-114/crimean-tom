@@ -18,6 +18,7 @@ internal static class ResolvedSensors
     private const int Format = 4;
     private static Task<Snapshot?>? pending;
     private static Task<Snapshot?>? exact;
+    private static Task<StartupArchives.Decoded<Snapshot>?>? early;
     private static readonly Dictionary<string, Sensor> sensors = new(StringComparer.Ordinal);
     private static bool loading;
     private static int reused;
@@ -29,10 +30,13 @@ internal static class ResolvedSensors
     internal static Change? Delta { get; private set; }
     internal static string Stamp { get; private set; } = "";
 
+    internal static void DecodeAhead() =>
+        early = StartupArchives.DecodeDuringStartup(FileName, Format, Read);
+
     internal static void Begin(StartupArchives archives)
     {
         pending = archives.Read(FileName, Format, Read, sensorIndependent: true);
-        exact = archives.Read(FileName, Format, Read);
+        exact = archives.Read(FileName, Format, Read, decoded: Interlocked.Exchange(ref early, null));
     }
 
     internal static void Reset()

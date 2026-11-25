@@ -169,7 +169,44 @@ internal class StartupArchives
     internal Task<T?> ReadSegment<T>(string file, int format, Func<Stream, T?> read) where T : class =>
         Read(file, format, read, segment: true);
 
-    internal Task<T?> Read<T>(string file, int format, Func<Stream, T?> read, bool segment = false, bool sensorIndependent = false) where T : class => Task.Run(async () =>
+    internal record Decoded<T>(string Path, StartupPrefetch.FileStamp Stamp, string Tag, Task<T?> Value) where T : class
+    {
+        internal bool Matches(string path, string tag) => Tag == tag && Path.Equals(path, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(path) && Stamp == StartupPrefetch.FileStamp.Read(path);
+    }
+
+    internal static async Task<Decoded<T>?> DecodeDuringStartup<T>(string file, int format, Func<Stream, T?> read) where T : class
+    {
+        if (await StartupPrefetch.PreparedProfileArchive(file).ConfigureAwait(false) is not { } warm ||
+            warm.Archive.Data.Length < FingerprintLength + sizeof(int)) return Unavailable();
+        using var header = new MemoryStream(warm.Archive.Data, writable: false);
+        using var reader = new BinaryReader(header, Encoding.UTF8, leaveOpen: true);
+        string tag = Encoding.ASCII.GetString(reader.ReadBytes(FingerprintLength));
+        if (reader.ReadInt32() != format) return Unavailable();
+        return new(warm.Path, warm.Archive.Stamp, tag, Task.Run(Decode));
+
+        Decoded<T>? Unavailable()
+        {
+            SplashProgress.SnapshotChecked();
+            return null;
+        }
+
+        T? Decode()
+        {
+            try
+            {
+                using var data = new MemoryStream(warm.Archive.Data, writable: false) { Position = FingerprintLength + sizeof(int) };
+                var value = read(data);
+                if (value != null) Debug.Log($"[Quickload] Decoded {file} ahead of core loading.");
+                return value;
+            }
+            catch (Exception error) when (IsCacheError(error) || error is FormatException) { return null; }
+            finally { SplashProgress.SnapshotChecked(); }
+        }
+    }
+
+    internal Task<T?> Read<T>(string file, int format, Func<Stream, T?> read, bool segment = false, bool sensorIndependent = false,
+        Task<Decoded<T>?>? decoded = null) where T : class => Task.Run(async () =>
     {
         try
         {
@@ -177,6 +214,12 @@ internal class StartupArchives
             if (sensorIndependent && key == null) return null;
             string path = ArchivePath(file, segment, key);
             string tag = key ?? (segment ? segmentContext : (await inputs.ConfigureAwait(false)).Full);
+            if (decoded is { IsCompletedSuccessfully: true } && decoded.Result is { } early && early.Matches(path, tag) &&
+                await early.Value.ConfigureAwait(false) is { } prepared && early.Matches(path, tag))
+            {
+                Debug.Log($"[Quickload] Reused early decode of {file}.");
+                return prepared;
+            }
             T? cached = ReadArchive(path, tag, format, read);
             if (cached != null) return cached;
             var index = await inputs.ConfigureAwait(false);
@@ -489,7 +532,7 @@ internal class StartupArchives
     internal record InputIndex(Dictionary<string, Input> Files, Dictionary<string, string> SensorFiles, Dictionary<string, string> Layers,
         string SharedUnitInputs, string WeaponInputs, string Full, string? SensorIndependent);
 
-    private static bool IsCacheError(Exception error) =>
+    internal static bool IsCacheError(Exception error) =>
         error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException;
 
     private class Layer

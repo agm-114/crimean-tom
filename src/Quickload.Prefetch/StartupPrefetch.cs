@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,18 +20,30 @@ public static class StartupPrefetch
     public static (int Hashes, int Archives)? Progress =>
         Volatile.Read(ref current) is { } job ? (job.HashCount, job.ArchiveCount) : null;
 
+    public static double? SecondsSinceWorkerFinished => Volatile.Read(ref current)?.SecondsSinceFinished;
+
+    public static async Task<(string Path, Archive Archive)?> PreparedProfileArchive(string file)
+    {
+        var job = Volatile.Read(ref current);
+        return job == null ? null : await job.ProfileArchive(file).ConfigureAwait(false);
+    }
+
     public static void Prepare(string streamingAssets, string[] enabledMods, Action<string> report) =>
         Start(streamingAssets, enabledMods);
 
     public static void Start(string streamingAssets, IEnumerable<string> enabledMods)
     {
-        if (!File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled"))) return;
+        bool cacheEnabled = File.Exists(Path.Combine(DirectoryPath, "cache-unit-loadouts.enabled"));
+        SplashProgress.Show(cacheEnabled);
         jobGate.Wait();
         try
         {
             if (handedOff || current != null) return;
+            string[] mods = enabledMods as string[] ?? enabledMods.ToArray();
+            PreviousLaunch.Open(streamingAssets, mods, cacheEnabled);
+            if (!cacheEnabled) return;
             var roots = new[] { Path.Combine(streamingAssets, "original"), Path.Combine(streamingAssets, "user") }
-                .Concat(enabledMods).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                .Concat(mods).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             current = new Job(roots);
             _ = Task.Run(current.Run);
         }
@@ -81,11 +94,30 @@ public static class StartupPrefetch
         private bool released;
         private int preparedBytes;
         private int hashCount;
+        private long finishedAt;
+        private string? profileDirectory;
+        private readonly Dictionary<string, TaskCompletionSource<bool>> profileReads = coreArchives.ToDictionary(
+            file => file, _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
 
         internal Job(string[] roots) => this.roots = roots;
 
         public int HashCount => Volatile.Read(ref hashCount);
         public int ArchiveCount => archives.Count;
+        internal double? SecondsSinceFinished
+        {
+            get
+            {
+                long end = Volatile.Read(ref finishedAt);
+                return end == 0 ? null : (Stopwatch.GetTimestamp() - end) / (double)Stopwatch.Frequency;
+            }
+        }
+
+        internal async Task<(string Path, Archive Archive)?> ProfileArchive(string file)
+        {
+            if (!profileReads.TryGetValue(file, out var ready) || !await ready.Task.ConfigureAwait(false)) return null;
+            string path = Path.Combine(profileDirectory!, file);
+            return archives.TryGetValue(path, out var archive) ? (path, archive) : null;
+        }
         internal void Handoff() => Volatile.Write(ref handedOff, true);
 
         internal void Run()
@@ -97,8 +129,11 @@ public static class StartupPrefetch
                 {
                     string profile = Encoding.UTF8.GetString(ReadFile(profilePath)).Trim();
                     if (profile.Length == 64 && profile.All(Uri.IsHexDigit))
+                    {
+                        profileDirectory = Path.Combine(DirectoryPath, profile);
                         foreach (string name in coreArchives)
-                            if (!Read(Path.Combine(DirectoryPath, profile, name), archive: true)) return;
+                            if (!Read(Path.Combine(profileDirectory, name), archive: true, profileReads[name])) return;
+                    }
                 }
                 foreach (var root in roots)
                 {
@@ -122,15 +157,23 @@ public static class StartupPrefetch
             finally
             {
                 queue.CompleteAdding();
-                try { Task.WaitAll(workers); }
-                finally { queue.Dispose(); }
+                try
+                {
+                    Task.WaitAll(workers);
+                    Volatile.Write(ref finishedAt, Stopwatch.GetTimestamp());
+                }
+                finally
+                {
+                    queue.Dispose();
+                    foreach (var ready in profileReads.Values) ready.TrySetResult(false);
+                }
             }
         }
 
         private Task StartWorker() => Task.Factory.StartNew(ProcessQueue, CancellationToken.None,
             TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-        private bool Read(string path, bool archive)
+        private bool Read(string path, bool archive, TaskCompletionSource<bool>? profileRead = null)
         {
             if (Volatile.Read(ref released)) return false;
             if (!archive && Volatile.Read(ref handedOff)) return true;
@@ -151,7 +194,7 @@ public static class StartupPrefetch
                     byte[] bytes = ReadFile(path);
                     if (stamp == FileStamp.Read(path))
                     {
-                        queue.Add(new(path, stamp, bytes, result));
+                        queue.Add(new(path, stamp, bytes, result, profileRead));
                         queued = true;
                     }
                 }
@@ -190,7 +233,10 @@ public static class StartupPrefetch
                     if (count != 0) continue;
                     int size = (int)buffer.Length;
                     if (Interlocked.Add(ref preparedBytes, size) <= MaxPrepared)
+                    {
                         archives.TryAdd(item.Path, new(item.Stamp, buffer.ToArray()));
+                        item.ProfileRead?.TrySetResult(true);
+                    }
                     else Interlocked.Add(ref preparedBytes, -size);
                     if (Volatile.Read(ref released)) archives.Clear();
                 }
@@ -232,7 +278,8 @@ public static class StartupPrefetch
                         if (IsInput(path)) yield return path;
         }
 
-        private record ReadItem(string Path, FileStamp Stamp, byte[] Bytes, TaskCompletionSource<FileHash?>? HashResult);
+        private record ReadItem(string Path, FileStamp Stamp, byte[] Bytes, TaskCompletionSource<FileHash?>? HashResult,
+            TaskCompletionSource<bool>? ProfileRead);
     }
 
     public static string InputText(string path, byte[] bytes)

@@ -23,7 +23,7 @@ internal static class EncyclopediaCache
     // Native UI callers still get the shared game object when they open missile details.
     private static readonly ConditionalWeakTable<MuseumWeaponEntry, string> ammunition = new();
     private static Task<Snapshot?>? prefetch;
-    private static Task<Snapshot?>? radarPrefetch;
+    private static Task<StartupArchives.Decoded<Snapshot>?>? early;
     private static Snapshot? restored;
     private static Snapshot? captured;
     private static StartupArchives? archives;
@@ -31,13 +31,13 @@ internal static class EncyclopediaCache
 
     internal static bool HasSnapshot => restored != null;
 
+    internal static void DecodeAhead() =>
+        early = StartupArchives.DecodeDuringStartup(FileName, Format, Read);
+
     internal static void Start(StartupArchives source)
     {
         archives = source;
-        EncyclopediaWeapons.Start(source);
-        EncyclopediaUnitCalculations.Start(source);
-        prefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()));
-        radarPrefetch = source.Read(FileName, Format, stream => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer()), sensorIndependent: true);
+        prefetch = source.Read(FileName, Format, Read, decoded: Interlocked.Exchange(ref early, null));
     }
 
     internal static void Finish()
@@ -45,7 +45,6 @@ internal static class EncyclopediaCache
         EncyclopediaWeapons.Reset();
         EncyclopediaUnitCalculations.Finish();
         prefetch = null;
-        radarPrefetch = null;
         restored = null;
         captured = null;
         archives = null;
@@ -68,8 +67,9 @@ internal static class EncyclopediaCache
             if (restored is { } cache && !cache.CanRestore)
                 restored = null;
             if (restored == null && EncyclopediaSensors.Available && ResolvedSensors.Delta is { } delta &&
-                ResolvedSensors.CanReuseEncyclopedia(delta) && radarPrefetch is { } radarRead)
+                ResolvedSensors.CanReuseEncyclopedia(delta))
             {
+                var radarRead = archives.Read(FileName, Format, Read, sensorIndependent: true);
                 while (!radarRead.IsCompleted) yield return null;
                 if (radarRead is { IsCompletedSuccessfully: true, Result: { CanRestore: true } radar } &&
                     radar.SensorStamp == delta.PreviousStamp &&
@@ -88,7 +88,12 @@ internal static class EncyclopediaCache
                     native = EncyclopediaSensors.Load(manager, arguments[0]);
                 }
             }
-            if (restored == null) captured = new();
+            if (restored == null)
+            {
+                EncyclopediaWeapons.Start(archives);
+                EncyclopediaUnitCalculations.Start(archives);
+                captured = new();
+            }
         }
 
         if (restored is { } snapshot)
@@ -182,6 +187,7 @@ internal static class EncyclopediaCache
     }
 
     private static JsonSerializer CreateSerializer() => JsonSerializer.Create(settings);
+    private static Snapshot? Read(Stream stream) => StartupArchives.ReadJson<Snapshot>(stream, CreateSerializer());
     private static void Write(Stream stream, Snapshot snapshot) => StartupArchives.WriteJson(stream, snapshot, CreateSerializer());
 
     private static readonly JsonSerializerSettings settings = new()

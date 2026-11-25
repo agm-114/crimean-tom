@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.2.5</Version>
+    <Version>0.2.6</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
     <QuickloadCacheBundlesDir Condition="'$(QuickloadCacheBundlesDir)' == ''">$(MSBuildProjectDirectory)\CacheBundles</QuickloadCacheBundlesDir>
   </PropertyGroup>

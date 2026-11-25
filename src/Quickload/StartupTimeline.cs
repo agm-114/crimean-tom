@@ -1,19 +1,15 @@
-using System.Diagnostics;
 using System.Reflection;
 
 namespace Quickload;
 
 internal static class StartupTimeline
 {
-    private static readonly DateTime launched = Process.GetCurrentProcess().StartTime.ToUniversalTime();
-    private static readonly Stopwatch clock = Stopwatch.StartNew();
-    private static readonly double offset = (DateTime.UtcNow - launched).TotalSeconds;
     private static readonly List<Phase> completed = [];
     private static double stageStarted;
     private static string current = "Waiting for startup checks";
     private static Action? handOff;
 
-    internal static double Elapsed => offset + clock.Elapsed.TotalSeconds;
+    internal static double Elapsed => PreviousLaunch.Elapsed;
     internal static string Current => current;
     internal static int Count => completed.Count + 1;
 
@@ -44,6 +40,7 @@ internal static class StartupTimeline
         if (now > stageStarted) completed.Add(new(previous ?? current, now - stageStarted));
         stageStarted = now;
         current = next;
+        PreviousLaunch.Current?.Enter(next, now);
     }
 
     internal static Phase[] Finish()

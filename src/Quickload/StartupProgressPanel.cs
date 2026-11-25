@@ -117,12 +117,14 @@ internal class StartupProgressPanel
     internal void Refresh(string text, string? times, string? currentStage, LoadProgress? progress)
     {
         if (label.Text != text) label.Text = text;
-        string elapsed = times ?? $"Elapsed {TimeSpan.FromSeconds(StartupTimeline.Elapsed):m\\:ss}";
+        var previous = PreviousLaunch.Current;
+        string elapsed = times ?? $"Elapsed {PreviousLaunch.FormatTime(StartupTimeline.Elapsed)} · {previous?.Estimate ?? "Learning ETA"}";
         if (timing.Text != elapsed) timing.Text = elapsed;
         string active = currentStage ?? StartupTimeline.Current;
         if (stage.Text != active) stage.Text = active;
-        if (progress == null) segments.Refresh(StartupTimeline.Count, StartupTimeline.ReadStage);
-        else segments.Refresh(progress.StageCount, progress.ReadStage);
+        if (progress != null) segments.Refresh(progress.StageCount, progress.ReadStage);
+        else if (previous != null) segments.Refresh(previous.Count, previous.ReadStage);
+        else segments.Refresh(StartupTimeline.Count, StartupTimeline.ReadStage);
     }
 
     private static TextBlock Text(float size) => new()

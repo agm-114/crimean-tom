@@ -1,5 +1,23 @@
 # Quickload
 
+## 0.2.6 unreleased
+
+On Windows, Quickload shows elapsed time on the game splash and hands the bar
+over to Noesis when the in-game panel is visible. After a complete launch,
+both bars use that profile's previous stage durations for segment widths and
+the ETA to full menu readiness. The first launch shows elapsed time while
+Quickload learns the profile.
+
+Quickload can now decode the sensor, INI, unit and encyclopedia snapshots
+before the game asks for them. It validates the inputs before applying cached
+data. The startup log breaks pricing time down into unit work, ammunition,
+publication, setup and waits between frames.
+
+On Sea Power `0.9.3-261116` with Quickload as the only DLL mod, three warm
+launches reached scenarios at a median of 11.66 s and the editor at 12.72 s.
+Three more launches with the pricing breakdown enabled reached those gates
+at 11.93 s and 12.93 s. All six reused 718 cached prices.
+
 ## 0.2.5 unreleased
 
 On Keel builds with splash-screen preparation, Quickload starts hashing files
@@ -43,8 +61,8 @@ Quickload opens the main menu while Sea Power `0.9.3-261116` runs its startup
 checks. Startup warnings can bring the game's dialog screen forward. The progress
 panel shows the current stage and elapsed time. Hover over
 a segment for that phase's name, elapsed time, and last-run duration. Segment
-widths follow measured time for completed phases and the previous run for
-upcoming phases. Short phases have a small minimum width. After a
+widths follow the previous complete launch and stay fixed as phases finish.
+Short phases have a small minimum width. After a
 complete run, it estimates progress and time remaining from the last complete
 run with the same game build, language, and enabled mods. The Encyclopedia
 unlocks when its catalog is ready and opens a reference window on the menu

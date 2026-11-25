@@ -3,7 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$boot = & $Cli launch --confirm --timeout 90 --require-pattern '\[Quickload\] Main menu visible' --format json | ConvertFrom-Json
+$boot = & $Cli launch --confirm --timeout 90 --require-pattern '\[Quickload\] Menu gates: ' --format json | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Quickload did not reach the main menu.' }
 $game = Get-Process -Id $boot.processIds[0]
 

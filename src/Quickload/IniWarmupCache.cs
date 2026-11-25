@@ -31,10 +31,10 @@ internal static class IniWarmupCache
 
     private static async Task<Prepared> ReadStartup(StartupArchives source)
     {
-        var full = await source.Read(FileName, Format, Read).ConfigureAwait(false);
+        var full = await source.Read(FileName, Format, SnapshotReader.Read, decoded: SnapshotReader.Take()).ConfigureAwait(false);
         if (full != null) return new(full, null, null);
         var inputTask = source.Inputs;
-        var segments = await StartupSegments.Read(source, "inis.bin.gz", SegmentFormat, ReadSegments).ConfigureAwait(false);
+        var segments = await StartupSegments.Read(source, "inis.bin.gz", SegmentFormat, SnapshotReader.ReadSegments).ConfigureAwait(false);
         return new(null, await inputTask.ConfigureAwait(false), segments);
     }
 
@@ -65,7 +65,7 @@ internal static class IniWarmupCache
                     .ToDictionary(pair => active.Source.PortablePath(pair.Key), pair => new Segment(inputs.Files[StartupArchives.Normalize(pair.Key)].Hash,
                         pair.Value), StringComparer.OrdinalIgnoreCase);
                 StartupSegments.Save(active.Source, "inis.bin.gz", SegmentFormat, reusable,
-                    pair => active.Source.LayerFor(active.Source.LocalPath(pair.Key)), ReadSegments, WriteSegments);
+                    pair => active.Source.LayerFor(active.Source.LocalPath(pair.Key)), SnapshotReader.ReadSegments, WriteSegments);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -179,37 +179,59 @@ internal static class IniWarmupCache
         return sections;
     }
 
-    private static ConcurrentDictionary<string, Entry> Read(Stream stream) =>
-        new(ReadEntries(stream, segmented: false).ToDictionary(pair => pair.Key, pair => pair.Value.Value),
-            StringComparer.OrdinalIgnoreCase);
-
-    private static Dictionary<string, Segment> ReadSegments(Stream stream) => ReadEntries(stream, segmented: true);
-
-    private static Dictionary<string, Segment> ReadEntries(Stream stream, bool segmented)
+    // The splash worker can decode INI data without initializing the Harmony fields on the outer type.
+    internal static class SnapshotReader
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-        int count = ReadCount(reader);
-        var result = new Dictionary<string, Segment>(count, StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < count; i++)
+        private static Task<StartupArchives.Decoded<ConcurrentDictionary<string, Entry>>?>? early;
+        internal static void Start() => early = StartupArchives.DecodeDuringStartup(FileName, Format, Read);
+        internal static Task<StartupArchives.Decoded<ConcurrentDictionary<string, Entry>>?>? Take() =>
+            Interlocked.Exchange(ref early, null);
+
+        internal static ConcurrentDictionary<string, Entry> Read(Stream stream) =>
+            new(ReadEntries(stream, segmented: false).ToDictionary(pair => pair.Key, pair => pair.Value.Value),
+                StringComparer.OrdinalIgnoreCase);
+
+        internal static Dictionary<string, Segment> ReadSegments(Stream stream) => ReadEntries(stream, segmented: true);
+
+        private static Dictionary<string, Segment> ReadEntries(Stream stream, bool segmented)
         {
-            string path = reader.ReadString();
-            string hash = segmented ? reader.ReadString() : "";
-            string[] aliases = ReadStrings(reader);
-            string[] copies = ReadStrings(reader);
-            int sectionCount = ReadCount(reader);
-            var sections = new IniData(sectionCount);
-            for (int section = 0; section < sectionCount; section++)
+            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+            int count = ReadCount(reader);
+            var result = new Dictionary<string, Segment>(count, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < count; i++)
             {
-                string name = reader.ReadString();
-                int keyCount = ReadCount(reader);
-                var values = new Dictionary<string, string>(keyCount, FastIgnoreCaseStringComparer.Instance);
-                for (int key = 0; key < keyCount; key++) values.Add(reader.ReadString(), reader.ReadString());
-                sections.Add(name, values);
+                string path = reader.ReadString();
+                string hash = segmented ? reader.ReadString() : "";
+                string[] aliases = ReadStrings(reader);
+                string[] copies = ReadStrings(reader);
+                int sectionCount = ReadCount(reader);
+                var sections = new IniData(sectionCount);
+                for (int section = 0; section < sectionCount; section++)
+                {
+                    string name = reader.ReadString();
+                    int keyCount = ReadCount(reader);
+                    var values = new Dictionary<string, string>(keyCount, FastIgnoreCaseStringComparer.Instance);
+                    for (int key = 0; key < keyCount; key++) values.Add(reader.ReadString(), reader.ReadString());
+                    sections.Add(name, values);
+                }
+                result.Add(path, new(hash, new(aliases, copies, sections, segmented)));
             }
-            result.Add(path, new(hash, new(aliases, copies, sections, segmented)));
+            if (stream.ReadByte() != -1) throw new InvalidDataException("Unexpected data after the INI snapshot.");
+            return result;
         }
-        if (stream.ReadByte() != -1) throw new InvalidDataException("Unexpected data after the INI snapshot.");
-        return result;
+
+        private static int ReadCount(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            return count is >= 0 and <= 1_000_000 ? count : throw new InvalidDataException("Invalid INI snapshot count.");
+        }
+
+        private static string[] ReadStrings(BinaryReader reader)
+        {
+            var values = new string[ReadCount(reader)];
+            for (int i = 0; i < values.Length; i++) values[i] = reader.ReadString();
+            return values;
+        }
     }
 
     private static void Write(Stream stream, ConcurrentDictionary<string, Entry> entries, StartupArchives source)
@@ -244,19 +266,6 @@ internal static class IniWarmupCache
                 }
             }
         }
-    }
-
-    private static int ReadCount(BinaryReader reader)
-    {
-        int count = reader.ReadInt32();
-        return count is >= 0 and <= 1_000_000 ? count : throw new InvalidDataException("Invalid INI snapshot count.");
-    }
-
-    private static string[] ReadStrings(BinaryReader reader)
-    {
-        var values = new string[ReadCount(reader)];
-        for (int i = 0; i < values.Length; i++) values[i] = reader.ReadString();
-        return values;
     }
 
     private static void WriteStrings(BinaryWriter writer, string[] values)
