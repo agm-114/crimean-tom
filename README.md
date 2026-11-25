@@ -38,7 +38,7 @@ source packages, runtime dependencies, and the original commit map.
 
 ## Build and deploy
 
-The [Sea Power INI editor tools](tools/seapower-ini) submodule provides the VS Code extension, standalone language server and PSPad checker.
+The [Sea Power INI editor tools](tools/sp-ini) submodule provides the VS Code extension, standalone language server and PSPad checker.
 
 The standalone [Nuclear Option scenario editor](docs/nuclear-option-editor/README.md) lives in `tools/` and has its own solution. Global substitutions update placed units, factory products and reserves, with separate source and output missions.
 
