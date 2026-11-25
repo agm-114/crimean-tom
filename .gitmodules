@@ -13,3 +13,7 @@
 [submodule "external/sp-controls"]
 	path = external/sp-controls
 	url = https://github.com/SEARATS/sp-controls.git
+[submodule "tools/seapower-ini"]
+	path = tools/seapower-ini
+	url = https://github.com/SEARATS/seapower-ini.git
+	branch = main
