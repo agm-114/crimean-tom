@@ -4,12 +4,30 @@
 	branch = main
 [submodule "external/SeaPowerKeel"]
 	path = external/SeaPowerKeel
-	url = https://github.com/agm-114/SeaPowerKeel.git
+	url = https://github.com/SEARATS/RatsSeaPowerKeel.git
 	branch = main
 [submodule "external/SeaPowerFlotilla"]
 	path = external/SeaPowerFlotilla
-	url = https://github.com/agm-114/SeaPowerFlotilla.git
-	branch = codex/flotilla-cli
+	url = https://github.com/SEARATS/SeaPowerFlotilla.git
+	branch = main
 [submodule "external/sp-controls"]
 	path = external/sp-controls
 	url = https://github.com/SEARATS/sp-controls.git
+[submodule "tools/seapower-ini"]
+	path = tools/sp-ini
+	url = https://github.com/SEARATS/sp-ini.git
+	branch = main
+[submodule "external/sp-internals"]
+	path = external/sp-internals
+	url = https://github.com/SEARATS/sp-internals.git
+[submodule "external/binaries"]
+	path = external/binaries
+	url = https://github.com/SEARATS/binaries.git
+[submodule "external/searats-github"]
+	path = external/searats-github
+	url = https://github.com/SEARATS/.github.git
+	update = none
+[submodule "external/crash-reports"]
+	path = external/crash-reports
+	url = https://github.com/SEARATS/crash-reports.git
+	update = none

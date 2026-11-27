@@ -36,6 +36,30 @@ git submodule update --init --recursive
 See the [library guide](external/sp-controls/README.md) for standalone builds,
 source packages, runtime dependencies, and the original commit map.
 
+## SeaRats repositories
+
+The workspace pins every SeaRats repository as a submodule. The existing Keel and
+Flotilla pins use the organization remotes.
+
+| Repository | Checkout |
+| --- | --- |
+| RatsSeaPowerKeel | `external/SeaPowerKeel` |
+| SeaPowerFlotilla | `external/SeaPowerFlotilla` |
+| binaries | `external/binaries` |
+| sp-controls | `external/sp-controls` |
+| sp-ini | `tools/sp-ini` |
+| sp-internals | `external/sp-internals` |
+| .github | `external/searats-github` |
+| crash-reports | `external/crash-reports` |
+
+The public submodules initialize with the command above. The organization
+profile and crash reports repositories are private. If you have access,
+initialize them explicitly.
+
+```powershell
+git submodule update --init --checkout external/searats-github external/crash-reports
+```
+
 ## Build and deploy
 
 The standalone [Nuclear Option scenario editor](docs/nuclear-option-editor/README.md) lives in `tools/` and has its own solution. Global substitutions update placed units, factory products and reserves, with separate source and output missions.
