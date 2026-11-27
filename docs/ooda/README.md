@@ -1,5 +1,9 @@
 # OODA
 
+## 0.1.3 unreleased
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.1.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.

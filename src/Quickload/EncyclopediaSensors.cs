@@ -10,7 +10,7 @@ namespace Quickload;
 [HarmonyPatch]
 internal static class EncyclopediaSensors
 {
-    private static readonly Type manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+    private static readonly Type manager = EncyclopediaLoading.ManagerType;
     private static readonly MethodInfo getEntries = AccessTools.PropertyGetter(manager, "SensorMuseumEntries");
     private static readonly MethodInfo setup = AccessTools.Method(manager, "SetupSensorDisplayObject");
     private static readonly PropertyInfo[] radarStats = typeof(MuseumRadarEntry).GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)

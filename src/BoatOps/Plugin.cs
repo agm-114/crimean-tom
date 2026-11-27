@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace BoatOps;
 
-[ACPlugin("crimean-tom.boat-ops", "Boat Ops", "0.1.2")]
+[ACPlugin("crimean-tom.boat-ops", "Boat Ops", "0.1.3")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

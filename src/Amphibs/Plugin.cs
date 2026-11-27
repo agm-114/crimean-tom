@@ -4,7 +4,7 @@ using HarmonyLib;
 
 namespace Amphibs;
 
-[ACPlugin("crimean-tom.amphibs", "Amphibs", "0.1.3", after: new[] { Controls.Plugin.Id })]
+[ACPlugin("crimean-tom.amphibs", "Amphibs", "0.1.4", after: new[] { Controls.Plugin.Id })]
 [ACDependency(Controls.Plugin.Id, "0.3.0", null)]
 public class Plugin : IAnchorChainMod
 {

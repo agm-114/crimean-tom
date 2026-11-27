@@ -1,5 +1,9 @@
 # Airdrop
 
+## 0.1.3 unreleased
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.1.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
@@ -12,7 +16,7 @@
   before building this checkout.
 - Verification passed for the migrated Release solution build.
 
-Independent AnchorChain mod for Sea Power `0.8.2-23810+s366`.
+Independent AnchorChain mod for Sea Power `0.9.3-261116`.
 Configured player-controlled transport aircraft carry a finite manifest of ground
 units. The starting profile gives each stock C-141B four HMMWVs and two HMMWVs
 with M2 guns. Other aircraft require an explicit profile in `airdrop.ini`.

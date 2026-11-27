@@ -21,16 +21,20 @@ internal static class UnitMetadataCache
     private const int SegmentFormat = 2;
     private static Session? session;
     private static Task<Prepared>? validation;
+    private static Task<StartupArchives.Decoded<CacheFile>?>? early;
+
+    internal static void DecodeAhead() =>
+        early = StartupArchives.DecodeDuringStartup(FileName, Format, Read);
 
     internal static void StartValidation(StartupArchives archives) =>
-        validation = ReadStartup(archives);
+        validation = BackgroundTask.Run(() => ReadStartup(archives));
 
     private static async Task<Prepared> ReadStartup(StartupArchives archives)
     {
-        var full = await archives.Read(FileName, Format, Read).ConfigureAwait(false);
+        var full = await ReadUnits(archives, sensorIndependent: false).ConfigureAwait(false);
         if (full != null) return new(archives, full,
             archives.ExportRequested ? await archives.Inputs.ConfigureAwait(false) : null, null, false);
-        var radarCompatible = await archives.Read(FileName, Format, Read, sensorIndependent: true).ConfigureAwait(false);
+        var radarCompatible = await ReadUnits(archives, sensorIndependent: true).ConfigureAwait(false);
         if (radarCompatible != null) return new(archives, radarCompatible, null, null, true);
         var inputs = await archives.Inputs.ConfigureAwait(false);
         var segments = await StartupSegments.Read(archives, UnitSegmentFile(inputs), SegmentFormat, ReadSegment).ConfigureAwait(false);
@@ -41,12 +45,24 @@ internal static class UnitMetadataCache
     private static Dictionary<string, Segment>? ReadSegment(Stream stream) =>
         StartupArchives.ReadJson<Dictionary<string, Segment>>(stream, UnitWorkerOutput.CreateSerializer());
 
-    private static CacheFile? Read(Stream stream)
+    private static CacheFile? Read(Stream stream) =>
+        StartupArchives.ReadJson<CacheFile>(stream, UnitWorkerOutput.CreateSerializer());
+
+    private static async Task<CacheFile?> ReadUnits(StartupArchives archives, bool sensorIndependent)
     {
-        var cached = StartupArchives.ReadJson<CacheFile>(stream, UnitWorkerOutput.CreateSerializer());
-        if (cached == null) return null;
-        foreach (var entry in cached.Units.Values) entry.Prepare();
-        return cached;
+        var decoded = sensorIndependent ? null : Interlocked.Exchange(ref early, null);
+        var snapshot = await archives.Read(FileName, Format, Read, sensorIndependent: sensorIndependent, decoded: decoded).ConfigureAwait(false);
+        try
+        {
+            if (snapshot != null)
+                foreach (var entry in snapshot.Units.Values) entry.Prepare();
+            return snapshot;
+        }
+        catch (Exception error) when (StartupArchives.IsCacheError(error))
+        {
+            Debug.LogWarning($"[Quickload] Ignoring unit snapshot: {error.Message}");
+            return null;
+        }
     }
 
     internal static IEnumerator OpenForStartup()

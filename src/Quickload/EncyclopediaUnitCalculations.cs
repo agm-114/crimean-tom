@@ -12,7 +12,7 @@ internal static class EncyclopediaUnitCalculations
 {
     private const int Format = 1;
     private const string FileName = "unit-reference-calculations.json.gz";
-    private static readonly Type manager = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+    private static readonly Type manager = EncyclopediaLoading.ManagerType;
     private static readonly MethodInfo weaponEntries = AccessTools.PropertyGetter(manager, "WeaponMuseumEntries");
     private static readonly Dictionary<string, string> output = new(StringComparer.Ordinal);
     private static StartupArchives? archives;

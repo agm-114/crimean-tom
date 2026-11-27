@@ -375,7 +375,8 @@ internal static class TaskForceRosterGenerator
         string reference = string.Empty;
         string nation = string.Empty;
         string defaultNation = string.Empty;
-        bool readingDefault = false;
+        string section = string.Empty;
+        int declaredSquadrons = 0;
 
         foreach (string rawLine in File.ReadLines(Path.Combine(unitDirectory, $"{unitClass}{metadataSuffix}")))
         {
@@ -386,7 +387,7 @@ internal static class TaskForceRosterGenerator
                 AddVariantIfPresent(variants, reference, nation, defaultNation);
                 reference = $"{referencePrefix}{int.Parse(sectionMatch.Groups["number"].Value)}";
                 nation = string.Empty;
-                readingDefault = false;
+                section = reference;
                 continue;
             }
 
@@ -396,17 +397,20 @@ internal static class TaskForceRosterGenerator
                 AddVariantIfPresent(variants, reference, nation, defaultNation);
                 reference = string.Empty;
                 nation = string.Empty;
-                readingDefault = string.Equals(
-                    anySectionMatch.Groups["name"].Value,
-                    "Default",
-                    StringComparison.OrdinalIgnoreCase);
+                section = anySectionMatch.Groups["name"].Value;
                 continue;
             }
 
-            if (line.StartsWith("Nation=", StringComparison.OrdinalIgnoreCase))
+            const string squadronCountKey = "NumberOfSquadrons=";
+            if (referencePrefix == "Squadron" && section.Equals("General", StringComparison.OrdinalIgnoreCase) &&
+                line.StartsWith(squadronCountKey, StringComparison.OrdinalIgnoreCase))
+            {
+                int.TryParse(ParseIniValue(line[squadronCountKey.Length..]), out declaredSquadrons);
+            }
+            else if (line.StartsWith("Nation=", StringComparison.OrdinalIgnoreCase))
             {
                 string parsedNation = ParseIniValue(line["Nation=".Length..]);
-                if (readingDefault)
+                if (section.Equals("Default", StringComparison.OrdinalIgnoreCase))
                 {
                     defaultNation = parsedNation;
                 }
@@ -418,6 +422,17 @@ internal static class TaskForceRosterGenerator
         }
 
         AddVariantIfPresent(variants, reference, nation, defaultNation);
+        if (declaredSquadrons > 0)
+        {
+            // The game creates numbered squadrons even when their INI only supplies [Default].
+            var named = variants.Select(variant => variant.Reference).ToHashSet();
+            for (int index = 0; index < declaredSquadrons; index++)
+            {
+                string squadron = $"Squadron{index + 1}";
+                if (!named.Contains(squadron))
+                    variants.Add(new VariantDefinition(squadron, defaultNation));
+            }
+        }
         return variants.OrderBy(variant => ParseVariantNumber(variant.Reference)).ToList();
     }
 

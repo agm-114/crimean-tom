@@ -1,5 +1,71 @@
 # Quickload
 
+## 0.2.7 unreleased
+
+Quickload resolves its patch targets directly in the game's assembly. All
+patches still install at the first scene. When a full INI snapshot is available,
+the splash worker also computes Sea Power's unit price hashes. At pricing time,
+Quickload checks the live section names, keys and values before reusing a hash.
+Changed records and virtual INIs use the game's hash function.
+
+Five warm launches per build on Sea Power `0.9.3-261116` with Quickload as
+the only DLL mod gave these medians, measured from process start.
+
+| Ready | 0.2.6 | 0.2.7 |
+| --- | ---: | ---: |
+| Main menu visible | 9.94 s | 9.49 s |
+| Scenarios | 11.72 s | 11.35 s |
+| Editor | 12.72 s | 12.09 s |
+
+The two builds ran in pairs with alternating order. Every run reused all 718
+unit prices. The displayed prices for 718 units and 872 ammunition entries
+matched between builds.
+
+## 0.2.6 unreleased
+
+On Windows, Quickload shows elapsed time on the game splash and hands the bar
+over to Noesis when the in-game panel is visible. After a complete launch,
+both bars use that profile's previous stage durations for segment widths and
+the ETA to full menu readiness. The first launch shows elapsed time while
+Quickload learns the profile.
+
+Quickload can now decode the sensor, INI, unit and encyclopedia snapshots
+before the game asks for them. It validates the inputs before applying cached
+data. The startup log breaks pricing time down into unit work, ammunition,
+publication, setup and waits between frames.
+
+On Sea Power `0.9.3-261116` with Quickload as the only DLL mod, three warm
+launches reached scenarios at a median of 11.66 s and the editor at 12.72 s.
+Three more launches with the pricing breakdown enabled reached those gates
+at 11.93 s and 12.93 s. All six reused 718 cached prices.
+
+## 0.2.5 unreleased
+
+On Keel builds with splash-screen preparation, Quickload starts hashing files
+and reading cached archives before its plugin starts. Harmony patches wait for
+the first loaded scene so Noesis can initialize its native UI types.
+
+On one warm launch of Sea Power `0.9.3-261116` with Quickload as the only
+active plugin, preparation started 2.08 s after launch. All 3,627 input hashes
+and 12 archives were ready when patch setup began at 7.72 s. The menu appeared
+at 9.82 s, scenarios unlocked at 12.67 s, and the editor unlocked at 14.13 s.
+All 718 point values came from cache.
+
+## 0.2.4 unreleased
+
+Quickload filters cache inputs before sorting paths and skips directive searches
+in INIs without directives. Existing snapshots keep their fingerprints. Pricing
+uses an 8 ms frame budget while the encyclopedia keeps its 4 ms budget.
+
+On Sea Power `0.9.3-261116` with 29 plugins, scenarios opened at a median of
+12.72 s and the editor at 16.89 s from launch. Version 0.2.3 took 13.58 s and
+18.18 s on the same Keel build. Each median covers three launches with a warm
+cache. All 749 unit prices came from cache and the menu gates opened in order.
+
+## 0.2.3 (2026-11-24)
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.2.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
@@ -12,12 +78,12 @@
   before building this checkout.
 - Verification passed for the migrated Release solution build.
 
-Quickload opens the main menu while Sea Power `0.9.2-261113` runs its startup
+Quickload opens the main menu while Sea Power `0.9.3-261116` runs its startup
 checks. Startup warnings can bring the game's dialog screen forward. The progress
 panel shows the current stage and elapsed time. Hover over
 a segment for that phase's name, elapsed time, and last-run duration. Segment
-widths follow measured time for completed phases and the previous run for
-upcoming phases. Short phases have a small minimum width. After a
+widths follow the previous complete launch and stay fixed as phases finish.
+Short phases have a small minimum width. After a
 complete run, it estimates progress and time remaining from the last complete
 run with the same game build, language, and enabled mods. The Encyclopedia
 unlocks when its catalog is ready and opens a reference window on the menu
@@ -106,13 +172,15 @@ dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=false
 dotnet build src/Quickload/Quickload.csproj -p:DeployToGame=true
 ```
 
-Close the game before deployment. The two DLLs and `_info.ini` go into
+Close the game before deployment. `Quickload.dll`, `Quickload.Preloader.dll`,
+and `_info.ini` go into
 `Sea Power_Data/StreamingAssets/Quickload`. Override `SeaPowerDir` for another
 installation. Enable **Quickload** in the game's Mod Manager and restart.
 
 Quickload requests `LoadTiming=Early` in Keel and keeps `StartEarly=true` for
-older Keel loaders. Its normal plugin entry point installs startup patches and
-queues cache work after Keel checks the mod's enabled state and dependencies.
+older Keel loaders. If Keel skips splash preparation or lacks that entry point,
+the regular plugin entry starts the same cache job. Both paths honor the
+startup snapshot setting.
 One reader feeds decompression and hashing workers, then checks for reusable
 mod cache chunks. Startup keeps completed work when it takes over and validates
 prefetched files against the live load order. The larger

@@ -169,7 +169,44 @@ internal class StartupArchives
     internal Task<T?> ReadSegment<T>(string file, int format, Func<Stream, T?> read) where T : class =>
         Read(file, format, read, segment: true);
 
-    internal Task<T?> Read<T>(string file, int format, Func<Stream, T?> read, bool segment = false, bool sensorIndependent = false) where T : class => Task.Run(async () =>
+    internal record Decoded<T>(string Path, StartupPrefetch.FileStamp Stamp, string Tag, Task<T?> Value) where T : class
+    {
+        internal bool Matches(string path, string tag) => Tag == tag && Path.Equals(path, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(path) && Stamp == StartupPrefetch.FileStamp.Read(path);
+    }
+
+    internal static async Task<Decoded<T>?> DecodeDuringStartup<T>(string file, int format, Func<Stream, T?> read) where T : class
+    {
+        if (await StartupPrefetch.PreparedProfileArchive(file).ConfigureAwait(false) is not { } warm ||
+            warm.Archive.Data.Length < FingerprintLength + sizeof(int)) return Unavailable();
+        using var header = new MemoryStream(warm.Archive.Data, writable: false);
+        using var reader = new BinaryReader(header, Encoding.UTF8, leaveOpen: true);
+        string tag = Encoding.ASCII.GetString(reader.ReadBytes(FingerprintLength));
+        if (reader.ReadInt32() != format) return Unavailable();
+        return new(warm.Path, warm.Archive.Stamp, tag, Task.Run(Decode));
+
+        Decoded<T>? Unavailable()
+        {
+            SplashProgress.SnapshotChecked();
+            return null;
+        }
+
+        T? Decode()
+        {
+            try
+            {
+                using var data = new MemoryStream(warm.Archive.Data, writable: false) { Position = FingerprintLength + sizeof(int) };
+                var value = read(data);
+                if (value != null) Debug.Log($"[Quickload] Decoded {file} ahead of core loading.");
+                return value;
+            }
+            catch (Exception error) when (IsCacheError(error) || error is FormatException) { return null; }
+            finally { SplashProgress.SnapshotChecked(); }
+        }
+    }
+
+    internal Task<T?> Read<T>(string file, int format, Func<Stream, T?> read, bool segment = false, bool sensorIndependent = false,
+        Task<Decoded<T>?>? decoded = null) where T : class => Task.Run(async () =>
     {
         try
         {
@@ -177,6 +214,12 @@ internal class StartupArchives
             if (sensorIndependent && key == null) return null;
             string path = ArchivePath(file, segment, key);
             string tag = key ?? (segment ? segmentContext : (await inputs.ConfigureAwait(false)).Full);
+            if (decoded is { IsCompletedSuccessfully: true } && decoded.Result is { } early && early.Matches(path, tag) &&
+                await early.Value.ConfigureAwait(false) is { } prepared && early.Matches(path, tag))
+            {
+                Debug.Log($"[Quickload] Reused early decode of {file}.");
+                return prepared;
+            }
             T? cached = ReadArchive(path, tag, format, read);
             if (cached != null) return cached;
             var index = await inputs.ConfigureAwait(false);
@@ -326,13 +369,13 @@ internal class StartupArchives
             if (root.Replaces.Length > 0) AddLayer();
             if (root.Replaces.Any(IsSharedPath)) shared.Add(layer);
             if (root.Replaces.Any(IsSharedPath)) weaponInputs.Add(layer);
-            foreach (string path in ContentPaths(root)
+            foreach (string path in ContentPaths(root).Where(StartupPrefetch.IsInput)
                 .OrderBy(path => path, StringComparer.Ordinal))
             {
                 string relative = Normalize(Path.GetRelativePath(root.Path, path));
                 string virtualPath = "/" + (root.Mount.Trim('/') is { Length: > 0 } mount ? mount + "/" : "") + relative;
                 string extension = Path.GetExtension(path).ToLowerInvariant();
-                if (extension is not (".ini" or ".json" or ".dll")) continue;
+                if (tooling && (extension == ".dll" || relative == "_info.ini")) continue;
                 bool library = extension == ".dll" || IsSharedPath(virtualPath);
                 byte[] fileHash;
                 string text;
@@ -348,7 +391,6 @@ internal class StartupArchives
                     text = StartupPrefetch.InputText(path, bytes);
                 }
                 byte[] relativeKey = Encoding.UTF8.GetBytes(relative + "\0");
-                if (tooling && (extension == ".dll" || relative == "_info.ini")) continue;
                 full.AppendData(relativeKey);
                 full.AppendData(fileHash);
                 layerContent.AppendData(relativeKey);
@@ -356,11 +398,14 @@ internal class StartupArchives
                 string digest = BitConverter.ToString(fileHash);
                 bool sensorFile = IsSensorPath(virtualPath);
                 if (sensorFile) sensorFiles[PortablePath(path)] = Digest(layer + "\0" + digest);
-                bool directives = text.Contains("#!alias", StringComparison.Ordinal) ||
-                    text.Contains("#!copy", StringComparison.OrdinalIgnoreCase) ||
-                    text.Contains("#!extend", StringComparison.Ordinal) || text.Contains("#!prepend", StringComparison.Ordinal);
+                bool hasDirective = text.Contains("#!", StringComparison.Ordinal);
+                bool alias = hasDirective && text.Contains("#!alias", StringComparison.Ordinal);
+                bool copy = hasDirective && text.Contains("#!copy", StringComparison.OrdinalIgnoreCase);
+                bool changesSection = hasDirective && (text.Contains("#!extend", StringComparison.Ordinal) ||
+                    text.Contains("#!prepend", StringComparison.Ordinal));
+                bool directives = alias || copy || changesSection;
                 // Files that inherit from or modify sensor sources need the full dependency path.
-                if (sensorFile && (directives || text.Contains("#!repeat", StringComparison.Ordinal)) ||
+                if (sensorFile && (directives || hasDirective && text.Contains("#!repeat", StringComparison.Ordinal)) ||
                     directives && Normalize(text).Contains("systems/sensors", StringComparison.OrdinalIgnoreCase)) sensorIsolation = false;
                 if (string.Equals(relative, "_info.ini", StringComparison.OrdinalIgnoreCase))
                 {
@@ -370,14 +415,12 @@ internal class StartupArchives
                 else if (!sensorFile)
                 {
                     AddLayer();
-                    withoutSensors.AppendData(Encoding.UTF8.GetBytes(relative + "\0"));
+                    withoutSensors.AppendData(relativeKey);
                     withoutSensors.AppendData(fileHash);
                 }
                 if (extension != ".ini" && !library) continue;
-                bool hasIncludes = text.Contains("#!alias", StringComparison.Ordinal) ||
-                    text.Contains("#!copy", StringComparison.OrdinalIgnoreCase) || text.Contains("#!repeat", StringComparison.OrdinalIgnoreCase);
-                bool modifiesLibrary = (text.Contains("#!extend", StringComparison.Ordinal) ||
-                    text.Contains("#!prepend", StringComparison.Ordinal)) && ModifiesSharedInput(text);
+                bool hasIncludes = alias || copy || hasDirective && text.Contains("#!repeat", StringComparison.OrdinalIgnoreCase);
+                bool modifiesLibrary = changesSection && ModifiesSharedInput(text);
                 files[Normalize(path)] = new(digest, hasIncludes);
                 if (library || modifiesLibrary)
                 {
@@ -388,7 +431,7 @@ internal class StartupArchives
                     weaponInputs.Add(layer + virtualPath + ":" + digest);
                 if (virtualPath.StartsWith("/ammunition/", StringComparison.OrdinalIgnoreCase) && hasIncludes)
                     CollectSharedAliases(text, aliases, ref uncertain);
-                else if (hasIncludes && text.Contains("#!copy", StringComparison.OrdinalIgnoreCase))
+                else if (copy)
                 {
                     // Copy source names can change how the game resolves keys in shared INIs.
                     shared.Add(layer + virtualPath + ":" + digest);
@@ -489,7 +532,7 @@ internal class StartupArchives
     internal record InputIndex(Dictionary<string, Input> Files, Dictionary<string, string> SensorFiles, Dictionary<string, string> Layers,
         string SharedUnitInputs, string WeaponInputs, string Full, string? SensorIndependent);
 
-    private static bool IsCacheError(Exception error) =>
+    internal static bool IsCacheError(Exception error) =>
         error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException;
 
     private class Layer

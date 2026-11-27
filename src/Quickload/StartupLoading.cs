@@ -29,6 +29,8 @@ internal static class StartupLoading
     private static MenuProgress? display;
     private static StartupProgressPanel? panel;
     private static LoadProgress? progress;
+    private static StartupArchives? coreArchives;
+    private static System.Threading.Tasks.Task<IniWarmupCache.Prepared>? iniSnapshot;
     private static float nextRefresh;
 
     internal static bool Active => startupScreen || pending.Count > 0;
@@ -66,6 +68,8 @@ internal static class StartupLoading
             return MuseumLoading.Dispatch(action);
         if (!collecting) return action.GetEnumerator();
         BeginStartupScreen();
+        // The native file, recovery, Workshop and compatibility checks precede input loading.
+        if (action.description == "LoadInputData") PrepareCoreSnapshots();
         if (action.description == "LoadMainMenu")
         {
             collecting = false;
@@ -96,6 +100,16 @@ internal static class StartupLoading
         pending.Add(action);
         hasEncyclopedia |= IsEncyclopedia(action);
         return Empty();
+    }
+
+    private static void PrepareCoreSnapshots()
+    {
+        if (coreArchives != null) return;
+        coreArchives = StartupArchives.Start();
+        if (coreArchives == null) return;
+        iniSnapshot = IniWarmupCache.Prefetch(coreArchives);
+        ResolvedSensors.Begin(coreArchives);
+        Debug.Log("[Quickload] Started core snapshot validation.");
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(LoadScreen), nameof(LoadScreen.ExecuteLoadScreen), MethodType.Enumerator)]
@@ -152,23 +166,26 @@ internal static class StartupLoading
     private static IEnumerator LoadBehindMenu()
     {
         var screen = Singleton<LoadScreen>.Instance;
-        while (startupScreen) yield return null;
-        while (screen.cameraObject.enabled || MainMenuView.Instance is not { IsVisible: true }) yield return null;
         var stages = pending.Where(action => !IsEncyclopedia(action) && !IsMusic(action)).ToArray();
         var music = pending.Where(IsMusic).ToArray();
         progress = new(stages.Select(action => StageName(action.description))
             .Concat(hasEncyclopedia ? new[] { "Encyclopedia sensors", "Encyclopedia weapons", "Encyclopedia units" } : [])
             .Append("Point values").ToArray(),
             StartupTimeline.Finish());
-        RefreshMenu(MainMenuView.Instance);
-        Debug.Log("[Quickload] Main menu visible; loading deferred startup data.");
-        MenuProgress.LogGates(MainMenuView.Instance);
-        var archives = StartupArchives.Start();
+        if (MainMenuView.Instance is { } currentMenu)
+        {
+            RefreshMenu(currentMenu);
+            MenuProgress.LogGates(currentMenu);
+        }
+        Debug.Log("[Quickload] Native startup reached LoadMainMenu; starting core data.");
+        if (coreArchives == null) PrepareCoreSnapshots();
+        var archives = coreArchives;
         PointValueDisplay.Start(archives?.Profile);
-        var iniPrefetch = archives == null ? null : IniWarmupCache.Prefetch(archives);
+        var iniPrefetch = iniSnapshot;
+        iniSnapshot = null;
+        coreArchives = null;
         if (archives != null)
         {
-            ResolvedSensors.Begin(archives);
             PointValueProfiles.Start(archives);
             if (stages.Any(action => action.description == "UnitMetadataProvider LoadUnitMetadata"))
                 UnitMetadataCache.StartValidation(archives);
@@ -215,6 +232,7 @@ internal static class StartupLoading
             yield return null;
         }
 
+        while (startupScreen || screen.cameraObject.enabled || MainMenuView.Instance is not { IsVisible: true }) yield return null;
         coreReady = true;
         archives?.ReleasePrefetch();
         if (!hasEncyclopedia) ResolvedSensors.Reset();
@@ -399,6 +417,9 @@ internal static class StartupLoading
     [HarmonyPrefix, HarmonyPatch(typeof(BackgroundSceneController), "Start")]
     private static void ResetStartup()
     {
+        coreArchives?.ReleasePrefetch();
+        coreArchives = null;
+        iniSnapshot = null;
         pending.Clear();
         collecting = true;
         startupScreen = coreReady = failed = hasEncyclopedia = earlyMenuVisible = preparingEncyclopedia = false;
@@ -453,6 +474,7 @@ internal static class StartupLoading
         {
             panel.View.Visibility = screen.WindowHost.Windows.Count > 0 || screen.ShowWarningPSE
                 ? Noesis.Visibility.Hidden : Noesis.Visibility.Visible;
+            if (panel.View.Visibility == Noesis.Visibility.Visible) ReplaceSplash();
             StartupTimeline.HandOffWindow();
         }
     }
@@ -479,7 +501,14 @@ internal static class StartupLoading
         var status = progress?.Read(failed);
         display.Refresh(failed ? "Startup data failed to load. Check Player.log." : detail, status?.Timing, status?.Stage, progress,
             StartupReady);
+        if (menu.IsVisible && !Singleton<LoadScreen>.Instance.cameraObject.enabled) ReplaceSplash();
         if (StartupReady) display = null;
+    }
+
+    private static void ReplaceSplash()
+    {
+        if (SplashProgress.Hide() is { } shown)
+            Debug.Log($"[Quickload] Quickload splash appeared at +{shown.TotalSeconds:F3}s. Noesis progress is now visible.");
     }
 
     internal static void AttachMenu(MainMenuView menu)

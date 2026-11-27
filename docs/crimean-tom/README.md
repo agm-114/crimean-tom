@@ -1,5 +1,16 @@
 # Crimean Tom
 
+## 0.3.4 unreleased
+
+- Targets Sea Power `0.9.3-261116`. Fixes a startup failure when the campaign
+  mission generator has overloads for missions with and without assigned groups.
+- Removes the old submarine contact patch. The game now checks task-force
+  relationships itself.
+- The roster now includes numbered squadrons that inherit their nation's
+  settings from `[Default]`. Checked the three affected stock aircraft and
+  a roster with an explicit squadron override.
+- Verified that Keel starts Operations with both Euromod packs enabled.
+
 ## 0.3.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.

@@ -11,6 +11,7 @@ internal class LoadProgress
 {
     private readonly string[] stages;
     private readonly string path;
+    private readonly string key;
     private readonly double[] previous;
     private readonly double[] measured;
     private readonly Stopwatch clock = new();
@@ -27,10 +28,10 @@ internal class LoadProgress
         string context = string.Join("\n", new[] { Application.version, Singleton<LanguageResourceHandler>.Instance.Language }
             .Concat(files).Concat(this.stages));
         using var hash = SHA256.Create();
-        string key = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(context))).Replace("-", "");
+        key = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(context))).Replace("-", "");
         path = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
             "SeaPowerQuickload", $"startup-{key}.txt");
-        previous = ReadHistory();
+        previous = PreviousLaunch.ReadDurations(path, this.stages.Length);
     }
 
     internal void Start()
@@ -64,7 +65,7 @@ internal class LoadProgress
         string tooltip = $"{stages[stage]}\n{(stage < index ? "Completed in " : "Elapsed ")}";
         tooltip = elapsed is double time ? tooltip + $"{time:F2} s" : $"{stages[stage]}\nWaiting";
         if (last is double lastDuration) tooltip += $"\nLast run {lastDuration:F2} s";
-        double duration = stage < index ? measured[stage] : Math.Max(elapsed ?? 0, last ?? 0);
+        double duration = last ?? elapsed ?? 0;
         float fraction = stage < index ? 1 : active && duration > 0 ? (float)Math.Min(.99, elapsed!.Value / duration) : 0;
         return (tooltip, (float)duration, fraction, active && last == null);
     }
@@ -73,19 +74,19 @@ internal class LoadProgress
     {
         double elapsed = clock.Elapsed.TotalSeconds;
         double total = measured.Sum() + elapsed;
-        string stage = index < stages.Length ? $"Stage {index + 1}/{stages.Length} · {stages[index]} · {Seconds(elapsed)}" : "";
-        string timing = $"Elapsed {Seconds(total)}";
+        string stage = index < stages.Length ? $"Stage {index + 1}/{stages.Length} · {stages[index]} · {PreviousLaunch.FormatTime(elapsed)}" : "";
+        string timing = $"Elapsed {PreviousLaunch.FormatTime(total)}";
         if (failed) return (timing, stage);
         if (previous.Length == 0) return ($"{timing} · ETA after first complete run", stage);
 
         double remaining = previous.Skip(index + 1).Sum();
         if (index < previous.Length) remaining += Math.Max(0, previous[index] - elapsed);
-        string estimate = remaining <= 0 && index < stages.Length ? "Past estimate" : $"~{Seconds(remaining)} left";
+        string estimate = remaining <= 0 && index < stages.Length ? "Past estimate" : $"~{PreviousLaunch.FormatTime(remaining)} left";
         double lastRun = previous.Sum();
         // Keep progress moving forward even if an individual stage exceeds its last duration.
         double done = previous.Take(index).Sum() + (index < previous.Length ? Math.Min(elapsed, previous[index] * 0.99) : 0);
         float percent = (float)Math.Clamp(100 * done / lastRun, 0, 100);
-        return ($"{Math.Floor(percent):0}% · {estimate} · {timing} · Last run {Seconds(lastRun)}", stage);
+        return ($"{Math.Floor(percent):0}% · {estimate} · {timing} · Last run {PreviousLaunch.FormatTime(lastRun)}", stage);
     }
 
     internal void Save()
@@ -98,6 +99,7 @@ internal class LoadProgress
             File.WriteAllLines(temporary, measured.Select(seconds => seconds.ToString("R", CultureInfo.InvariantCulture)));
             if (File.Exists(path)) File.Replace(temporary, path, null);
             else File.Move(temporary, path);
+            PreviousLaunch.Remember(key, stages);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -110,25 +112,4 @@ internal class LoadProgress
         }
     }
 
-    private double[] ReadHistory()
-    {
-        try
-        {
-            if (!File.Exists(path) || new FileInfo(path).Length > 4096) return [];
-            string[] lines = File.ReadAllLines(path);
-            if (lines.Length != stages.Length) return [];
-            var result = new double[lines.Length];
-            for (int i = 0; i < lines.Length; i++)
-                if (!double.TryParse(lines[i], NumberStyles.Float, CultureInfo.InvariantCulture, out result[i])
-                    || !double.IsFinite(result[i]) || result[i] < 0 || result[i] > 86400) return [];
-            return result.Sum() > 0 ? result : [];
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return []; }
-    }
-
-    private static string Seconds(double seconds)
-    {
-        var duration = TimeSpan.FromSeconds(Math.Ceiling(seconds));
-        return $"{(int)duration.TotalMinutes}:{duration.Seconds:00}";
-    }
 }

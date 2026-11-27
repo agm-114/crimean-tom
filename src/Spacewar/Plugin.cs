@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Spacewar;
 
-[ACPlugin("crimean-tom.spacewar", "Spacewar", "0.1.2")]
+[ACPlugin("crimean-tom.spacewar", "Spacewar", "0.1.3")]
 public class Plugin : IAnchorChainMod
 {
     public void TriggerEntryPoint()

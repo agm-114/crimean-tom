@@ -1,5 +1,9 @@
 # Observer change notes
 
+## 0.1.4 unreleased
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.1.3 unreleased
 
 - Uses the Controls runtime and the Settings and UI namespaces.

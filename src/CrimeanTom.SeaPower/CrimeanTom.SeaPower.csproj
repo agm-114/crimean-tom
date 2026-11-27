@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AssemblyName>CrimeanTom.SeaPower</AssemblyName>
     <RootNamespace>CrimeanTom.SeaPower</RootNamespace>
-    <Version>0.3.2</Version>
+    <Version>0.3.4</Version>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\CrimeanTomOperations</PluginDeployDirectory>

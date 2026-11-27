@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.2.2</Version>
+    <Version>0.2.7</Version>
     <PluginDeployDirectory>$(SeaPowerDir)\Sea Power_Data\StreamingAssets\Quickload</PluginDeployDirectory>
     <QuickloadCacheBundlesDir Condition="'$(QuickloadCacheBundlesDir)' == ''">$(MSBuildProjectDirectory)\CacheBundles</QuickloadCacheBundlesDir>
   </PropertyGroup>
@@ -33,8 +33,8 @@
     <RemoveDir Directories="@(_LegacyDeployment)" />
     <Delete Files="$(SeaPowerDir)\BepInEx\config\crimean-tom.startup-tweaks.cfg" />
     <MakeDir Directories="$(PluginDeployDirectory)" />
-    <Copy SourceFiles="$(TargetPath);$(TargetDir)Quickload.Prefetch.dll" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
-    <Delete Files="$(PluginDeployDirectory)\Quickload.Preloader.dll" />
+    <Copy SourceFiles="$(TargetPath);$(TargetDir)Quickload.Preloader.dll" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
+    <Delete Files="$(PluginDeployDirectory)\Quickload.Prefetch.dll" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\_info.ini" DestinationFolder="$(PluginDeployDirectory)" SkipUnchangedFiles="true" />
     <Exec Condition="Exists('$(QuickloadCacheBundlesDir)')" Command="robocopy &quot;$(QuickloadCacheBundlesDir)&quot; &quot;$(PluginDeployDirectory)\CacheBundles&quot; *.gz point-values-*.json content.sha256 /S /R:0 /W:0 /NFL /NDL /NJH /NJS /NP" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="_BundleCopyExitCode" />

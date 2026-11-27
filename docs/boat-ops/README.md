@@ -1,5 +1,9 @@
 # Boat Ops
 
+## 0.1.3 (2026-11-24)
+
+- Verified startup under Keel on Sea Power `0.9.3-261116` with both Euromod packs enabled.
+
 ## 0.1.2 unreleased
 
 - Uses the renamed `Controls`, `Settings`, and `UI` projects and namespaces.
@@ -12,7 +16,7 @@
   before building this checkout.
 - Verification passed for the migrated Release solution build.
 
-Independent AnchorChain mod for Sea Power `0.9.1-261112`.
+Independent AnchorChain mod for Sea Power `0.9.3-261116`.
 Published as [[CT] Boat Ops](https://steamcommunity.com/sharedfiles/filedetails/?id=3817610390).
 Select a player-controlled Tarawa and open Boat Ops beside Flight Deck in
 Unit Status. The tab shows embarked craft, staging capacity and

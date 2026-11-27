@@ -12,7 +12,7 @@ namespace Quickload;
 internal static class EncyclopediaWeapons
 {
     private const double BudgetMilliseconds = EncyclopediaLoading.FrameBudgetMilliseconds;
-    private static readonly Type managerType = AccessTools.TypeByName("SeaPower.EncyclopedicDataManager");
+    private static readonly Type managerType = EncyclopediaLoading.ManagerType;
     private static readonly MethodInfo load = AccessTools.Method(managerType, "LoadWeapons");
     private static readonly MethodInfo setup = AccessTools.Method(managerType, "SetupWeaponDisplayObject");
     private static readonly MethodInfo getEntries = AccessTools.PropertyGetter(managerType, "WeaponMuseumEntries");
