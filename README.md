@@ -48,14 +48,16 @@ Flotilla pins use the organization remotes.
 | binaries | `external/binaries` |
 | sp-controls | `external/sp-controls` |
 | sp-ini | `tools/sp-ini` |
+| sp-internals | `external/sp-internals` |
 | .github | `external/searats-github` |
 | crash-reports | `external/crash-reports` |
 
-The public submodules initialize with the command above. The crash reports
-repository is private. If you have access, initialize it explicitly.
+The public submodules initialize with the command above. The organization
+profile and crash reports repositories are private. If you have access,
+initialize them explicitly.
 
 ```powershell
-git submodule update --init --checkout external/crash-reports
+git submodule update --init --checkout external/searats-github external/crash-reports
 ```
 
 ## Build and deploy

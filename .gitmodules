@@ -13,16 +13,21 @@
 [submodule "external/sp-controls"]
 	path = external/sp-controls
 	url = https://github.com/SEARATS/sp-controls.git
+[submodule "tools/seapower-ini"]
+	path = tools/sp-ini
+	url = https://github.com/SEARATS/sp-ini.git
+	branch = main
+[submodule "external/sp-internals"]
+	path = external/sp-internals
+	url = https://github.com/SEARATS/sp-internals.git
 [submodule "external/binaries"]
 	path = external/binaries
 	url = https://github.com/SEARATS/binaries.git
 [submodule "external/searats-github"]
 	path = external/searats-github
 	url = https://github.com/SEARATS/.github.git
+	update = none
 [submodule "external/crash-reports"]
 	path = external/crash-reports
 	url = https://github.com/SEARATS/crash-reports.git
 	update = none
-[submodule "tools/sp-ini"]
-	path = tools/sp-ini
-	url = https://github.com/SEARATS/sp-ini.git
